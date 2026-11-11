@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer patterns {
 /**
  * The app's one text field: an input, textarea or select.
  *
@@ -118,4 +119,5 @@
 .field-input:where(:disabled) {
     opacity: var(--disabled-opacity);
     cursor: not-allowed;
+}
 }

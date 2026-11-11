@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer patterns {
 /* The grip a reorderable row is dragged by, for a strip that lets a finger
    reorder from a handle: the pinboard's tab strip. (The conversation sidebar
    lifts its rows on a long-press instead — utils/reorder-drag.js `hold` — and
@@ -45,3 +46,4 @@
    visible: the rule above never matches, and the default opacity stands. Widths
    are the component's, because a touch target is sized against the row it is in.
    Nothing is needed here — the absence of a rule is the behaviour. */
+}

@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer components {
 /* ===================================================================
    Project Picker Modal
    ================================================================== */
@@ -109,4 +110,5 @@
     gap: var(--space-8);
     padding: var(--space-12) var(--popup-padding-inline) var(--space-16);
     border-top: 0.0625rem solid var(--border-divider);
+}
 }

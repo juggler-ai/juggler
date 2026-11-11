@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer components {
 /* <conversation-tab>'s lazy-load overlay. The element itself — how the tabs
    stack and which one shows — is layout, in layout/app-shell.css beside
    <conversation-tabs-container>. The sidebar's row for a conversation is
@@ -51,4 +52,5 @@ conversation-tab .conversation-tab-loading-retry {
 
 conversation-tab .conversation-tab-loading-retry:hover {
     filter: brightness(1.1);
+}
 }

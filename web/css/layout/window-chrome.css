@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer layout {
 /* The header is the drag region for moving the window; everything interactive
    inside it opts back out below. */
 .window-mode .app-header {
@@ -213,4 +214,5 @@ window-caption-controls {
 
 .window-caption-btn--close:where(:active) {
     background: var(--window-close-active-bg);
+}
 }

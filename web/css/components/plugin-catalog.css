@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer components {
 /**
  * PLUGIN TIER CSS — plugin-catalog.css
  * Styles the plugin catalog UI: the browser that shows available plugins,
@@ -949,5 +950,4 @@ plugin-catalog {
   color: var(--danger);
   overflow-wrap: anywhere;
 }
-
-
+}

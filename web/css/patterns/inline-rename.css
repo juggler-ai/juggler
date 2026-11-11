@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer patterns {
 /* The editor that opens over a row to rename it. A pattern rather than the tab
    strip's own, because two unrelated rows in that strip are renamed the same
    way — a conversation's tab, and the header of the box a workspace is drawn as
@@ -111,3 +112,4 @@
 
 /* What a button in that row looks like is left to whoever puts one there: only
    the conversation tabs do (their "Auto-name"), and one user is not a pattern. */
+}

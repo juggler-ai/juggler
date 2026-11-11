@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer components {
 /* ============================================================================
    THE PERMISSIONS POPUP
    The permission editor: pattern and path lists, each row's scope and delete
@@ -931,4 +932,5 @@ tool-action-message.is-selected .action-summary-background-tag:hover {
 .ask-user-question-details .option-item.custom-answer .option-label {
     font-style: italic;
     white-space: pre-wrap;
+}
 }

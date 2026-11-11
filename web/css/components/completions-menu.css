@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer components {
 /* The completion dropdown: the composer's `@` file, `/` command and `$` skill
    completions (completion-menu.js), and the path field's
    (components/path-input.css), which reuses it. */
@@ -72,4 +73,5 @@
 
 .completions-menu .slash-command-item.danger .menu-item-command {
     color: var(--danger);
+}
 }

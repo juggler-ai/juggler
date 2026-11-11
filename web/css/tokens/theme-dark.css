@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer tokens {
 /* Dark Theme (default) */
 :root,
 :root[data-theme="dark"] {
@@ -299,4 +300,5 @@
     --scrollbar-track-bg: rgb(0 0 0 / 20%);
     --scrollbar-thumb-bg: rgb(255 255 255 / 20%);
     --scrollbar-thumb-hover-bg: rgb(255 255 255 / 30%);
+}
 }

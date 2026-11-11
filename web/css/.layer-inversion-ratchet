@@ -1,9 +1,9 @@
 # layer-inversion ratchet (web/css/README.md, "The inversion check").
 #
 # One line per file pair, `<lower> > <higher> <count>`: the number of rules in
-# the lower layer's sheet that beat a rule in the higher layer's sheet today by
-# being more specific, and would stop winning once the sheets are wrapped in
-# their @layers. scripts/lint-css-arch fails when a count rises, when a pair
+# the lower layer's sheet that are more specific than a rule in the higher
+# layer's sheet they compete with, and so lose to it under the @layers — dead
+# overrides. It is empty: scripts/lint-css-arch fails when a count rises, when a pair
 # appears that is not listed, and when a count falls without this file being
 # lowered to match — so the numbers only come down. To see one pair:
 #
@@ -11,35 +11,3 @@
 #
 # This is the only counted debt in the CSS lint. Every other check has no
 # exceptions.
-layout/app-header.css > components/messages.css 1
-layout/app-header.css > components/popup-sheet.css 1
-layout/app-shell.css > components/completions-menu.css 1
-layout/app-shell.css > components/composer.css 6
-layout/app-shell.css > components/context-items.css 1
-layout/app-shell.css > components/conversation-bar.css 4
-layout/app-shell.css > components/diff-viewer.css 5
-layout/app-shell.css > components/model-picker.css 1
-layout/app-shell.css > components/popup-sheet.css 5
-layout/app-shell.css > components/properties-panel.css 2
-layout/app-shell.css > components/settings.css 3
-layout/app-shell.css > patterns/buttons.css 1
-layout/app-shell.css > patterns/code.css 4
-layout/app-shell.css > patterns/markdown.css 3
-layout/app-shell.css > patterns/menus.css 2
-layout/app-shell.css > patterns/overlay-chrome.css 2
-layout/app-shell.css > patterns/popup-surface.css 1
-patterns/code.css > components/popup-sheet.css 1
-patterns/code.css > components/project-setup.css 1
-patterns/markdown.css > components/messages.css 1
-patterns/markdown.css > components/model-picker.css 1
-patterns/markdown.css > components/popup-sheet.css 1
-patterns/modal-dialog.css > components/model-picker.css 1
-patterns/modal-dialog.css > components/popup-sheet.css 13
-patterns/modal-dialog.css > components/project-setup.css 6
-patterns/overlay-chrome.css > components/model-picker.css 1
-patterns/overlay-chrome.css > components/popup-sheet.css 12
-patterns/overlay-chrome.css > components/project-setup.css 8
-patterns/spinner.css > components/model-picker.css 2
-patterns/spinner.css > components/popup-sheet.css 2
-patterns/tooltip.css > components/conversation-bar.css 1
-patterns/tooltip.css > components/popup-sheet.css 3

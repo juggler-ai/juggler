@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer base {
 body {
     font-family: var(--font-ui);
     font-weight: var(--font-weight-normal);
@@ -155,4 +156,5 @@ a:where(:hover) {
     body {
         font-size: var(--font-size-base);
     }
+}
 }

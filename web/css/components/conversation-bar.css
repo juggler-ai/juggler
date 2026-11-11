@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer components {
 /* Conversation Bar Component — vertical sidebar of tabs */
 conversation-bar {
     /* The column every tab keeps to the left of its name for its status
@@ -1570,4 +1571,5 @@ conversation-bar .conversation-bar-empty {
        above, up to the max-width cap; the same localStorage width is shared
        with fixed mode). The grip rides off-screen with the drawer while it's
        closed. */
+}
 }

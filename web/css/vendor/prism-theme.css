@@ -1,3 +1,4 @@
+@layer vendor {
 /*
  * Copyright (c) 2026 Julian Storer / AGPL-3.0-or-later - see LICENSE
  * Derived from the PrismJS "Tomorrow Night" theme (MIT):
@@ -158,4 +159,5 @@
 .bash-command-segment-5 {
   --bash-command-head: var(--bash-segment-5-head);
   --bash-command-arg: var(--bash-segment-5-arg);
+}
 }

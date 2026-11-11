@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer utilities {
 /**
  * Utility Classes - single-purpose helpers that are meant to win.
  *
@@ -87,4 +88,5 @@
 .u-scrollbar-thin::-webkit-scrollbar-thumb {
     background: var(--wash-3);
     border-radius: var(--radius-sm);
+}
 }

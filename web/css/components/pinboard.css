@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer components {
 /* ============================================================================
    PINBOARD (web/js/components/pinboard-*.js)
 
@@ -708,4 +709,5 @@ button.app-header__board-conversation:hover {
     transform: none;
     visibility: visible;
     transition: none;
+}
 }

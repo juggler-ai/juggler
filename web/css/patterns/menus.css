@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer patterns {
 /**
  * The app's one menu: a dropdown card of rows.
  *
@@ -252,4 +253,5 @@ body.hud-pointer-idle .dropdown-menu {
     mask-size: contain;
     mask-repeat: no-repeat;
     mask-position: center;
+}
 }

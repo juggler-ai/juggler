@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer patterns {
 /* ============================================================================
    COPY BUTTON — the "Copied" confirmation
 
@@ -87,4 +88,5 @@
         opacity: 1;
         transform: none;
     }
+}
 }

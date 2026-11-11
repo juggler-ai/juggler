@@ -4,7 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
-
+@layer components {
 /* The name half of the banner, which is a way to the workspace panel. Drawn as
    the line it has always been — no button chrome on a rule across the top of a
    transcript — and it answers the pointer the way the Undo beside it does, by
@@ -312,7 +312,10 @@
     margin-top: var(--space-4);
 }
 
-.setup-field-note-error {
+/* Both writers (setup-fields.js `showNote`, workspace-finish-dialog.js) put it
+   on a note; naming that says so to the inversion check, which cannot follow
+   `showNote`'s parameter back to the note `field()` returned. */
+.setup-field-note.setup-field-note-error {
     color: var(--danger);
 }
 
@@ -400,3 +403,4 @@
    the status footer as a dimmed "coming up next" area. Each bubble is a real,
    selectable user message; the zone gives them a distinct, lower-emphasis frame
    so they read as not-yet-sent. */
+}

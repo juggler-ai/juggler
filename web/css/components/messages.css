@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer components {
 /* ============================================================================
    THE MESSAGE LIST
    The bottom-anchored scroller, its empty-state hint, the scroll controls, and
@@ -1165,4 +1166,5 @@ tool-group-message .thread-summary {
    cannot reach them. */
 .message-action-btn > svg {
     fill: currentcolor;
+}
 }

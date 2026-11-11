@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 /**
- * css-cascade-diff — did a CSS refactor change what the browser paints today?
+ * css-cascade-diff — did a CSS refactor change what the browser paints?
  *
- * `lint-css-arch`'s layer-inversion check looks forward: it finds rules that
- * would stop working once the sheets are wrapped in `@layer`. This looks the
- * other way. It takes every pair of rules that can land on one element and
- * contest a property, works out which one wins under TODAY's cascade —
+ * `lint-css-arch`'s layer-inversion check finds a rule in a lower layer that
+ * out-ranks one in a higher layer — an override the layers have made dead.
+ * This checks the rest. It takes every pair of rules that can land on one
+ * element and contest a property, works out which one wins within a layer —
  * specificity, then source order down the <link> list — and compares that
  * verdict between two revisions of web/css.
  *
  * It exists because the two blind spots of the inversion check are exactly the
- * moves the restructure makes:
+ * moves a refactor makes:
  *
  *   - `:where()`-ing a context qualifier lowers a rule's specificity, which can
  *     hand a same-layer neighbour a fight it used to lose;
@@ -197,7 +197,7 @@ function collectRules(sheets) {
 }
 
 /**
- * Today's winner between two rules that contest a property: the more specific
+ * The winner between two rules of one layer that contest a property: the more specific
  * one, and on a tie the one further down the <link> list. Importance never
  * enters into it — `overlappingProperty` only reports a contest when both
  * sides are quiet about the property they share.
@@ -240,8 +240,9 @@ function verdicts(rules, model) {
  *
  *   same layer   nothing else decides these two, so the change is permanent and
  *                unguarded — this is the one the tool exists to catch.
- *   winner up    a higher layer took the fight off a lower one. That is what
- *                the wrap will do anyway, so the flip is the work landing.
+ *   winner up    a lower-layer rule stopped out-ranking a higher-layer one.
+ *                The layers already gave the higher rule that fight, so
+ *                nothing on screen changes.
  *   winner down  a lower layer took it off a higher one, which is a new
  *                inversion — lint-css-arch's ratchet reports the same thing.
  * @param {DiffRule|undefined} was - The rule that used to win, as it stands now.

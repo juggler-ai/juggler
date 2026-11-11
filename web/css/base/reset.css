@@ -4,10 +4,12 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer base {
 /* The box reset: no UA margins or padding anywhere, and every box sized by its
    border edge. What each element looks like is base/elements.css. */
 * {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
+}
 }

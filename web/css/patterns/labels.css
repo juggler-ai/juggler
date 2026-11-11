@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer patterns {
 /* The small uppercase label: the eyebrow over a group of rows, a menu section
    or a panel. `.caps-label-lg` is the section heading — a section of
    settings, the workspace panel, the properties panel.
@@ -24,4 +25,5 @@
 
 .caps-label-lg {
     font-size: var(--font-size-sm);
+}
 }

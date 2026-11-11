@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer components {
 /* ============================================================================
    PROVIDERS, MODELS AND CUSTOM ENDPOINTS
    The provider rows the panel lists: API-key links, the model visibility list
@@ -1631,4 +1632,5 @@ settings-panel .updates-check-row .provider-info {
 settings-panel .updates-check-row .provider-control {
     flex: 0 0 auto;
     align-items: flex-end;
+}
 }

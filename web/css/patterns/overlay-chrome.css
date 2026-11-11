@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer patterns {
 /* Chrome shared by the overlays and blocks several components host:
      - Shared modal styles   .modal-shell, modal-backdrop, modal-panel
      - Image lightbox        .image-lightbox
@@ -305,4 +306,4 @@ code-block .code-block-pre::-webkit-scrollbar-thumb {
 code-block .code-block-pre::-webkit-scrollbar-thumb:hover {
     background: var(--scrollbar-thumb-hover-bg);
 }
-
+}

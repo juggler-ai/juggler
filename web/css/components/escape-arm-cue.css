@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer components {
 /* ============================================================================
    ESCAPE ARM CUE (web/js/services/escape-behaviour.js)
 
@@ -56,4 +57,5 @@
     .escape-arm-cue {
         animation: none;
     }
+}
 }

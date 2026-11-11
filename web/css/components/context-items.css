@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer components {
 /* ===================================================================
    PLUGIN TIER CSS — context-items.css
    Styles plugin-provided content: the rendered output of context item
@@ -307,4 +308,5 @@
 .skill-panel-actions {
     display: flex;
     gap: var(--space-8);
+}
 }

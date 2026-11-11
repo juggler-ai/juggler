@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer layout {
 /* The strip itself: one row, its ends pinned, and the padding every header
    control sits inside. */
 .app-header {
@@ -458,3 +459,4 @@ header-actions .btn-icon-header {
         flex: 0 0 100%;
         justify-content: flex-end;
     }}
+}

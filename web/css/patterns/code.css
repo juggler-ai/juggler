@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer patterns {
 /**
  * Code blocks — how a `pre` or a `code` is laid out, wherever it appears.
  *
@@ -81,4 +82,5 @@ pre:where([class*="language-"]) {
     font-size: inherit;
     white-space: inherit;
     background: transparent;
+}
 }

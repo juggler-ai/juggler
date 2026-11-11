@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer components {
 composer-box {
     display: flex;
     flex-direction: column;
@@ -49,6 +50,10 @@ composer-box textarea:not(.field-input) {
     z-index: 1;
     background: transparent;
     border: none;
+
+    /* The bubble around it is the field; a ring on the bare textarea inside
+       would draw a second box within the first. */
+    outline: none;
     color: var(--bubble-user-text);
     padding: 0;
     font-size: var(--font-size-md);
@@ -1044,3 +1049,4 @@ composer-box .permission-btn[aria-expanded="true"] {
  * Layout: a stack of boxed "cards", one per section (allowed-paths plus one
  * per registered plugin). The card chrome reuses the same look as the
  * settings panel's `.provider-field` rows so the two surfaces feel related. */
+}

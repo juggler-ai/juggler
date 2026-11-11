@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer components {
 /* The full-area placeholder that fills the main area when there is nothing to
    show in it: <no-conversations-overlay> (a project, but every conversation
    binned). Its .onboarding-* panel is the idiom — logo, centred copy, a
@@ -238,4 +239,5 @@ no-conversations-overlay .onboarding-copy:last-child {
     color: var(--text-secondary);
     font-size: var(--font-size-base);
     line-height: var(--leading-normal);
+}
 }

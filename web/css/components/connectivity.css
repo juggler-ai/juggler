@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer components {
 /* The machine's ways in — LAN access and its tunnels — as
    components/connectivity/exposure-view.js draws them, in a session's
    Settings → Connectivity and on the machine server's sessions page alike
@@ -169,4 +170,5 @@
         flex-direction: column;
         align-items: flex-start;
     }
+}
 }

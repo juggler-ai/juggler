@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer components {
 /**
  * Popup sheets (phones) — presentation owned by web/js/utils/popup-surface.js.
  *
@@ -166,4 +167,5 @@
 @keyframes popup-sheet-fade {
     from { opacity: 0; }
     to { opacity: 1; }
+}
 }

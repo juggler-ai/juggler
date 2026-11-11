@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer patterns {
 /**
  * The app's one button.
  *
@@ -30,6 +31,9 @@
  *   --btn-icon-size    the side of a .btn-icon square
  *   --btn-ghost-*      the ghost chrome (see Ghost below)
  *   --btn-icon-header-size / --btn-icon-header-glyph   the header bar's squares
+ *   --btn-icon-header-width / --btn-icon-header-align  a header button that
+ *                      grows past its square to hold a label (the network
+ *                      button naming a remote host)
  *
  * Focus is the app-wide ring (base/elements.css ▸ :focus-visible); disabled is
  * one treatment everywhere — the `button:disabled` rule in base/elements.css —
@@ -122,13 +126,13 @@ a.btn:where(:hover) {
 .btn-icon-header {
     background: transparent;
     border: none;
-    width: var(--btn-icon-header-size, 2.5rem);
+    width: var(--btn-icon-header-width, var(--btn-icon-header-size, 2.5rem));
     height: var(--btn-icon-header-size, 2.5rem);
     border-radius: var(--radius-lg);
     position: relative;
     transition: background var(--transition-base);
     display: flex;
-    align-items: center;
+    align-items: var(--btn-icon-header-align, center);
     justify-content: center;
 }
 
@@ -271,4 +275,5 @@ a.btn:where(:hover) {
 
 @keyframes btn-spin {
     to { transform: rotate(360deg); }
+}
 }

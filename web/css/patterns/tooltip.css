@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer patterns {
 .app-tooltip {
     position: fixed;
     z-index: var(--z-toast);
@@ -90,3 +91,4 @@
    wrapping matches in <span>s: the conversation renderer diffs and animates
    message elements, so injected wrapper nodes would be corrupted mid-stream.
    Ranges are registered under the 'find-match' / 'find-match-current' names. */
+}

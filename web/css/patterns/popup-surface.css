@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer patterns {
 /**
  * The outer card every transient surface wears.
  *
@@ -80,4 +81,5 @@ modal-panel {
 
 @keyframes popup-surface-fade {
     from { opacity: 0; }
+}
 }

@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer components {
 /* ============================================================================
    WORKSPACE DIALOGS
    Making a workspace, moving a conversation into one, and ending one —
@@ -494,4 +495,5 @@
     font-size: var(--font-size-base);
     color: var(--text-secondary);
     line-height: var(--leading-tight);
+}
 }

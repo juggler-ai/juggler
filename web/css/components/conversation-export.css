@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer components {
 /* ============================================================================
    CONVERSATION EXPORT
    The dialog that asks what a shared page of a conversation should include —
@@ -70,4 +71,5 @@
 .conversation-export-note {
     color: var(--text-tertiary);
     font-size: var(--font-size-sm);
+}
 }

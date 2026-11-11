@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer patterns {
 /* Tinted badges: a pale wash of a colour behind text in that colour, for a
    small label that says which kind or state something is. Shared by the
    plugin catalog and the skills marketplace badges. Each is a color-mix() of a
@@ -40,4 +41,5 @@
 .tint-neutral {
     background: color-mix(in srgb, var(--text-tertiary) 15%, transparent);
     color: var(--text-tertiary);
+}
 }

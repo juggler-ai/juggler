@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer patterns {
 /* The two boxed surfaces a panel holds, shared by settings, the plugin
    catalog, the skills marketplace, the workspace dialogs and the command
    editor.
@@ -26,4 +27,5 @@
     background: var(--bg-primary);
     border: 0.0625rem solid var(--border-color);
     border-radius: var(--radius-lg);
+}
 }

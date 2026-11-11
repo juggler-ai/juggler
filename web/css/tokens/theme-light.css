@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer tokens {
 /* Light Theme */
 :root[data-theme="light"] {
     /* Pair with the light variable set so Chromium draws dark (visible) native
@@ -285,4 +286,5 @@
     --bash-segment-4-arg: #d94d56;
     --bash-segment-5-head: #0969da;
     --bash-segment-5-arg: #388bfd;
+}
 }

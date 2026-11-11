@@ -251,18 +251,18 @@ export function createSummaryWithSubtitle(main, subtitle) {
     // Wrap a bare node so it keeps the main-line styling it would otherwise
     // only get in the two-line layout below.
     const soleWrapper = document.createElement('span');
-    soleWrapper.className = 'summary-with-subtitle-main';
+    soleWrapper.className = 'summary-with-subtitle-main text-truncate';
     soleWrapper.appendChild(main);
     return soleWrapper;
   }
   const wrapper = document.createElement('span');
   wrapper.className = 'summary-with-subtitle';
   const mainEl = document.createElement('span');
-  mainEl.className = 'summary-with-subtitle-main';
+  mainEl.className = 'summary-with-subtitle-main text-truncate';
   if (main instanceof HTMLElement) mainEl.appendChild(main);
   else mainEl.textContent = main;
   const subEl = document.createElement('span');
-  subEl.className = 'summary-with-subtitle-sub llm-description';
+  subEl.className = 'summary-with-subtitle-sub llm-description text-truncate';
   subEl.textContent = subtitle;
   wrapper.appendChild(mainEl);
   wrapper.appendChild(subEl);

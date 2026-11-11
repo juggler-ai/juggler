@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer components {
 /* ── User-defined slash commands ─────────────────────────────────────────── */
 
 /* Provenance badge on a user command's slash-menu row. */
@@ -496,4 +497,5 @@
 .command-editor-actions {
     display: flex;
     gap: var(--space-8);
+}
 }

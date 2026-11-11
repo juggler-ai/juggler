@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer components {
 ::highlight(find-match) {
     /* Subtle translucent yellow — reads as a muted tint over both the dark and
        light message surfaces while leaving the underlying text colour intact. */
@@ -82,4 +83,5 @@
     color: var(--accent-blue);
     border-color: var(--accent-blue);
     background: var(--bg-tertiary);
+}
 }

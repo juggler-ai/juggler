@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer components {
 properties-panel {
     display: flex;
     flex-direction: column;
@@ -793,6 +794,12 @@ properties-panel-tx-metadata .meta-item {
     cursor: auto;
 }
 
+/* Selected item in inactive columns — muted/gray highlight (Finder-style).
+   Its scope weighs nothing, so it wins over the rule above by coming after it. */
+:where(column-container conversation-area:not(.active-column)) .conversation-item.is-selected {
+    background: var(--wash-1);
+}
+
 /* Suppress browser focus boxes */
 .conversation-item:focus {
     outline: none;
@@ -829,3 +836,4 @@ properties-panel-tx-metadata .meta-item {
 }
 
 /* Model Selector Component */
+}

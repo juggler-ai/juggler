@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer components {
 /* ── Update notice ──────────────────────────────────────────────────────────
    "New version available" message driven by /api/update-status. Rendered as a
    standard centered app popup (same chrome as about-modal: modal-backdrop +
@@ -223,4 +224,5 @@ update-button .update-btn--attention {
         width: 100%;
         opacity: 0.6;
     }
+}
 }

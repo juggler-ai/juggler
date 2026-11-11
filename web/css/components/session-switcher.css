@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer components {
 /* The session switcher (components/session-switcher.js): one list, two mounts.
    `.session-switcher--popover` drops under a project page's chip (session-popover.js), and
    is a full-screen sheet on a phone; `.session-switcher--page` is the server page's body
@@ -51,15 +52,12 @@
     color: var(--text-placeholder);
 }
 
-/* The input draws no box of its own, so the row shows where the keyboard is:
-   in the popover the divider under it takes the field focus colour, and on
-   the page the row is a .field-input wrapper, focus look and all. */
+/* The input draws no box of its own. In the popover it holds the keyboard for
+   as long as the popover is open, so it needs no focus cue: the divider under
+   it is only a divider. On the page the row is a .field-input wrapper, focus
+   look and all. */
 .session-switcher--popover .session-switcher-search {
     border-bottom: 1px solid var(--border-divider);
-}
-
-.session-switcher--popover .session-switcher-search:focus-within {
-    border-bottom-color: var(--field-focus-border);
 }
 
 .session-switcher--page .session-switcher-search {
@@ -555,4 +553,5 @@ body.hud-pointer-idle .session-switcher--gesture .session-switcher-list {
     .session-switcher-meta:has(+ .session-switcher-stop) {
         visibility: hidden;
     }
+}
 }

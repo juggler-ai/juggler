@@ -4,6 +4,21 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer patterns {
+/* ===================================================================
+   Juggler busy spinner
+
+   Three clubs (same shapes as the logo) orbit a central point while
+   flipping on their own axis — a stylised juggling cascade. Each
+   club's spin rate varies through the cycle: fast over the top of
+   the orbit, slow at the bottom, mimicking the effect of gravity
+   on a real club throw. Used as the default loading indicator
+   throughout the UI.
+
+   Sized via `--spinner-size` on the host. Coloured via `color` (the SVG fills
+   from `currentColor`).
+   ================================================================== */
+
 :where(juggler-spinner) {
     --spinner-size: 2rem;
     --spinner-duration: 1.5s;
@@ -239,3 +254,4 @@
 }
 
 /* Model Selector - Hint when no providers configured */
+}

@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer components {
 about-modal:has(.about-backdrop) {
     display: flex;
 }
@@ -176,4 +177,5 @@ about-modal .about-footer {
     display: flex;
     justify-content: center;
     padding: var(--space-16) var(--space-32) var(--space-24);
+}
 }

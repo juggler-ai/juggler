@@ -443,6 +443,57 @@ try {
   assert.equal(openModel.canCoexist(['open-any-sheet', 'open-solo']), true, 'a selector parameter one caller cannot name: any element');
 
   // -------------------------------------------------------------------------
+  // css-markup-model: an element a call hands back is the element that
+  // function's `return` builds — directly, or through a callback handed to a
+  // constructor in an options object and kept in a field.
+  // -------------------------------------------------------------------------
+  const retRoot = path.join(scratch, 'returned-elements');
+  writeTree(retRoot, {
+    'web/js/pop.js': [
+      "export function presentRet({ surface }) { surface.classList.add('ret-sheet'); }",
+      'export class RetPopup {',
+      '  constructor(host, { build }) { this._build = build; }',
+      "  async open() { const surface = await this._build(); surface.classList.add('ret-open'); presentRet({ surface }); }",
+      '}',
+      'export class RetWild {',
+      '  constructor({ make }) { this._make = make; }',
+      "  open() { const s = this._make(); s.classList.add('ret-wild'); }",
+      '}',
+      '',
+    ].join('\n'),
+    'web/js/box.js': [
+      "import { RetPopup, RetWild } from './pop.js';",
+      "function buildB() { const d = document.createElement('div'); d.className = 'ret-b'; return d; }",
+      'class RetBox {',
+      '  constructor() {',
+      '    this._a = new RetPopup(this, { build: () => this._buildA() });',
+      '    this._b = new RetPopup(this, { build: () => buildB(this) });',
+      '    this._w = new RetWild({ make: window.someFactory });',
+      '  }',
+      "  async _buildA() { const m = document.createElement('menu'); m.className = 'ret-a'; return m; }",
+      '}',
+      "function plain() { const x = document.createElement('section'); x.className = 'ret-made'; return x; }",
+      "const got = plain(); got.classList.add('ret-later');",
+      "const solo = document.createElement('dt'); solo.className = 'ret-solo';",
+      "function maybe(skip) { if (skip) return null; const y = document.createElement('aside'); y.className = 'ret-maybe'; return y; }",
+      "const may = maybe(false); may?.classList.add('ret-may');",
+      "const gone = document.createElement('dd'); gone.className = 'ret-gone';",
+      "export function measure(t) { const c = t.cloneNode(true); c.classList.remove('ret-gone'); }",
+      '',
+    ].join('\n'),
+  });
+  const retModel = buildMarkupModel({ repoRoot: retRoot, espree, eslintScope });
+  assert.equal(retModel.canCoexist(['ret-later', 'ret-made']), true, 'a returned element: the classes its function gave it');
+  assert.equal(retModel.canCoexist(['ret-later', 'ret-solo']), false, 'a returned element: no other element');
+  assert.equal(retModel.canCoexist(['ret-may', 'ret-solo']), false, 'a `return null` hands back no element');
+  assert.equal(retModel.canCoexist(['ret-gone', 'ret-solo']), false, 'classList.remove on an unknown element puts no class on it');
+  assert.equal(retModel.canCoexist(['ret-sheet', 'ret-open', 'ret-a']), true, 'a constructor\'s callback option: what one callback returns');
+  assert.equal(retModel.canCoexist(['ret-sheet', 'ret-open', 'ret-b']), true, 'a constructor\'s callback option: what another returns');
+  assert.equal(retModel.canCoexist(['ret-sheet', 'ret-solo']), false, 'a constructor\'s callback option: no other element');
+  assert.deepEqual([...(retModel.tagsOf('ret-sheet') ?? [])].sort(), ['div', 'menu'], 'a constructor\'s callback option: their tags');
+  assert.equal(retModel.canCoexist(['ret-wild', 'ret-solo']), true, 'a callback option one caller cannot name: any element');
+
+  // -------------------------------------------------------------------------
   // token-parity
   // -------------------------------------------------------------------------
   const tokenSources = new Map([
@@ -701,6 +752,16 @@ try {
       '.k { padding: inherit; font-weight: unset; }',
       '',
     ].join('\n'),
+    // An @font-face weight is a descriptor, which var() would void; a rule
+    // after the block is held to the scale again.
+    'web/css/base/fonts.css': [
+      '@font-face { font-family: X; font-weight: 700; src: url(x.woff2); }',
+      '@font-face {',
+      '  font-weight: 200;',
+      '}',
+      '.after { font-weight: 600; }',
+      '',
+    ].join('\n'),
     'web/css/tokens/scale.css': ':root { --space-8: 0.5rem; font-weight: 600; }\n',
     'web/css/vendor/theme.css': '.v { padding: 3rem; }\n',
     'web/machine/m.css': '.m { gap: 0.75rem; }\n',
@@ -710,6 +771,7 @@ try {
     'web/css/components/x.css:1', 'web/css/components/x.css:2', 'web/css/components/x.css:4',
     'web/css/components/x.css:6', 'web/css/components/x.css:10', 'web/css/components/x.css:14',
     'web/css/components/x.css:16', 'web/css/components/x.css:19', 'web/machine/m.css:1',
+    'web/css/base/fonts.css:5',
   ]);
 
   // -------------------------------------------------------------------------

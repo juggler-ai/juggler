@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer patterns {
 .icon-close {
     display: inline-block;
     width: 1rem;
@@ -218,4 +219,4 @@
 /* ===================================================================
    Properties Panel Component - Right side detail view
    ================================================================== */
-
+}

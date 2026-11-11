@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer layout {
 /* App Layout */
 app-container {
     /* The line pattern behind the header and the sidebar (app-header.css,
@@ -178,10 +179,13 @@ app-container {
    could read as another machine's. The count badge stays pinned over the
    icon's corner rather than the end of the wider button. */
 .network-button.is-remote {
-    width: auto;
     flex-direction: column;
-    align-items: flex-start;
     padding: 0 var(--space-8) 0 var(--space-32);
+
+    /* Through .btn-icon-header's hooks (patterns/buttons.css), which this
+       layer sits below. */
+    --btn-icon-header-width: auto;
+    --btn-icon-header-align: flex-start;
 
     /* It holds a value (the host), so it wears the header's resting fill, as
        the chip does (layout/app-header.css). */
@@ -478,11 +482,6 @@ column-container > workspace-panel:nth-child(1):nth-last-child(2):has(+ properti
     --column-floor: var(--column-fit-floor, 12.5rem);
 }
 
-/* Selected item in inactive columns — muted/gray highlight (Finder-style) */
-column-container conversation-area:not(.active-column) .conversation-item.is-selected {
-    background: var(--wash-1);
-}
-
 /* The composer and the suggestion row above it are fixed furniture at the foot
    of the column; only the transcript above them gives way. */
 conversation-area composer-box,
@@ -683,4 +682,5 @@ conversation-message-list-wrapper {
     column-container workspace-panel[style*="width"] {
         flex: 0 0 100%;
     }
+}
 }

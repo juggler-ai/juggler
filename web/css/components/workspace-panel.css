@@ -1,3 +1,4 @@
+@layer components {
 /*     ▄▄ ▄▄ ▄▄  ▄▄▄▄  ▄▄▄▄ ▄▄    ▄▄▄▄▄ ▄▄▄▄
        ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
      ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE */
@@ -202,4 +203,5 @@ workspace-panel {
 
 .workspace-panel-action.danger .workspace-panel-action-name {
     color: var(--danger);
+}
 }

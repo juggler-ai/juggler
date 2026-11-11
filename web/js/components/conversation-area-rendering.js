@@ -152,11 +152,8 @@ export function ensurePendingMessages(area, messageList) {
   // Create/reposition bubbles in queue order (re-append keeps the label first).
   for (const item of queuedSends) {
     const id = item.get('itemId');
-    let el = /** @type {HTMLElement|null} */ (zone.querySelector(`[message-id="${id}"]`));
-    if (!el) {
-      el = createQueuedBubble(item);
-      if (el) el.classList.add('queued-message');
-    }
+    const shown = /** @type {HTMLElement|null} */ (zone.querySelector(`[message-id="${id}"]`));
+    const el = shown ?? createQueuedBubble(item);
     if (el) {
       zone.appendChild(el);
       ensureQueuedControls(area, el, item);
@@ -171,9 +168,14 @@ export function ensurePendingMessages(area, messageList) {
  */
 function createQueuedBubble(item) {
   const command = userShellCommandOf(item);
-  return command === null
-    ? createUserBubble(item)
-    : createMessageElement('user-message', { itemId: item.get('itemId'), attributes: { content: `! ${command}` } });
+  if (command !== null) {
+    const shell = createMessageElement('user-message', { itemId: item.get('itemId'), attributes: { content: `! ${command}` } });
+    shell.classList.add('queued-message');
+    return shell;
+  }
+  const bubble = createUserBubble(item);
+  bubble?.classList.add('queued-message');
+  return bubble;
 }
 
 /**

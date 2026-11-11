@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer components {
 /* <path-input> (path-input.js): a path field with completion, used by the
    project picker, workspace setup and permission controls. */
 path-input {
@@ -26,4 +27,5 @@ path-input .path-input-field {
     display: block;
     width: 100%;
     font-family: var(--font-mono);
+}
 }

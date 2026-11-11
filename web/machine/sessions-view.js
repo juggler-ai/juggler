@@ -583,7 +583,7 @@ export function mountSessionsPage(root, {
   const chooserId = 'ms-server-chooser';
   const connectInputId = `${chooserId}-address`;
   const connectInput = /** @type {HTMLInputElement} */ (el('input', {
-    className: 'ms-launch-input ms-connect-input',
+    className: 'field-input ms-launch-input ms-connect-input',
     attrs: {
       id: connectInputId,
       type: 'text',

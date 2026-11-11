@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer patterns {
 /* The badge language: three devices, one meaning each.
 
    - The circle says what KIND of thing a row is: a preset fill and a white
@@ -243,4 +244,5 @@
         opacity: 0.4;
         transform: scale(0.9);
     }
+}
 }

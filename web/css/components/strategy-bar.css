@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer components {
 /* Header-bar buttons use the shared .btn-ghost house style
    (patterns/buttons.css); their size/padding/icon come from the co-classes
    (btn-icon-header, project-path-display__new-window-button). */
@@ -157,3 +158,4 @@ strategy-selector {
    the font's baseline, which leaves it visibly high or low inside a round button
    and shifts again with the system UI font. The two strokes are symmetric about
    the viewBox centre, so center/contain lands it dead centre everywhere. */
+}

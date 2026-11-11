@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer patterns {
 :where(.markdown) p,
 :where(.markdown) h1,
 :where(.markdown) h2,
@@ -379,4 +380,5 @@
 
 :where(.markdown-html-scope > [data-markdown-scope]) > :last-child {
     margin-bottom: 0;
+}
 }

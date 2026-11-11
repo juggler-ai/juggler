@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer base {
 /* ============================================================================
    TEXT SELECTION POLICY
 
@@ -109,4 +110,5 @@ conversation-bar input,
 .update-notice__status-text {
     -webkit-user-select: text;
     user-select: text;
+}
 }

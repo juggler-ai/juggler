@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer components {
 model-selector {
     position: relative;
     display: inline-flex;
@@ -295,7 +296,8 @@ model-tuning:empty {
     opacity: 0.6;
 }
 
-/* Model Selector - pulse when no model selected */
+/* Model Selector - pulse when no model selected (model-chip.js adds `.pulse`
+   when the chip is configured to ask for one) */
 .model-selector-button.pulse {
     animation: model-selector-pulse 1.5s ease-in-out infinite;
 }
@@ -843,31 +845,6 @@ model-tuning:empty {
     font-weight: var(--font-weight-semibold);
 }
 
-/* ===================================================================
-   Juggler busy spinner
-
-   Three clubs (same shapes as the logo) orbit a central point while
-   flipping on their own axis — a stylised juggling cascade. Each
-   club's spin rate varies through the cycle: fast over the top of
-   the orbit, slow at the bottom, mimicking the effect of gravity
-   on a real club throw. Used as the default loading indicator
-   throughout the UI.
-
-   Sized via `--spinner-size` on the host. Coloured via `color` (the SVG fills
-   from `currentColor`).
-   ================================================================== */
-
-/* The empty-state nudge on the model chip: model-chip.js adds `.pulse` when
-   there is no model selected and the chip is configured to ask for one. */
-.pulse {
-    animation: model-chip-pulse 2s infinite;
-}
-
-@keyframes model-chip-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
-}
-
 /* ==========================================================================
    Phone: the picker as a bottom sheet
    popup-surface.js re-presents the picker as a sheet, and
@@ -936,4 +913,5 @@ model-tuning:empty {
         border-left: none;
         border-top: 0.0625rem solid var(--border-divider);
     }
+}
 }

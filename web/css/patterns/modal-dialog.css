@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer patterns {
 modal-dialog.is-open {
     display: flex;
 }
@@ -164,3 +165,4 @@ modal-dialog .modal-custom-input {
 }
 
 /* Settings panel - Get API Key link */
+}

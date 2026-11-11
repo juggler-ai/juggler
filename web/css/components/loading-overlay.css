@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer components {
 /* The two waits that take the whole window — starting up, and getting the
    connection back — are one overlay in two configurations
    (components/loading-overlay.js), so they are styled once here and differ by
@@ -63,4 +64,5 @@
 /* A desktop window's ways out of a dropped connection (disconnection-overlay.js). */
 .loading-overlay__actions {
     padding-top: var(--space-24);
+}
 }

@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer patterns {
 /* A notice: what a window says in place of what it shows — a wait it is in,
    or why it cannot show what it is for — as a title, a few lines and its ways
    out, one under another and centred. The startup and reconnecting overlay
@@ -36,4 +37,5 @@
     flex-wrap: wrap;
     justify-content: center;
     gap: var(--space-12);
+}
 }

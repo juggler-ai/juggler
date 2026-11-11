@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer patterns {
 /* One line of text, cut with an ellipsis where it runs out of room: a name, a
    path, a description in a row.
 
@@ -19,4 +20,5 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
 }

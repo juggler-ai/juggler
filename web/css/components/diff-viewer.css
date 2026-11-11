@@ -4,6 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
+@layer components {
 /* Diff Viewer Component - Inline View */
 
 /* The code rows are as wide as the longest line and scroll sideways inside the
@@ -770,3 +771,4 @@ diff-viewer .diff-file-comment-list.stale .diff-comment {
 }
 
 /* Composer Component */
+}

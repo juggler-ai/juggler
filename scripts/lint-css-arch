@@ -626,6 +626,36 @@ function readManifest() {
 }
 
 /**
+ * The documents that link the manifest's sheets. A page that includes the
+ * window-shell-head template (machine/index.html, shell/stand-in.html) links
+ * whatever window-shell.html links first.
+ */
+const LAYERED_DOCUMENTS = [
+  'web/index.html',
+  'web/js-tests/headless-test.html',
+  'web/shell/window-shell.html',
+  'web/machine/index.html',
+  'web/shell/stand-in.html',
+];
+
+/**
+ * Read LAYERED_DOCUMENTS, exiting 2 when one is missing.
+ * @returns {Map<string, string>} Each document's HTML, by repo path.
+ */
+function layeredDocuments() {
+  const documents = new Map();
+  for (const rel of LAYERED_DOCUMENTS) {
+    try {
+      documents.set(rel, fs.readFileSync(path.join(repoRoot, rel), 'utf8'));
+    } catch {
+      console.error(`lint-css-arch: cannot read ${rel}, one of the documents that link the sheets`);
+      process.exit(2);
+    }
+  }
+  return documents;
+}
+
+/**
  * The layer-inversion ratchet: `<lower> > <higher> <count>` per line, `#`
  * starting a comment. A missing file is a failure, not an empty ratchet — an
  * absent file would otherwise read as "no inversions allowed" only until
@@ -1674,11 +1704,10 @@ function checkLinkParity(manifest, root = repoRoot) {
  * layer-order: a sheet's directory is its layer, and the sheets are listed in
  * layer order.
  *
- * This is what lets each sheet be wrapped in its own `@layer` without moving
- * anything: while link order is layer order, precedence between two sheets
- * reads the same whether the browser is deciding it by source order or by
- * layer. Let the list interleave and that stops being true silently — the
- * layers keep working, but they no longer agree with the file everyone reads.
+ * While link order is layer order, precedence between two sheets reads the
+ * same in the <link> list as the layers make it. Let the list interleave and
+ * that stops being true silently — the layers keep working, but they no
+ * longer agree with the file everyone reads.
  *
  * A sheet with no style rules is exempt, because the cascade never arbitrates
  * it: base/fonts.css is linked ahead of everything, holding only `@font-face`,
@@ -2033,12 +2062,15 @@ function checkScaleLiterals(root = repoRoot) {
   for (const file of sheets) {
     const rel = relPath(root, file);
     const clean = stripComments(fs.readFileSync(file, 'utf8'));
-    // Inside @keyframes, a step's timing is the animation's choreography.
-    const keyframes = [...clean.matchAll(/@(-\w+-)?keyframes\b[^{]*\{/g)]
+    // Inside @keyframes, a step's timing is the animation's choreography. Inside
+    // @font-face, `font-weight` is a descriptor naming the weight the file
+    // holds: it cannot take var() (the browser drops the descriptor and files
+    // every face as `normal`), and it states a fact about the font, not a role.
+    const exempt = [...clean.matchAll(/@(-\w+-)?keyframes\b[^{]*\{|@font-face\s*\{/g)]
       .map((m) => [m.index, m.index + m[0].length + blockAt(clean, m.index + m[0].length - 1).length]);
     for (const match of clean.matchAll(SCALE_PROPERTY)) {
       const start = match.index + match[0].length;
-      if (keyframes.some(([from, to]) => start > from && start < to)) continue;
+      if (exempt.some(([from, to]) => start > from && start < to)) continue;
       const end = clean.slice(start).search(/[;}]/);
       const raw = clean.slice(start, end < 0 ? undefined : start + end);
       const use = scaleProblem(match[1], raw);
@@ -2076,17 +2108,16 @@ function checkScaleLiterals(root = repoRoot) {
  *
  * Cascade layers are consulted BEFORE specificity. Within a layer specificity
  * decides as it always did; across layers the higher layer wins at any
- * specificity, and !important is the only escape. So wherever a rule in a
- * lower-layer directory beats one in a higher-layer directory today by being
- * more specific, the two regimes disagree, and wrapping the sheets in their
- * layers would silently flip that rule off. Equal specificity is not an
- * inversion: source order settles it today, the link list is in layer order,
- * and both regimes then give the same answer.
+ * specificity, and !important is the only escape. So a rule in a lower-layer
+ * directory that is more specific than one in a higher-layer directory it
+ * overlaps is an override the layers have switched off: it reads as winning
+ * and never does. Equal specificity is not an inversion: the link list is in
+ * layer order, so source order would give the same answer the layers do.
  *
  * !important is not an inversion either, in either direction: an important
  * declaration beats a normal one whatever the layers say, and between two
  * important ones layer order is reversed, which puts the lower layer on top —
- * the same answer specificity gives today.
+ * the same answer specificity would give.
  *
  * What is left is pairs that can genuinely land on one element, and deciding
  * that needs the markup, not the stylesheets. scripts/css-markup-model
@@ -2542,12 +2573,10 @@ function main() {
     'token-parity': checkTokenParity(manifest, sheets, sources, corpus),
     'extension-styling': checkExtensionStyling(manifest, sheets, sources, extensionClassUse(repoRoot, model, loadParser().espree)),
     'link-parity': checkLinkParity(manifest),
-    // checkLayerWrap joins this once the sheets are wrapped (README ▸ Layers),
-    // given the documents that link the sheets: web/index.html,
-    // web/js-tests/headless-test.html, web/shell/window-shell.html,
-    // web/machine/index.html and web/shell/stand-in.html (a page including the
-    // window-shell-head template links whatever window-shell.html links first).
-    'layer-order': checkLayerOrder(manifest, sheets, sources),
+    'layer-order': [
+      ...checkLayerOrder(manifest, sheets, sources),
+      ...checkLayerWrap(manifest, sheets, sources, layeredDocuments()),
+    ],
     'asset-url': checkAssetUrls(sheets, sources),
     'scale-literal': checkScaleLiterals(),
   };
@@ -2577,7 +2606,7 @@ if (require.main === module) main();
 
 // The cascade model — the parser, specificity, the property families and the
 // reachability filter — is also what `scripts/css-cascade-diff` needs to answer
-// "did this refactor change who wins today?". Exporting it keeps one copy. The
+// "did this refactor change who wins?". Exporting it keeps one copy. The
 // checks are exported for their fixture cases, tooling/lint-css-arch.test.js.
 module.exports = {
   canMeet,

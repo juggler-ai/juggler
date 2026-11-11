@@ -199,7 +199,7 @@ class ActionConfirmation extends JugglerElement {
       // button for the input in place without changing the dialog's height.
       const editFieldHTML = editable
         ? `<div class="pattern-edit-field" hidden>
-             <input type="text" class="pattern-edit-input" data-edit-index="${index}" value="${escapeHtml(this._currentPattern(opt))}" aria-label="${escapeHtml(t('Edit approval pattern'))}" />
+             <input type="text" class="pattern-edit-input field-input field-input-sm" data-edit-index="${index}" value="${escapeHtml(this._currentPattern(opt))}" aria-label="${escapeHtml(t('Edit approval pattern'))}" />
              <div class="pattern-edit-notice" hidden></div>
            </div>`
         : '';
@@ -284,7 +284,7 @@ class ActionConfirmation extends JugglerElement {
 
   /**
    * Drop the visual focus cursor when keyboard focus leaves the widget entirely
-   * (click elsewhere, tab away, switch conversation). Without this the `.focused`
+   * (click elsewhere, tab away, switch conversation). Without this the `.is-focused`
    * ring lingers on a button that no longer holds focus, falsely implying that
    * ↑/↓/Enter still act here — they don't until the widget is re-engaged. Focus
    * moving between this widget's own buttons is kept (relatedTarget is inside).
@@ -316,7 +316,7 @@ class ActionConfirmation extends JugglerElement {
     const next = /** @type {Node|null} */ (event.relatedTarget);
     if (next && this.contains(next)) return;
     this.querySelectorAll('.action-confirmation-button').forEach(
-      btn => btn.classList.remove('focused'),
+      btn => btn.classList.remove('is-focused'),
     );
   }
 
@@ -432,7 +432,7 @@ class ActionConfirmation extends JugglerElement {
       notice.textContent = '';
       notice.classList.remove('caution', 'error');
     }
-    row.classList.remove('revise-invalid');
+    row.querySelector('.pattern-edit-input')?.removeAttribute('aria-invalid');
     const button = /** @type {HTMLButtonElement|null} */ (row.querySelector('.action-confirmation-button'));
     if (button) button.disabled = false;
     return button;
@@ -501,7 +501,9 @@ class ActionConfirmation extends JugglerElement {
     }
 
     if (button) button.disabled = !valid;
-    row.classList.toggle('revise-invalid', !valid);
+    const input = row.querySelector('.pattern-edit-input');
+    if (valid) input?.removeAttribute('aria-invalid');
+    else input?.setAttribute('aria-invalid', 'true');
 
     if (notice) {
       const msg = (result && result.notice) ? result.notice : (valid ? '' : t('Invalid pattern'));
@@ -626,7 +628,7 @@ class ActionConfirmation extends JugglerElement {
    */
   _disengage() {
     const buttons = this.querySelectorAll('.action-confirmation-button');
-    buttons.forEach(btn => btn.classList.remove('focused'));
+    buttons.forEach(btn => btn.classList.remove('is-focused'));
     if (document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
     }
@@ -651,10 +653,10 @@ class ActionConfirmation extends JugglerElement {
     buttons.forEach((btn, i) => {
       const button = /** @type {HTMLElement} */ (btn);
       if (i === index) {
-        button.classList.add('focused');
+        button.classList.add('is-focused');
         button.focus();
       } else {
-        button.classList.remove('focused');
+        button.classList.remove('is-focused');
       }
     });
   }

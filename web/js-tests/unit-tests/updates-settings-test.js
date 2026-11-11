@@ -300,7 +300,7 @@ export async function runTests(_ctx) {
       // display:none until it is opened — so this case needs it on screen.
       // open() is not used for it: that also loads the shared config, which this
       // fake backend does not serve, and a failed load raises a modal.
-      el.classList.add('show', 'loaded');
+      el.classList.add('is-open', 'loaded');
       el.switchTab('updates');
       await loaded(el);
       const radios = [...el.querySelectorAll('.updates-mode-radio')];

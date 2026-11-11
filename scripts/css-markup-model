@@ -52,6 +52,12 @@
  *                                          the call is Object.assign(el, …) the
  *                                          tag is el's, named in the same
  *                                          expression
+ *   { icon: 'icon-search' }                an icon class handed over as data,
+ *                                          on the <span> every consumer puts
+ *                                          it on
+ *   this._title = title                    the field as the element the const
+ *                                          `title` was built as, when every
+ *                                          assignment to it is that const
  *   const li = renderItem(item)            the tag every `return` of every
  *                                          renderItem in the tree hands back,
  *                                          when they all hand back the same one
@@ -77,9 +83,10 @@ const path = require('path');
  * helper costs evidence rather than correctness.
  *   createElement   web/sdk/lib/html.js, web/sdk/lib/syntax-highlight.js
  *   _createElement  web/js/components/plugin-catalog.js
+ *   _createProse    web/js/components/plugin-catalog.js
  *   el              web/js/components/review-panel.js
  */
-const ELEMENT_HELPERS = new Set(['createElement', '_createElement', 'el']);
+const ELEMENT_HELPERS = new Set(['createElement', '_createElement', '_createProse', 'el']);
 
 /** Elements HTML closes for you, so a fragment parser must not stack them. */
 const VOID_ELEMENTS = new Set([
@@ -123,6 +130,19 @@ class Element {
     this.tagOpen = false;  // its own tag could not be read
     this.complete = true;  // we have read every class it carries
     this.origins = new Set(); // names of the functions that handed it back
+    this.file = null;      // the source that built it, when one did
+    this.parameter = null; // "fn#slot" when it is a function's parameter
+    this.parameterTags = null; // …and the tags its callers hand in, once known
+    this.built = false;    // the code read here creates it (see MarkupModel#resolveOpen)
+    this.id = null;        // its id attribute, when markup gives it one
+    this.byId = null;      // the id a `getElementById('<literal>')` looked it up by
+    this.twinOf = null;    // the element it is, with one more class value read in
+    this.grafted = false;  // never built, never resolved: it may be any element
+    this.mergedInto = null; // never built, but resolved: the elements it is
+    this.inherited = new Set(); // classes other code put on it (see classesByFile)
+    this.host = false;     // `this` in a component: every element of its tag
+    this.hostClass = null; // …or of every tag registered under this class name
+    this.bySelector = null; // the selector a querySelector/closest looked it up by
   }
 
   /**
@@ -146,6 +166,9 @@ class Element {
 }
 
 const CLASS_RE = /^-?[a-zA-Z][\w-]*$/;
+
+/** A class from patterns/icons.css, the only kind an `icon:` property names as a class. */
+const ICON_CLASS_RE = /^icon-[a-z][\w-]*$/;
 
 /**
  * Split a class attribute or className value.
@@ -226,11 +249,15 @@ function parseFragment(html, onElement) {
     }
 
     const element = new Element(tag);
+    element.built = true;
     const classAttr = /\bclass\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/.exec(attrs);
     if (classAttr) {
       const value = classAttr[2] ?? classAttr[3] ?? classAttr[4] ?? '';
       element.addClasses(classesIn(value));
     }
+    const idAttr = /(?:^|\s)id\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/.exec(attrs);
+    const id = idAttr ? (idAttr[1] ?? idAttr[2] ?? idAttr[3]) : null;
+    if (id && !hasHole(id)) element.id = id;
     onElement(element);
 
     if (stack.length) stack[stack.length - 1].children.push(element);
@@ -276,6 +303,9 @@ function* walkAST(node, parent = null) {
 }
 
 const FUNCTION_TYPES = /^(FunctionDeclaration|FunctionExpression|ArrowFunctionExpression)$/;
+
+/** Argument shapes that are never an element: text, numbers, options, callbacks. */
+const NOT_AN_ELEMENT = /^(Literal|TemplateLiteral|ObjectExpression|ArrayExpression|ArrowFunctionExpression|FunctionExpression|BinaryExpression|UnaryExpression)$/;
 
 /**
  * The expressions this function hands back — the argument of every `return` in
@@ -458,17 +488,43 @@ function harvestJS(source, file, espree, eslintScope, evidence, extended = new S
    * @returns {string|null} The registered tag of the enclosing class.
    */
   const hostTag = (node) => {
+    const owner = enclosingClass(node);
+    return owner ? hostTags.get(owner) ?? null : null;
+  };
+
+  /**
+   * The class whose instance `this` is.
+   * @param {import('estree').Node} node - A `this` expression.
+   * @returns {import('estree').Node|null} The enclosing class, or null when `this` is a plain function's or an object literal's.
+   */
+  function enclosingClass(node) {
     let current = node;
     for (let parent = parents.get(current); parent; parent = parents.get(current)) {
       // A method's `this` is the instance. A plain function's is its own,
       // and an object literal's method belongs to the literal.
       if (parent.type === 'FunctionDeclaration') return null;
       if (parent.type === 'FunctionExpression' && parents.get(parent)?.type !== 'MethodDefinition') return null;
-      if (parent.type === 'ClassDeclaration' || parent.type === 'ClassExpression') return hostTags.get(parent) ?? null;
+      if (parent.type === 'ClassDeclaration' || parent.type === 'ClassExpression') return parent;
       current = parent;
     }
     return null;
-  };
+  }
+
+  // Which classes are registered as which tag, and which extend which, by
+  // name across the tree: `this` in a class some element class extends is an
+  // element of every tag registered under it (MarkupModel#classTags).
+  for (const [node] of walkAST(ast)) {
+    if ((node.type === 'ClassDeclaration' || node.type === 'ClassExpression')
+        && node.id?.name && node.superClass?.type === 'Identifier') {
+      evidence.addExtends(node.id.name, node.superClass.name);
+    }
+    if (node.type !== 'CallExpression' || memberName(node.callee) !== 'define') continue;
+    if (node.callee.object?.type !== 'Identifier' || node.callee.object.name !== 'customElements') continue;
+    const tag = literalString(node.arguments[0]);
+    const target = node.arguments[1];
+    const name = target?.type === 'Identifier' ? target.name : target?.id?.name;
+    if (tag && name) evidence.addDefine(name, tag);
+  }
 
   /**
    * The name a function is called by, or null if it has none to speak of.
@@ -500,21 +556,36 @@ function harvestJS(source, file, espree, eslintScope, evidence, extended = new S
    * @param {Element} element - The element it is a class of.
    */
   const classFromParameter = (node, element) => {
-    if (!node) return;
-    const property = node.type === 'MemberExpression' && !node.computed && node.object.type === 'Identifier'
-      ? memberName(node) : null;
-    const identifier = property === null ? node : node.object;
-    if (identifier.type !== 'Identifier') return;
     // Only worth recording when we know what the factory builds. A helper
     // whose tag is ALSO a parameter — `_createElement(tag, className)` —
     // would otherwise report every class it is ever passed as sitting on an
     // element of unknown tag, throwing away what its call sites plainly say.
     if (!element.tag) return;
+    const found = parameterSlot(node);
+    if (!found) return;
+    evidence.addClassParameter(found.name, found.slot, element);
+    const value = literalString(found.fallback);
+    if (value) evidence.addCallSite(found.name, found.slot, value);
+  };
+
+  /**
+   * The parameter slot an expression reads: `className` → the function's name
+   * and `<position>`, `options.className` or a destructured `{ className }` →
+   * `<position>.className`, with the default the signature gives it.
+   * @param {import('estree').Node|null|undefined} node - An identifier, or a member of one.
+   * @returns {{name: string, slot: string, fallback: import('estree').Node|null}|null} The slot, or null when the expression is not a named function's parameter.
+   */
+  function parameterSlot(node) {
+    if (!node) return null;
+    const property = node.type === 'MemberExpression' && !node.computed && node.object.type === 'Identifier'
+      ? memberName(node) : null;
+    const identifier = property === null ? node : node.object;
+    if (identifier.type !== 'Identifier') return null;
     const variable = resolved.get(identifier);
     const def = variable?.defs?.[0];
-    if (!def || def.type !== 'Parameter') return;
+    if (!def || def.type !== 'Parameter') return null;
     const name = functionName(def.node);
-    if (!name) return;
+    if (!name) return null;
     // `className = 'x'` makes the parameter an AssignmentPattern, so match
     // through it — and take the default as a value the callers get too.
     const bare = (p) => (p && p.type === 'AssignmentPattern' ? p.left : p);
@@ -541,11 +612,9 @@ function harvestJS(source, file, espree, eslintScope, evidence, extended = new S
         return;
       }
     });
-    if (slot === null) return;
-    evidence.addClassParameter(name, slot, element.tag);
-    const value = literalString(fallback);
-    if (value) evidence.addCallSite(name, slot, value);
-  };
+    if (slot === null) return null;
+    return { name, slot, fallback };
+  }
 
   // Class names a function hands back: `return 'ci-section';`. Collected up
   // front because the helper is often defined below its callers.
@@ -593,6 +662,8 @@ function harvestJS(source, file, espree, eslintScope, evidence, extended = new S
       const twin = new Element(element.tag);
       if (!element.tag) twin.tagOpen = true;
       twin.addClasses(classes);
+      twin.built = true;
+      twin.twinOf = element; // …and it carries that element's other classes
       note(twin);
     }
     return true;
@@ -642,25 +713,142 @@ function harvestJS(source, file, espree, eslintScope, evidence, extended = new S
     return staticText(node, (n) => resolveText(n, depth + 1));
   }
 
+  // `this._title = title`, where `title` is a const: the field IS that element,
+  // so what is later done to `this._title` is done to the element `title` was
+  // built as, tag and all. Only a field every assignment in the file gives the
+  // same const (null aside, which clears it) — one also given anything else
+  // stays an element of its own, of unknown tag.
+  const fieldAliases = new Map();
+  {
+    const candidates = new Map(); // field key → the variable, or false when ambiguous
+    for (const [node] of walkAST(ast)) {
+      if (node.type !== 'AssignmentExpression' || node.operator !== '=') continue;
+      const left = node.left;
+      if (left.type !== 'MemberExpression' || left.computed || left.object.type !== 'ThisExpression') continue;
+      const field = `${file}#this.${memberName(left)}`;
+      const right = node.right;
+      if (right.type === 'Literal' && right.value === null) continue;
+      const variable = right.type === 'Identifier' ? resolved.get(right) : null;
+      const constant = variable?.defs?.length === 1 && variable.defs[0].type === 'Variable'
+        && variable.defs[0].parent?.kind === 'const';
+      const prior = candidates.get(field);
+      if (!constant || (prior !== undefined && prior !== variable)) candidates.set(field, false);
+      else candidates.set(field, variable);
+    }
+    for (const [field, variable] of candidates) if (variable) fieldAliases.set(field, variable);
+  }
+
   const elements = new Map();
-  const keyOf = (node) => {
+  const keyOf = (node, depth = 0) => {
     if (!node) return null;
-    if (node.type === 'Identifier') return resolved.get(node) ?? `${file}#${node.name}`;
+    if (node.type === 'Identifier') {
+      // `const el = this._status`: the same element under another name.
+      const variable = resolved.get(node);
+      const def = variable?.defs?.length === 1 ? variable.defs[0] : null;
+      const init = def?.type === 'Variable' && def.parent?.kind === 'const' ? def.node.init : null;
+      if (depth < 4 && init && (init.type === 'Identifier'
+          || (init.type === 'MemberExpression' && !init.computed && init.object.type === 'ThisExpression'))) {
+        const aliased = keyOf(init, depth + 1);
+        if (aliased !== null) return aliased;
+      }
+      return variable ?? `${file}#${node.name}`;
+    }
     if (node.type === 'ThisExpression') {
       const tag = hostTag(node);
-      return tag ? `custom-element#${tag}` : null;
+      if (tag) return `custom-element#${tag}`;
+      const owner = enclosingClass(node);
+      return owner?.id?.name ? `class#${owner.id.name}` : null;
     }
     if (node.type === 'MemberExpression' && !node.computed && node.object.type === 'ThisExpression') {
-      return `${file}#this.${memberName(node)}`;
+      const field = `${file}#this.${memberName(node)}`;
+      return fieldAliases.get(field) ?? field;
     }
     return null;
   };
+  /**
+   * The id a `document.getElementById('<literal>')` looks an element up by.
+   * @param {import('estree').Node|null|undefined} node - Any expression.
+   * @returns {string|null} The literal id, or null when the node is no such call.
+   */
+  const lookedUpId = (node) => {
+    if (!node || node.type !== 'CallExpression' || memberName(node.callee) !== 'getElementById') return null;
+    return literalString(node.arguments[0]);
+  };
+  /**
+   * The selector an expression looked its element(s) up by:
+   * `x.querySelector('.a')`, `querySelectorAll`, `closest`, `Array.from(…)`
+   * or a spread of one, an index into one, or a const holding one. A selector
+   * that is the function's own parameter is `@param <fn>#<slot>`, the literals
+   * its callers pass there (MarkupModel#resolveOpen).
+   * @param {import('estree').Node|null|undefined} node - Any expression.
+   * @param {number} [depth] - How many steps deep this is; past 4 it gives up.
+   * @returns {string|null} The literal selector, or null.
+   */
+  const lookedUpSelector = (node, depth = 0) => {
+    if (!node || depth > 4) return null;
+    if (node.type === 'ChainExpression') return lookedUpSelector(node.expression, depth);
+    if (node.type === 'CallExpression') {
+      const name = memberName(node.callee);
+      if (['querySelector', 'querySelectorAll', 'closest'].includes(name)) {
+        const literal = literalString(node.arguments[0]);
+        if (literal !== null) return literal;
+        const slot = parameterSlot(node.arguments[0]);
+        return slot ? `@param ${slot.name}#${slot.slot}` : null;
+      }
+      if (name === 'from' && node.callee.object?.type === 'Identifier' && node.callee.object.name === 'Array') {
+        return lookedUpSelector(node.arguments[0], depth + 1);
+      }
+      return null;
+    }
+    if (node.type === 'ArrayExpression' && node.elements.length === 1 && node.elements[0]?.type === 'SpreadElement') {
+      return lookedUpSelector(node.elements[0].argument, depth + 1);
+    }
+    if (node.type === 'MemberExpression' && node.computed) return lookedUpSelector(node.object, depth + 1);
+    if (node.type === 'Identifier') {
+      const def = resolved.get(node)?.defs?.[0];
+      if (def?.type === 'Variable' && def.parent?.kind === 'const') {
+        // `for (const row of rows)`: an item of what it iterates.
+        const loop = parents.get(def.parent);
+        if (loop?.type === 'ForOfStatement' && loop.left === def.parent) return lookedUpSelector(loop.right, depth + 1);
+        return lookedUpSelector(def.node.init, depth + 1);
+      }
+      // `rows.forEach((row) => …)`: an item of what it iterates.
+      if (def?.type === 'Parameter' && def.node.params[0] === def.name) {
+        const call = parents.get(def.node);
+        if (call?.type === 'CallExpression' && call.arguments[0] === def.node && memberName(call.callee) === 'forEach') {
+          return lookedUpSelector(call.callee.object, depth + 1);
+        }
+      }
+    }
+    return null;
+  };
+
+  // Every element made here is one the walk did not see built (`created` and
+  // parseFragment mark theirs): a parameter, a field, a lookup, a callback's
+  // result. What it really is gets settled once the whole tree has been read
+  // (MarkupModel#resolveOpen).
   const elementFor = (node) => {
     const key = keyOf(node);
-    if (key === null) return new Element(null); // anonymous: facts still count
+    if (key === null) {
+      // anonymous: facts still count
+      const element = new Element(null);
+      element.byId = lookedUpId(node);
+      element.bySelector = lookedUpSelector(node);
+      return element;
+    }
     // A key for `this` only exists when the element it stands for is known,
     // so the tag comes with it.
-    if (!elements.has(key)) elements.set(key, new Element(node.type === 'ThisExpression' ? hostTag(node) : null));
+    if (!elements.has(key)) {
+      const element = new Element(node.type === 'ThisExpression' ? hostTag(node) : null);
+      element.host = node.type === 'ThisExpression';
+      if (element.host && !element.tag) element.hostClass = enclosingClass(node)?.id?.name ?? null;
+      element.bySelector = lookedUpSelector(node);
+      // A parameter is whatever the callers hand in; the model reads its tag
+      // off them (MarkupModel#resolveParameterElements).
+      const slot = node.type === 'Identifier' ? parameterSlot(node) : null;
+      if (slot) element.parameter = `${slot.name}#${slot.slot}`;
+      elements.set(key, element);
+    }
     return elements.get(key);
   };
   const note = (element) => evidence.add(element);
@@ -692,6 +880,7 @@ function harvestJS(source, file, espree, eslintScope, evidence, extended = new S
     if (name === 'createElement' && node.callee.type === 'MemberExpression') {
       // document.createElement('div')
       const element = new Element(literalString(node.arguments[0]));
+      element.built = true;
       const classes = literalString(node.arguments[1]);
       if (classes) element.addClasses(classesIn(classes));
       return element;
@@ -700,6 +889,7 @@ function harvestJS(source, file, espree, eslintScope, evidence, extended = new S
       const tag = literalString(node.arguments[0]);
       const classText = staticText(node.arguments[1], resolveText);
       const element = new Element(tag);
+      element.built = true;
       if (classText !== null) {
         element.addClasses(classesIn(classText));
         // An interpolated class list means there may be more classes we
@@ -710,6 +900,21 @@ function harvestJS(source, file, espree, eslintScope, evidence, extended = new S
       }
       return element;
     }
+    return null;
+  };
+
+  /**
+   * The element an initialiser creates, counting `cond ? createElement(…) :
+   * null` — an element or none at all, so whatever is done to it is done to
+   * that element.
+   * @param {import('estree').Node|null|undefined} node - Any expression.
+   * @returns {Element|null} The element, or null.
+   */
+  const createdOrNothing = (node) => {
+    if (node?.type !== 'ConditionalExpression') return created(node);
+    const nothing = (n) => (n.type === 'Literal' && n.value === null) || (n.type === 'Identifier' && n.name === 'undefined');
+    if (nothing(node.alternate)) return created(node.consequent);
+    if (nothing(node.consequent)) return created(node.alternate);
     return null;
   };
 
@@ -746,12 +951,34 @@ function harvestJS(source, file, espree, eslintScope, evidence, extended = new S
     return created(target) ?? (keyOf(target) === null ? null : elementFor(target));
   };
 
+  /**
+   * An argument that is not text. Either the caller's own parameter handed on
+   * — `createCopyableText(text, className)` inside `addSubsection` — so
+   * whatever the callee does with that slot the caller does with its own, or
+   * possibly an element, whose tag is read once the walk has built it.
+   * @param {string} calleeName - The function called.
+   * @param {string} slot - The argument's position, or `<position>.<key>` in an options object.
+   * @param {import('estree').Node} arg - The argument.
+   */
+  const pendingArguments = [];
+  const passArgument = (calleeName, slot, arg) => {
+    if (NOT_AN_ELEMENT.test(arg.type)) return;
+    const found = arg.type === 'Identifier' ? parameterSlot(arg) : null;
+    if (found) {
+      evidence.addForward(calleeName, slot, found.name, found.slot);
+      const value = literalString(found.fallback);
+      if (value) evidence.addCallSite(found.name, found.slot, value);
+      return;
+    }
+    pendingArguments.push([calleeName, slot, arg]);
+  };
+
   for (const [node] of walkAST(ast)) {
     // const row = document.createElement('div')  /  this.row = createElement(…)
     if (node.type === 'VariableDeclarator' || (node.type === 'AssignmentExpression' && node.operator === '=')) {
       const target = node.type === 'VariableDeclarator' ? node.id : node.left;
       const value = node.type === 'VariableDeclarator' ? node.init : node.right;
-      const fresh = created(value);
+      const fresh = createdOrNothing(value);
       if (fresh) {
         const key = keyOf(target);
         if (key === null) { note(fresh); continue; }
@@ -761,6 +988,7 @@ function harvestJS(source, file, espree, eslintScope, evidence, extended = new S
           // lose either, which keeps both tags in play.
           if (fresh.tag && existing.tag && fresh.tag !== existing.tag) existing.tagOpen = true;
           existing.tag = existing.tag ?? fresh.tag;
+          existing.built = true;
           for (const cls of fresh.classes) existing.classes.add(cls);
           for (const cls of fresh.probable) existing.probable.add(cls);
           if (!fresh.complete) existing.complete = false;
@@ -768,6 +996,20 @@ function harvestJS(source, file, espree, eslintScope, evidence, extended = new S
           elements.set(key, fresh);
           note(fresh);
         }
+        continue;
+      }
+      // const host = document.getElementById('network-button')
+      const id = lookedUpId(value);
+      if (id !== null && keyOf(target) !== null) {
+        elementFor(target).byId = id;
+        continue;
+      }
+      // this._btn = this.querySelector('.update-btn'). A name looked up by two
+      // different selectors is left unresolved ('' reads as no selector).
+      const selector = lookedUpSelector(value);
+      if (selector !== null && keyOf(target) !== null) {
+        const element = elementFor(target);
+        element.bySelector = element.bySelector === null || element.bySelector === selector ? selector : '';
         continue;
       }
     }
@@ -824,6 +1066,26 @@ function harvestJS(source, file, espree, eslintScope, evidence, extended = new S
       continue;
     }
 
+    // { icon: 'icon-search' } — an icon class handed over as data: a context
+    // item's badge, a strategy, command or workspace provider manifest. It
+    // reaches the DOM through `glyph.className = options.iconClass` and the
+    // like, several calls and a registry away, so nothing above follows it.
+    // Every place that applies one puts it on a `<span>` (icon-message-renderer,
+    // strategy-selector, workspace-panel, conversation-area-rendering,
+    // item-renderers, model-picker), so the class is recorded on a span. Its
+    // tag only: strategy-selector adds a class beside it, so the element's
+    // class list is not this literal alone. An `iconClass` is a class by its
+    // key, whatever it is called (`menu-settings-icon`); an `icon` is one only
+    // when it is spelled like one, since some hand over a name (`'refresh'`).
+    if (node.type === 'Property' && !node.computed
+			&& ['icon', 'iconClass'].includes(node.key.name ?? node.key.value)) {
+      const key = node.key.name ?? node.key.value;
+      const text = literalString(node.value);
+      const isClass = key === 'iconClass' ? /^-?[_a-zA-Z][\w-]*$/ : ICON_CLASS_RE;
+      if (text !== null && isClass.test(text)) evidence.addTag(text, 'span');
+      continue;
+    }
+
     if (node.type !== 'CallExpression') continue;
     const callee = node.callee;
     const name = memberName(callee);
@@ -838,13 +1100,16 @@ function harvestJS(source, file, espree, eslintScope, evidence, extended = new S
         // (extra ? ' ' + extra : '')` still names a class.
         const value = staticText(node.arguments[i], resolveText);
         if (value) evidence.addCallSite(calleeName, i, value);
+        else passArgument(calleeName, `${i}`, node.arguments[i]);
         // An options object says what it says at each key, for the
         // factory that reads one of them as a class.
         if (node.arguments[i].type !== 'ObjectExpression') continue;
         for (const property of node.arguments[i].properties) {
           if (property.type !== 'Property' || property.computed) continue;
+          const slot = `${i}.${property.key.name ?? property.key.value}`;
           const text = staticText(property.value, resolveText);
-          if (text) evidence.addCallSite(calleeName, `${i}.${property.key.name ?? property.key.value}`, text);
+          if (text) evidence.addCallSite(calleeName, slot, text);
+          else passArgument(calleeName, slot, property.value);
         }
       }
     }
@@ -928,6 +1193,52 @@ function harvestJS(source, file, espree, eslintScope, evidence, extended = new S
     parseFragment(text, note);
   }
 
+  // The tag of each element handed to a function, now the walk has built
+  // them: null whenever it cannot be read, which leaves a class the callee
+  // puts on that parameter on an element of unknown tag.
+  const argumentTag = (arg) => {
+    const made = createdTag(arg);
+    if (made !== undefined) return made;
+    if (arg.type === 'ThisExpression') return hostTag(arg);
+    const key = keyOf(arg);
+    const element = key === null || (arg.type === 'Identifier' && !resolved.has(arg)) ? null : elements.get(key);
+    if (element) return element.tag && !element.tagOpen ? element.tag : null;
+    if (arg.type !== 'Identifier') return null;
+    const def = resolved.get(arg)?.defs?.[0];
+    if (def?.type !== 'Variable' || def.parent?.kind !== 'const') return null;
+    return createdTag(def.node.init) ?? null;
+  };
+  // …and the element itself, when the walk can name it: one built in the
+  // argument, a variable or field holding one, `this`, or a
+  // `getElementById('<literal>')` result. Whether that is an element the walk
+  // built, or one more element it has to settle, the model works out at the end
+  // (MarkupModel#resolveOpen). Null when it cannot be named.
+  const argumentElement = (arg) => {
+    const fresh = created(arg);
+    if (fresh) { note(fresh); return fresh; }
+    if (arg.type === 'ThisExpression') return keyOf(arg) === null ? null : elementFor(arg);
+    if (lookedUpId(arg) !== null || lookedUpSelector(arg) !== null) {
+      const element = elementFor(arg);
+      note(element);
+      return element;
+    }
+    const key = keyOf(arg);
+    if (key === null || (arg.type === 'Identifier' && !resolved.has(arg))) return null;
+    const known = elements.get(key);
+    if (known) return known;
+    if (arg.type !== 'Identifier') return null;
+    const def = resolved.get(arg).defs?.[0];
+    if (def?.type !== 'Variable' || def.parent?.kind !== 'const') return null;
+    if (lookedUpId(def.node.init) === null) return null;
+    const element = elementFor(arg);
+    element.byId = lookedUpId(def.node.init);
+    note(element);
+    return element;
+  };
+  for (const [calleeName, slot, arg] of pendingArguments) {
+    evidence.addElementArgument(calleeName, slot, argumentTag(arg), argumentElement(arg));
+  }
+
   // ---------------------------------------------------------------------
   // Elements handed back by a named function
   // ---------------------------------------------------------------------
@@ -1001,6 +1312,22 @@ function harvestJS(source, file, espree, eslintScope, evidence, extended = new S
   }
   for (const [name, into] of returnedElements) evidence.addReturnedElement(name, into);
 
+  // Every element-building call names classes this file chose, wherever the
+  // element goes — `return createElement('span', 'x')` included, which the
+  // walk above keeps no element for. Recorded for classesByFile, and with a
+  // literal tag as that tag for each class (addTag): an element nobody holds
+  // still has the tag it was built with, but says nothing about which classes
+  // join it later or what it nests in.
+  for (const [node] of walkAST(ast)) {
+    if (node.type !== 'CallExpression') continue;
+    const element = created(node);
+    if (!element) continue;
+    for (const cls of element.classes) {
+      evidence.addFileClass(file, cls);
+      if (element.tag) evidence.addTag(cls, element.tag);
+    }
+  }
+
   // The other half: which variables hold an element some named function built.
   // Read after the walk, so the only candidates are variables something has
   // already treated as an element.
@@ -1033,27 +1360,97 @@ class MarkupModel {
     this.unreadable = new Set();  // …on an element we could NOT read whole
     this.closed = new Set();      // …and never on one we could not
     this.classSets = [];          // classes observed together on one element
+    this.grafted = new Set();     // classes put on an element that may be any element
+    this.defines = new Map();     // class name → tags customElements.define gives it
+    this.subclasses = new Map();  // class name → the names of classes that extend it
+    this.byId = new Map();        // id → the built elements carrying it (finish)
     this.contains = new Map();    // token → Set(token) seen inside it
     this.elements = new Set();    // a Set: the walk reports some twice
     this.classParams = new Map(); // "fn#index" → tags it becomes a class on
     this.callSites = new Map();   // "fn#index" → literals passed there
     this.returns = new Map();     // fn → the elements it hands back
+    this.forwards = new Map();    // "fn#slot" → the caller slots handed on to it
+    this.elementArgs = new Map(); // "fn#slot" → tags of the elements passed there (null: unknown)
+    this.file = null;             // the source being harvested, stamped on what it adds
+    this.fileClasses = new Map(); // file → classes its element-building calls name
+  }
+
+  /**
+   * `file` builds an element carrying `cls` (see classesByFile).
+   * @param {string} file - The source's path, as harvestJS was given it.
+   * @param {string} cls - The class.
+   */
+  addFileClass(file, cls) {
+    const key = file.split(path.sep).join('/');
+    if (!this.fileClasses.has(key)) this.fileClasses.set(key, new Set());
+    this.fileClasses.get(key).add(cls);
   }
 
   add(element) {
+    if (element.file === null) element.file = this.file;
     this.elements.add(element);
   }
 
   /**
-   * `name`'s parameter `index` is used as a class, on a `tag` element.
+   * `cls` lands on a `tag` element, and that is all that is known: no element
+   * is recorded, so it says nothing about which classes share one, and a class
+   * the markup otherwise reads whole stays closed — the same footing as the
+   * unresolved `el.className = someVariable` canCoexist describes.
+   * @param {string} cls - The class.
+   * @param {string} tag - The tag it lands on.
+   */
+  addTag(cls, tag) {
+    if (!this.tags.has(cls)) this.tags.set(cls, new Set());
+    this.tags.get(cls).add(tag);
+  }
+
+  /**
+   * `customElements.define(tag, name)`.
+   * @param {string} name - The class's name.
+   * @param {string} tag - The tag it is registered as.
+   */
+  addDefine(name, tag) {
+    if (!this.defines.has(name)) this.defines.set(name, new Set());
+    this.defines.get(name).add(tag);
+  }
+
+  /**
+   * `class name extends superName`.
+   * @param {string} name - The subclass's name.
+   * @param {string} superName - The class it extends.
+   */
+  addExtends(name, superName) {
+    if (!this.subclasses.has(superName)) this.subclasses.set(superName, new Set());
+    this.subclasses.get(superName).add(name);
+  }
+
+  /**
+   * Every tag an instance of a class can be: its own registration and every
+   * subclass's. Names are the tree's, so two classes sharing one pool their
+   * tags, which can only make `this` stand for more elements.
+   * @param {string} name - A class name.
+   * @param {Set<string>} [seen] - The names already followed.
+   * @returns {Set<string>} The tags.
+   */
+  #classTags(name, seen = new Set()) {
+    const out = new Set();
+    if (seen.has(name)) return out;
+    seen.add(name);
+    for (const tag of this.defines.get(name) ?? []) out.add(tag);
+    for (const sub of this.subclasses.get(name) ?? []) for (const tag of this.#classTags(sub, seen)) out.add(tag);
+    return out;
+  }
+
+  /**
+   * `name`'s parameter `index` is used as a class, on `element` (whose tag is known).
    * @param {string} name - The function's name.
    * @param {string} index - The slot: the parameter's position, or `<position>.<key>` for an options object.
-   * @param {string} tag - The tag of the element it becomes a class of.
+   * @param {Element} element - The element it becomes a class of.
    */
-  addClassParameter(name, index, tag) {
+  addClassParameter(name, index, element) {
     const key = `${name}#${index}`;
     if (!this.classParams.has(key)) this.classParams.set(key, new Set());
-    this.classParams.get(key).add(tag);
+    this.classParams.get(key).add(element);
   }
 
   /**
@@ -1064,8 +1461,242 @@ class MarkupModel {
    */
   addCallSite(name, index, value) {
     const key = `${name}#${index}`;
-    if (!this.callSites.has(key)) this.callSites.set(key, new Set());
-    this.callSites.get(key).add(value);
+    if (!this.callSites.has(key)) this.callSites.set(key, new Map());
+    const sites = this.callSites.get(key);
+    if (!sites.has(value)) sites.set(value, new Set());
+    sites.get(value).add(this.file);
+  }
+
+  /**
+   * A function handed its own parameter `fromSlot` on to `name`'s `index`:
+   * what `name` does with that slot, the function does with its own.
+   * @param {string} name - The callee's name.
+   * @param {string} index - The callee's slot.
+   * @param {string} fromName - The calling function's name.
+   * @param {string} fromSlot - The calling function's slot.
+   */
+  addForward(name, index, fromName, fromSlot) {
+    const key = `${name}#${index}`;
+    if (!this.forwards.has(key)) this.forwards.set(key, new Set());
+    this.forwards.get(key).add(`${fromName}#${fromSlot}`);
+  }
+
+  /**
+   * Somebody called `name` with an element (or something that may be one) in
+   * slot `index`.
+   * @param {string} name - The callee's name.
+   * @param {string} index - The slot.
+   * @param {string|null} tag - The element's tag, or null when it cannot be read.
+   * @param {Element|null} [element] - The element itself, when the caller's walk could name it.
+   */
+  addElementArgument(name, index, tag, element = null) {
+    const key = `${name}#${index}`;
+    if (!this.elementArgs.has(key)) this.elementArgs.set(key, []);
+    this.elementArgs.get(key).push({ tag, element });
+  }
+
+  /**
+   * Every slot whose callers' values end up in `key`: itself, and each slot
+   * that handed its own parameter on to it, transitively.
+   * @param {string} key - "fn#slot".
+   * @returns {Set<string>} The slots.
+   */
+  #feeders(key) {
+    const out = new Set([key]);
+    const queue = [key];
+    while (queue.length) {
+      for (const from of this.forwards.get(queue.pop()) ?? []) {
+        if (!out.has(from)) { out.add(from); queue.push(from); }
+      }
+    }
+    return out;
+  }
+
+  /**
+   * The tags of the elements a parameter can be, read off every call site that
+   * reaches it, or null when one of them hands in something unreadable — or
+   * none was seen at all, and the parameter is still whatever anyone passes.
+   * @param {string} key - "fn#slot".
+   * @returns {Set<string>|null} The tags.
+   */
+  #parameterTags(key) {
+    const args = this.#parameterArguments(key);
+    if (!args) return null;
+    const tags = new Set();
+    for (const { tag, element } of args) {
+      const id = element?.byId ?? null;
+      const found = tag ?? (id === null ? null : this.#idTag(id));
+      if (found === null) return null;
+      tags.add(found);
+    }
+    return tags;
+  }
+
+  /**
+   * What every call site that reaches a parameter hands in.
+   * @param {string} key - "fn#slot".
+   * @returns {{tag: string|null, element: Element|null}[]|null} One entry per argument, or null when no call site was seen.
+   */
+  #parameterArguments(key) {
+    const out = [];
+    for (const slot of this.#feeders(key)) out.push(...(this.elementArgs.get(slot) ?? []));
+    return out.length ? out : null;
+  }
+
+  /**
+   * The tag of the document element with this id.
+   * @param {string} id - An id attribute's value.
+   * @returns {string|null} Its tag, or null when no element, or elements of two tags, carry it.
+   */
+  #idTag(id) {
+    const tags = new Set((this.byId.get(id) ?? []).map((element) => element.tag));
+    return tags.size === 1 ? [...tags][0] : null;
+  }
+
+  /**
+   * Settle every element the walk did not see built — a parameter, a field, a
+   * lookup, a callback's result. Its classes join an element built somewhere
+   * else, and which one decides what they can share it with:
+   *
+   *   - looked up by an id the markup gives (`getElementById('<literal>')`):
+   *     the element(s) carrying that id
+   *   - `this` in a registered component: every element built with its tag
+   *   - a parameter: whatever every call site that reaches it hands in,
+   *     settled the same way in turn
+   *
+   * Resolved, it IS those elements, and its classes, children and doubts are
+   * folded into each. Anything else — an unreadable argument, a parameter
+   * nobody calls, a lookup by selector, a callback's result, a component no
+   * code builds — may be any element at all: its classes are GRAFTED, which
+   * takes them out of canCoexist's question, and they are not read whole, so
+   * they close nothing.
+   *
+   * A component built by `new` rather than by its tag is not seen, so `this`
+   * stands for the elements that are; a class put on `this` is still on each
+   * of them, which is all canCoexist asks.
+   *
+   * A twin (one element per class value a call can return, or per literal a
+   * class parameter is passed) is then given the classes of the element it
+   * stands for, which are its own as much as the value it was made for.
+   */
+  #resolveOpen() {
+    this.byId = new Map();
+    const byTag = new Map();
+    const byClass = new Map();
+    const push = (map, key, element) => {
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(element);
+    };
+    for (const element of this.elements) {
+      if (!element.built) continue;
+      if (element.id !== null) push(this.byId, element.id, element);
+      if (element.tag && !element.tagOpen) push(byTag, element.tag, element);
+      for (const cls of element.classes) push(byClass, cls, element);
+    }
+    const hostElements = (element) => {
+      const tags = element.hostClass ? this.#classTags(element.hostClass) : new Set([element.tag]);
+      const out = [];
+      for (const tag of tags) out.push(...(byTag.get(tag) ?? []));
+      return out.length ? out : null;
+    };
+    // A selector list each of whose subjects is classes, with or without a
+    // tag (`.recent-tabs-row`, `button.btn`): the built elements carrying
+    // them. Anything else — an attribute, a pseudo-class, a bare tag — is not
+    // read, and leaves the element open.
+    const selected = (selector) => {
+      const out = new Set();
+      if (selector.startsWith('@param ')) {
+        // Every caller's literal, or nothing: one that passes anything else
+        // (or hands its own parameter on) could be looking up any element.
+        const slot = selector.slice('@param '.length);
+        const passed = this.callSites.get(slot);
+        if (!passed?.size || this.elementArgs.get(slot)?.length || this.forwards.get(slot)?.size) return null;
+        for (const value of passed.keys()) {
+          const found = selected(value);
+          if (!found) return null;
+          for (const element of found) out.add(element);
+        }
+        return [...out];
+      }
+      for (const part of selector.split(',')) {
+        const subject = part.trim().split(/\s*[\s>+~]\s*/).pop();
+        const match = /^([a-z][\w-]*)?((?:\.-?[_a-zA-Z][\w-]*)+)$/.exec(subject ?? '');
+        if (!match) return null;
+        const classes = match[2].slice(1).split('.');
+        for (const element of byClass.get(classes[0]) ?? []) {
+          if (match[1] && element.tag !== match[1]) continue;
+          if (classes.every((cls) => element.classes.has(cls))) out.add(element);
+        }
+      }
+      return out.size ? [...out] : null;
+    };
+    const settled = new Map(); // element → the built elements it is, or null
+    const targetsOf = (element) => {
+      if (element.built) return [element];
+      if (settled.has(element)) return settled.get(element);
+      settled.set(element, null); // a cycle settles nothing
+      let found = null;
+      if (element.byId !== null) found = this.byId.get(element.byId) ?? null;
+      else if (element.bySelector !== null) found = selected(element.bySelector);
+      else if (element.host) found = hostElements(element);
+      else if (element.parameter !== null) {
+        const args = this.#parameterArguments(element.parameter);
+        const out = new Set();
+        // A caller that looks the element up by classes this parameter itself
+        // sets (`paint(host.querySelector('.painted'))`) finds one another
+        // caller handed in: it adds nothing, if any other caller is read.
+        const own = (arg) => !arg.built && !!arg.bySelector && arg.bySelector.split(',').every((part) => {
+          const subject = /(?:^|[\s>+~])(?:[a-z][\w-]*)?((?:\.-?[_a-zA-Z][\w-]*)+)$/.exec(part.trim());
+          return !!subject && subject[1].slice(1).split('.').every((cls) => element.classes.has(cls));
+        });
+        const readable = (args ?? []).filter(({ element: arg }) => !arg || !own(arg));
+        for (const { element: arg } of readable.length ? readable : args ?? []) {
+          const targets = arg ? targetsOf(arg) : null;
+          if (!targets) { out.clear(); break; }
+          for (const target of targets) out.add(target);
+        }
+        if (out.size) found = [...out];
+      }
+      settled.set(element, found);
+      return found;
+    };
+    for (const element of [...this.elements]) {
+      if (element.built) continue;
+      const targets = targetsOf(element);
+      if (!targets) {
+        element.complete = false;
+        element.grafted = true;
+        continue;
+      }
+      for (const cls of element.classes) if (element.file) this.addFileClass(element.file, cls);
+      for (const target of targets) {
+        for (const cls of element.classes) {
+          if (!target.classes.has(cls)) target.inherited.add(cls);
+          target.classes.add(cls);
+        }
+        for (const cls of element.probable) target.probable.add(cls);
+        target.children.push(...element.children);
+        if (element.open) target.open = true;
+        if (!element.complete) target.complete = false;
+      }
+      element.mergedInto = targets;
+      this.elements.delete(element);
+    }
+    for (const element of this.elements) {
+      const base = element.twinOf;
+      if (!base) continue;
+      for (const source of base.mergedInto ?? [base]) {
+        for (const cls of source.classes) {
+          if (!element.classes.has(cls)) element.inherited.add(cls);
+          element.classes.add(cls);
+        }
+        for (const cls of source.probable) element.probable.add(cls);
+      }
+      if (base.grafted) {
+        element.complete = false;
+        element.grafted = true;
+      }
+    }
   }
 
   /**
@@ -1133,15 +1764,30 @@ class MarkupModel {
 
   /** Turn class-name arguments into the elements their factories build. */
   #foldParameters() {
-    for (const [key, tags] of this.classParams) {
-      for (const value of this.callSites.get(key) || []) {
+    // A slot handed on to a factory's class slot is a class slot of the same
+    // elements: `addSubsection(…, className)` → `createCopyableText(…, className)`.
+    for (const [key, factories] of [...this.classParams]) {
+      for (const slot of this.#feeders(key)) {
+        if (!this.classParams.has(slot)) this.classParams.set(slot, new Set());
+        for (const factory of factories) this.classParams.get(slot).add(factory);
+      }
+    }
+    // Each literal passed is a twin of the factory's element: that element,
+    // with the literal for the class value it could not read.
+    for (const [key, factories] of this.classParams) {
+      for (const [value, files] of this.callSites.get(key) || []) {
         const classes = classesIn(value);
         if (!classes.certain.length && !classes.probable.length) continue;
-        for (const tag of tags) {
-          const element = new Element(tag);
-          if (tag === null) element.tagOpen = true;
-          element.addClasses(classes);
-          this.elements.add(element);
+        for (const factory of factories) {
+          for (const file of files) {
+            const element = new Element(factory.tag);
+            if (factory.tag === null || factory.tagOpen) element.tagOpen = true;
+            element.addClasses(classes);
+            element.file = file;
+            element.built = true;
+            element.twinOf = factory;
+            this.elements.add(element);
+          }
         }
       }
     }
@@ -1154,6 +1800,13 @@ class MarkupModel {
   finish() {
     this.#foldParameters();
     this.#resolveOrigins();
+    this.#resolveOpen();
+    const parameterTags = new Map();
+    for (const element of this.elements) {
+      if (element.tag || element.parameter === null) continue;
+      if (!parameterTags.has(element.parameter)) parameterTags.set(element.parameter, this.#parameterTags(element.parameter));
+      element.parameterTags = parameterTags.get(element.parameter);
+    }
     for (const element of this.elements) {
       for (const cls of element.classes) {
         this.seen.add(cls);
@@ -1169,6 +1822,10 @@ class MarkupModel {
         this.unreadable.add(cls);
         this.#recordTag(cls, element);
       }
+      if (element.grafted) {
+        for (const cls of element.classes) this.grafted.add(cls);
+        for (const cls of element.probable) this.grafted.add(cls);
+      }
       // Co-occurrence only counts when the whole class list was readable.
       if (element.complete && element.classes.size > 1) this.classSets.push(element.classes);
       this.#recordContainment(element);
@@ -1180,9 +1837,10 @@ class MarkupModel {
   }
 
   #recordTag(cls, element) {
-    if (element.tag) {
+    const tags = element.tag ? [element.tag] : element.parameterTags;
+    if (tags) {
       if (!this.tags.has(cls)) this.tags.set(cls, new Set());
-      this.tags.get(cls).add(element.tag);
+      for (const tag of tags) this.tags.get(cls).add(tag);
     } else {
       this.tagOpen.add(cls);
     }
@@ -1248,13 +1906,17 @@ class MarkupModel {
    * tree does this today — the unresolved assignments all pass through
    * parameters the model does follow — and the alternative is thousands of
    * pairs nobody can review.
+   *
+   * A grafted class — put on an element that may be any element — can join
+   * any element whatever the others are, so it is no part of the question.
    * @param {string[]} classes - The class names.
-   * @returns {boolean} False only when one of them is closed and no element was seen carrying them all.
+   * @returns {boolean} False only when one of them is closed and no element was seen carrying all the ungrafted ones.
    */
   canCoexist(classes) {
-    if (classes.length < 2) return true;
-    if (!classes.some((c) => this.closed.has(c))) return true;
-    return this.classSets.some((set) => classes.every((c) => set.has(c)));
+    const constrained = classes.filter((c) => !this.grafted.has(c));
+    if (constrained.length < 2) return true;
+    if (!constrained.some((c) => this.closed.has(c))) return true;
+    return this.classSets.some((set) => constrained.every((c) => set.has(c)));
   }
 
   /**
@@ -1265,6 +1927,26 @@ class MarkupModel {
    */
   hasContained(outer, inner) {
     return this.contains.get(outer)?.has(inner) ?? false;
+  }
+
+  /**
+   * The classes each source put on an element: its own literals, and the
+   * literals it passed to another file's factory, which are the caller's
+   * choice of class. Certain classes only — a probable one may be a prefix
+   * an interpolation extended. A class another file's code adds — a factory's
+   * own class on the element built for a caller's literal, a helper's class on
+   * the caller's element it is handed — is that file's, not the element's.
+   * @returns {Map<string, Set<string>>} Repo-relative, forward-slashed file → the classes it sets.
+   */
+  classesByFile() {
+    const out = new Map();
+    for (const [file, classes] of this.fileClasses) out.set(file, new Set(classes));
+    for (const element of this.elements) {
+      if (!element.file) continue;
+      if (!out.has(element.file)) out.set(element.file, new Set());
+      for (const cls of element.classes) if (!element.inherited.has(cls)) out.get(element.file).add(cls);
+    }
+    return out;
   }
 
   stats() {
@@ -1332,7 +2014,11 @@ function buildMarkupModel({ repoRoot, espree, eslintScope }) {
   for (const [, source] of sources) {
     for (const match of source.matchAll(/\bextends\s+([A-Za-z_$][\w$]*)/g)) extended.add(match[1]);
   }
-  for (const [file, source] of sources) harvestJS(source, file, espree, eslintScope, model, extended);
+  for (const [file, source] of sources) {
+    model.file = file.split(path.sep).join('/');
+    harvestJS(source, file, espree, eslintScope, model, extended);
+  }
+  model.file = null;
   // shell/window-shell.html: the blocks index.html wears from it — the resize
   // strip among them — are its markup too. shell/stand-in.html is the desktop
   // app's own page, which wears the shared notice (patterns/notice.css).

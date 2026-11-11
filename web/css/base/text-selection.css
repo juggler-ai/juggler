@@ -27,9 +27,12 @@
      - A descendant's own rule always beats an ancestor's regardless of order,
        so the carve-outs below (and component-level ones such as
        `settings-panel .settings-content`, or `.workspace-create-dialog` in
-       components/settings.css) hold no matter where they sit. A surface whose
-       class belongs to a component sheet is declared there, not here: ownership
-       is what the architecture lint checks, and this block owns no component.
+       components/settings.css) hold no matter where they sit.
+
+   It names surfaces other sheets own (manifest.json marks it `enumerates`)
+   because the chrome/content split is one decision, and a reader can only
+   check it whole as one list; an opt-in class scattered over the builders
+   would hide which surfaces are chrome.
    ============================================================================ */
 
 /* The highlight itself, so every platform draws the same one. An unstyled
@@ -58,7 +61,7 @@
    composer's `/` and `$` menus. `.dropdown-menu` is the shared surface class for
    all of them, so this one selector covers both presentations. */
 .dropdown-menu,
-.pp-panel {
+.project-picker-panel {
     -webkit-user-select: none;
     user-select: none;
 }
@@ -95,8 +98,8 @@ properties-panel-empty,
    prose and links, so it stays selectable like any other content.) */
 .dropdown-menu input,
 .dropdown-menu textarea,
-.pp-panel input,
-.pp-panel textarea,
+.project-picker-panel input,
+.project-picker-panel textarea,
 conversation-bar input,
 .find-bar input,
 .pinboard-panel input,

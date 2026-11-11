@@ -1,0 +1,75 @@
+/*
+ *     ▄▄ ▄▄ ▄▄  ▄▄▄▄  ▄▄▄▄ ▄▄    ▄▄▄▄▄ ▄▄▄▄
+ *     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
+ *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
+ */
+
+/* The completion dropdown: the composer's `@` file, `/` command and `$` skill
+   completions (completion-menu.js), and the path field's
+   (components/path-input.css), which reuses it. */
+.completions-menu {
+    min-width: 18rem;
+    max-width: 50rem;
+    max-height: max(60vh, 20rem);
+    list-style: none;
+    margin: 0;
+    border-color: var(--text-tertiary);
+    z-index: var(--z-above-modal);
+}
+
+/* Typing rebuilds the menu on every keystroke (completion-menu.js,
+   path-input.js); only the first one makes the popup-surface entrance. */
+.completions-menu.completions-menu--refresh {
+    animation: none;
+}
+
+.completions-menu .menu-item-path {
+    font-family: var(--font-mono);
+    font-size: var(--font-size-base);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+}
+
+.completions-menu .menu-item.dir .menu-item-path {
+    color: var(--text-secondary);
+}
+
+.completions-menu .menu-item[aria-selected="true"],
+.completions-menu .menu-item[aria-selected="true"]:hover {
+    background: color-mix(in srgb, var(--accent-blue) 25%, transparent);
+}
+
+/* Slash-command and `$`-skill rows: monospace name followed by its description.
+   Both share these classes so the two `/` and `$` completion menus read
+   identically — same colour scheme, spacing and single-line ellipsised desc. */
+.completions-menu .slash-command-item,
+.completions-menu .skill-mention-item {
+    gap: var(--space-8);
+    align-items: baseline;
+}
+
+.completions-menu .menu-item-command {
+    font-family: var(--font-mono);
+    font-size: var(--font-size-base);
+    color: var(--text-primary);
+    flex-shrink: 0;
+}
+
+.completions-menu .menu-item-desc {
+    /* Fill the row and ellipsise to the popup width rather than being clipped
+       to a short character cap — the JS cap is only a pathological-length
+       guard, so the wide popup shows as much description as fits. */
+    flex: 1;
+    min-width: 0;
+    color: var(--text-secondary);
+    font-size: var(--font-size-base);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.completions-menu .slash-command-item.danger .menu-item-command {
+    color: var(--danger);
+}

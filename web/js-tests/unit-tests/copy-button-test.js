@@ -40,7 +40,7 @@ export async function runTests() {
   let total = 0;
 
   // The default, the class the transaction view passes, and one no sheet names.
-  const classNames = [undefined, 'properties-panel-header-icon-btn tx-row-copy', 'some-future-copy-button'];
+  const classNames = [undefined, 'btn btn-icon btn-secondary transaction-row-copy', 'some-future-copy-button'];
 
   for (const className of classNames) {
     const label = className ?? '(default class)';

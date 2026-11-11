@@ -1,0 +1,16 @@
+/*
+ *     ▄▄ ▄▄ ▄▄  ▄▄▄▄  ▄▄▄▄ ▄▄    ▄▄▄▄▄ ▄▄▄▄
+ *     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
+ *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
+ */
+
+/* ============================================================================
+   Juggler context menu (right-click popup)
+   Rendered by web/js/services/context-menu-service.js as an ordinary
+   `.dropdown-menu` of `.menu-item` rows (patterns/menus.css), so it looks like
+   every other menu. Its one difference is the layer: a right-click can start
+   inside a modal or an open dropdown, so it stacks on --z-toast, above both.
+   ========================================================================== */
+.juggler-context-menu {
+    z-index: var(--z-toast);
+}

@@ -60,7 +60,7 @@ export function buildToggleRow(name, description, checked, onChange) {
   wrapper.className = 'provider-toggle-wrapper';
   const input = document.createElement('input');
   input.type = 'checkbox';
-  input.className = 'provider-toggle';
+  input.className = 'provider-toggle u-visually-hidden';
   input.id = `attention-toggle-${++toggleRowCount}`;
   input.checked = checked;
   const label = document.createElement('label');
@@ -268,7 +268,7 @@ export class NotificationsTab {
 
     const previewBtn = document.createElement('button');
     previewBtn.type = 'button';
-    previewBtn.className = 'settings-btn btn-primary small chime-preview-btn';
+    previewBtn.className = 'btn btn-sm btn-primary chime-preview-btn';
     previewBtn.textContent = t('Preview');
     previewBtn.addEventListener('click', () => previewChime());
     actions.appendChild(previewBtn);
@@ -277,7 +277,7 @@ export class NotificationsTab {
     // as Reset; previewing is the point of the button, so there's no silent roll.
     const randomBtn = document.createElement('button');
     randomBtn.type = 'button';
-    randomBtn.className = 'settings-btn small chime-random-btn';
+    randomBtn.className = 'btn btn-sm btn-secondary chime-random-btn';
     randomBtn.textContent = t('Random');
     randomBtn.addEventListener('click', () => {
       randomizeChimeParams();
@@ -289,7 +289,7 @@ export class NotificationsTab {
     // re-syncs the menus/rotary via _onAttentionPrefs, then we preview it.
     const resetBtn = document.createElement('button');
     resetBtn.type = 'button';
-    resetBtn.className = 'settings-btn small chime-reset-btn';
+    resetBtn.className = 'btn btn-sm btn-secondary chime-reset-btn';
     resetBtn.textContent = t('Reset');
     resetBtn.addEventListener('click', () => {
       resetChimeParams();
@@ -371,7 +371,7 @@ export class NotificationsTab {
 
     const input = document.createElement('input');
     input.type = 'range';
-    input.className = 'chime-rotary-input';
+    input.className = 'chime-rotary-input u-visually-hidden';
     input.min = '0';
     input.max = '1';
     input.step = '0.01';
@@ -386,7 +386,7 @@ export class NotificationsTab {
     const setValue = (/** @type {number} */ v) => {
       const clamped = Math.max(0, Math.min(1, v));
       input.value = String(clamped);
-      knob.style.setProperty('--angle', `${120 + (clamped * 300)}deg`);
+      knob.style.setProperty('--settings-chime-rotary-angle', `${120 + (clamped * 300)}deg`);
     };
 
     let dragStartY = 0;

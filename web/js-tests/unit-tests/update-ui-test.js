@@ -163,12 +163,12 @@ export async function runTests() {
         + "Updating the app won't update that server — restart it to update.", `skew: ${JSON.stringify(skew)}`);
       notice.close();
       notice.open(vmOf({ present: true, updaterState: 'ready' }));
-      const restart = [...notice.querySelectorAll('.update-notice__button')].map((b) => b.textContent);
+      const restart = [...notice.querySelectorAll('.update-notice__footer > .btn')].map((b) => b.textContent);
       assert(JSON.stringify(restart) === JSON.stringify(['Later', 'Update & restart']), `ready buttons: ${JSON.stringify(restart)}`);
       notice.close();
       notice.open(vmOf({ notice: { id: 'm', title: 'Juggler 2 is here', actions: [{ label: 'Get it', url: 'https://juggler.studio/' }] } }));
       assert(notice.querySelector('.update-notice__title').textContent === 'Juggler 2 is here', 'the manifest title is drawn as given');
-      const labels = [...notice.querySelectorAll('.update-notice__button')].map((b) => b.textContent);
+      const labels = [...notice.querySelectorAll('.update-notice__footer > .btn')].map((b) => b.textContent);
       assert(labels.includes('Get it'), `the manifest's action label is drawn as given: ${JSON.stringify(labels)}`);
     } finally {
       notice.close();
@@ -200,7 +200,7 @@ export async function runTests() {
       assert(managed && managed.textContent === 'Juggler is updated through Nix. Update it there to get this version.',
         `managed line: ${JSON.stringify(managed && managed.textContent)}`);
       assert(!notice.querySelector('.update-notice__body a'), 'the manifest\'s own download prose is not shown');
-      const labels = [...notice.querySelectorAll('.update-notice__button')].map((b) => b.textContent);
+      const labels = [...notice.querySelectorAll('.update-notice__footer > .btn')].map((b) => b.textContent);
       assert(JSON.stringify(labels) === JSON.stringify(['OK']), `managed buttons: ${JSON.stringify(labels)}`);
     } finally {
       notice.close();

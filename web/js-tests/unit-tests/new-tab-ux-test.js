@@ -191,7 +191,7 @@ export async function runTests() {
     const newId = newIds[0];
 
     const newTab = /** @type {HTMLElement|null} */ (
-      bar.querySelector(`.conversation-tab[data-conversation-id="${newId}"]`)
+      bar.querySelector(`.conversation-bar-tab[data-conversation-id="${newId}"]`)
     );
     assert(!!newTab, `expected an <li> tab for new conversation ${newId} in the bar`);
 
@@ -201,7 +201,7 @@ export async function runTests() {
     // conversation concurrently legitimately lands a tab on top. The UX
     // property is insertion at the top relative to the user's prior tabs.
     const assertAbovePreexisting = (/** @type {string} */ when) => {
-      const tabIds = Array.from(bar.querySelectorAll('.conversation-tab'))
+      const tabIds = Array.from(bar.querySelectorAll('.conversation-bar-tab'))
         .map(el => el.getAttribute('data-conversation-id'));
       const newIdx = tabIds.indexOf(newId);
       assert(newIdx !== -1, `${when}: new tab ${newId} must be in the bar`);
@@ -264,7 +264,7 @@ export async function runTests() {
     // and hidden WebViews do not reliably service requestAnimationFrame.
     renameInputAfter.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     const paintedName = /** @type {HTMLElement|null} */ (
-      newTab.querySelector('.conversation-tab-name')
+      newTab.querySelector('.conversation-bar-tab-name')
     );
     assert(!!paintedName, 'new tab must contain its painted name');
     paintedName.textContent = canonicalName;

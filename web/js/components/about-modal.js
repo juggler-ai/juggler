@@ -169,7 +169,7 @@ class AboutModal extends JugglerElement {
                 </main>
 
                 <footer class="about-footer">
-                    <button class="about-button btn-primary" id="about-close">
+                    <button class="btn btn-primary" id="about-close">
                         ${escapeHtml(t('Close'))}
                     </button>
                 </footer>

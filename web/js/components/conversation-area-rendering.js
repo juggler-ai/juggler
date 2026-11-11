@@ -135,7 +135,7 @@ export function ensurePendingMessages(area, messageList) {
     zone = document.createElement('div');
     zone.className = PENDING_ZONE_CLASS;
     const label = document.createElement('div');
-    label.className = 'pending-messages-label';
+    label.className = 'pending-messages-label caps-label';
     label.textContent = t('Queued');
     zone.appendChild(label);
   }
@@ -228,7 +228,7 @@ function ensureQueuedControls(area, el, item) {
   ensureQueuedButton(el, held, 'queued-message-edit-btn', 'icon-edit-file', t('Edit scheduled message'),
     () => editQueuedMessage(area, itemId));
   ensureQueuedButton(el, true, 'queued-message-delete-btn', 'icon-trashcan', t('Remove from queue'),
-    () => thread()?.removeQueued?.(itemId));
+    () => thread()?.removeQueued?.(itemId), true);
 }
 
 /**
@@ -241,8 +241,9 @@ function ensureQueuedControls(area, el, item) {
  * @param {string} icon - Its icon class
  * @param {string} label - Its title and accessible name
  * @param {() => void} act - What a click does
+ * @param {boolean} [destructive] - Whether it turns red under the pointer
  */
-function ensureQueuedButton(el, wanted, className, icon, label, act) {
+function ensureQueuedButton(el, wanted, className, icon, label, act, destructive = false) {
   let button = /** @type {HTMLButtonElement|null} */ (el.querySelector(`:scope > .${className}`));
   if (!wanted) {
     button?.remove();
@@ -254,7 +255,8 @@ function ensureQueuedButton(el, wanted, className, icon, label, act) {
   // A bare parameter, not a template: the CSS lint follows a parameter to the
   // literals its call sites pass, and so learns which element carries them.
   button.className = className;
-  button.classList.add('queued-message-btn', 'icon-btn');
+  button.classList.add('btn', 'btn-icon', 'btn-icon-lg');
+  if (destructive) button.classList.add('btn-danger-quiet');
   button.title = label;
   button.setAttribute('aria-label', label);
   const glyph = document.createElement('span');
@@ -402,11 +404,13 @@ export function ensureWorkspaceBanner(area, messageList) {
   const label = conversation.session?.getWorkspace(id)?.label || '';
   const signature = `${id}\u0000${label}\u0000${root}`;
 
-  const banner = existing || document.createElement('div');
-  if (banner.dataset.workspace !== signature) {
-    banner.dataset.workspace = signature;
-    banner.className = WORKSPACE_BANNER_CLASS;
-    banner.replaceChildren();
+  // A banner that has to say something else is built anew and swapped in, so
+  // the element is made where its class is set.
+  let banner = existing;
+  if (banner?.dataset.workspace !== signature) {
+    const fresh = document.createElement('div');
+    fresh.dataset.workspace = signature;
+    fresh.className = WORKSPACE_BANNER_CLASS;
 
     // The line is a way to the place it names. It is where a reader meets the
     // workspace first, and meeting it used to be all they could do: the tree,
@@ -420,7 +424,7 @@ export function ensureWorkspaceBanner(area, messageList) {
     open.title = t('Show this workspace');
 
     const lead = document.createElement('span');
-    lead.className = 'workspace-banner-lead';
+    lead.className = 'workspace-banner-lead caps-label';
     // The noun, not a preposition: the menu, the create dialog and the move dialog
     // all call this thing a workspace, and the banner is where a reader meets it
     // first.
@@ -433,7 +437,7 @@ export function ensureWorkspaceBanner(area, messageList) {
       open.appendChild(name);
     }
     const where = document.createElement('span');
-    where.className = 'workspace-banner-root';
+    where.className = 'workspace-banner-root text-truncate';
     where.textContent = root;
     // And a path behaves like a path wherever it is met: the right-click
     // Open / Reveal / Copy menu reads this hook, and of all the paths on screen
@@ -441,7 +445,9 @@ export function ensureWorkspaceBanner(area, messageList) {
     where.dataset.filePath = root;
     open.appendChild(where);
     open.addEventListener('click', () => { conversation.session?.selectWorkspace?.(id); });
-    banner.appendChild(open);
+    fresh.appendChild(open);
+    banner?.replaceWith(fresh);
+    banner = fresh;
   }
 
   // Kept at the very top, above the items and above the thread actions a column
@@ -515,16 +521,16 @@ function ensureStrandedBanner(conversation, binding, existing, messageList) {
   const { id: workspaceId, lead, lost } = binding;
   const signature = `stranded\u0000${workspaceId}\u0000${lead}\u0000${lost}`;
 
-  const banner = existing || document.createElement('div');
-  if (banner.dataset.workspace !== signature) {
-    banner.dataset.workspace = signature;
-    banner.className = `${WORKSPACE_BANNER_CLASS} workspace-banner-stranded`;
-    banner.replaceChildren();
+  let banner = existing;
+  if (banner?.dataset.workspace !== signature) {
+    const fresh = document.createElement('div');
+    fresh.dataset.workspace = signature;
+    fresh.className = `${WORKSPACE_BANNER_CLASS} workspace-banner-stranded`;
 
     const said = document.createElement('span');
-    said.className = 'workspace-banner-lead';
+    said.className = 'workspace-banner-lead caps-label';
     said.textContent = lead;
-    banner.appendChild(said);
+    fresh.appendChild(said);
 
     // First, and only where the record is what went missing: the binding this
     // conversation still carries is the last trace of that workspace anywhere,
@@ -537,7 +543,7 @@ function ensureStrandedBanner(conversation, binding, existing, messageList) {
       found.className = 'workspace-banner-reconnect';
       found.textContent = t('Put it back…');
       found.addEventListener('click', () => { void openWorkspaceReconnect(conversation); });
-      banner.appendChild(found);
+      fresh.appendChild(found);
     }
 
     const rebind = document.createElement('button');
@@ -545,8 +551,9 @@ function ensureStrandedBanner(conversation, binding, existing, messageList) {
     rebind.className = 'workspace-banner-rebind';
     rebind.textContent = t('Work in the project');
     rebind.addEventListener('click', () => { void rebindConversation(conversation, ''); });
-    banner.appendChild(rebind);
-
+    fresh.appendChild(rebind);
+    banner?.replaceWith(fresh);
+    banner = fresh;
   }
 
   if (messageList.firstElementChild !== banner) {
@@ -710,7 +717,7 @@ export function ensureThreadResult(area, messageList, footer) {
   const header = document.createElement('div');
   header.className = 'thread-result-header';
   const label = document.createElement('div');
-  label.className = 'thread-result-label';
+  label.className = 'thread-result-label caps-label';
   label.textContent = threadResultLabel(text);
   header.appendChild(label);
 
@@ -723,7 +730,7 @@ export function ensureThreadResult(area, messageList, footer) {
   // route to a different one.
   const resummariseBtn = document.createElement('button');
   resummariseBtn.type = 'button';
-  resummariseBtn.className = 'thread-result-resummarise-btn';
+  resummariseBtn.className = 'btn btn-xs btn-secondary thread-result-resummarise-btn';
   resummariseBtn.title = t('Summarise this fold again');
   resummariseBtn.setAttribute('aria-label', t('Summarise this fold again'));
   resummariseBtn.textContent = t('Re-summarise');

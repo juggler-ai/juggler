@@ -7,9 +7,9 @@
 composer-box {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: var(--space-8);
     position: relative;
-    padding: 0.3rem 1rem 0.75rem;
+    padding: var(--space-4) var(--space-16) var(--space-12);
     background: var(--bg-secondary);
 
     /* What is inside tightens on a phone-narrow box (below). Its width is its
@@ -31,7 +31,7 @@ reply-suggestions .reply-suggestion {
 composer-box composer-box-wrapper {
     display: flex;
     flex-direction: column;
-    padding: 0.875rem 1rem 1rem;
+    padding: var(--space-14) var(--space-16) var(--space-16);
 
     /* Positioning context for the paste-placeholder mirror, which is absolutely
        positioned to overlay the textarea exactly. */
@@ -52,7 +52,7 @@ composer-box textarea:not(.field-input) {
     color: var(--bubble-user-text);
     padding: 0;
     font-size: var(--font-size-md);
-    line-height: 1.5;
+    line-height: var(--leading-normal);
     resize: none;
     min-height: 0;
     max-height: none;
@@ -73,15 +73,23 @@ conversation-area.file-drag-over composer-box composer-box-wrapper {
 reply-suggestions {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.375rem;
+    gap: var(--space-6);
 
     /* The bottom padding is structural, not spacing: the composer below paints
        an opaque background from a positioned box, so it covers anything this
        row spills past its own edge. Without a gap here a chip's last
        (fractional) pixel and its whole focus outline go under the composer, and
        the button reads as clipped. */
-    padding: 0.5rem 1rem 0.25rem;
+    padding: var(--space-8) var(--space-16) var(--space-4);
     background: var(--bg-secondary);
+}
+
+/* A group column is a lens on the column to its left, not a place to type, so
+   it has no composer — nor the suggested replies that write into one. That is
+   the only reason a column hides either. */
+conversation-area[data-hide-input] composer-box,
+conversation-area[data-hide-input] reply-suggestions {
+    display: none;
 }
 
 /* Text to match the textarea's, on the shared surface above. */
@@ -90,8 +98,8 @@ reply-suggestions .reply-suggestion {
     color: var(--bubble-user-text);
     font: inherit;
     font-size: var(--font-size-md);
-    line-height: 1.5;
-    padding: 0.3rem 0.875rem;
+    line-height: var(--leading-normal);
+    padding: var(--space-4) var(--space-14);
     text-align: left;
     cursor: pointer;
 }
@@ -113,16 +121,16 @@ composer-box composer-box-attachments {
 composer-box composer-box-attachments.has-attachments {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.375rem;
-    margin-bottom: 0.5rem;
+    gap: var(--space-6);
+    margin-bottom: var(--space-8);
 }
 
 composer-box .attachment-chip {
     display: flex;
     align-items: center;
-    gap: 0.375rem;
+    gap: var(--space-6);
     max-width: 14rem;
-    padding: 0.1875rem 0.375rem;
+    padding: var(--space-2) var(--space-6);
     background: var(--bg-secondary);
     border: 0.0625rem solid var(--border-color);
     border-radius: var(--radius-lg);
@@ -155,9 +163,6 @@ composer-box .attachment-chip.text-file .attachment-icon {
 }
 
 composer-box .attachment-chip .attachment-name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
     color: var(--text-secondary);
 }
 
@@ -169,7 +174,7 @@ composer-box .attachment-chip .attachment-remove {
     cursor: pointer;
     font-size: var(--font-size-lg);
     line-height: 1;
-    padding: 0 0.125rem;
+    padding: 0 var(--space-2);
 }
 
 composer-box .attachment-chip .attachment-remove:hover {
@@ -178,57 +183,29 @@ composer-box .attachment-chip .attachment-remove:hover {
 
 /* ==========================================================================
    Control buttons (.input-ctrl-btn)
-   The same ghost chrome patterns/buttons.css gives .btn-ghost, restated here
-   because inside the composer the class belongs to this component, and every
-   rule that refines it here is in this file. The class is scoped to
-   composer-box: a model chip or a permissions-popup button elsewhere is dressed
-   by its own sheet.
-
-   Smaller and shorter than the header buttons. The icon-only buttons after this
-   section narrow its padding at the same specificity, so it comes first.
+   The composer's controls wear the ghost chrome (.btn-ghost,
+   patterns/buttons.css, whose default corner is this pill's); this is their
+   geometry, smaller and shorter than the header buttons. The class is scoped
+   to composer-box: a model chip elsewhere is dressed by its own sheet. The
+   icon-only buttons after this section narrow its padding at the same
+   specificity, so it comes first.
    ========================================================================== */
 
 composer-box .input-ctrl-btn {
     display: flex;
     align-items: center;
-    gap: 0.375rem;
-    padding: 0.25rem 0.5rem;
+    gap: var(--space-6);
+    padding: var(--space-4) var(--space-8);
     font-size: var(--font-size-sm);
     flex-shrink: 0;
     height: 1.5rem;
     white-space: nowrap;
-    border: 0.0625rem solid transparent;
-    border-radius: var(--radius-2xl);
-    background: transparent;
-    color: var(--text-secondary);
-    cursor: pointer;
-    transition: background var(--transition-base), border-color var(--transition-base), color var(--transition-base);
-}
-
-/* A press springs, as every button's does (utils/press-feedback.js). */
-composer-box .input-ctrl-btn:hover:not(:disabled) {
-    background: var(--overlay-dark-70);
-    border-color: var(--overlay-light-30);
-    color: var(--text-primary);
-    transform: none;
-}
-
-/* A disabled control button (e.g. the schedule button over an empty box) reads
-   as inert: dimmed, default cursor, no hover/active affordance. */
-composer-box .input-ctrl-btn:disabled {
-    opacity: 0.4;
-    cursor: default;
-}
-
-:root[data-theme="light"] composer-box .input-ctrl-btn:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--bg-secondary) 95%, transparent);
-    border-color: var(--text-tertiary);
 }
 
 /* Commands button - icon-only, centered */
 composer-box .commands-button {
     justify-content: center;
-    padding: 0.125rem 0.5rem;
+    padding: var(--space-2) var(--space-8);
 }
 
 composer-box .commands-button .icon-slash {
@@ -242,14 +219,67 @@ composer-box .commands-button .icon-slash {
    zoom and follows currentcolor for free. */
 composer-box .skill-button {
     justify-content: center;
-    padding: 0.125rem 0.5rem;
+    padding: var(--space-2) var(--space-8);
 }
 
 composer-box .skill-button .skill-glyph {
     font-family: var(--font-mono);
     font-size: var(--font-size-md);
-    font-weight: 700;
+    font-weight: var(--font-weight-bold);
     line-height: 1;
+}
+
+/* Skill picker popup — the composer's button-anchored `$` picker. It borrows the
+   slash-command popup's `commands-menu` class wholesale for the justified
+   two-column grid and colour scheme; these rules only add what is skill-specific.
+
+   Width: the grid's `1fr` description column has nothing to size against under
+   the base `.dropdown-menu` `width:max-content`, so pin an explicit, comfortable
+   width (clamped to the viewport on a phone) that gives every description room. */
+.skill-menu {
+    width: 32rem;
+    max-width: calc(100vw - 2rem);
+}
+
+/* Keep each description to a single ellipsised line so a long one can't wrap and
+   grow its row tall — the `commands-menu` base leaves descriptions free to wrap
+   (its slash labels are short; skill descriptions are full sentences). */
+.skill-menu .menu-item-desc {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* The skill-only footer sits inside the two-column grid, so its divider and
+   "Manage skills…" action must span both columns as ordinary full-width rows. */
+.skill-menu .menu-divider {
+    grid-column: 1 / -1;
+}
+
+.skill-menu li.skill-menu-manage {
+    display: block;
+    grid-column: 1 / -1;
+    color: var(--text-secondary);
+}
+
+/* With no skills there is no description column to size, so the popup shrinks to
+   its two lines: the message and the action under it. */
+.skill-menu.skill-menu-empty {
+    width: max-content;
+}
+
+/* The hint is a sentence, not a name/description pair: span both columns and set
+   it flush left on the rows' own gutter, so it lines up with "Manage skills…"
+   below rather than floating centred over the name column. */
+.skill-menu .menu-item-hint {
+    display: block;
+    grid-column: 1 / -1;
+    padding: var(--menu-item-padding-block) var(--menu-item-padding-inline);
+}
+
+.skill-menu .menu-hint-text {
+    text-align: left;
 }
 
 /* Expand / shrink button — icon-only, shown (JS toggles [hidden]) once the
@@ -257,7 +287,7 @@ composer-box .skill-button .skill-glyph {
    picks which. */
 composer-box .expand-input-btn {
     justify-content: center;
-    padding: 0.125rem 0.5rem;
+    padding: var(--space-2) var(--space-8);
 }
 
 composer-box .expand-input-btn > span {
@@ -321,7 +351,7 @@ composer-box .attach-btn .attach-icon svg {
 }
 
 composer-box textarea:disabled {
-    opacity: 0.5;
+    opacity: var(--disabled-opacity);
     cursor: not-allowed;
 }
 
@@ -409,8 +439,11 @@ composer-box .strategy-selector-button .strategy-icon {
     height: 0.875rem;
 }
 
-/* Icon shares the strategy colour with the label when one is defined */
-composer-box .strategy-selector-button[data-has-color="true"] .strategy-icon {
+/* Icon shares the strategy colour with the label when one is defined. The
+   button's state weighs nothing: the icon's other class is a strategy's own
+   `icon-*`, which the markup model cannot see, so any weight here reads as
+   out-ranking the syntax theme's token colours. */
+composer-box :where(.strategy-selector-button[data-has-color="true"]) .strategy-icon {
     color: var(--strategy-color);
 }
 
@@ -419,10 +452,10 @@ composer-box .strategy-selector-button[data-has-color="true"] .strategy-icon {
    already is when it sends. The session's settings are not on it: they are on
    the status line under the bubble (below), so the row never has to share its
    line with labels whose length it cannot know. */
-composer-box input-controls {
+composer-box .input-controls {
     display: flex;
     align-items: center;
-    margin-top: 1rem;
+    margin-top: var(--space-16);
 
     /* The row's one height and one material. Everything on the row — the tool
        tray, the Thread pill, Send and the cache warning — is exactly
@@ -444,6 +477,13 @@ composer-box .new-thread-btn.input-ctrl-btn {
     background: var(--composer-row-fill);
 }
 
+/* The Thread pill's own fill and outline out-rank the ghost hover
+   (.btn-ghost, patterns/buttons.css), so the pill names it. */
+composer-box .new-thread-btn.input-ctrl-btn:hover:not(:disabled) {
+    background: var(--ghost-hover-bg);
+    border-color: var(--ghost-hover-border);
+}
+
 /* Each cluster is a nowrap flex unit that never shrinks: the tools can only
    ever break between the tray and the send cluster, never mid-cluster. */
 composer-box input-controls-actions,
@@ -451,7 +491,7 @@ composer-box input-controls-send {
     display: flex;
     align-items: center;
     flex-wrap: nowrap;
-    gap: 0.5rem;
+    gap: var(--space-8);
     flex-shrink: 0;
 }
 
@@ -459,7 +499,7 @@ composer-box input-controls-send {
    Round buttons filling the tray's inner height, a little apart. Attach is last,
    at the end nearest Send, where the eye already goes. */
 composer-box input-controls-actions {
-    gap: 0.25rem;
+    gap: var(--space-4);
 }
 
 composer-box input-controls-actions .input-ctrl-btn:is(.commands-button, .skill-button, .schedule-send-btn, .expand-input-btn, .attach-btn) {
@@ -470,8 +510,7 @@ composer-box input-controls-actions .input-ctrl-btn:is(.commands-button, .skill-
     border-radius: 50%;
 }
 
-composer-box input-controls-actions .input-ctrl-btn:hover:not(:disabled),
-:root[data-theme="light"] composer-box input-controls-actions .input-ctrl-btn:hover:not(:disabled) {
+composer-box input-controls-actions .input-ctrl-btn:hover:not(:disabled) {
     border-color: transparent;
 }
 
@@ -485,7 +524,7 @@ composer-box input-controls-tools {
     flex-wrap: wrap;
     justify-content: flex-end;
     align-items: center;
-    gap: 0.375rem;
+    gap: var(--space-6);
     flex: 1 1 auto;
     min-width: 0;
     container: composer-tools / inline-size;
@@ -497,19 +536,19 @@ composer-box input-controls-tools {
    to one line down to a 360px screen. */
 @container composer (max-width: 24rem) {
     composer-box composer-box-wrapper {
-        padding-inline: 0.75rem;
+        padding-inline: var(--space-12);
     }
 
     composer-box input-controls-tools {
-        gap: 0.125rem;
+        gap: var(--space-2);
     }
 
     composer-box input-controls-actions {
-        gap: 0.125rem;
+        gap: var(--space-2);
     }
 
     composer-box input-controls-send {
-        gap: 0.25rem;
+        gap: var(--space-4);
     }
 }
 
@@ -532,25 +571,25 @@ composer-box input-controls-tools {
 }
 
 @container composer-tools (max-width: 19.25rem) {
-    composer-box:has(:is(.expand-input-btn, .context-cache-warning-btn):not([hidden])) .new-thread-btn.input-ctrl-btn {
+    composer-box:has(:is(.expand-input-btn, .context-cache-warning-btn):where(:not([hidden]))) .new-thread-btn.input-ctrl-btn {
         width: var(--composer-row-h);
         padding: 0;
         justify-content: center;
     }
 
-    composer-box:has(:is(.expand-input-btn, .context-cache-warning-btn):not([hidden])) .new-thread-btn .new-thread-label {
+    composer-box:has(:is(.expand-input-btn, .context-cache-warning-btn):where(:not([hidden]))) .new-thread-btn .new-thread-label {
         display: none;
     }
 }
 
 @container composer-tools (max-width: 21.5rem) {
-    composer-box:has(.expand-input-btn:not([hidden])):has(.context-cache-warning-btn:not([hidden])) .new-thread-btn.input-ctrl-btn {
+    composer-box:has(.expand-input-btn:where(:not([hidden]))):has(.context-cache-warning-btn:where(:not([hidden]))) .new-thread-btn.input-ctrl-btn {
         width: var(--composer-row-h);
         padding: 0;
         justify-content: center;
     }
 
-    composer-box:has(.expand-input-btn:not([hidden])):has(.context-cache-warning-btn:not([hidden])) .new-thread-btn .new-thread-label {
+    composer-box:has(.expand-input-btn:where(:not([hidden]))):has(.context-cache-warning-btn:where(:not([hidden]))) .new-thread-btn .new-thread-label {
         display: none;
     }
 }
@@ -572,15 +611,15 @@ composer-box input-controls-tools {
 composer-box composer-status-line {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--space-8);
     min-width: 0;
-    padding: 0 0.5rem;
+    padding: 0 var(--space-8);
     container: composer-status / inline-size;
 
     /* Cap an outlier strategy or model name, which ellipsises past the cap
        rather than taking the line from the other two. */
-    --config-strategy-name-max: 9rem;
-    --config-model-name-max: 13rem;
+    --composer-strategy-name-max: 9rem;
+    --composer-model-name-max: 13rem;
 }
 
 composer-box composer-status-line:empty,
@@ -590,13 +629,13 @@ composer-box composer-status-line > :is(strategy-selector, permission-controls, 
 
 /* Each control's host is a flex box so the button inside it is a flex item
    that can go below its content. A host may shrink unless its control says
-   otherwise through --status-host-shrink (a custom property contests no other
+   otherwise through --composer-status-host-shrink (a custom property contests no other
    rule's declaration, so the control needs no rule of its own over this). */
 composer-box composer-status-line > :is(strategy-selector, permission-controls, model-selector) {
     display: flex;
     align-items: center;
     min-width: 0;
-    flex-shrink: var(--status-host-shrink, 1);
+    flex-shrink: var(--composer-status-host-shrink, 1);
 }
 
 /* The model absorbs the shortfall first. Its floor keeps a few characters of
@@ -615,7 +654,7 @@ composer-box composer-status-line > model-selector {
 /* Permissions keeps its whole label: it is never more than a word or two, and
    it narrows by shedding parts of it (below), never by being clipped. */
 composer-box composer-status-line > permission-controls {
-    --status-host-shrink: 0;
+    --composer-status-host-shrink: 0;
 }
 
 /* Text, not pills: no outline, no fill, the line's small secondary type. Each
@@ -624,7 +663,7 @@ composer-box composer-status-line button.input-ctrl-btn {
     min-width: 0;
     max-width: 100%;
     height: auto;
-    padding: 0.25rem 0.5rem;
+    padding: var(--space-4) var(--space-8);
     overflow: hidden;
     flex-shrink: 1;
     border-radius: var(--radius-lg);
@@ -632,12 +671,10 @@ composer-box composer-status-line button.input-ctrl-btn {
 }
 
 /* A control answers the pointer with a faint wash and the primary text colour
-   — no ring, which would turn the text back into a pill. Both themes, because
-   the light theme's own hover rule sets a border colour. */
+   — no ring, which would turn the text back into a pill, so the ghost hover's
+   border colour is cleared. */
 composer-box composer-status-line .input-ctrl-btn:hover:not(:disabled),
-composer-box composer-status-line .input-ctrl-btn.open,
-:root[data-theme="light"] composer-box composer-status-line .input-ctrl-btn:hover:not(:disabled),
-:root[data-theme="light"] composer-box composer-status-line .input-ctrl-btn.open {
+composer-box composer-status-line .input-ctrl-btn[aria-expanded="true"]:where(.strategy-selector-button, .permission-btn) {
     border-color: transparent;
     background: color-mix(in srgb, var(--text-primary) 6%, transparent);
     color: var(--text-primary);
@@ -652,7 +689,7 @@ composer-box composer-status-line .input-ctrl-btn::after {
     flex-shrink: 0;
     width: 0.3rem;
     height: 0.3rem;
-    margin: -0.1875rem 0 0 0.125rem;
+    margin: calc(-1 * var(--space-2)) 0 0 var(--space-2);
     border-right: 0.09rem solid currentcolor;
     border-bottom: 0.09rem solid currentcolor;
     transform: rotate(45deg);
@@ -702,11 +739,8 @@ composer-box .permission-btn {
    max-width bounds an outlier name. */
 composer-box .strategy-selector-button .strategy-name {
     flex: 0 1 auto;
-    max-width: var(--config-strategy-name-max);
+    max-width: var(--composer-strategy-name-max);
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 
@@ -714,7 +748,7 @@ composer-box .strategy-selector-button .strategy-name {
    height are the row's shared chrome (above, with the bar and the tray); with
    too little room in the tools it folds to the arrow alone (above). */
 composer-box .new-thread-btn.input-ctrl-btn {
-    padding: 0 0.6875rem 0 0.625rem;
+    padding: 0 var(--space-10) 0 var(--space-10);
 }
 
 .new-thread-btn .new-thread-arrow {
@@ -743,30 +777,30 @@ composer-box .schedule-send-btn .schedule-send-icon {
 
 /* Delay picker — extends the .dropdown-menu base (surface, border, shadow,
    positioning); this owns only the internal layout. */
-.dropdown-menu.schedule-send-menu.show {
+.dropdown-menu.schedule-send-menu.is-open {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: var(--space-16);
     padding: var(--popup-padding-inline);
     min-width: 15rem;
 }
 
 .schedule-send-menu .schedule-send-heading {
     font-size: var(--font-size-sm);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     color: var(--text-secondary);
 }
 
 .schedule-send-menu .schedule-preset-row {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.375rem;
+    gap: var(--space-6);
 }
 
 .schedule-send-menu .schedule-preset {
     flex: 1 1 auto;
     min-width: 2.75rem;
-    padding: 0.1875rem 0.5rem;
+    padding: var(--space-2) var(--space-8);
     font-size: var(--font-size-sm);
     text-align: center;
     color: var(--text-primary);
@@ -783,14 +817,14 @@ composer-box .schedule-send-btn .schedule-send-icon {
 
 .schedule-send-menu .schedule-steppers {
     display: flex;
-    gap: 2rem;
+    gap: var(--space-32);
 }
 
 .schedule-send-menu .schedule-stepper {
     flex: 1 1 0;
     display: flex;
     align-items: center;
-    gap: 0.375rem;
+    gap: var(--space-6);
 }
 
 .schedule-send-menu .schedule-stepper-btn {
@@ -826,30 +860,18 @@ composer-box .schedule-send-btn .schedule-send-icon {
 
 .schedule-send-menu .schedule-actions {
     display: flex;
-    gap: 0.5rem;
+    gap: var(--space-8);
 }
 
 .schedule-send-menu .schedule-confirm-btn {
     flex: 1;
-    padding: 0.375rem 0.75rem;
-    font-size: var(--font-size-base);
-    color: var(--text-on-accent);
-    background: var(--accent-blue);
-    border: none;
-    border-radius: var(--radius-md);
-    cursor: pointer;
-}
-
-.schedule-send-menu .schedule-confirm-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
 }
 
 /* The other wait, below the delay block: full-width and quiet, so the accent
    "Schedule to send at HH:MM" stays the picker's primary action. */
 .schedule-send-menu .schedule-turn-end-btn {
     width: 100%;
-    padding: 0.375rem 0.75rem;
+    padding: var(--space-6) var(--space-12);
     font-size: var(--font-size-base);
     color: var(--text-primary);
     background: var(--bg-tertiary);
@@ -864,7 +886,7 @@ composer-box .schedule-send-btn .schedule-send-icon {
 }
 
 .schedule-send-menu .schedule-turn-end-btn:disabled {
-    opacity: 0.5;
+    opacity: var(--disabled-opacity);
     cursor: not-allowed;
 }
 
@@ -954,8 +976,8 @@ composer-box.touch-composer input-controls {
    small for a finger. The extra height is vertical padding only, so it costs
    the line no width. */
 composer-box.touch-composer composer-status-line button.input-ctrl-btn {
-    padding-top: 0.5rem;
-    padding-bottom: 0.5rem;
+    padding-top: var(--space-8);
+    padding-bottom: var(--space-8);
 }
 
 /* Touch has no true hover, but a tap leaves a sticky :hover behind it, which
@@ -963,16 +985,13 @@ composer-box.touch-composer composer-status-line button.input-ctrl-btn {
    Pin hover to each control's resting look; a press still springs, as every
    button's does (utils/press-feedback.js). */
 composer-box.touch-composer input-controls-actions .input-ctrl-btn:hover:not(:disabled),
-composer-box.touch-composer composer-status-line .input-ctrl-btn:hover:not(:disabled, .open),
-:root[data-theme="light"] composer-box.touch-composer input-controls-actions .input-ctrl-btn:hover:not(:disabled),
-:root[data-theme="light"] composer-box.touch-composer composer-status-line .input-ctrl-btn:hover:not(:disabled, .open) {
+composer-box.touch-composer composer-status-line .input-ctrl-btn:hover:not(:disabled, [aria-expanded="true"]:where(.strategy-selector-button, .permission-btn)) {
     background: transparent;
     border-color: transparent;
     color: var(--text-secondary);
 }
 
-composer-box.touch-composer .new-thread-btn.input-ctrl-btn:hover:not(:disabled),
-:root[data-theme="light"] composer-box.touch-composer .new-thread-btn.input-ctrl-btn:hover:not(:disabled) {
+composer-box.touch-composer input-controls-send .new-thread-btn:hover:not(:disabled) {
     background: var(--composer-row-fill);
     border-color: var(--border-color);
     color: var(--text-secondary);
@@ -1001,29 +1020,23 @@ composer-box .permission-btn .shell-lock-icon {
 permission-controls {
     display: flex;
     align-items: center;
-    gap: 0.375rem;
+    gap: var(--space-6);
 }
 
 /* Permission button states — only the colour cues are bespoke; the ghost
-   chrome (incl. the borderless rest state for `.ask`) comes from .input-ctrl-btn. */
+   chrome (incl. the borderless rest state for `.ask`) comes from .btn-ghost. */
 composer-box .permission-btn.allowed {
-    color: var(--accent-green);
+    color: var(--success);
+}
+
+composer-box .permission-btn.allowed:hover:not(:disabled) {
+    color: var(--text-primary);
 }
 
 /* While its popup is open the permission button holds the house hover chrome. */
-composer-box .permission-btn.open {
-    background: var(--overlay-dark-70);
-    border-color: var(--overlay-light-30);
-}
-
-:root[data-theme="light"] composer-box .permission-btn.open {
-    background: color-mix(in srgb, var(--bg-secondary) 95%, transparent);
-    border-color: var(--text-tertiary);
-}
-
-/* Light theme for permission buttons */
-:root[data-theme="light"] composer-box .permission-btn.allowed {
-    color: var(--accent-green);
+composer-box .permission-btn[aria-expanded="true"] {
+    background: var(--ghost-hover-bg);
+    border-color: var(--ghost-hover-border);
 }
 
 /* Permissions popup — extends .dropdown-menu base.

@@ -268,7 +268,7 @@ export class DefaultsTab {
 
     const textarea = document.createElement('textarea');
     textarea.id = 'auto-name-instruction-input';
-    textarea.className = 'settings-value-input';
+    textarea.className = 'settings-value-input field-input field-input-sm';
     textarea.rows = 4;
     // The placeholder is the exact built-in title instruction (shipped from the
     // server via config, so it can't drift) — it shows the shape and tone a
@@ -410,7 +410,7 @@ export class DefaultsTab {
     container.innerHTML = '';
 
     const heading = document.createElement('div');
-    heading.className = 'settings-section-heading';
+    heading.className = 'settings-section-heading caps-label-lg';
     heading.textContent = t('Context');
     container.appendChild(heading);
 
@@ -485,7 +485,7 @@ export class DefaultsTab {
     // people reason about is "twenty million", and a field asking them to count
     // zeroes invites the slip that switches the guard off.
     const limitsHeading = document.createElement('div');
-    limitsHeading.className = 'settings-section-heading';
+    limitsHeading.className = 'settings-section-heading caps-label-lg';
     limitsHeading.textContent = t('Sub-agent limits');
     container.appendChild(limitsHeading);
 
@@ -587,7 +587,7 @@ export class DefaultsTab {
    */
   _appendDiffSettings(container) {
     const heading = document.createElement('div');
-    heading.className = 'settings-section-heading';
+    heading.className = 'settings-section-heading caps-label-lg';
     heading.textContent = t('Diffs');
     container.appendChild(heading);
 
@@ -664,7 +664,7 @@ export class DefaultsTab {
   _appendNumberField(container, opts) {
     if (opts.heading) {
       const heading = document.createElement('div');
-      heading.className = 'settings-section-heading';
+      heading.className = 'settings-section-heading caps-label-lg';
       heading.textContent = opts.heading;
       container.appendChild(heading);
     }

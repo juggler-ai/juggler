@@ -803,27 +803,27 @@ function splitSelectorList(list) {
 const EXPORT_CSS = `
 html, body { height: auto; overflow: visible; }
 body { margin: 0; background: var(--bg-primary); color: var(--text-primary); }
-.export-page { box-sizing: border-box; max-width: 52rem; margin: 0 auto; padding: 2.5rem 1.25rem 1.5rem; }
-.export-header { margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-divider); }
-.export-header h1 { margin: 0; font-size: var(--font-size-2xl); font-weight: 600; line-height: 1.25; }
-.export-meta { margin: 0.35rem 0 0; color: var(--text-secondary); font-size: var(--font-size-sm); }
-.export-items { gap: 0.25rem; }
+.export-page { box-sizing: border-box; max-width: 52rem; margin: 0 auto; padding: var(--space-40) var(--space-20) var(--space-24); }
+.export-header { margin-bottom: var(--space-24); padding-bottom: var(--space-16); border-bottom: 1px solid var(--border-divider); }
+.export-header h1 { margin: 0; font-size: var(--font-size-2xl); font-weight: var(--font-weight-semibold); line-height: var(--leading-snug); }
+.export-meta { margin: var(--space-6) 0 0; color: var(--text-secondary); font-size: var(--font-size-sm); }
+.export-items { gap: var(--space-4); }
 .export-items > * { display: block; }
 .export-items .action-result-summary { white-space: normal; overflow-wrap: anywhere; }
-.export-tool-details { margin: 0.25rem 0 0.5rem; font-size: var(--font-size-sm); }
+.export-tool-details { margin: var(--space-4) 0 var(--space-8); font-size: var(--font-size-sm); }
 .export-tool-details > summary { cursor: pointer; color: var(--text-secondary); user-select: none; }
-.export-tool-details[open] > summary { margin-bottom: 0.25rem; }
-.export-tool-section h4 { margin: 0.5rem 0 0.25rem; font-size: var(--font-size-xs); font-weight: 600;
-  color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
-.export-tool-section pre { margin: 0; max-height: 32rem; overflow: auto; padding: 0.5rem 0.75rem;
-  background: var(--bg-code-medium); border: 1px solid var(--border-code); border-radius: var(--radius-md);
+.export-tool-details[open] > summary { margin-bottom: var(--space-4); }
+.export-tool-section h4 { margin: var(--space-8) 0 var(--space-4); font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold);
+  color: var(--text-secondary); text-transform: uppercase; letter-spacing: var(--tracking-caps); }
+.export-tool-section pre { margin: 0; max-height: 32rem; overflow: auto; padding: var(--space-8) var(--space-12);
+  background: var(--bg-code); border: 1px solid var(--border-code); border-radius: var(--radius-md);
   font-family: var(--font-mono); font-size: var(--font-size-xs); white-space: pre-wrap; overflow-wrap: anywhere; }
 .export-tool-section pre code { font: inherit; white-space: inherit; }
-.export-withheld { margin: 0.25rem 0; color: var(--text-tertiary); font-size: var(--font-size-xs); font-style: italic; }
-.export-images { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
+.export-withheld { margin: var(--space-4) 0; color: var(--text-tertiary); font-size: var(--font-size-xs); font-style: italic; }
+.export-images { display: flex; flex-wrap: wrap; gap: var(--space-8); margin-top: var(--space-8); }
 .export-images img, .user-message-attachment { max-width: 100%; height: auto; }
 .export-image { max-height: 24rem; border-radius: var(--radius-md); }
-.export-footer { margin-top: 2.5rem; padding-top: 1rem; border-top: 1px solid var(--border-divider);
+.export-footer { margin-top: var(--space-40); padding-top: var(--space-16); border-top: 1px solid var(--border-divider);
   color: var(--text-tertiary); font-size: var(--font-size-xs); text-align: center; }
 .export-footer a { color: inherit; }
 @media print { .export-tool-details > summary { display: none; } }

@@ -231,7 +231,7 @@ export async function runTests() {
   } catch (e) { failed++; errors.push(`re-grow cancels pending shrink: ${e.message}`); }
 
   // G — rate is applied to every animation via updatePlaybackRate, and clamped.
-  // This is what keeps the cascade from jumping: nothing rewrites --duration.
+  // This is what keeps the cascade from jumping: nothing rewrites --spinner-duration.
   try {
     const el = mount(true); mounted.push(el);
 

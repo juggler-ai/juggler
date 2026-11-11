@@ -343,7 +343,7 @@ function requestDockBounce() {
  * @private
  */
 function tabElement(convId) {
-  return document.querySelector(`.conversation-tab[data-conversation-id="${CSS.escape(convId)}"]`);
+  return document.querySelector(`.conversation-bar-tab[data-conversation-id="${CSS.escape(convId)}"]`);
 }
 
 /**

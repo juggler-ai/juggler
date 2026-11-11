@@ -10,9 +10,10 @@
        cursors/scrollbars/widgets against the light theme (see tokens/theme-dark.css). */
     color-scheme: light;
 
-    /* Font weights - single source of truth */
+    /* Font weights, by role: see tokens/theme-dark.css. */
     --font-weight-normal: 400;
     --font-weight-medium: 500;
+    --font-weight-semibold: 600;
     --font-weight-bold: 700;
 
     /* Background colors */
@@ -38,6 +39,15 @@
     --accent-orange: #bf8700;
     --accent-red: #d1242f;
     --accent-purple: #8250df;
+
+    /* The strong accents and the colour roles: see tokens/theme-dark.css. */
+    --accent-blue-strong: #0550ae;
+    --accent-green-strong: #116329;
+    --accent-red-strong: #a40e26;
+    --danger: var(--accent-red);
+    --success: var(--accent-green);
+    --warning: var(--accent-yellow);
+    --info: var(--accent-blue);
 
     /* Text-selection highlight (see TEXT SELECTION POLICY). The colour WebKit
        paints for a light-appearance selection on macOS: over white it settles
@@ -195,32 +205,27 @@
     --ci-family-badge-thread: var(--ci-preset-badge-magenta);
 
     /* Code block specific colors */
-    --bg-code-dark: #f6f8fa;
-    --bg-code-medium: #f0f3f6;
+    --bg-code-deep: #f6f8fa;
+    --bg-code: #f0f3f6;
     --border-code: #d0d7de;
     --text-code: #1f2328;
 
     /* Additional background/border colors (light theme) */
     --bg-tertiary: #eaeef2;
-    --bg-dark-alt: #eaeef2;
     --border-subtle: rgb(0 0 0 / 8%);
-    --error-color: var(--accent-red);
 
     /* A QR code is dark on light in every theme: scanners read an inverted one badly. */
     --qr-light: #fff;
     --qr-dark: #000;
-    --accent-text: var(--accent-blue);
     --accent-green-muted: #1a7f37;
-    --accent-blue-light: #0969da;
-    --accent-green-bright: #1a7f37;
-    --accent-red-soft: #d1242f;
 
-    /* Overlay colors — inverted for light backgrounds so hover/active states remain visible */
-    --overlay-light-5: rgb(0 0 0 / 3%);
-    --overlay-light-8: rgb(0 0 0 / 5%);
-    --overlay-light-10: rgb(0 0 0 / 8%);
-    --overlay-light-20: rgb(0 0 0 / 12%);
-    --overlay-light-30: rgb(0 0 0 / 18%);
+    /* Washes (see tokens/theme-dark.css): black, lighter than the dark theme's
+       white, because a dark tint on white reads at a smaller strength. */
+    --wash-1: rgb(0 0 0 / 3%);
+    --wash-2: rgb(0 0 0 / 5%);
+    --wash-3: rgb(0 0 0 / 8%);
+    --wash-4: rgb(0 0 0 / 12%);
+    --wash-5: rgb(0 0 0 / 18%);
     --item-selected-bg: rgb(0 0 0 / 8%);
     --item-selected-strong-bg: rgb(0 0 0 / 15%);
 
@@ -234,6 +239,19 @@
     --tooltip-bg: #fff;
     --tooltip-text: var(--text-primary);
     --tooltip-shadow: 0 0.5rem 1.25rem rgb(0 0 0 / 22%);
+
+    /* Ghost-button hover (light): a near-white wash under a grey hairline. */
+    --ghost-hover-bg: color-mix(in srgb, var(--bg-secondary) 95%, transparent);
+    --ghost-hover-border: var(--text-tertiary);
+
+    /* The dropped-down permissions popup (light): a short, faint shadow. */
+    --permissions-popup-shadow: 0 0.25rem 1rem var(--overlay-dark-15);
+
+    /* The update progress pill (light): fill and track both stay light so the
+       dark label reads over both, and a light shadow crisps its glyph edges
+       over the blue. */
+    --update-progress-fill: color-mix(in srgb, var(--accent-blue) 30%, transparent);
+    --update-progress-label-shadow: color-mix(in srgb, var(--bg-secondary) 65%, transparent);
 
     /* Diff highlighting (light theme) */
     --diff-removed-text: #cf222e;

@@ -57,7 +57,7 @@ async function hostShell(search, heldId) {
   const session = await until(() => win.jugglerApp?.getSession()?.conversations.get(heldId) && win.jugglerApp.getSession(),
     'the shell to load the session', 20000);
   const doc = /** @type {Document} */ (frame.contentDocument);
-  await until(() => doc.querySelector('conversation-tab.active'), 'the shell to draw its active tab', 20000);
+  await until(() => doc.querySelector('conversation-tab.is-active'), 'the shell to draw its active tab', 20000);
   return { frame, win, doc, session };
 }
 
@@ -89,7 +89,7 @@ const conversationDeepLinkTest = {
 
     const linked = await hostShell(`?c=${encodeURIComponent(target)}`, target);
     try {
-      const active = /** @type {any} */ (linked.doc.querySelector('conversation-tab.active'));
+      const active = /** @type {any} */ (linked.doc.querySelector('conversation-tab.is-active'));
       const failures = [];
       if (linked.session.visibleConversationId !== target) {
         failures.push(`the shell opened on ${linked.session.visibleConversationId}, not the linked ${target} (stored: ${before?.activeConversationId})`);

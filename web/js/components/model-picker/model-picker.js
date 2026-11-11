@@ -516,7 +516,7 @@ class ModelPicker extends JugglerElement {
       ? `<span class="model-selected-tick" aria-hidden="true">${CHECK_SVG}</span>`
       : '';
     return `
-            <li class="menu-item model-selection-item ${active ? 'active' : ''} ${classes}" ${dataAttrs}>
+            <li class="menu-item model-selection-item ${active ? 'menu-item-selected' : ''} ${classes}" ${dataAttrs}>
                 ${selectedTick}
                 <span class="model-item-name">${label}</span>
             </li>
@@ -596,7 +596,7 @@ class ModelPicker extends JugglerElement {
           // i18n-ignore: markup around a model name (data) and an already-translated note
           label: `${escapeHtml(displayName)} <span class="menu-item-note">${escapeHtml(disabledNote)}</span>`,
           active: isCurrent,
-          classes: 'unavailable',
+          classes: 'menu-item-unavailable',
         });
       }
       // The only hidden model that reaches here is the one already in effect. Say
@@ -614,7 +614,7 @@ class ModelPicker extends JugglerElement {
     });
 
     const toggle = `<button type="button" class="provider-view-toggle" data-provider="${escapeHtml(provider.name)}" title="${escapeHtml(t('Toggle model list: none / top / all'))}">${escapeHtml(t('{state, select, none {none} top {top} other {all}}', { state }))}</button>`;
-    const header = `<li class="menu-header provider-menu-header"><span class="menu-header-label">${escapeHtml(provider.displayName)}</span>${toggle}</li>`;
+    const header = `<li class="menu-header menu-header-plain caps-label provider-menu-header"><span class="menu-header-label">${escapeHtml(provider.displayName)}</span>${toggle}</li>`;
     const group = items.length ? `<menu class="menu-group">${items.join('')}</menu>` : '';
     return `${header}${group}`;
   }
@@ -670,13 +670,13 @@ class ModelPicker extends JugglerElement {
       const thinkingAttr = ` data-thinking="${escapeHtml(r.thinking || '')}"`;
       const tierAttr = ` data-service-tier="${escapeHtml(r.serviceTier || '')}"`;
       return `
-                <li class="menu-item recent-model${active ? ' active' : ''}" data-provider="${escapeHtml(r.provider)}" data-model="${escapeHtml(r.model)}"${thinkingAttr}${tierAttr}>
+                <li class="menu-item recent-model${active ? ' menu-item-selected' : ''}" data-provider="${escapeHtml(r.provider)}" data-model="${escapeHtml(r.model)}"${thinkingAttr}${tierAttr}>
                     <span class="recent-model-name">${escapeHtml(label)}${chip}${tierChip}</span>
                     <span class="recent-model-provider">${escapeHtml(providerLabel)}</span>
                 </li>`;
     }).join('');
 
-    return `<div class="model-picker-recent-label">${escapeHtml(t('Recent'))}</div><menu class="recent-model-list">${items}</menu>`;
+    return `<div class="model-picker-recent-label caps-label">${escapeHtml(t('Recent'))}</div><menu class="recent-model-list">${items}</menu>`;
   }
 
   /**
@@ -688,8 +688,8 @@ class ModelPicker extends JugglerElement {
   _listHTML() {
     if (this._loading) {
       return `
-                <li class="menu-item unavailable">
-                    <juggler-spinner style="--size: 0.875rem"></juggler-spinner>
+                <li class="menu-item menu-item-unavailable">
+                    <juggler-spinner style="--spinner-size: 0.875rem"></juggler-spinner>
                     <span>${escapeHtml(t('Loading providers…'))}</span>
                 </li>
             `;
@@ -795,7 +795,7 @@ class ModelPicker extends JugglerElement {
     if (!cfg?.provider || !cfg?.model) {
       return `
             <div class="model-current">
-                <div class="model-current-label">${escapeHtml(t('Current model'))}</div>
+                <div class="model-current-label caps-label">${escapeHtml(t('Current model'))}</div>
                 <div class="model-current-name model-current-name--muted">${escapeHtml(t('No model selected'))}</div>
             </div>`;
     }
@@ -821,7 +821,7 @@ class ModelPicker extends JugglerElement {
 
     return `
             <div class="model-current">
-                <div class="model-current-label">${escapeHtml(t('Current model'))}</div>
+                <div class="model-current-label caps-label">${escapeHtml(t('Current model'))}</div>
                 <div class="model-current-name">${escapeHtml(modelLabel(entry?.displayName, cfg.model))}</div>
                 <div class="model-current-sub">${escapeHtml(subParts.join(' · '))}${assumedHTML}</div>${this._switchHTML(providerEntry)}${this._usageHTML(cfg.provider)}
             </div>`;
@@ -888,7 +888,7 @@ class ModelPicker extends JugglerElement {
 
   render() {
     this._rendered = true;
-    this.classList.add('dropdown-menu', 'model-picker', 'show');
+    this.classList.add('dropdown-menu', 'model-picker', 'is-open');
     // A dialog, not a menu: it holds a filter field, the tuning controls and
     // buttons beside its rows.
     this.setAttribute('role', 'dialog');
@@ -912,7 +912,7 @@ class ModelPicker extends JugglerElement {
             <div class="model-picker-recent">${this._lastRecentHTML}</div>
             <div class="model-picker-list">
                 <div class="model-picker-filter">
-                    <input type="text" class="model-picker-filter-input field-input" aria-label="${escapeHtml(t('Filter models'))}" placeholder="${escapeHtml(t('Filter models'))}" value="${escapeHtml(this._filter)}">
+                    <input type="text" class="model-picker-filter-input field-input field-input-sm" aria-label="${escapeHtml(t('Filter models'))}" placeholder="${escapeHtml(t('Filter models'))}" value="${escapeHtml(this._filter)}">
                 </div>
                 <menu class="model-picker-rows">${this._lastListHTML}</menu>
             </div>
@@ -1098,7 +1098,7 @@ class ModelPicker extends JugglerElement {
       this._emit(null);
       return;
     }
-    if (item.classList.contains('unavailable')) return;
+    if (item.classList.contains('menu-item-unavailable')) return;
     const providerName = item.getAttribute('data-provider');
     const modelName = item.getAttribute('data-model');
     if (!providerName || !modelName) return;
@@ -1131,7 +1131,7 @@ class ModelPicker extends JugglerElement {
   _navRows() {
     return /** @type {HTMLElement[]} */ (Array.from(this.querySelectorAll(
       '.model-picker-recent .menu-item,'
-      + ' .model-picker-rows .menu-item:not(.unavailable):not(.menu-item-hint)'
+      + ' .model-picker-rows .menu-item:not(.menu-item-unavailable):not(.menu-item-hint)'
     )));
   }
 
@@ -1141,7 +1141,7 @@ class ModelPicker extends JugglerElement {
    */
   _applyCursor() {
     const rows = this._navRows();
-    rows.forEach((row, i) => row.classList.toggle('nav-active', i === this._cursor));
+    rows.forEach((row, i) => row.classList.toggle('is-cursor', i === this._cursor));
     const active = this._cursor >= 0 ? rows[this._cursor] : undefined;
     if (active) active.scrollIntoView({ block: 'nearest' });
   }

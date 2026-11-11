@@ -375,7 +375,7 @@ class ConversationBar extends JugglerElement {
       const target = /** @type {HTMLElement|null} */ (e.target);
       if (!target) return;
       if (target.closest(
-        '.conversation-tab, .conversation-box, .info-card, col-resize-handle, button, a, input, textarea, select',
+        '.conversation-bar-tab, .conversation-box, .info-card, col-resize-handle, button, a, input, textarea, select',
       )) return;
       this._enterTabListFocus();
     });
@@ -512,7 +512,7 @@ class ConversationBar extends JugglerElement {
 
   /** @private */
   _scrollActiveTabIntoView() {
-    const activeTab = /** @type {HTMLElement|null} */ (this.querySelector('.conversation-tab.active'));
+    const activeTab = /** @type {HTMLElement|null} */ (this.querySelector('.conversation-bar-tab[aria-current="true"]'));
     activeTab?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
   }
 
@@ -605,7 +605,7 @@ class ConversationBar extends JugglerElement {
     const id = this._session.visibleConversationId;
     if (!id) return false;
     const tab = /** @type {HTMLElement|null} */ (
-      this.querySelector(`.conversation-tab[data-conversation-id="${CSS.escape(id)}"]:not(.drag-ghost)`));
+      this.querySelector(`.conversation-bar-tab[data-conversation-id="${CSS.escape(id)}"]:not(.drag-ghost)`));
     const list = tab?.parentElement;
     if (!tab || !list) return false;
 
@@ -1208,7 +1208,7 @@ class ConversationBar extends JugglerElement {
     addButton.innerHTML = `
       <button class="conversation-add" type="button"
               title="${escapeHtml(t('New conversation'))}" data-shortcut-id="new-conversation"
-              aria-label="${escapeHtml(t('Create new conversation'))}">${ADD_ICON_SVG}<span class="conversation-box-new-label"><span class="conversation-box-new-label-full">${escapeHtml(t('New conversation'))}</span><span class="conversation-box-new-label-short">${escapeHtml(t('Conversation'))}</span></span></button>
+              aria-label="${escapeHtml(t('Create new conversation'))}">${ADD_ICON_SVG}<span class="conversation-box-new-label text-truncate"><span class="conversation-box-new-label-full">${escapeHtml(t('New conversation'))}</span><span class="conversation-box-new-label-short">${escapeHtml(t('Conversation'))}</span></span></button>
     `;
     addButton.querySelector('.conversation-add')?.addEventListener('click', () => this._createConversation());
     return addButton;
@@ -1227,7 +1227,7 @@ class ConversationBar extends JugglerElement {
     newWorkspace.innerHTML = `
       <button class="conversation-box-new-button" type="button"
                title="${escapeHtml(t('Create a new workspace, or a group to keep conversations together'))}"
-               aria-label="${escapeHtml(t('New workspace or group'))}">${ADD_ICON_SVG}<span class="conversation-box-new-label"><span class="conversation-box-new-label-full">${escapeHtml(t('New workspace or group'))}</span><span class="conversation-box-new-label-short">${escapeHtml(t('Workspace/Group'))}</span></span></button>
+               aria-label="${escapeHtml(t('New workspace or group'))}">${ADD_ICON_SVG}<span class="conversation-box-new-label text-truncate"><span class="conversation-box-new-label-full">${escapeHtml(t('New workspace or group'))}</span><span class="conversation-box-new-label-short">${escapeHtml(t('Workspace/Group'))}</span></span></button>
     `;
     newWorkspace.querySelector('button')?.addEventListener('click', () => { void this._createWorkspace(); });
     return newWorkspace;
@@ -1428,7 +1428,7 @@ class ConversationBar extends JugglerElement {
       const onTheBox = (target) => {
         if (!target || target.closest('button')) return false;
         if (target.closest('.conversation-box-top')) return true;
-        return !dragged.querySelector('.conversation-tab');
+        return !dragged.querySelector('.conversation-bar-tab');
       };
 
       // Selecting a box is selecting a workspace, and it is done the way a tab
@@ -1482,7 +1482,6 @@ class ConversationBar extends JugglerElement {
     // same colours: the strip is one list of things to choose between, and it
     // was asked once, by render(), which thing that is.
     const chosen = selectedWorkspaceId === workspace.id;
-    box.classList.toggle('active', chosen);
     box.setAttribute('aria-current', chosen ? 'true' : 'false');
 
     return /** @type {HTMLElement} */ (box.querySelector('.conversation-box-tabs'));
@@ -1605,7 +1604,7 @@ class ConversationBar extends JugglerElement {
     return /** @type {HTMLElement[]} */ (Array.from(container.children)).filter((child) =>
       child !== dragged
       && !child.classList.contains('drag-ghost')
-      && (child.classList.contains('conversation-tab')
+      && (child.classList.contains('conversation-bar-tab')
         || child.classList.contains('conversation-box')
         || (child.classList.contains('conversation-box-empty') && !child.hidden)));
   }
@@ -1747,7 +1746,7 @@ class ConversationBar extends JugglerElement {
     const places = new Map();
 
     for (const slot of this._dropSlots(tabsMenu, null)) {
-      if (slot.classList.contains('conversation-tab')) {
+      if (slot.classList.contains('conversation-bar-tab')) {
         const id = slot.dataset.conversationId;
         if (id) order.push(id);
         continue;
@@ -1760,7 +1759,7 @@ class ConversationBar extends JugglerElement {
       // members come after it in the order, which is what makes that reading
       // land the box in front of them again.
       places.set(workspaceId, order[order.length - 1] ?? 'head');
-      for (const member of Array.from(slot.querySelectorAll('.conversation-tab'))) {
+      for (const member of Array.from(slot.querySelectorAll('.conversation-bar-tab'))) {
         const id = /** @type {HTMLElement} */ (member).dataset.conversationId;
         if (id) order.push(id);
       }
@@ -1791,7 +1790,7 @@ class ConversationBar extends JugglerElement {
     if (!tab) {
       // Create new tab element
       tab = document.createElement('li');
-      tab.className = 'conversation-tab';
+      tab.className = 'conversation-bar-tab';
       tab.dataset.conversationId = conv.id;
 
       // The status circle is the shared badge circle (patterns/item-badge.css):
@@ -1803,20 +1802,20 @@ class ConversationBar extends JugglerElement {
       // the .has-scheduled-send class _refreshTabStatus sets.
       const assistantSvg = TYPE_ICONS.assistant;
       tab.innerHTML = `
-        <span class="item-circle conversation-tab-status color-meta" aria-hidden="true">
-          <span class="conversation-tab-glyph conversation-tab-glyph-assistant">${assistantSvg}</span>
-          <span class="conversation-tab-glyph conversation-tab-glyph-question icon-question"></span>
-          <span class="conversation-tab-glyph conversation-tab-glyph-alert">${ALERT_SVG}</span>
+        <span class="item-circle conversation-bar-tab-status color-meta" aria-hidden="true">
+          <span class="conversation-bar-tab-glyph conversation-bar-tab-glyph-assistant">${assistantSvg}</span>
+          <span class="conversation-bar-tab-glyph conversation-bar-tab-glyph-question icon-question"></span>
+          <span class="conversation-bar-tab-glyph conversation-bar-tab-glyph-alert">${ALERT_SVG}</span>
         </span>
-        <button class="conversation-tab-button">
-          <span class="conversation-tab-name" data-tooltip-overflow></span>
-          <span class="conversation-tab-schedule" aria-hidden="true">${SCHEDULE_ICON_SVG}</span>
+        <button class="conversation-bar-tab-button">
+          <span class="conversation-bar-tab-name" data-tooltip-overflow></span>
+          <span class="conversation-bar-tab-schedule" aria-hidden="true">${SCHEDULE_ICON_SVG}</span>
         </button>
       `;
       // The name ellipsises in the strip's width; `data-tooltip-overflow` has
       // the tooltip manager offer it in full when it is cut, measured at hover
       // so renames and resizes need nothing from here.
-      const newName = tab.querySelector('.conversation-tab-name');
+      const newName = tab.querySelector('.conversation-bar-tab-name');
       if (newName) newName.textContent = label;
 
       this._cachedElements.set(conv.id, tab);
@@ -1830,7 +1829,7 @@ class ConversationBar extends JugglerElement {
       // Update existing tab in-place. DO NOT re-append unconditionally:
       // moving a node restarts its CSS animations (status-bar pulse).
       // render() fixes order separately and only moves nodes that need to move.
-      const tabName = tab.querySelector('.conversation-tab-name');
+      const tabName = tab.querySelector('.conversation-bar-tab-name');
 
       // Don't disturb the input while the user is mid-rename. Closing the editor
       // removes .is-renaming, and a subsequent render() paints the name.
@@ -1840,11 +1839,11 @@ class ConversationBar extends JugglerElement {
         tabName.textContent = label;
       }
     }
-    tab.querySelector('.conversation-tab-name')?.classList.toggle('is-auto-naming', autoNaming);
+    tab.querySelector('.conversation-bar-tab-name')?.classList.toggle('is-auto-naming', autoNaming);
 
     // Update classes (toggle rather than overwrite — overwriting .className
     // would clear .is-running and restart the CSS pulse animation).
-    tab.classList.toggle('active', isActive);
+    tab.setAttribute('aria-current', isActive ? 'true' : 'false');
     tab.classList.add('has-close');
 
     // Scroll the active tab into view, but ONLY when the selection has actually
@@ -1863,10 +1862,10 @@ class ConversationBar extends JugglerElement {
     // binning to an empty session is allowed). It's hover-only (see CSS); the
     // Bin entry at the bottom of the bar keeps the feature discoverable
     // without per-tab visual clutter.
-    let binButton = /** @type {HTMLButtonElement|null} */ (tab.querySelector('.conversation-tab-bin'));
+    let binButton = /** @type {HTMLButtonElement|null} */ (tab.querySelector('.conversation-bar-tab-bin'));
     if (!binButton) {
       binButton = document.createElement('button');
-      binButton.className = 'conversation-tab-bin';
+      binButton.className = 'conversation-bar-tab-bin';
       binButton.title = t('Move conversation to bin');
       // The tooltip-manager appends the platform-correct combo (e.g. " (⌘⌫)")
       // from this shortcut id — no hard-coded key text in the markup.
@@ -1921,7 +1920,7 @@ class ConversationBar extends JugglerElement {
     tab.classList.toggle('is-failed', failed);
     tab.classList.toggle('is-empty', empty);
     tab.classList.toggle('has-scheduled-send', scheduled);
-    const circle = /** @type {HTMLElement|null} */ (tab.querySelector('.conversation-tab-status'));
+    const circle = /** @type {HTMLElement|null} */ (tab.querySelector('.conversation-bar-tab-status'));
     if (!circle) return;
     // Only on a change: swapping the class restarts the running pulse.
     if (!circle.classList.contains(preset)) {
@@ -2038,7 +2037,7 @@ class ConversationBar extends JugglerElement {
     // Click to switch or rename
     tab.addEventListener('click', (e) => {
       const target = /** @type {HTMLElement|null} */ (e.target);
-      if (target?.closest('.conversation-tab-bin')) return;
+      if (target?.closest('.conversation-bar-tab-bin')) return;
 
       // macOS ctrl-click is a secondary click: WebKit fires `contextmenu` (which
       // opens the tab menu) and a plain `click` alongside it. Ignore it here so
@@ -2056,7 +2055,7 @@ class ConversationBar extends JugglerElement {
         // Only the name itself renames: the rest of the row is where a click
         // on the strip's blank space lands, and opening an editor there reads
         // as the row having grown a border for no reason.
-        if (target?.closest('.conversation-tab-name')) this._enterRenameMode(id);
+        if (target?.closest('.conversation-bar-tab-name')) this._enterRenameMode(id);
       } else {
         this._switchConversation(id, { focusInput: true });
       }
@@ -2075,7 +2074,7 @@ class ConversationBar extends JugglerElement {
       // must not also grab the pointer for a reorder drag.
       if (event.ctrlKey) return;
       const target = /** @type {HTMLElement|null} */ (event.target);
-      if (target?.closest('.conversation-tab-bin')) return;
+      if (target?.closest('.conversation-bar-tab-bin')) return;
       if (target?.closest('.inline-rename')) return;
       this._startDrag(event, tab);
     });
@@ -2343,8 +2342,8 @@ class ConversationBar extends JugglerElement {
     // move, attention — must find the strip's tab or nothing.
     this._cachedElements.delete(conversationId);
     tabEl.removeAttribute('data-conversation-id');
-    tabEl.style.setProperty('--tab-surface',
-      getComputedStyle(tabEl).getPropertyValue('--tab-surface'));
+    tabEl.style.setProperty('--conversation-bar-tab-surface',
+      getComputedStyle(tabEl).getPropertyValue('--conversation-bar-tab-surface'));
     tabEl.style.position = 'fixed';
     tabEl.style.left = '0';
     tabEl.style.top = '0';
@@ -2660,7 +2659,7 @@ class ConversationBar extends JugglerElement {
     // one box you could not put a conversation back into.
     const listTabs = () => /** @type {HTMLElement[]} */ (
       Array.from(this.querySelectorAll(
-        '.conversation-tab:not(.drag-ghost), .conversation-box-empty:not([hidden])'))
+        '.conversation-bar-tab:not(.drag-ghost), .conversation-box-empty:not([hidden])'))
     );
 
     // Which box this tab was drawn in when it was picked up. Read from the DOM
@@ -2820,7 +2819,7 @@ class ConversationBar extends JugglerElement {
         // tabs: everything that reads the strip keys on these identities, and a
         // picture of the strip answering to them would be read as part of it.
         clone.removeAttribute('data-workspace-id');
-        for (const tab of Array.from(clone.querySelectorAll('.conversation-tab'))) {
+        for (const tab of Array.from(clone.querySelectorAll('.conversation-bar-tab'))) {
           tab.removeAttribute('data-conversation-id');
         }
       },
@@ -2872,7 +2871,7 @@ class ConversationBar extends JugglerElement {
    * @private
    */
   _autoFitWidth() {
-    const tabs = Array.from(this.querySelectorAll('.conversation-tab:not(.drag-ghost)'))
+    const tabs = Array.from(this.querySelectorAll('.conversation-bar-tab:not(.drag-ghost)'))
       .map(el => /** @type {HTMLElement} */ (el));
     const tabsMenu = /** @type {HTMLElement|null} */ (this._cachedElements.get('tabs-menu'));
     if (!tabs.length || !tabsMenu) return;
@@ -2898,7 +2897,7 @@ class ConversationBar extends JugglerElement {
       clone.style.flex = '0 0 auto';
       clone.style.maxWidth = 'none';
       clone.style.whiteSpace = 'nowrap';
-      const name = /** @type {HTMLElement|null} */ (clone.querySelector('.conversation-tab-name'));
+      const name = /** @type {HTMLElement|null} */ (clone.querySelector('.conversation-bar-tab-name'));
       if (name) {
         name.style.flex = '0 0 auto';
         name.style.overflow = 'visible';
@@ -2973,7 +2972,7 @@ registerContextMenuSuppressor(holdGestureLive);
 // own helpers so rename/duplicate/bin behave exactly like the built-in
 // affordances. Targets the tab `<li>` carrying the conversation id.
 registerContextMenuProvider({
-  match: (start) => start?.closest('.conversation-tab[data-conversation-id]') || null,
+  match: (start) => start?.closest('.conversation-bar-tab[data-conversation-id]') || null,
   build: (subject) => {
     const bar = /** @type {any} */ (_activeBar);
     const convId = /** @type {HTMLElement} */ (subject).dataset.conversationId || '';
@@ -3008,7 +3007,7 @@ registerContextMenuProvider({
 // place instead of the conversation would be the same click doing two things.
 registerContextMenuProvider({
   match: (start) => {
-    if (start?.closest('.conversation-tab[data-conversation-id]')) return null;
+    if (start?.closest('.conversation-bar-tab[data-conversation-id]')) return null;
     return start?.closest('.conversation-box[data-workspace-id]') || null;
   },
   build: (subject) => {

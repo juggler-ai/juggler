@@ -43,7 +43,7 @@
     /* A badge circle that is busy pulses, everywhere one is drawn — the
        conversation rows, the properties-panel header, the sidebar tabs. The
        keyframes are in patterns/item-badge.css. */
-    --item-badge-pulse: icon-pulse 0.8s ease-in-out infinite;
+    --item-badge-pulse: message-icon-box-pulse 0.8s ease-in-out infinite;
 
     /* Z-Index Scale - use these instead of arbitrary values. Each rung is
        strictly above the one before it; a tie would leave DOM order to decide.
@@ -55,10 +55,12 @@
     --z-base: 1;           /* Default stacking */
     --z-raised: 10;        /* Slightly elevated elements */
     --z-controls: 100;     /* Fixed controls, headers */
-    --z-dropdown: 1000;    /* Dropdowns, popovers */
+    --z-scrim: 999;        /* The dim behind the phone drawer: over the controls it covers, under the drawer */
+    --z-dropdown: 1000;    /* Dropdowns, popovers, the phone drawer */
     --z-modal: 10000;      /* Modals, dialogs */
     --z-above-modal: 10001; /* Dropdowns that must appear above modals (e.g. path completions) */
-    --z-toast: 10002;      /* Tooltips, context menu, cues: above everything */
+    --z-toast: 10002;      /* Tooltips, context menu, cues: above everything a user summons */
+    --z-frame: 10003;      /* The window's own drawn edge (Linux): above everything, taking no clicks */
 
     /* ANSI background palette (utils/ansi.js) — theme-independent and vivid so
        an author's paired foreground (e.g. black on a yellow highlight) reads on
@@ -150,16 +152,38 @@
        pixels, which the UI zoom does not scale (layout/window-chrome.css). The
        fallback bar over a page that is not Juggler's reads it too
        (cmd/juggler-app/foreign_page.go). */
-    /* stylelint-disable-next-line rem-over-px/rem-over-px, unit-disallowed-list */
+    /* stylelint-disable-next-line rem-over-px/rem-over-px, unit-disallowed-list -- the traffic lights are in screen pixels, which UI zoom does not scale */
     --window-traffic-light-gutter: 80px;
 
-    /* Spacing scale */
-    --spacing-xs: 0.375rem;   /* 6px */
-    --spacing-sm: 0.5rem;     /* 8px */
-    --spacing-md: 0.75rem;    /* 12px */
-    --spacing-lg: 1rem;       /* 16px */
-    --spacing-xl: 1.5rem;     /* 24px */
-    --spacing-2xl: 2rem;      /* 32px */
+    /* Spacing scale — every padding, margin and gap (scale-literal holds them
+       to it). Named for its size in pixels at 100% zoom: two-pixel steps up to
+       16, where small controls want fine control, then wider ones. A value
+       between two steps is a decision to make, not a new step: pick one. The
+       only length a spacing may write out is a hairline (0.0625rem, one
+       border width), when it nudges something by a border. */
+    --space-2: 0.125rem;
+    --space-4: 0.25rem;
+    --space-6: 0.375rem;
+    --space-8: 0.5rem;
+    --space-10: 0.625rem;
+    --space-12: 0.75rem;
+    --space-14: 0.875rem;
+    --space-16: 1rem;
+    --space-20: 1.25rem;
+    --space-24: 1.5rem;
+    --space-32: 2rem;
+    --space-40: 2.5rem;
+    --space-48: 3rem;
+    --space-64: 4rem;
+
+    /* The scale's earlier names, which an extension's stylesheet may still
+       use. Nothing in this tree does: write --space-*. */
+    --spacing-xs: var(--space-6);
+    --spacing-sm: var(--space-8);
+    --spacing-md: var(--space-12);
+    --spacing-lg: var(--space-16);
+    --spacing-xl: var(--space-24);
+    --spacing-2xl: var(--space-32);
 
     /* Font size scale */
     --font-size-2xs: 0.625rem;   /* 10px */
@@ -197,7 +221,7 @@
        the block inset stays tight: a popup can afford width, but height is what
        the list inside it wants.
 
-       `.pp-panel` and `modal-panel` take both, as does any panel-like dropdown
+       `.project-picker-panel` and `modal-panel` take both, as does any panel-like dropdown
        that pads itself (permissions, schedule-send), and any surface that
        overrides its padding must keep the inline half — that is the whole point
        of the token. */
@@ -222,20 +246,43 @@
        fade while it grows the last few percent into place. Exits are instant,
        but for the about box, which leaves the way it came, only quicker. */
     --popup-enter-duration: 240ms;
-    --popup-enter-ease: cubic-bezier(0.22, 1, 0.36, 1);
+    --popup-enter-ease: var(--ease-out);
     --popup-enter-scale: 0.9;
     --popup-exit-duration: 160ms;
-    --popup-exit-ease: cubic-bezier(0.4, 0, 1, 1);
+    --popup-exit-ease: var(--ease-in);
 
-    /* Line height scale */
+    /* Line height scale. Snug for one-line labels and headings that rarely
+       wrap, tight for dense UI text, normal for running text, relaxed for
+       prose meant to be read at length. */
+    --leading-snug: 1.25;
     --leading-tight: 1.4;
     --leading-normal: 1.5;
     --leading-relaxed: 1.6;
 
-    /* Transition timing */
-    --transition-fast: 100ms ease;
-    --transition-base: 150ms ease;
-    --transition-slow: 200ms ease;
+    /* Letter spacing for uppercase text — the caps label
+       (patterns/labels.css) and every chip, badge or toggle set in capitals.
+       In em, so it follows the type size. */
+    --tracking-caps: 0.04em;
+
+    /* How faint a control that cannot be used is: buttons (base/elements.css),
+       fields (patterns/fields.css) and any component restating it. */
+    --disabled-opacity: 0.5;
+
+    /* Motion. A transition says its duration and curve through these, never
+       a literal (scale-literal holds them to it); an animation's own period
+       is its choreography and stays with its keyframes. The --transition-*
+       pairs are a duration with the browser's own `ease`, which is what a
+       hover or a fade wants. */
+    --duration-fast: 100ms;    /* hover and press feedback */
+    --duration-base: 150ms;    /* state changes: colours, borders, opacity */
+    --duration-slow: 200ms;    /* things that move or resize */
+    --duration-slower: 300ms;  /* larger surfaces settling */
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);       /* arriving: fast, then settling */
+    --ease-in: cubic-bezier(0.4, 0, 1, 1);            /* leaving: gathering speed */
+    --ease-spring: cubic-bezier(0.34, 1.45, 0.64, 1); /* arriving with a little overshoot */
+    --transition-fast: var(--duration-fast) ease;
+    --transition-base: var(--duration-base) ease;
+    --transition-slow: var(--duration-slow) ease;
 
     /* Shadows */
     --shadow-sm: 0 0.0625rem 0.125rem rgb(0 0 0 / 10%);
@@ -253,6 +300,7 @@
     --focus-ring-offset: 0.125rem;
     --field-focus-border: var(--accent-blue);
     --field-focus-halo: 0 0 0 0.1875rem color-mix(in srgb, var(--accent-blue) 10%, transparent);
+    --field-invalid-halo: 0 0 0 0.1875rem color-mix(in srgb, var(--danger) 10%, transparent);
 
     /* Scrollbar metrics. The colours are per theme. */
     --scrollbar-size-thin: 0.375rem;

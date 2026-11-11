@@ -49,26 +49,26 @@ function mountBar({ transformed }) {
   if (transformed) bar.style.transform = 'translateX(0)';
 
   // Stand in for render()'s output: the scroll container and the tab markup
-  // _startDrag reads (.conversation-tabs, .conversation-tab, the id dataset).
+  // _startDrag reads (.conversation-tabs, .conversation-bar-tab, the id dataset).
   bar.innerHTML = `
     <nav class="conversation-bar">
       <menu class="conversation-tabs">
-        <li class="conversation-tab" data-conversation-id="a">
+        <li class="conversation-bar-tab" data-conversation-id="a">
           <span class="drag-grip" aria-hidden="true">⠿</span>
-          <button class="conversation-tab-button"><span class="conversation-tab-name">A</span></button>
+          <button class="conversation-bar-tab-button"><span class="conversation-bar-tab-name">A</span></button>
         </li>
-        <li class="conversation-tab" data-conversation-id="b">
+        <li class="conversation-bar-tab" data-conversation-id="b">
           <span class="drag-grip" aria-hidden="true">⠿</span>
-          <button class="conversation-tab-button"><span class="conversation-tab-name">B</span></button>
+          <button class="conversation-bar-tab-button"><span class="conversation-bar-tab-name">B</span></button>
         </li>
-        <li class="conversation-tab" data-conversation-id="c">
+        <li class="conversation-bar-tab" data-conversation-id="c">
           <span class="drag-grip" aria-hidden="true">⠿</span>
-          <button class="conversation-tab-button"><span class="conversation-tab-name">C</span></button>
+          <button class="conversation-bar-tab-button"><span class="conversation-bar-tab-name">C</span></button>
         </li>
       </menu>
     </nav>`;
 
-  const tabs = /** @type {HTMLElement[]} */ (Array.from(bar.querySelectorAll('.conversation-tab')));
+  const tabs = /** @type {HTMLElement[]} */ (Array.from(bar.querySelectorAll('.conversation-bar-tab')));
   return { bar, tabs, teardown: () => host.remove() };
 }
 

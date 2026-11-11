@@ -4,12 +4,6 @@
   "description": "Production-ready AI code agent CLI with integrated web interface",
   "type": "module",
   "private": true,
-  "scripts": {
-    "lint": "cd .. && eslint --config tooling/eslint.config.js --max-warnings 0 --ignore-pattern 'web/js/vendor/**' 'web/js/**/*.js'",
-    "lint:fix": "cd .. && eslint --config tooling/eslint.config.js --max-warnings 0 --fix --ignore-pattern 'web/js/vendor/**' 'web/js/**/*.js'",
-    "lint:css": "cd .. && stylelint --config tooling/.stylelintrc.json 'web/css/**/*.css'",
-    "lint:css:fix": "cd .. && stylelint --config tooling/.stylelintrc.json --fix 'web/css/**/*.css'"
-  },
   "keywords": [
     "ai",
     "code-agent",

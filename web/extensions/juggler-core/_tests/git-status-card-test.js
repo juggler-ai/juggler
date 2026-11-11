@@ -172,7 +172,7 @@ export async function runTests(_ctx) {
       contentEl,
       server,
       text: () => contentEl.textContent || '',
-      launcher: () => contentEl.querySelector('.info-card__git-launch'),
+      launcher: () => contentEl.querySelector('.git-status-card__launch'),
       teardown,
     };
   }
@@ -331,7 +331,7 @@ export async function runTests(_ctx) {
 
   await test('a lone repo at the root goes unlabelled, and nested repos do not', async () => {
     const lone = await mount({ root: '/tmp/proj', repos: [repo({ changed: 1, total: 1 })] });
-    assert(!lone.contentEl.querySelector('.info-card__git-repo'),
+    assert(!lone.contentEl.querySelector('.git-status-card__repo'),
       `one repo at the root needs no label:\n${lone.contentEl.innerHTML}`);
     lone.teardown();
 
@@ -339,7 +339,7 @@ export async function runTests(_ctx) {
       root: '/tmp/proj',
       repos: [repo({ path: '', changed: 1, total: 1 }), repo({ path: 'juggler', changed: 1, total: 1 })],
     });
-    const labels = [...nested.contentEl.querySelectorAll('.info-card__git-repo')]
+    const labels = [...nested.contentEl.querySelectorAll('.git-status-card__repo')]
       .map((/** @type {any} */ el) => el.textContent);
     assert(labels.includes('proj') && labels.includes('juggler'),
       `expected both repos named, got ${JSON.stringify(labels)}`);
@@ -349,7 +349,7 @@ export async function runTests(_ctx) {
   // The card follows the visible conversation; a tab switch can move it from the
   // project to a worktree, and every state it can be in must say which.
   await test('a workspace tree is named above every state, and the project is not', async () => {
-    const badges = (/** @type {any} */ m) => [...m.contentEl.querySelectorAll('.info-card__git-repo')]
+    const badges = (/** @type {any} */ m) => [...m.contentEl.querySelectorAll('.git-status-card__repo')]
       .map((/** @type {any} */ el) => el.textContent);
     for (const [what, status] of /** @type {[string, any][]} */ ([
       ['dirty', { root: '/tmp/wt', workspace: 'feat/tunnels', repos: [repo({ changed: 1, total: 1 })] }],
@@ -521,8 +521,8 @@ export async function runTests(_ctx) {
         if (withPin) enableGitPin(); else pinboardItemRegistry.reset();
         for (const [, status] of states) {
           const m = await mount(status);
-          shown.push(...shownStrings(m.contentEl, '.info-card__git-repo'));
-          for (const badge of m.contentEl.querySelectorAll('.info-card__git-repo[title]')) {
+          shown.push(...shownStrings(m.contentEl, '.git-status-card__repo'));
+          for (const badge of m.contentEl.querySelectorAll('.git-status-card__repo[title]')) {
             shown.push(String(badge.getAttribute('title')));
           }
           m.teardown();
@@ -531,7 +531,7 @@ export async function runTests(_ctx) {
       // The repository badges above are data, but one at a root with no folder
       // name is labelled in the card's own words.
       const unnamed = await mount({ root: '', repos: [repo({ changed: 3, total: 3 }), repo({ path: '5', staged: 4, total: 4 })] });
-      shown.push(unnamed.contentEl.querySelector('.info-card__git-repo')?.textContent || '');
+      shown.push(unnamed.contentEl.querySelector('.git-status-card__repo')?.textContent || '');
       unnamed.teardown();
       const raw = shown.filter((s) => !isPseudoLocalized(s));
       assert(shown.length >= 20, `expected the states to show text, got ${JSON.stringify(shown)}`);

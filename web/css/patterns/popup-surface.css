@@ -26,7 +26,7 @@
    bottom-sheet rules override the radius to a top-only curve — see
    components/popup-sheet.css. */
 .dropdown-menu,
-.pp-panel,
+.project-picker-panel,
 modal-panel {
     background: var(--bg-secondary);
     border: 0.0625rem solid var(--border-floating);
@@ -53,7 +53,7 @@ modal-panel {
    the onboarding wizard, the skill preview). The phone bottom sheets replace
    it with their slide-up. */
 .dropdown-menu,
-.pp-panel {
+.project-picker-panel {
     transform-origin: var(--popup-origin, center top);
     animation: popup-surface-enter var(--popup-enter-duration) var(--popup-enter-ease);
 }
@@ -72,7 +72,7 @@ modal-panel {
 
 @media (prefers-reduced-motion: reduce) {
     .dropdown-menu,
-    .pp-panel,
+    .project-picker-panel,
     modal-panel {
         animation-name: popup-surface-fade;
     }

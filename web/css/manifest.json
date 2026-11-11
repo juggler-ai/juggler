@@ -10,7 +10,7 @@
 		"vendor",
 		"utilities"
 	],
-	"$sheets": "Every stylesheet, in <link> order, which is layer order — a sheet's directory is its layer, and the groups appear in the order above. The one exception is base/fonts.css, linked ahead of the theme paint for the fetch and holding nothing but @font-face, which the cascade never arbitrates. Each entry carries the layer it declares and the selector roots it owns. A root is the bare name a selector leads with, as scripts/lint-css-arch computes it: the leading element, class or id with its punctuation dropped, skipping :root/html/body when the selector descends past them. A selector that names two sheets' roots — the scope it leads with, and a name on the subject compound it ends with — may be filed under either. A `*` in a pattern is a glob. One group is one sheet — a group's rules are never spread across two of them.",
+	"$sheets": "Every stylesheet, in <link> order, which is layer order — a sheet's directory is its layer, and the groups appear in the order above. The one exception is base/fonts.css, linked ahead of the theme paint for the fetch and holding nothing but @font-face, which the cascade never arbitrates. Each entry carries the layer it declares and the selector roots it owns. A root is the bare name a selector leads with, as scripts/lint-css-arch computes it: the leading element, class or id with its punctuation dropped, skipping :root/html/body when the selector descends past them. A selector that names two sheets' roots — the scope it leads with, and a name on the subject compound it ends with — may be filed under either. A `*` in a pattern is a glob. An entry starting `--` claims custom-property and @keyframes names only, never a root (README ▸ Naming). One group is one sheet — a group's rules are never spread across two of them.",
 	"sheets": [
 		{
 			"file": "base/fonts.css",
@@ -61,6 +61,8 @@
 			"file": "layout/app-shell.css",
 			"layer": "layout",
 			"owns": [
+				"--chrome-pattern-*",
+				"--column-*",
 				"app-container",
 				"app-main",
 				"bell-button",
@@ -84,6 +86,7 @@
 			"file": "layout/window-chrome.css",
 			"layer": "layout",
 			"owns": [
+				"--wails-draggable",
 				"window-*"
 			]
 		},
@@ -94,19 +97,29 @@
 				"app-header",
 				"app-header--titled",
 				"app-header__centre",
-				"header-*"
+				"header-*",
+				"project-path-display__*",
+				"project-path-display",
+				"sidebar-toggle-button"
 			]
 		},
 		{
 			"file": "patterns/buttons.css",
 			"layer": "patterns",
 			"owns": [
+				"btn",
 				"btn-danger",
+				"btn-danger-quiet",
 				"btn-ghost",
+				"btn-icon",
 				"btn-icon-header",
+				"btn-icon-lg",
+				"btn-icon-sm",
+				"btn-neutral",
 				"btn-primary",
 				"btn-secondary",
-				"close-button"
+				"btn-sm",
+				"btn-xs"
 			]
 		},
 		{
@@ -130,11 +143,15 @@
 				"menu-divider",
 				"menu-group",
 				"menu-header",
+				"menu-header-plain",
 				"menu-hint-text",
 				"menu-item",
+				"menu-item-danger",
 				"menu-item-hint",
 				"menu-item-icon",
+				"menu-item-selected",
 				"menu-item-shortcut",
+				"menu-item-unavailable",
 				"menu-settings-icon"
 			]
 		},
@@ -185,6 +202,7 @@
 			"file": "patterns/spinner.css",
 			"layer": "patterns",
 			"owns": [
+				"--spinner-*",
 				"juggler-spinner"
 			]
 		},
@@ -254,14 +272,23 @@
 			"file": "patterns/fields.css",
 			"layer": "patterns",
 			"owns": [
-				"field-input"
+				"--field-*",
+				"field-input*"
 			]
 		},
 		{
 			"file": "patterns/labels.css",
 			"layer": "patterns",
-			"enumerates": true,
-			"owns": []
+			"owns": [
+				"caps-label*"
+			]
+		},
+		{
+			"file": "patterns/text.css",
+			"layer": "patterns",
+			"owns": [
+				"text-truncate"
+			]
 		},
 		{
 			"file": "components/messages.css",
@@ -314,9 +341,9 @@
 			"file": "components/session-switcher.css",
 			"layer": "components",
 			"owns": [
-				"ss",
-				"ss-*",
-				"ss--*"
+				"session-switcher",
+				"session-switcher-*",
+				"session-switcher--*"
 			]
 		},
 		{
@@ -327,6 +354,8 @@
 				"bin-modal",
 				"bin-panel",
 				"conversation-bar",
+				"conversation-bar-tab",
+				"conversation-bar-tab-*",
 				"info-cards-menu__check",
 				"recent-tabs-*"
 			]
@@ -373,14 +402,12 @@
 				"conversation-item",
 				"file-*",
 				"live-*",
-				"pdf-*",
 				"properties-panel",
 				"properties-panel-approval-badge",
 				"properties-panel-attachment",
 				"properties-panel-attachment-*",
 				"properties-panel-attachments",
 				"properties-panel-body",
-				"properties-panel-btn",
 				"properties-panel-code",
 				"properties-panel-content",
 				"properties-panel-controls",
@@ -406,17 +433,17 @@
 				"properties-panel-token-chip",
 				"properties-panel-tx-*",
 				"reveal-button",
-				"tx-field",
-				"tx-field-key",
-				"tx-out-*",
-				"tx-row",
-				"tx-row-*",
-				"tx-rows",
-				"tx-section-*",
-				"tx-text",
-				"tx-tool-*",
-				"tx-tools",
-				"tx-tools-*"
+				"transaction-field",
+				"transaction-field-key",
+				"transaction-out-*",
+				"transaction-row",
+				"transaction-row-*",
+				"transaction-rows",
+				"transaction-section-*",
+				"transaction-text",
+				"transaction-tool-*",
+				"transaction-tools",
+				"transaction-tools-*"
 			]
 		},
 		{
@@ -448,13 +475,15 @@
 		{
 			"file": "components/composer.css",
 			"layer": "components",
-				"owns": [
-					"composer-box",
+			"owns": [
+				"--composer-*",
+				"composer-box",
 				"composer-box-wrapper",
 				"new-thread-btn",
 				"permission-controls",
 				"reply-suggestions",
-				"schedule-send-menu"
+				"schedule-send-menu",
+				"skill-menu"
 			]
 		},
 		{
@@ -485,11 +514,9 @@
 			]
 		},
 		{
-			"file": "components/overlays-and-updates.css",
+			"file": "components/loading-overlay.css",
 			"layer": "components",
 			"owns": [
-				"completions-menu",
-				"juggler-context-menu",
 				"loading-overlay",
 				"loading-overlay__actions",
 				"loading-overlay__content",
@@ -497,23 +524,53 @@
 				"loading-overlay__host",
 				"loading-overlay__info",
 				"loading-overlay__info--visible",
-				"loading-overlay__message",
-				"path-*",
-				"pp-body",
-				"pp-btn",
-				"pp-btn-*",
-				"pp-footer",
-				"pp-header",
-				"pp-input-row",
-				"pp-overlay",
-				"pp-panel",
-				"pp-path-input",
-				"pp-recent-item",
-				"pp-recents",
-				"pp-recents-label",
-				"pp-subtitle",
-				"pp-title",
-				"skill-menu",
+				"loading-overlay__message"
+			]
+		},
+		{
+			"file": "components/completions-menu.css",
+			"layer": "components",
+			"owns": [
+				"completions-menu"
+			]
+		},
+		{
+			"file": "components/project-picker.css",
+			"layer": "components",
+			"owns": [
+				"project-picker-body",
+				"project-picker-btn-*",
+				"project-picker-footer",
+				"project-picker-header",
+				"project-picker-input-row",
+				"project-picker-overlay",
+				"project-picker-panel",
+				"project-picker-path-input",
+				"project-picker-recent-item",
+				"project-picker-recents",
+				"project-picker-recents-label",
+				"project-picker-subtitle",
+				"project-picker-title"
+			]
+		},
+		{
+			"file": "components/path-input.css",
+			"layer": "components",
+			"owns": [
+				"path-*"
+			]
+		},
+		{
+			"file": "components/context-menu.css",
+			"layer": "components",
+			"owns": [
+				"juggler-context-menu"
+			]
+		},
+		{
+			"file": "components/updates.css",
+			"layer": "components",
+			"owns": [
 				"update-button",
 				"update-notice",
 				"update-notice__status-text"
@@ -546,6 +603,7 @@
 			"file": "components/settings.css",
 			"layer": "components",
 			"owns": [
+				"--settings-*",
 				"settings-panel"
 			]
 		},
@@ -563,7 +621,6 @@
 				"find-bar",
 				"find-bar__btn",
 				"find-bar__counter",
-				"find-bar__counter--empty",
 				"find-bar__input",
 				"find-bar__toggle"
 			]
@@ -595,7 +652,9 @@
 		{
 			"file": "components/pinboard.css",
 			"layer": "components",
-			"owns": ["[data-view=\"pinboard\"]", 
+			"owns": [
+				"--pinboard-*",
+				"[data-view=\"pinboard\"]",
 				"app-header__board-*",
 				"pinboard-add-*",
 				"pinboard-content",
@@ -627,9 +686,7 @@
 				"pinboard-toolbar",
 				"pinboard-toolbar__controls",
 				"pinboard-toolbar__identity",
-				"pinboard-toolbar__popout",
-				"project-path-display",
-				"sidebar-toggle-button"
+				"pinboard-toolbar__popout"
 			]
 		},
 		{
@@ -677,8 +734,7 @@
 			"file": "components/skills-marketplace.css",
 			"layer": "components",
 			"owns": [
-				"skills-*",
-				"tab-skills"
+				"skills-*"
 			]
 		},
 		{
@@ -701,30 +757,49 @@
 			"layer": "utilities",
 			"owns": [
 				"hidden",
-				"u-scrollbar-thin"
+				"u-scrollbar-thin",
+				"u-visually-hidden"
 			]
 		}
 	],
-	"$enumerates": "A sheet whose job is to state ONE policy across every surface it applies to, rather than to own a group of its own: base/text-selection.css (what a mouse drag may select), patterns/popup-surface.css (the outer card every transient surface wears) and patterns/labels.css (the type of the small uppercase labels). Their selectors name roots other sheets own, and that is the point — the alternative is the same declaration copied into a dozen component files, where nobody can see it is one decision. The ownership check skips them. They earn it by being small, by holding one policy each, and by sitting in the lowest layer that can state it, so any component can still override its own case.",
+	"$enumerates": "A sheet whose job is to state ONE policy across every surface it applies to, rather than to own a group of its own: base/text-selection.css (what a mouse drag may select) and patterns/popup-surface.css (the outer card every transient surface wears). Their selectors name roots other sheets own, and that is the point — the alternative is the same declaration copied into a dozen component files, where nobody can see it is one decision. The ownership check skips them. They earn it by being small, by holding one policy each, and by sitting in the lowest layer that can state it, so any component can still override its own case.",
 	"$dynamicClasses": "Class names assembled in JS, so no literal exists to find. Each entry is { pattern, builtBy }: a literal prefix with one trailing *, and the production file whose code composes that prefix (`prefix${…}` or `'prefix' + …`). lint-css-arch re-proves every entry on every run — the file must exist, must not be a test, must contain the composing expression, and some sheet must style a class the pattern matches — so an entry cannot outlive its code or stand in for an allowlist.",
 	"dynamicClasses": [
-		{ "pattern": "color-*", "builtBy": "web/js/utils/icon-message-renderer.js" },
-		{ "pattern": "status-*", "builtBy": "web/js/components/config-tab.js" },
-		{ "pattern": "origin-*", "builtBy": "web/js/components/settings/connectivity-tab.js" },
-		{ "pattern": "tx-tool-category-*", "builtBy": "web/js/components/transaction-detail-renderer.js" },
-		{ "pattern": "plugin-tree-toggle-*", "builtBy": "web/js/components/plugin-catalog.js" },
-		{ "pattern": "slash-command-scope-*", "builtBy": "web/js/components/slash-command-provider.js" },
-		{ "pattern": "approval-source-*", "builtBy": "web/js/services/renderers/item-renderers.js" },
-		{ "pattern": "task-box--*", "builtBy": "web/sdk/lib/markdown.js" },
-		{ "pattern": "bash-command-segment-*", "builtBy": "web/sdk/lib/syntax-highlight.js" },
-		{ "pattern": "task-list-item--*", "builtBy": "web/sdk/lib/markdown.js" }
+		{
+			"pattern": "color-*",
+			"builtBy": "web/js/utils/icon-message-renderer.js"
+		},
+		{
+			"pattern": "status-*",
+			"builtBy": "web/js/components/config-tab.js"
+		},
+		{
+			"pattern": "origin-*",
+			"builtBy": "web/js/components/settings/connectivity-tab.js"
+		},
+		{
+			"pattern": "approval-source-*",
+			"builtBy": "web/js/services/renderers/item-renderers.js"
+		},
+		{
+			"pattern": "task-box--*",
+			"builtBy": "web/sdk/lib/markdown.js"
+		},
+		{
+			"pattern": "bash-command-segment-*",
+			"builtBy": "web/sdk/lib/syntax-highlight.js"
+		},
+		{
+			"pattern": "task-list-item--*",
+			"builtBy": "web/sdk/lib/markdown.js"
+		}
 	],
 	"$jsSetProperties": "Custom properties set from JS rather than declared in CSS, so a bare var() referring to one is not a dangling reference.",
 	"jsSetProperties": [
-		"--ss-left",
-		"--ss-tint",
-		"--ss-top",
-		"--ss-width",
+		"--session-switcher-left",
+		"--session-switcher-tint",
+		"--session-switcher-top",
+		"--session-switcher-width",
 		"--strategy-color",
 		"--logo-with-name-url",
 		"--workspace-tint",
@@ -741,5 +816,375 @@
 		"--tt-arrow-x",
 		"--column-fit-floor",
 		"--visual-viewport-height"
+	],
+	"$public": "The host's styling API for extensions and the SDK: the only web/css classes code under web/extensions may set or style (lint-css-arch extension-styling; README ▸ Extensions). Each entry says what an extension uses it for. A class not covered here is the host's to rename.",
+	"public": [
+		{
+			"pattern": "btn",
+			"why": "README ▸ Buttons: the app button, its sizes and roles"
+		},
+		{
+			"pattern": "btn-sm",
+			"why": "README ▸ Buttons: the app button, its sizes and roles"
+		},
+		{
+			"pattern": "btn-xs",
+			"why": "README ▸ Buttons: the app button, its sizes and roles"
+		},
+		{
+			"pattern": "btn-icon",
+			"why": "README ▸ Buttons: the app button, its sizes and roles"
+		},
+		{
+			"pattern": "btn-icon-lg",
+			"why": "README ▸ Buttons: the app button, its sizes and roles"
+		},
+		{
+			"pattern": "btn-primary",
+			"why": "README ▸ Buttons: the app button, its sizes and roles"
+		},
+		{
+			"pattern": "btn-neutral",
+			"why": "README ▸ Buttons: the app button, its sizes and roles"
+		},
+		{
+			"pattern": "btn-secondary",
+			"why": "README ▸ Buttons: the app button, its sizes and roles"
+		},
+		{
+			"pattern": "btn-danger",
+			"why": "README ▸ Buttons: the app button, its sizes and roles"
+		},
+		{
+			"pattern": "btn-danger-quiet",
+			"why": "README ▸ Buttons: the app button, its sizes and roles"
+		},
+		{
+			"pattern": "btn-ghost",
+			"why": "README ▸ Buttons: the app button, its sizes and roles"
+		},
+		{
+			"pattern": "field-input*",
+			"why": "README ▸ Fields: the app text field and its sizes"
+		},
+		{
+			"pattern": "dropdown-menu",
+			"why": "README ▸ Menus: the app menu, its rows, row states, dividers and headers"
+		},
+		{
+			"pattern": "menu-item",
+			"why": "README ▸ Menus: the app menu, its rows, row states, dividers and headers"
+		},
+		{
+			"pattern": "menu-item-selected",
+			"why": "README ▸ Menus: the app menu, its rows, row states, dividers and headers"
+		},
+		{
+			"pattern": "menu-item-danger",
+			"why": "README ▸ Menus: the app menu, its rows, row states, dividers and headers"
+		},
+		{
+			"pattern": "menu-item-unavailable",
+			"why": "README ▸ Menus: the app menu, its rows, row states, dividers and headers"
+		},
+		{
+			"pattern": "menu-item-icon",
+			"why": "README ▸ Menus: the app menu, its rows, row states, dividers and headers"
+		},
+		{
+			"pattern": "menu-item-hint",
+			"why": "README ▸ Menus: the app menu, its rows, row states, dividers and headers"
+		},
+		{
+			"pattern": "menu-item-shortcut",
+			"why": "README ▸ Menus: the app menu, its rows, row states, dividers and headers"
+		},
+		{
+			"pattern": "menu-divider",
+			"why": "README ▸ Menus: the app menu, its rows, row states, dividers and headers"
+		},
+		{
+			"pattern": "menu-group",
+			"why": "README ▸ Menus: the app menu, its rows, row states, dividers and headers"
+		},
+		{
+			"pattern": "menu-header",
+			"why": "README ▸ Menus: the app menu, its rows, row states, dividers and headers"
+		},
+		{
+			"pattern": "menu-header-plain",
+			"why": "README ▸ Menus: the app menu, its rows, row states, dividers and headers"
+		},
+		{
+			"pattern": "menu-hint-text",
+			"why": "README ▸ Menus: the app menu, its rows, row states, dividers and headers"
+		},
+		{
+			"pattern": "caps-label*",
+			"why": "README ▸ Labels and text: the caps label and the one-line cut"
+		},
+		{
+			"pattern": "text-truncate",
+			"why": "README ▸ Labels and text: the caps label and the one-line cut"
+		},
+		{
+			"pattern": "surface-*",
+			"why": "Shared surfaces, tints and the twenty colour presets (patterns/surfaces.css, tints.css, item-badge.css)"
+		},
+		{
+			"pattern": "tint-*",
+			"why": "Shared surfaces, tints and the twenty colour presets (patterns/surfaces.css, tints.css, item-badge.css)"
+		},
+		{
+			"pattern": "color-*",
+			"why": "Shared surfaces, tints and the twenty colour presets (patterns/surfaces.css, tints.css, item-badge.css)"
+		},
+		{
+			"pattern": "icon-*",
+			"why": "Icon masks: an extension names its icon by class in its metadata and on its own buttons; tick-box is the checkbox glyph"
+		},
+		{
+			"pattern": "tick-box*",
+			"why": "Icon masks: an extension names its icon by class in its metadata and on its own buttons; tick-box is the checkbox glyph"
+		},
+		{
+			"pattern": "item-lozenge",
+			"why": "Summary-line badges (patterns/item-badge.css)"
+		},
+		{
+			"pattern": "context-item-type-badge",
+			"why": "Summary-line badges (patterns/item-badge.css)"
+		},
+		{
+			"pattern": "context-item-expanded-content",
+			"why": "Context-item content: the container the host renders an item into, and the blocks the SDK helpers build, which an extension scopes its own rules under"
+		},
+		{
+			"pattern": "ci-code-content",
+			"why": "Context-item content: the container the host renders an item into, and the blocks the SDK helpers build, which an extension scopes its own rules under"
+		},
+		{
+			"pattern": "ci-code-block",
+			"why": "Context-item content: the container the host renders an item into, and the blocks the SDK helpers build, which an extension scopes its own rules under"
+		},
+		{
+			"pattern": "ci-text-block",
+			"why": "Context-item content: the container the host renders an item into, and the blocks the SDK helpers build, which an extension scopes its own rules under"
+		},
+		{
+			"pattern": "markdown",
+			"why": "Context-item content: the container the host renders an item into, and the blocks the SDK helpers build, which an extension scopes its own rules under"
+		},
+		{
+			"pattern": "summary-with-subtitle*",
+			"why": "The summary line sdk/lib/html.js builds, which an extension's own summary extends"
+		},
+		{
+			"pattern": "llm-description",
+			"why": "The summary line sdk/lib/html.js builds, which an extension's own summary extends"
+		},
+		{
+			"pattern": "properties-panel-text",
+			"why": "The text and result blocks an item's properties view is built from (the SDK helpers emit them too)"
+		},
+		{
+			"pattern": "properties-panel-result",
+			"why": "The text and result blocks an item's properties view is built from (the SDK helpers emit them too)"
+		},
+		{
+			"pattern": "properties-panel-code",
+			"why": "The monospace value block helpers.addSubsection builds by default, which items name when they also pass options"
+		},
+		{
+			"pattern": "info-card__body",
+			"why": "The body text of an info card (InfoCardType)"
+		},
+		{
+			"pattern": "is-*",
+			"why": "State vocabulary (README ▸ Naming): no host rule styles a state class on its own, so an extension's .x.is-open picks up nothing"
+		},
+		{
+			"pattern": "u-*",
+			"why": "Utilities (utilities/utilities.css)"
+		},
+		{
+			"pattern": "hidden",
+			"why": "Utilities (utilities/utilities.css)"
+		}
+	],
+	"$sdk": "Host classes styling markup that web/sdk's own helpers build (code blocks, markdown, copy buttons, action results, live task output, syntax highlight). The SDK ships in step with the host, so web/sdk may set them; an extension may not — it calls the SDK helper.",
+	"sdk": [
+		"action-result*",
+		"action-summary-*",
+		"ci-code-*",
+		"ci-line*",
+		"copy-button",
+		"copied",
+		"properties-panel-copyable",
+		"properties-panel-copy-header",
+		"properties-panel-inline-copy",
+		"properties-panel-subtitle",
+		"live-task-output-*",
+		"markdown-html-scope",
+		"task-box*",
+		"task-list-item",
+		"code-block-wrap",
+		"table-scroll-wrap",
+		"code-copy-button",
+		"quote-copy-button",
+		"syntax-highlight",
+		"token",
+		"bash-command-*"
+	],
+	"$extensionDebt": "Host-internal classes in-tree extensions still set or style, per file. Only shrinks: lint-css-arch reports an entry that is no longer one. Fix one by moving the host rule into the extension's injected CSS under its own class, or by switching to a public class.",
+	"extensionDebt": [
+		{
+			"file": "web/extensions/juggler-core/context-items/ask-user-question-context-item.js",
+			"classes": [
+				"ask-user-question-details",
+				"option-description",
+				"option-label",
+				"option-text",
+				"option-tick",
+				"options-list",
+				"question-block",
+				"question-text"
+			]
+		},
+		{
+			"file": "web/extensions/juggler-core/context-items/ask-user-question/question-form.js",
+			"classes": [
+				"action-confirmation-button",
+				"multi-question-actions",
+				"multi-question-form",
+				"option-btn-desc",
+				"option-btn-label",
+				"primary",
+				"question-custom-field",
+				"question-custom-option",
+				"question-group",
+				"question-option-btn",
+				"question-options",
+				"question-text",
+				"secondary"
+			]
+		},
+		{
+			"file": "web/extensions/juggler-core/context-items/edit/permission-section.js",
+			"classes": [
+				"allowed",
+				"ask",
+				"input-ctrl-btn",
+				"permission-btn",
+				"permission-section",
+				"permission-toggle-btn",
+				"permission-toggle-icon"
+			]
+		},
+		{
+			"file": "web/extensions/juggler-core/context-items/execute-context-item.js",
+			"classes": [
+				"action-summary-background-tag"
+			]
+		},
+		{
+			"file": "web/extensions/juggler-core/context-items/execute/permission-section.js",
+			"classes": [
+				"add-pattern-btn",
+				"add-pattern-row",
+				"editing",
+				"no-patterns",
+				"pattern-edit-input",
+				"pattern-row",
+				"pattern-text",
+				"patterns-list",
+				"permission-scope-btn",
+				"permission-section"
+			]
+		},
+		{
+			"file": "web/extensions/juggler-core/context-items/file-content-context-item.js",
+			"classes": [
+				"project-picker-overlay",
+				"properties-panel-filepath",
+				"properties-panel-filepath-row"
+			]
+		},
+		{
+			"file": "web/extensions/juggler-core/context-items/search-scope-section.js",
+			"classes": [
+				"allowed",
+				"ask",
+				"permission-section",
+				"permission-toggle-btn",
+				"permission-toggle-icon"
+			]
+		},
+		{
+			"file": "web/extensions/juggler-core/context-items/skill-context-item.js",
+			"classes": [
+				"skill-ci-expanded",
+				"skill-load-body",
+				"skill-load-note",
+				"skill-load-panel",
+				"skill-load-raw",
+				"skill-panel-actions",
+				"skill-panel-heading",
+				"skill-panel-how",
+				"skill-panel-lead",
+				"skill-panel-note",
+				"skill-panel-section-title",
+				"skills-badge",
+				"skills-card-desc",
+				"skills-card-head",
+				"skills-card-name",
+				"skills-empty",
+				"skills-file",
+				"skills-file-path",
+				"skills-file-size",
+				"skills-files-list",
+				"skills-manage-actions",
+				"skills-manage-list",
+				"skills-manage-main",
+				"skills-manage-row",
+				"skills-scope-badge",
+				"skills-section-title"
+			]
+		},
+		{
+			"file": "web/extensions/juggler-core/lib/setup-fields.js",
+			"classes": [
+				"setup-field",
+				"setup-field-input",
+				"setup-field-label",
+				"setup-field-note",
+				"setup-field-note-error",
+				"setup-field-note-path",
+				"setup-field-select"
+			]
+		},
+		{
+			"file": "web/extensions/juggler-core/pins/file-pin.js",
+			"classes": [
+				"project-picker-overlay"
+			]
+		},
+		{
+			"file": "web/extensions/juggler-core/pins/git-pin.js",
+			"classes": [
+				"review-panel__scope"
+			]
+		},
+		{
+			"file": "web/extensions/juggler-mcp/context-items/permission-section.js",
+			"classes": [
+				"no-patterns",
+				"pattern-row",
+				"pattern-text",
+				"patterns-list",
+				"permission-scope-btn",
+				"permission-section"
+			]
+		}
 	]
 }

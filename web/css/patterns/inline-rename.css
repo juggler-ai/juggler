@@ -43,12 +43,12 @@
     inset: -0.25rem -0.25rem auto;
     min-height: calc(100% + 0.5rem);
     min-width: max(100%, 10rem);
-    z-index: 10;
+    z-index: var(--z-raised);
     display: flex;
     flex-direction: column;
     justify-content: center;
-    gap: 0.25rem;
-    padding: 0.4375rem 0.6875rem;
+    gap: var(--space-4);
+    padding: var(--space-6) var(--space-10);
     background: var(--inline-rename-surface, var(--bg-primary));
     color: var(--text-primary);
     border: 0.0625rem solid var(--inline-rename-accent, var(--accent-blue));
@@ -79,26 +79,20 @@
     box-sizing: border-box;
     background: transparent;
     color: inherit;
-
-    /* Width alone, deliberately, rather than `border: none`: base/ tints a
-       focused field's border-color, and a field that also declares a colour is
-       picking a fight with that rule which it currently loses and would win the
-       day the sheets are wrapped in layers. There is no border either way at
-       zero width. */
-    border-width: 0;
+    border: none;
     padding: 0;
     margin: 0;
     font-family: var(--font-ui);
     font-size: var(--font-size-base);
-    line-height: 1.2;
+    line-height: var(--leading-snug);
     outline: none;
 }
 
 /* What the editor says when a name was refused and the user can answer it. */
 .inline-rename-error {
-    color: var(--accent-red);
+    color: var(--danger);
     font-size: var(--font-size-sm);
-    line-height: 1.2;
+    line-height: var(--leading-snug);
 }
 
 /* Whatever is offered as an alternative to typing a name, stacked beneath the
@@ -107,8 +101,8 @@
 .inline-rename-actions {
     display: flex;
     justify-content: flex-end;
-    gap: 0.25rem;
-    margin-top: 0.5rem;
+    gap: var(--space-4);
+    margin-top: var(--space-8);
 }
 
 .inline-rename-actions:empty {

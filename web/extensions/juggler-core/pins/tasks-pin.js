@@ -15,49 +15,49 @@ injectStylesOnce('tasks-pin-styles', `
 .tasks-pin {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: var(--space-12);
   height: 100%;
 }
 
 .tasks-pin__groups {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: var(--space-16);
 }
 
 .tasks-pin__group {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: var(--space-8);
 }
 
 .tasks-pin__heading {
   display: flex;
   align-items: baseline;
-  gap: 0.5rem;
+  gap: var(--space-8);
   margin: 0;
   color: var(--text-secondary);
   font-size: var(--font-size-sm);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   overflow-wrap: anywhere;
 }
 
 .tasks-pin__here {
   color: var(--text-tertiary);
-  font-weight: normal;
+  font-weight: var(--font-weight-normal);
 }
 
 .tasks-pin__list {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: var(--space-8);
 }
 
 .tasks-pin__row {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.5rem;
+  gap: var(--space-8);
+  padding: var(--space-8);
   border: 0.0625rem solid var(--border-color);
   border-radius: var(--radius-md, 0.25rem);
 }
@@ -65,7 +65,7 @@ injectStylesOnce('tasks-pin-styles', `
 .tasks-pin__open {
   display: flex;
   flex-direction: column;
-  gap: 0.375rem;
+  gap: var(--space-6);
   width: 100%;
   min-width: 0;
   padding: 0;
@@ -93,7 +93,7 @@ injectStylesOnce('tasks-pin-styles', `
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 0.5rem;
+  gap: var(--space-8);
   color: var(--text-tertiary);
   font-size: var(--font-size-sm);
 }
@@ -122,7 +122,7 @@ injectStylesOnce('tasks-pin-styles', `
 }
 
 .tasks-pin__stop {
-  padding: 0.25rem 0.5rem;
+  padding: var(--space-4) var(--space-8);
   border: 0.0625rem solid var(--border-color);
   border-radius: var(--radius-md, 0.25rem);
   background: transparent;
@@ -133,13 +133,13 @@ injectStylesOnce('tasks-pin-styles', `
 }
 
 .tasks-pin__stop:hover:not(:disabled) {
-  border-color: var(--error-color, var(--border-color));
-  color: var(--error-color, var(--text-primary));
+  border-color: var(--danger, var(--border-color));
+  color: var(--danger, var(--text-primary));
 }
 
 .tasks-pin__stop:disabled {
   cursor: default;
-  opacity: 0.5;
+  opacity: var(--disabled-opacity);
 }
 
 .tasks-pin__note {
@@ -149,7 +149,7 @@ injectStylesOnce('tasks-pin-styles', `
 }
 
 .tasks-pin__error {
-  color: var(--error-color, var(--text-secondary));
+  color: var(--danger, var(--text-secondary));
   overflow-wrap: anywhere;
 }
 `);

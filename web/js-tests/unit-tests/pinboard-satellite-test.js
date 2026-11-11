@@ -344,7 +344,7 @@ function asDesktopWindow(on) {
 function stubActiveTab(conversationId = 'conv_main') {
   const el = /** @type {any} */ (document.createElement('conversation-tab'));
   el.id = `conversation-tab-${conversationId}`;
-  el.classList.add('active');
+  el.classList.add('is-active');
   /** @type {(string|null)[]} */
   const threads = [];
   /** @type {string[]} */
@@ -1011,7 +1011,7 @@ export async function runTests() {
           'the header to name the conversation this window is stuck to');
         assert(slot.firstElementChild?.className === 'app-header__board-conversation',
           'the conversation follows the logo: it is the window’s name, not a note beside a label');
-        assert(slot.lastElementChild?.className === 'app-header__board-kind',
+        assert(slot.lastElementChild?.classList.contains('app-header__board-kind'),
           'and what kind of window it is goes to the far end');
 
         // And it is the way back to that conversation: this window is a view of
@@ -1849,7 +1849,7 @@ export async function runTests() {
           check('identity', [toolbar.querySelector('.pinboard-toolbar__identity')?.textContent || '']);
           const popOut = toolbar.querySelector('.pinboard-toolbar__popout');
           check('pop-out', [attr(popOut, 'title'), attr(popOut, 'aria-label'), popOut?.textContent || ''], 3);
-          const close = toolbar.querySelector('.close-button');
+          const close = toolbar.querySelector('.pinboard-toolbar__close');
           check('close', [attr(close, 'title'), attr(close, 'aria-label')], 2);
 
           pinboardItemRegistry.getType = /** @type {any} */ (() => ({

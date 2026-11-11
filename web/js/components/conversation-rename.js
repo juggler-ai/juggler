@@ -90,7 +90,7 @@ export function openConversationRename(tab, { session, conversation, initialValu
       if (!conversation.hasAutoNameSource()) return null;
       const autoNameBtn = document.createElement('button');
       autoNameBtn.type = 'button';
-      autoNameBtn.className = 'conversation-tab-auto-name';
+      autoNameBtn.className = 'conversation-bar-tab-auto-name';
       autoNameBtn.textContent = t('Auto-name');
       autoNameBtn.title = t('Let the model name this conversation from your first message');
       autoNameBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); });

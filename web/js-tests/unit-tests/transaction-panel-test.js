@@ -49,7 +49,7 @@ import { setLocale } from '../../sdk/lib/i18n.js';
  */
 const openRow = async (row) => {
   row.open = true;
-  await waitFor(() => !!row.querySelector('.tx-row-body'), {
+  await waitFor(() => !!row.querySelector('.transaction-row-body'), {
     description: 'the opened row to build its body',
   }).catch(() => {});
 };
@@ -200,41 +200,41 @@ export async function runTests(_ctx) {
 
   await run('input lists system prompt, tools and one row per message', () => {
     const host = render(makeBlob());
-    const kinds = Array.from(host.querySelectorAll('.tx-row-kind')).map((el) => el.textContent);
+    const kinds = Array.from(host.querySelectorAll('.transaction-row-kind')).map((el) => el.textContent);
     // Four wire messages, with the tool-result folded into its tool-use.
     assert(kinds.join('|') === 'system prompt|tools|user|tool-use|assistant',
       `unexpected rows: ${kinds.join('|')}`);
-    const sizes = Array.from(host.querySelectorAll('.tx-row-size')).map((el) => el.textContent);
+    const sizes = Array.from(host.querySelectorAll('.transaction-row-size')).map((el) => el.textContent);
     assert(sizes.length === kinds.length, 'every row carries an estimated size');
     assert(sizes.every((s) => s.startsWith('~')), `estimates must be marked: ${sizes.join(', ')}`);
   });
 
   await run('the tool-use row is labelled with its tool and argument', () => {
     const host = render(makeBlob());
-    const label = Array.from(host.querySelectorAll('.tx-row'))
-      .find((row) => row.querySelector('.tx-row-kind').textContent === 'tool-use')
-      .querySelector('.tx-row-label').textContent;
+    const label = Array.from(host.querySelectorAll('.transaction-row'))
+      .find((row) => row.querySelector('.transaction-row-kind').textContent === 'tool-use')
+      .querySelector('.transaction-row-label').textContent;
     assert(label === 'read · /tmp/x.js', `expected "read · /tmp/x.js", got "${label}"`);
   });
 
   await run('only the final message is open, and bodies are built on demand', async () => {
     const host = render(makeBlob());
-    const rows = Array.from(host.querySelectorAll('.tx-row'));
+    const rows = Array.from(host.querySelectorAll('.transaction-row'));
     const open = rows.filter((r) => /** @type {HTMLDetailsElement} */ (r).open);
     assert(open.length === 1 && open[0] === rows[rows.length - 1],
       'the final message opens by default — it is what the round-trip answered');
     const collapsed = rows[0];
-    assert(!collapsed.querySelector('.tx-row-body'),
+    assert(!collapsed.querySelector('.transaction-row-body'),
       'a collapsed row must not build its body until it is opened');
     await openRow(/** @type {HTMLDetailsElement} */ (collapsed));
-    assert(!!collapsed.querySelector('.tx-row-body'), 'opening a row builds its body');
+    assert(!!collapsed.querySelector('.transaction-row-body'), 'opening a row builds its body');
   });
 
   await run('multi-line text renders as text, not as an escaped one-liner', async () => {
     const host = render(makeBlob());
-    const systemRow = /** @type {HTMLDetailsElement} */ (host.querySelector('.tx-row'));
+    const systemRow = /** @type {HTMLDetailsElement} */ (host.querySelector('.transaction-row'));
     await openRow(systemRow);
-    const text = systemRow.querySelector('.tx-text');
+    const text = systemRow.querySelector('.transaction-text');
     assert(!!text, 'the system prompt renders as a text block');
     assert(text.textContent.includes('\n'), 'its line breaks survive');
     assert(!text.textContent.includes('\\n'), 'and are not shown as escape sequences');
@@ -242,9 +242,9 @@ export async function runTests(_ctx) {
 
   await run('output blocks render as their own kind', () => {
     const host = render(makeBlob());
-    const kind = host.querySelector('.tx-out-kind');
+    const kind = host.querySelector('.transaction-out-kind');
     assert(kind?.textContent === 'text', `expected a text block, got "${kind?.textContent}"`);
-    const body = host.querySelector('.tx-out-block .tx-text');
+    const body = host.querySelector('.transaction-out-block .transaction-text');
     assert(body.textContent === 'All fixed.\nReally.', 'output text keeps its line breaks');
   });
 
@@ -282,7 +282,7 @@ export async function runTests(_ctx) {
     }
     assert(chips.some((c) => c.startsWith('Time: ')), `expected a Time chip, got ${JSON.stringify(chips)}`);
 
-    const body = host.querySelector('.tx-out-block .tx-text');
+    const body = host.querySelector('.transaction-out-block .transaction-text');
     assert(body?.textContent === 'All fixed.\nReally.',
       'the model output is what the strip keeps, and it still renders');
   });

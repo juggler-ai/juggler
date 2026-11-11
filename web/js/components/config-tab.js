@@ -384,7 +384,7 @@ export class ConfigTabController {
     toolbar.className = 'mcp-toolbar';
     const addBtn = document.createElement('button');
     addBtn.type = 'button';
-    addBtn.className = 'settings-btn btn-primary small';
+    addBtn.className = 'btn btn-sm btn-primary';
     addBtn.textContent = t(this.spec.addLabel);
     addBtn.addEventListener('click', () => this.openForm('add'));
     toolbar.appendChild(addBtn);
@@ -482,7 +482,7 @@ export class ConfigTabController {
     toggle.title = enabled ? t('Enabled') : t('Disabled');
     const cb = document.createElement('input');
     cb.type = 'checkbox';
-    cb.className = 'provider-toggle';
+    cb.className = 'provider-toggle u-visually-hidden';
     cb.checked = enabled;
     cb.addEventListener('change', () => this._setEnabled(scope, name, cb.checked));
     const sw = document.createElement('span');
@@ -498,14 +498,14 @@ export class ConfigTabController {
     if (enabled && untrusted) {
       const trust = document.createElement('button');
       trust.type = 'button';
-      trust.className = 'settings-btn small';
+      trust.className = 'btn btn-sm btn-secondary';
       trust.textContent = t('Trust and start');
       trust.addEventListener('click', () => this._confirmTrust(name, trust));
       btnRow.appendChild(trust);
     } else if (enabled && spec.ops.restart) {
       const restart = document.createElement('button');
       restart.type = 'button';
-      restart.className = 'settings-btn small';
+      restart.className = 'btn btn-sm btn-secondary';
       restart.textContent = t('Restart');
       if (status.status === 'starting') restart.disabled = true;
       restart.addEventListener('click', () => this._restart(name, restart));
@@ -515,7 +515,7 @@ export class ConfigTabController {
     if (spec.ops.getLog) {
       const logsBtn = document.createElement('button');
       logsBtn.type = 'button';
-      logsBtn.className = 'settings-btn small';
+      logsBtn.className = 'btn btn-sm btn-secondary';
       logsBtn.textContent = this.logFor === name ? t('Hide log') : t('Log');
       logsBtn.addEventListener('click', () => this._toggleLog(name));
       btnRow.appendChild(logsBtn);
@@ -523,14 +523,14 @@ export class ConfigTabController {
 
     const editBtn = document.createElement('button');
     editBtn.type = 'button';
-    editBtn.className = 'settings-btn small';
+    editBtn.className = 'btn btn-sm btn-secondary';
     editBtn.textContent = t('Edit');
     editBtn.addEventListener('click', () => this.openForm('edit', status));
     btnRow.appendChild(editBtn);
 
     const delBtn = document.createElement('button');
     delBtn.type = 'button';
-    delBtn.className = 'settings-btn btn-danger small';
+    delBtn.className = 'btn btn-sm btn-danger';
     delBtn.textContent = t('Delete');
     delBtn.addEventListener('click', () => this._confirmDelete(scope, name));
     btnRow.appendChild(delBtn);
@@ -739,14 +739,14 @@ export class ConfigTabController {
     wrap.className = 'mcp-form';
 
     const title = document.createElement('div');
-    title.className = 'settings-section-heading';
+    title.className = 'settings-section-heading caps-label-lg';
     title.textContent = f.mode === 'edit' ? t('Edit “{name}”', { name: f.name }) : t(spec.formAddTitle);
     wrap.appendChild(title);
 
     // Name
     const nameInput = document.createElement('input');
     nameInput.type = 'text';
-    nameInput.className = `mcp-input field-input ${spec.id}-name-input`;
+    nameInput.className = `mcp-input field-input field-input-sm ${spec.id}-name-input`;
     nameInput.placeholder = t(spec.namePlaceholder);
     nameInput.value = f.name;
     if (f.mode === 'edit') nameInput.readOnly = true;
@@ -754,7 +754,7 @@ export class ConfigTabController {
 
     // Scope
     const scopeSelect = document.createElement('select');
-    scopeSelect.className = `mcp-input field-input ${spec.id}-scope-input`;
+    scopeSelect.className = `mcp-input field-input field-input-sm ${spec.id}-scope-input`;
     const optGlobal = document.createElement('option');
     optGlobal.value = 'global';
     optGlobal.textContent = t('Global (all projects)');
@@ -774,7 +774,7 @@ export class ConfigTabController {
     // group (command/args/env) and the remote field group (url/headers).
     if (spec.supportsTransport) {
       const transportSelect = document.createElement('select');
-      transportSelect.className = `mcp-input field-input ${spec.id}-transport-input`;
+      transportSelect.className = `mcp-input field-input field-input-sm ${spec.id}-transport-input`;
       /** @type {Array<[string, string]>} */
       const transportOptions = [
         ['stdio', t('Local process (stdio)')],
@@ -814,7 +814,8 @@ export class ConfigTabController {
     enabledToggle.className = 'mcp-toggle-wrap';
     const enabledCb = document.createElement('input');
     enabledCb.type = 'checkbox';
-    enabledCb.className = `provider-toggle ${spec.id}-enabled-input`;
+    enabledCb.className = 'provider-toggle u-visually-hidden';
+    enabledCb.dataset.configField = `${spec.id}-enabled`;
     enabledCb.checked = f.enabled !== false;
     const enabledSw = document.createElement('span');
     enabledSw.className = 'toggle-switch';
@@ -841,12 +842,12 @@ export class ConfigTabController {
     actions.className = 'mcp-form-actions';
     const saveBtn = document.createElement('button');
     saveBtn.type = 'button';
-    saveBtn.className = 'settings-btn btn-primary small';
+    saveBtn.className = 'btn btn-sm btn-primary';
     saveBtn.textContent = t('Save');
     saveBtn.addEventListener('click', () => this._save());
     const cancelBtn = document.createElement('button');
     cancelBtn.type = 'button';
-    cancelBtn.className = 'settings-btn small';
+    cancelBtn.className = 'btn btn-sm btn-secondary';
     cancelBtn.textContent = t('Cancel');
     cancelBtn.addEventListener('click', () => {
       this.editing = null;
@@ -871,7 +872,7 @@ export class ConfigTabController {
     // Command
     const cmdInput = document.createElement('input');
     cmdInput.type = 'text';
-    cmdInput.className = `mcp-input field-input ${spec.id}-command-input`;
+    cmdInput.className = `mcp-input field-input field-input-sm ${spec.id}-command-input`;
     cmdInput.placeholder = t(spec.commandPlaceholder);
     cmdInput.value = f.command;
     wrap.appendChild(this._formField(t('Command'), cmdInput, t(spec.commandHint)));
@@ -888,7 +889,7 @@ export class ConfigTabController {
     argsField.appendChild(argsList);
     const addArg = document.createElement('button');
     addArg.type = 'button';
-    addArg.className = 'settings-btn small mcp-add-row';
+    addArg.className = 'btn btn-sm btn-secondary mcp-add-row';
     addArg.textContent = t('Add argument');
     addArg.addEventListener('click', () => {
       f.args = this._readArgs();
@@ -911,7 +912,7 @@ export class ConfigTabController {
     envField.appendChild(envList);
     const addEnv = document.createElement('button');
     addEnv.type = 'button';
-    addEnv.className = 'settings-btn small mcp-add-row';
+    addEnv.className = 'btn btn-sm btn-secondary mcp-add-row';
     addEnv.textContent = t('Add variable');
     addEnv.addEventListener('click', () => {
       f.envPairs = this._readEnvPairs();
@@ -935,7 +936,7 @@ export class ConfigTabController {
     // URL
     const urlInput = document.createElement('input');
     urlInput.type = 'text';
-    urlInput.className = `mcp-input field-input ${spec.id}-url-input`;
+    urlInput.className = `mcp-input field-input field-input-sm ${spec.id}-url-input`;
     urlInput.placeholder = spec.urlPlaceholder || 'https://example.com/mcp'; // i18n-ignore: an example address
     urlInput.value = f.url || '';
     wrap.appendChild(this._formField(t('URL'), urlInput, spec.urlHint ? t(spec.urlHint) : t('The remote MCP endpoint URL.')));
@@ -952,7 +953,7 @@ export class ConfigTabController {
     headersField.appendChild(headersList);
     const addHeader = document.createElement('button');
     addHeader.type = 'button';
-    addHeader.className = 'settings-btn small mcp-add-row';
+    addHeader.className = 'btn btn-sm btn-secondary mcp-add-row';
     addHeader.textContent = t('Add header');
     addHeader.addEventListener('click', () => {
       f.headerPairs = this._readHeaderPairs();
@@ -1002,12 +1003,12 @@ export class ConfigTabController {
       rowEl.className = 'mcp-repeat-row';
       const input = document.createElement('input');
       input.type = 'text';
-      input.className = `mcp-input field-input ${spec.id}-arg-input`;
+      input.className = `mcp-input field-input field-input-sm ${spec.id}-arg-input`;
       input.placeholder = t(i === 0 ? spec.argFirstPlaceholder : spec.argRestPlaceholder);
       input.value = arg;
       const remove = document.createElement('button');
       remove.type = 'button';
-      remove.className = 'mcp-remove-row';
+      remove.className = 'btn btn-icon btn-icon-lg btn-secondary btn-danger-quiet mcp-remove-row';
       remove.setAttribute('aria-label', t('Remove argument'));
       remove.textContent = '×';
       remove.addEventListener('click', () => {
@@ -1036,18 +1037,18 @@ export class ConfigTabController {
       rowEl.className = `mcp-repeat-row ${spec.id}-env-row`;
       const key = document.createElement('input');
       key.type = 'text';
-      key.className = `mcp-input field-input ${spec.id}-env-key`;
+      key.className = `mcp-input field-input field-input-sm ${spec.id}-env-key`;
       key.placeholder = spec.envKeyPlaceholder;
       key.value = pair.key;
       const value = document.createElement('input');
       value.type = 'password';
-      value.className = `mcp-input field-input ${spec.id}-env-value`;
+      value.className = `mcp-input field-input field-input-sm ${spec.id}-env-value`;
       value.placeholder = t('value');
       value.value = pair.value;
       value.autocomplete = 'off';
       const reveal = document.createElement('button');
       reveal.type = 'button';
-      reveal.className = 'mcp-reveal-btn';
+      reveal.className = 'btn btn-icon btn-icon-lg btn-secondary mcp-reveal-btn';
       reveal.setAttribute('aria-label', t('Reveal value'));
       reveal.textContent = '👁';
       reveal.addEventListener('click', () => {
@@ -1055,7 +1056,7 @@ export class ConfigTabController {
       });
       const remove = document.createElement('button');
       remove.type = 'button';
-      remove.className = 'mcp-remove-row';
+      remove.className = 'btn btn-icon btn-icon-lg btn-secondary btn-danger-quiet mcp-remove-row';
       remove.setAttribute('aria-label', t('Remove variable'));
       remove.textContent = '×';
       remove.addEventListener('click', () => {
@@ -1087,18 +1088,18 @@ export class ConfigTabController {
       rowEl.className = `mcp-repeat-row ${spec.id}-header-row`;
       const key = document.createElement('input');
       key.type = 'text';
-      key.className = `mcp-input field-input ${spec.id}-header-key`;
+      key.className = `mcp-input field-input field-input-sm ${spec.id}-header-key`;
       key.placeholder = spec.headerKeyPlaceholder || 'Authorization'; // i18n-ignore: an example header name
       key.value = pair.key;
       const value = document.createElement('input');
       value.type = 'password';
-      value.className = `mcp-input field-input ${spec.id}-header-value`;
+      value.className = `mcp-input field-input field-input-sm ${spec.id}-header-value`;
       value.placeholder = t('value');
       value.value = pair.value;
       value.autocomplete = 'off';
       const reveal = document.createElement('button');
       reveal.type = 'button';
-      reveal.className = 'mcp-reveal-btn';
+      reveal.className = 'btn btn-icon btn-icon-lg btn-secondary mcp-reveal-btn';
       reveal.setAttribute('aria-label', t('Reveal value'));
       reveal.textContent = '👁';
       reveal.addEventListener('click', () => {
@@ -1106,7 +1107,7 @@ export class ConfigTabController {
       });
       const remove = document.createElement('button');
       remove.type = 'button';
-      remove.className = 'mcp-remove-row';
+      remove.className = 'btn btn-icon btn-icon-lg btn-secondary btn-danger-quiet mcp-remove-row';
       remove.setAttribute('aria-label', t('Remove header'));
       remove.textContent = '×';
       remove.addEventListener('click', () => {
@@ -1180,7 +1181,7 @@ export class ConfigTabController {
     if (this.root.querySelector(`.${spec.id}-arg-input`)) f.args = this._readArgs();
     if (this.root.querySelector(`.${spec.id}-env-row`)) f.envPairs = this._readEnvPairs();
     if (this.root.querySelector(`.${spec.id}-header-row`)) f.headerPairs = this._readHeaderPairs();
-    const enabledEl = /** @type {HTMLInputElement|null} */ (q('enabled-input'));
+    const enabledEl = /** @type {HTMLInputElement|null} */ (this.root.querySelector(`[data-config-field="${spec.id}-enabled"]`));
     if (enabledEl) f.enabled = enabledEl.checked;
   }
 

@@ -57,6 +57,12 @@ function planStatusLabel(status) {
 }
 
 injectStylesOnce('task-progress-styles', `
+.task-list-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+}
+
 .task-progress {
   display: flex;
   height: 0.375rem;
@@ -64,8 +70,8 @@ injectStylesOnce('task-progress-styles', `
   background: var(--bg-tertiary);
   overflow: hidden;
 }
-.markdown > .task-progress { margin: -0.25rem 0 0.625rem; }
-.task-progress__segment { transition: width 200ms ease; }
+.markdown > .task-progress { margin: calc(-1 * var(--space-4)) 0 var(--space-10); }
+.task-progress__segment { transition: width var(--transition-slow); }
 .task-progress__segment--completed { background: var(--task-done-box); }
 .task-progress__segment--in-progress { background: var(--task-progress-box); }
 .task-progress__segment--failed { background: var(--task-failed-box); }

@@ -223,6 +223,226 @@ try {
   }
 
   // -------------------------------------------------------------------------
+  // extension-styling: the classes web/sdk and web/extensions put on elements
+  // or style, against the host's public styling API.
+  // -------------------------------------------------------------------------
+  const extRoot = path.join(scratch, 'ext');
+  writeTree(extRoot, {
+    'web/js/app.js': "const el = document.createElement('div'); el.className = 'panel-row host-only';\n",
+    'web/sdk/lib/h.js': "export const b = () => createElement('div', 'sdk-block btn panel-row sdk-own');\n",
+    'web/extensions/ext/a.js': [
+      "const el = document.createElement('div');",
+      "el.className = 'btn btn-primary ext-own panel-row is-open btn-icon-header';",
+      "el.title = 'host-only';",
+      '',
+    ].join('\n'),
+    'web/extensions/ext/view.js': [
+      "injectStylesOnce('ext-view', `.viewer-page { gap: 0; } .ext-own2 .btn { gap: 0; }`);",
+      'const CSS = `.ext-own3 .sdk-block, .is-open { gap: 0; }`;',
+      "injectStylesOnce('ext-view-2', CSS);",
+      '',
+    ].join('\n'),
+    // An SDK helper's own class stays the SDK's, on the element it builds for
+    // a caller's class and on the caller's element it is handed.
+    'web/sdk/lib/f.js': [
+      "export function codeBox(text, cls) { const p = document.createElement('pre'); p.className = cls; p.classList.add('sdk-block'); return p; }",
+      "export function mark(el) { el.classList.add('sdk-block'); }",
+      '',
+    ].join('\n'),
+    'web/extensions/ext/calls.js': "codeBox('x', 'ext-box'); const own = document.createElement('div'); own.className = 'ext-mark'; mark(own);\n",
+    'web/extensions/ext/debt.js': "const d = document.createElement('div'); d.className = 'debt-row';\n",
+    'web/extensions/ext/_tests/t.js': "const t = document.createElement('div'); t.className = 'test-only-row';\n",
+    'web/extensions/ext/a-test.js': "const u = document.createElement('div'); u.className = 'test-only-row';\n",
+  });
+  const extSheets = [
+    { file: 'patterns/buttons.css', layer: 'patterns' },
+    { file: 'components/panel.css', layer: 'components' },
+  ];
+  const extSources = new Map([
+    ['patterns/buttons.css', '.btn { gap: 0; } .btn-primary { gap: 0; } .btn-icon-header { gap: 0; } .btn-xs { gap: 0; }\n'],
+    ['components/panel.css', '.panel-row, .panel-row.is-open, .viewer-page, .sdk-block, .debt-row, .fixed-row, .host-only, .test-only-row { gap: 0; }\n'],
+  ]);
+  const extManifest = {
+    public: [
+      { pattern: 'btn', why: 'the button' },
+      { pattern: 'btn-primary', why: 'its primary role' },
+      { pattern: 'is-*', why: 'state vocabulary' },
+      { pattern: 'ghost-*', why: 'matches nothing the host styles' },
+      { pattern: 'btn-xs' },
+    ],
+    sdk: ['sdk-block', 'sdk-unused'],
+    extensionDebt: [
+      { file: 'web/extensions/ext/debt.js', classes: ['debt-row', 'fixed-row', 'own-class'] },
+      { file: 'web/extensions/ext/gone.js', classes: ['debt-row'] },
+    ],
+  };
+  const { buildMarkupModel } = require('../scripts/css-markup-model');
+  const eslintScope = require('eslint-scope');
+  const extModel = buildMarkupModel({ repoRoot: extRoot, espree, eslintScope });
+  const extUse = arch.extensionClassUse(extRoot, extModel, espree);
+  expectItems('extension-styling', arch.checkExtensionStyling(extManifest, extSheets, extSources, extUse), [
+    'web/extensions/ext/a.js .panel-row',
+    'web/extensions/ext/a.js .btn-icon-header',
+    'web/extensions/ext/view.js .viewer-page',
+    'web/extensions/ext/view.js .sdk-block',
+    'web/sdk/lib/h.js .panel-row',
+    'public ghost-*',
+    'public btn-xs',
+    'sdk sdk-unused',
+    'extensionDebt web/extensions/ext/debt.js .fixed-row',
+    'extensionDebt web/extensions/ext/debt.js .own-class',
+    'extensionDebt web/extensions/ext/gone.js .debt-row',
+  ]);
+
+  // -------------------------------------------------------------------------
+  // css-markup-model: an icon class handed over as data (`icon: 'icon-x'`)
+  // lands on a <span>, and says nothing about the classes beside it.
+  // -------------------------------------------------------------------------
+  const iconRoot = path.join(scratch, 'icon-data');
+  writeTree(iconRoot, {
+    'web/js/a.js': [
+      "export const badge = () => ({ color: 'web', icon: 'icon-data-only' });",
+      "export const meta = { iconClass: 'icon-also-read', label: 'x', other: 'icon-not-an-icon-key' };",
+      "export const action = { iconClass: 'menu-gear-glyph' };",
+      "const s = document.createElement('i'); s.className = 'icon-also-read';",
+      "export const notIcon = { icon: 'refresh' };",
+      '',
+    ].join('\n'),
+  });
+  const iconModel = buildMarkupModel({ repoRoot: iconRoot, espree, eslintScope });
+  assert.deepEqual([...(iconModel.tagsOf('icon-data-only') ?? [])], ['span'], 'icon: data literal is a span');
+  assert.deepEqual([...(iconModel.tagsOf('icon-also-read') ?? [])].sort(), ['i', 'span'], 'iconClass: adds span to what the markup says');
+  assert.equal(iconModel.canCoexist(['icon-also-read', 'other-class']), false, 'a tag-only fact leaves a closed class closed');
+  assert.equal(iconModel.canCoexist(['icon-data-only', 'other-class']), true, 'a data-only icon class is not closed');
+  assert.equal(iconModel.tagsOf('icon-not-an-icon-key'), null, 'only the icon keys name an icon class');
+  assert.equal(iconModel.tagsOf('refresh'), null, 'an icon value that is not an icon-* class is not one');
+  assert.deepEqual([...(iconModel.tagsOf('menu-gear-glyph') ?? [])], ['span'], 'iconClass: any class name is a span');
+
+  // -------------------------------------------------------------------------
+  // css-markup-model: an element built and handed straight back
+  // (`return createElement('div', 'x')`) has the tag it was built with.
+  // -------------------------------------------------------------------------
+  const returnRoot = path.join(scratch, 'returned');
+  writeTree(returnRoot, {
+    'web/js/a.js': [
+      "import { createElement } from './html.js';",
+      "export const title = (text) => createElement('div', 'returned-title other-title', text);",
+      "export const any = (tag) => createElement(tag, 'returned-any');",
+      '',
+    ].join('\n'),
+  });
+  const returnModel = buildMarkupModel({ repoRoot: returnRoot, espree, eslintScope });
+  assert.deepEqual([...(returnModel.tagsOf('returned-title') ?? [])], ['div'], 'return createElement: its literal tag');
+  assert.equal(returnModel.canCoexist(['returned-title', 'unrelated']), true, 'a returned element closes no class');
+  assert.equal(returnModel.tagsOf('returned-any'), null, 'a tag the caller names is unknown');
+
+  // -------------------------------------------------------------------------
+  // css-markup-model: a field set to a const element (`this._title = title`)
+  // is that element; one also set to anything else stays of unknown tag.
+  // -------------------------------------------------------------------------
+  const fieldRoot = path.join(scratch, 'field-alias');
+  writeTree(fieldRoot, {
+    'web/js/a.js': [
+      'export class A {',
+      "  build() { const title = document.createElement('h3'); this._title = title; this._other = title; }",
+      "  clear() { this._title = null; this._title?.classList.remove('field-mod'); }",
+      "  sync(on) { this._title.classList.toggle('field-mod', on); }",
+      "  swap(x) { this._other = x; this._other.classList.add('field-ambiguous'); }",
+      '}',
+      '',
+    ].join('\n'),
+  });
+  const fieldModel = buildMarkupModel({ repoRoot: fieldRoot, espree, eslintScope });
+  assert.deepEqual([...(fieldModel.tagsOf('field-mod') ?? [])], ['h3'], 'this.field = const: the const\'s tag');
+  assert.equal(fieldModel.tagsOf('field-ambiguous'), null, 'a field also set to something else has no tag');
+
+  // -------------------------------------------------------------------------
+  // css-markup-model: a class put on a parameter lands on what the callers
+  // hand in, and a class slot handed on to a factory is that factory's slot.
+  // -------------------------------------------------------------------------
+  const paramRoot = path.join(scratch, 'parameters');
+  writeTree(paramRoot, {
+    'web/js/a.js': [
+      "export function mark(code) { code.classList.add('param-mark'); }",
+      "export function present({ surface }) { surface.classList.add('param-sheet'); }",
+      "export function presentVia(surface) { present({ surface }); }",
+      "export function wild(x) { x.classList.add('param-wild'); }",
+      "export function pre(text, className = 'param-default') { const p = document.createElement('pre'); p.className = className; return p; }",
+      "export function section(text, className = 'param-forwarded') { return pre(text, className); }",
+      '',
+    ].join('\n'),
+    'web/js/b.js': [
+      "const code = document.createElement('code'); mark(code);",
+      "const nav = document.createElement('nav'); present({ surface: nav });",
+      "presentVia(document.createElement('ul'));",
+      "wild(document.createElement('div')); wild(document.querySelector('.x'));",
+      "section('t'); section('t', 'param-passed');",
+      '',
+    ].join('\n'),
+  });
+  const paramModel = buildMarkupModel({ repoRoot: paramRoot, espree, eslintScope });
+  assert.deepEqual([...(paramModel.tagsOf('param-mark') ?? [])], ['code'], 'a parameter is the element its caller passes');
+  assert.deepEqual([...(paramModel.tagsOf('param-sheet') ?? [])].sort(), ['nav', 'ul'], 'an options key, and a parameter handed on');
+  assert.equal(paramModel.tagsOf('param-wild'), null, 'one unreadable caller leaves the tag unknown');
+  assert.deepEqual([...(paramModel.tagsOf('param-forwarded') ?? [])], ['pre'], 'a class slot handed on: its default');
+  assert.deepEqual([...(paramModel.tagsOf('param-passed') ?? [])], ['pre'], 'a class slot handed on: its callers');
+
+  // -------------------------------------------------------------------------
+  // css-markup-model: a class put on an element the model did not build — a
+  // parameter, a lookup, a callback's result — joins whatever element that
+  // really is. A `getElementById('<literal>')` is the document's element with
+  // that id; anything else may be any element, so its class can share one
+  // with any class at all.
+  // -------------------------------------------------------------------------
+  const openRoot = path.join(scratch, 'open-elements');
+  writeTree(openRoot, {
+    'web/index.html': '<header><button id="open-net" class="open-host open-ghost"></button><div class="open-solo"></div></header>\n',
+    'web/js/a.js': [
+      "export function bindNet(button) { button.classList.add('open-remote'); }",
+      "bindNet(document.getElementById('open-net'));",
+      "const host = document.getElementById('open-net'); host.classList.add('open-direct');",
+      "export function wildBind(el) { el.classList.add('open-param'); }",
+      'wildBind(window.someElement);',
+      "document.querySelector('.x').classList.add('open-anon');",
+      "export function later(row) { row.classList.add('open-unseen'); }",
+      "const b = document.createElement('span'); b.className = 'open-built';",
+      "export function make(cls) { const d = document.createElement('div'); d.className = 'open-base'; d.classList.add(cls); return d; }",
+      "make('open-passed');",
+      "const pick = () => 'open-returned'; const t = document.createElement('em'); t.classList.add('open-twin-base'); t.classList.add(pick());",
+      "export function paint(el) { el.classList.add('open-painted'); }",
+      "paint(document.createElement('dd')); paint(document.querySelector('.open-painted'));",
+      "const solo = document.createElement('dt'); solo.className = 'open-solo-dt';",
+      "export function present(el) { el.classList.add('open-sheet'); }",
+      'export function inline({ host, sel }) { const s = host.querySelector(sel); present(s); }',
+      "inline({ host: document, sel: '.open-menu-a' }); inline({ host: document, sel: '.open-menu-b' });",
+      "const ma = document.createElement('menu'); ma.className = 'open-menu-a';",
+      "const mb = document.createElement('menu'); mb.className = 'open-menu-b';",
+      "export function inlineAny(host, sel) { host.querySelector(sel).classList.add('open-any-sheet'); }",
+      "inlineAny(document, '.open-menu-a'); inlineAny(document, window.someSelector);",
+      '',
+    ].join('\n'),
+  });
+  const openModel = buildMarkupModel({ repoRoot: openRoot, espree, eslintScope });
+  assert.equal(openModel.canCoexist(['open-host', 'open-remote']), true, 'a parameter given getElementById: that element\'s classes');
+  assert.deepEqual([...(openModel.tagsOf('open-remote') ?? [])], ['button'], 'a parameter given getElementById: that element\'s tag');
+  assert.equal(openModel.canCoexist(['open-remote', 'open-solo']), false, 'a parameter given getElementById: no other element');
+  assert.equal(openModel.canCoexist(['open-host', 'open-ghost', 'open-direct']), true, 'getElementById: that element\'s classes');
+  assert.deepEqual([...(openModel.tagsOf('open-direct') ?? [])], ['button'], 'getElementById: that element\'s tag');
+  assert.equal(openModel.canCoexist(['open-direct', 'open-solo']), false, 'getElementById: no other element');
+  assert.equal(openModel.canCoexist(['open-param', 'open-host']), true, 'a parameter given anything: any classes');
+  assert.equal(openModel.tagsOf('open-param'), null, 'a parameter given anything: any tag');
+  assert.equal(openModel.canCoexist(['open-anon', 'open-solo']), true, 'a lookup: any classes');
+  assert.equal(openModel.canCoexist(['open-unseen', 'open-host']), true, 'a parameter nobody calls: any classes');
+  assert.equal(openModel.canCoexist(['open-built', 'open-host']), false, 'an element built here keeps its classes to itself');
+  assert.equal(openModel.canCoexist(['open-passed', 'open-base']), true, 'a class handed to a factory joins the classes it adds');
+  assert.equal(openModel.canCoexist(['open-returned', 'open-twin-base']), true, 'a returned class name joins the element\'s other classes');
+  assert.deepEqual([...(openModel.tagsOf('open-painted') ?? [])], ['dd'], 'a lookup by the parameter\'s own class: the other callers\' element');
+  assert.equal(openModel.canCoexist(['open-painted', 'open-solo-dt']), false, 'a lookup by the parameter\'s own class: no other element');
+  assert.deepEqual([...(openModel.tagsOf('open-sheet') ?? [])], ['menu'], 'a lookup by a selector parameter: what its callers name');
+  assert.equal(openModel.canCoexist(['open-sheet', 'open-solo']), false, 'a lookup by a selector parameter: no other element');
+  assert.equal(openModel.canCoexist(['open-any-sheet', 'open-solo']), true, 'a selector parameter one caller cannot name: any element');
+
+  // -------------------------------------------------------------------------
   // token-parity
   // -------------------------------------------------------------------------
   const tokenSources = new Map([
@@ -291,6 +511,45 @@ try {
     'components/menu-bar.css:menu-bar', 'components/tip-row.css:tip-row*',
   ]);
 
+  // Custom properties and @keyframes names are owned like classes: a name an
+  // `owns` glob matches, or one a glob-free entry prefixes, or a `--` claim.
+  const propSheets = [
+    { file: 'tokens/t.css', layer: 'tokens' },
+    { file: 'components/menu.css', layer: 'components', owns: ['menu', 'menu-item*'] },
+    { file: 'components/card.css', layer: 'components', owns: ['card', '--deck-*'] },
+    { file: 'components/policy.css', layer: 'components', enumerates: true },
+    // A `--` claim another sheet's claim already covers.
+    { file: 'components/hand.css', layer: 'components', owns: ['--deck-hand-*'] },
+  ];
+  const propSources = new Map([
+    // Tokens are the global vocabulary: nothing there needs an owner.
+    ['tokens/t.css', ':root { --accent: red; --anything-goes: 1px; }\n@keyframes token-free { to { opacity: 0; } }\n'],
+    ['components/menu.css', [
+      // Its own by prefix and by glob; then one with no owner.
+      '.menu { --menu-gap: 1px; --menu-item-pad: 2px; --size: 1px; gap: var(--size); }',
+      // Setting another group's hook (by prefix, by claim) and a token.
+      '.menu .menu-item { --card-pad: 1px; --deck-w: 1px; --accent: blue; }',
+      '@media (width > 1px) { .menu { --nested: 1px; } }',
+      '.menu { &:hover { --hover-tint: 1px; } --after-nest: 1px; }',
+      // A modifier in a selector is not a property.
+      '.menu-item--close:hover { color: red; }',
+      '/* .menu { --commented: 1px; } */',
+      '@keyframes menu-in { to { opacity: 0; } }',
+      // Keyframes are defined, never set as a hook: another group's name fails.
+      '@keyframes card-in { to { opacity: 0; } }',
+      '@keyframes fade { to { opacity: 0; } }',
+      '',
+    ].join('\n')],
+    // A `--` claim covers properties and keyframes, never a class root.
+    ['components/card.css', '.card { --deck-w: 1px; --deckle: 1px; }\n@keyframes deck-deal { to { opacity: 0; } }\n.deck-thing { color: red; }\n'],
+    ['components/policy.css', '.menu { --policy-x: 1px; }\n@keyframes policy-in { to { opacity: 0; } }\n'],
+  ]);
+  expectItems('ownership, custom properties and keyframes', arch.checkOwnership({}, propSheets, propSources), [
+    'components/menu.css:--size', 'components/menu.css:--nested', 'components/menu.css:--hover-tint',
+    'components/menu.css:--after-nest', 'components/menu.css:@card-in', 'components/menu.css:@fade',
+    'components/card.css:--deckle', 'components/card.css:deck-thing', 'components/hand.css:--deck-hand-*',
+  ]);
+
   // -------------------------------------------------------------------------
   // layer-order
   // -------------------------------------------------------------------------
@@ -313,6 +572,51 @@ try {
   expectItems('layer-order', arch.checkLayerOrder({ layers: ['tokens', 'base', 'components'] }, orderSheets, orderSources), [
     'base/late.css:order', 'layout/x.css:layer', 'extra/y.css:layer',
   ]);
+
+  // layer-order, the wrap: every sheet is one `@layer <its layer> { … }`, the
+  // first sheet declares the order ahead of its block, and every document
+  // links that sheet before any other.
+  const wrapManifest = { layers: ['tokens', 'base', 'components'] };
+  const wrapSheets = [
+    { file: 'base/fonts.css', layer: 'base' },
+    { file: 'tokens/ok.css', layer: 'tokens' },
+    { file: 'base/bare.css', layer: 'base' },
+    { file: 'base/wrong.css', layer: 'base' },
+    { file: 'components/two.css', layer: 'components' },
+    { file: 'components/after.css', layer: 'components' },
+    { file: 'components/stmt.css', layer: 'components' },
+    { file: 'components/nested.css', layer: 'components' },
+    { file: 'components/brace.css', layer: 'components' },
+  ];
+  const wrapSources = new Map([
+    ['base/fonts.css', '/* order */\n@layer tokens, base, components;\n\n@layer base {\n@font-face { font-family: F; }\n}\n'],
+    ['tokens/ok.css', '/* banner */\n@layer tokens {\n:root { --a: 1; }\n}\n/* trailing note */\n'],
+    ['base/bare.css', '.a { color: red; }\n'],
+    ['base/wrong.css', '@layer components {\n.b { color: red; }\n}\n'],
+    ['components/two.css', '@layer components {\n.c { color: red; }\n}\n@layer components {\n.d { color: red; }\n}\n'],
+    ['components/after.css', '@layer components {\n.e { color: red; }\n}\n.f { color: red; }\n'],
+    ['components/stmt.css', '@layer tokens, base, components;\n@layer components {\n.g { color: red; }\n}\n'],
+    ['components/nested.css', '@layer components {\n@media (width <= 10rem) { .h { color: red; } }\n}\n'],
+    ['components/brace.css', '@layer components {\n.i::after { content: "}"; }\n}\n'],
+  ]);
+  const wrapDocs = new Map([
+    ['first.html', '<link rel="stylesheet" href="/v1/css/base/fonts.css">\n<link rel="stylesheet" href="/v1/css/tokens/ok.css">'],
+    ['late.html', '<link rel="stylesheet" href="/v1/css/tokens/ok.css">\n<link rel="stylesheet" href="/v1/css/base/fonts.css">'],
+    ['shell.html', '{{template "window-shell-head" .}}\n<link rel="stylesheet" href="{{.AssetBase}}/css/components/two.css">'],
+    ['own.html', '<link rel="stylesheet" href="own.css">'],
+  ]);
+  expectItems('layer-order wrap', arch.checkLayerWrap(wrapManifest, wrapSheets, wrapSources, wrapDocs), [
+    'base/bare.css:wrap', 'base/wrong.css:wrap', 'components/two.css:wrap', 'components/after.css:wrap',
+    'components/stmt.css:order-statement', 'late.html:first-link',
+  ]);
+  expectItems('layer-order wrap, statement', arch.checkLayerWrap(wrapManifest, wrapSheets.slice(0, 2), new Map([
+    ['base/fonts.css', '@layer base, tokens, components;\n@layer base {\n@font-face { font-family: F; }\n}\n'],
+    ['tokens/ok.css', '@layer tokens {\n:root { --a: 1; }\n}\n'],
+  ]), new Map()), ['base/fonts.css:order-statement']);
+  expectItems('layer-order wrap, no statement', arch.checkLayerWrap(wrapManifest, wrapSheets.slice(0, 2), new Map([
+    ['base/fonts.css', '@layer base {\n@font-face { font-family: F; }\n}\n'],
+    ['tokens/ok.css', '@layer tokens {\n:root { --a: 1; }\n}\n'],
+  ]), new Map()), ['base/fonts.css:order-statement']);
 
   // -------------------------------------------------------------------------
   // asset-url
@@ -354,23 +658,58 @@ try {
   // -------------------------------------------------------------------------
   const scaleRoot = path.join(scratch, 'scale');
   writeTree(scaleRoot, {
+    // A script's CSS is read from its string and template literals only.
     'web/js/a.js': [
+      'const css = `',
       '.a { font-size: 13px; }',
       '.b { font-size: var(--font-size-sm); }',
       '.c { border-radius: 4px; }',
       '.d { border-radius: var(--radius-md) 0; }',
       '.e { border-top-left-radius: 50%; font-size: 1.2em !important; }',
-      '.f { font-size: ${size}; }',
+      '.f { font-size: ${size}; padding: ${pad} 1rem; }',
+      '`;',
+      '// a comment saying padding: 1rem is not CSS',
+      'const box = { gap: 8, margin: 0 };',
       '',
     ].join('\n'),
     'web/sdk/s.js': 'el.style.cssText = "font-size: 12px";\n',
     'web/extensions/ext/style.css': '.g { border-radius: 3px 0; }\n',
-    'web/extensions/ext/_tests/t.js': '.h { font-size: 9px; }\n',
-    'web/js/vendor/v.js': '.i { font-size: 9px; }\n',
-    'web/js/x-test.js': '.j { font-size: 9px; }\n',
+    'web/extensions/ext/_tests/t.js': '"font-size: 9px";\n',
+    'web/js/vendor/v.js': '"font-size: 9px";\n',
+    'web/js/x-test.js': '"font-size: 9px";\n',
+    'web/css/components/x.css': [
+      '.w1 { font-weight: 600; }',
+      '.w2 { font-weight: var(--font-weight-bold); line-height: 1.45; }',
+      '.l { line-height: 1; z-index: 2; }',
+      '.z { z-index: 10; }',
+      '.zv { z-index: var(--z-modal); line-height: var(--row-h); }',
+      '.t1 { transition: opacity 0.2s, color 0s; }',
+      '.t2 { transition: opacity var(--transition-fast), color var(--duration-base) var(--ease-out); }',
+      '.t3 {',
+      '    transition:',
+      '        opacity var(--transition-fast),',
+      '        transform 300ms cubic-bezier(0.2, 0, 0, 1);',
+      '}',
+      '.a1 { animation: spin 1.2s linear infinite; }',
+      '.a2 { animation: pop 200ms cubic-bezier(0.2, 0, 0, 1); }',
+      '@keyframes pop { 0% { animation-timing-function: cubic-bezier(0.4, 0, 1, 1); } }',
+      '.s1 { padding: 0.5rem; }',
+      '.s2 { padding: var(--space-8) 0 auto 2%; margin: -0.0625rem 0.5em; gap: 0; }',
+      '.s3 { margin-inline-start: calc(100% - var(--space-8) + 0.0625rem); row-gap: 4px; }',
+      '.s4 { margin-top: calc(100% - 1rem); }',
+      '/* .comment { padding: 3rem; } */',
+      '.k { padding: inherit; font-weight: unset; }',
+      '',
+    ].join('\n'),
+    'web/css/tokens/scale.css': ':root { --space-8: 0.5rem; font-weight: 600; }\n',
+    'web/css/vendor/theme.css': '.v { padding: 3rem; }\n',
+    'web/machine/m.css': '.m { gap: 0.75rem; }\n',
   });
   expectItems('scale-literal', arch.checkScaleLiterals(scaleRoot), [
-    'web/js/a.js:1', 'web/js/a.js:3', 'web/sdk/s.js:1', 'web/extensions/ext/style.css:1',
+    'web/js/a.js:2', 'web/js/a.js:4', 'web/sdk/s.js:1', 'web/extensions/ext/style.css:1',
+    'web/css/components/x.css:1', 'web/css/components/x.css:2', 'web/css/components/x.css:4',
+    'web/css/components/x.css:6', 'web/css/components/x.css:10', 'web/css/components/x.css:14',
+    'web/css/components/x.css:16', 'web/css/components/x.css:19', 'web/machine/m.css:1',
   ]);
 
   // -------------------------------------------------------------------------

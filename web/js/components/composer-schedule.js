@@ -175,7 +175,7 @@ export function buildSchedulePicker(composer) {
   actions.className = 'schedule-actions';
   const scheduleBtn = document.createElement('button');
   scheduleBtn.type = 'button';
-  scheduleBtn.className = 'schedule-confirm-btn';
+  scheduleBtn.className = 'btn btn-sm btn-primary schedule-confirm-btn';
   actions.appendChild(scheduleBtn);
   menu.appendChild(actions);
 

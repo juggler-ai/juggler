@@ -29,19 +29,19 @@ about-modal .about-container {
        the logo's on-screen rect, so about-modal.js holds the first throw until
        this has finished. */
     transform-origin: 50% 40%;
-    animation: about-enter 420ms cubic-bezier(0.34, 1.45, 0.64, 1);
+    animation: about-modal-enter 420ms var(--ease-spring);
 }
 
 /* And it leaves the way it came, quicker, as the scrim behind it fades. */
 about-modal.is-closing .about-container {
-    animation: about-exit var(--popup-exit-duration) var(--popup-exit-ease) forwards;
+    animation: about-modal-exit var(--popup-exit-duration) var(--popup-exit-ease) forwards;
 }
 
 about-modal.is-closing .about-backdrop {
-    animation: modal-scrim-out var(--modal-scrim-fade) ease-in forwards;
+    animation: modal-backdrop-out var(--modal-scrim-fade) ease-in forwards;
 }
 
-@keyframes about-enter {
+@keyframes about-modal-enter {
     0% {
         opacity: 0;
         transform: translateY(1.5rem) scale(0.92);
@@ -53,7 +53,7 @@ about-modal.is-closing .about-backdrop {
     }
 }
 
-@keyframes about-exit {
+@keyframes about-modal-exit {
     to {
         opacity: 0;
         transform: translateY(0.75rem) scale(0.96);
@@ -66,16 +66,16 @@ about-modal.is-closing .about-backdrop {
     }
 
     about-modal.is-closing .about-container {
-        animation: about-fade-out var(--popup-exit-duration) ease-in forwards;
+        animation: about-modal-fade-out var(--popup-exit-duration) ease-in forwards;
     }
 }
 
-@keyframes about-fade-out {
+@keyframes about-modal-fade-out {
     to { opacity: 0; }
 }
 
 about-modal .about-header {
-    padding: 2rem 2rem 1rem;
+    padding: var(--space-32) var(--space-32) var(--space-16);
     text-align: center;
     background: linear-gradient(180deg, color-mix(in srgb, var(--accent-blue) 8%, transparent) 0%, transparent 100%);
     border-radius: inherit;
@@ -87,7 +87,7 @@ about-modal .about-logo {
     position: relative;
     z-index: 1;
     height: 3rem;
-    margin: 0 auto 0.75rem;
+    margin: 0 auto var(--space-12);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -122,27 +122,27 @@ about-modal .about-version {
     display: block;
     font-size: var(--font-size-md);
     color: var(--text-secondary);
-    margin-top: 0.25rem;
+    margin-top: var(--space-4);
 }
 
 about-modal .about-content {
-    padding: 1.25rem 2rem 1.5rem;
+    padding: var(--space-20) var(--space-32) var(--space-24);
     text-align: center;
 }
 
 about-modal .about-description {
     color: var(--text-primary);
     font-size: var(--font-size-body-lg);
-    line-height: 1.6;
-    margin: 0 0 1rem;
+    line-height: var(--leading-relaxed);
+    margin: 0 0 var(--space-16);
 }
 
 about-modal .about-link {
-    margin: 0 0 1rem;
+    margin: 0 0 var(--space-16);
 }
 
 about-modal .about-description + .about-link {
-    margin-top: 1.5rem;
+    margin-top: var(--space-24);
 }
 
 about-modal .about-link a {
@@ -157,35 +157,23 @@ about-modal .about-link a:hover {
 
 /* The "spread the word" section (components/word-of-mouth.js), under a hairline. */
 about-modal .about-content .word-of-mouth {
-    margin-top: 1.25rem;
-    padding-top: 1rem;
+    margin-top: var(--space-20);
+    padding-top: var(--space-16);
     border-top: 0.0625rem solid var(--border-divider);
 }
 
 about-modal .about-content .word-of-mouth__heading {
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
 }
 
 about-modal .about-content .word-of-mouth__link {
-    box-sizing: border-box;
     width: 100%;
-    margin-top: 0.5rem;
+    margin-top: var(--space-8);
     font-family: var(--font-mono);
 }
 
 about-modal .about-footer {
     display: flex;
     justify-content: center;
-    padding: 1rem 2rem 1.5rem;
+    padding: var(--space-16) var(--space-32) var(--space-24);
 }
-
-about-modal .about-button {
-    padding: 0.625rem 1.25rem;
-    border-radius: var(--radius-lg);
-    font-size: var(--font-size-md);
-    font-weight: 500;
-    cursor: pointer;
-    transition: background var(--transition-base);
-    border: none;
-}
-

@@ -45,7 +45,7 @@ async function pendingNow(promise) {
  * @returns {void}
  */
 function clickRecent(panel, path) {
-  const item = [...panel.querySelectorAll('.pp-recent-item')].find((b) => b.textContent === path);
+  const item = [...panel.querySelectorAll('.project-picker-recent-item')].find((b) => b.textContent === path);
   assert(!!item, `no recent entry for ${path}`);
   /** @type {HTMLElement} */ (item).click();
 }
@@ -125,9 +125,9 @@ export async function runTests() {
     });
     try {
       assert(!element.querySelector('b'), `markup in a label became elements: ${element.innerHTML}`);
-      const title = element.querySelector('.pp-title')?.textContent || '';
+      const title = element.querySelector('.project-picker-title')?.textContent || '';
       assert(title === '<b>1</b>', `title read "${title}", want "<b>1</b>"`);
-      const open = element.querySelector('.pp-btn-open')?.textContent || '';
+      const open = element.querySelector('.project-picker-btn-open')?.textContent || '';
       assert(open === '<b>4</b>', `confirm read "${open}", want "<b>4</b>"`);
       const placeholder = element.querySelector('path-input')?.getAttribute('placeholder');
       assert(placeholder === '"><b>3</b>', `placeholder read ${JSON.stringify(placeholder)}`);
@@ -153,7 +153,7 @@ export async function runTests() {
       const { element, cancel } = buildPickerPanel({ recents: ['/1/2'], subtitle: t('Browse…') });
       document.body.appendChild(element);
       try {
-        const raw = shownStrings(element, '.pp-recent-item').filter((s) => !isPseudoLocalized(s));
+        const raw = shownStrings(element, '.project-picker-recent-item').filter((s) => !isPseudoLocalized(s));
         assert(raw.length === 0, `plain English under en-XA: ${JSON.stringify(raw)}`);
         // The Browse… button draws only under a native host, which this page
         // never has; its label is checked from the catalogue.

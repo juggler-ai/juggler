@@ -899,7 +899,7 @@ class ConversationTab extends JugglerElement {
 
   /** Mark this tab as active (visible). */
   setActive() {
-    this.classList.add('active');
+    this.classList.add('is-active');
     this.classList.remove('hidden');
     this._isHidden = false;
 
@@ -1013,7 +1013,7 @@ class ConversationTab extends JugglerElement {
    * @returns {void}
    */
   revealAttention(selectApproval, _attempt = 0) {
-    if (!this.classList.contains('active')) return;
+    if (!this.classList.contains('is-active')) return;
     const root = this._columns[0];
     if (!root) {
       if (_attempt < 30 && typeof requestAnimationFrame === 'function') {
@@ -1125,7 +1125,7 @@ class ConversationTab extends JugglerElement {
     ) {
       document.activeElement.blur();
     }
-    this.classList.remove('active');
+    this.classList.remove('is-active');
     this.classList.add('hidden');
     this._isHidden = true;
     this.shown = false;
@@ -1253,7 +1253,7 @@ class ConversationTab extends JugglerElement {
     if (!handler) return;
 
     // Only handle if this is the active tab
-    if (!this.classList.contains('active')) return;
+    if (!this.classList.contains('is-active')) return;
 
     // This is a document-level handler that navigates/cancels the
     // conversation BEHIND focus, so it stands down for an open overlay (↑/↓
@@ -1319,7 +1319,7 @@ class ConversationTab extends JugglerElement {
     // it would delete a row the user is not pointing at. Bring the
     // panel up to the selection before reading anything off it.
     this._builder.flushPropertiesRender(propsPanel);
-    const deleteBtn = /** @type {HTMLElement|null} */ (propsPanel?.querySelector('.properties-panel-btn.danger'));
+    const deleteBtn = /** @type {HTMLElement|null} */ (propsPanel?.querySelector('.properties-panel-delete-btn'));
     if (deleteBtn) {
       e.preventDefault();
       deleteBtn.click();

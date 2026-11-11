@@ -137,7 +137,7 @@ export function openWorkspaceReconnect(conversation) {
       title.className = 'workspace-move-title';
       title.textContent = t('Where was this conversation working?');
       header.appendChild(title);
-      const close = setupButton('close-button workspace-move-close', '', () => modal.close(undefined));
+      const close = setupButton('btn btn-icon btn-icon-lg btn-ghost workspace-move-close', '', () => modal.close(undefined));
       close.setAttribute('aria-label', t('Close'));
       close.title = t('Close');
       const cross = document.createElement('span');
@@ -179,7 +179,7 @@ export function openWorkspaceReconnect(conversation) {
         // Said rather than left as an empty dialog. A tree that has been deleted
         // is not coming back, and the ways out are on the banner behind this.
         const nothing = document.createElement('div');
-        nothing.className = 'setup-row-detail';
+        nothing.className = 'setup-row-detail text-truncate';
         nothing.textContent = t('No provider can find a place that has no workspace.');
         dialog.appendChild(nothing);
       }

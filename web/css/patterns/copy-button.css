@@ -38,28 +38,28 @@
     position: absolute;
     top: calc(100% + 0.25rem);
     right: 0;
-    padding: 0.1875rem 0.4375rem;
+    padding: var(--space-2) var(--space-6);
     background: var(--tooltip-bg);
     border: 1px solid var(--border-floating);
     border-radius: var(--radius-md);
     color: var(--tooltip-text);
     font-size: var(--font-size-xs);
-    font-weight: 500;
-    line-height: 1.2;
+    font-weight: var(--font-weight-medium);
+    line-height: var(--leading-snug);
     white-space: nowrap;
     pointer-events: none;
     box-shadow: var(--tooltip-shadow);
-    z-index: 10;
+    z-index: var(--z-raised);
 
     /* Pop in from the button's corner: fade up + scale, settle, then ease away
        so the confirmation reads as an active flash rather than a static label.
        transform-origin matches the anchor (top-right) so the scale grows out of
        the button. Total ≈ the 2s the .copied class lives. */
     transform-origin: top right;
-    animation: copied-pop 2s ease forwards;
+    animation: copy-button-pop 2s ease forwards;
 }
 
-@keyframes copied-pop {
+@keyframes copy-button-pop {
     0% {
         opacity: 0;
         transform: translateY(-0.25rem) scale(0.85);

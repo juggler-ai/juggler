@@ -53,7 +53,7 @@ export function buildWordOfMouthAsk({ variant, onCopied, onDismiss }) {
   actions.className = 'word-of-mouth__actions';
   const copyButton = document.createElement('button');
   copyButton.type = 'button';
-  copyButton.className = card ? 'word-of-mouth__copy' : 'about-button btn-secondary word-of-mouth__copy';
+  copyButton.className = card ? 'word-of-mouth__copy' : 'btn btn-secondary word-of-mouth__copy';
   copyButton.textContent = t('Copy Juggler link');
   actions.appendChild(copyButton);
   if (card) {
@@ -71,7 +71,7 @@ export function buildWordOfMouthAsk({ variant, onCopied, onDismiss }) {
   fallback.hidden = true;
   fallback.textContent = t('Couldn\u2019t copy it here. Select the link to copy it yourself:');
   const link = document.createElement('input');
-  link.className = 'word-of-mouth__link';
+  link.className = 'word-of-mouth__link field-input field-input-sm';
   link.readOnly = true;
   link.value = JUGGLER_LINK;
   link.setAttribute('aria-label', t('Juggler link'));

@@ -48,7 +48,7 @@ function screenStrings() {
   const root = /** @type {HTMLElement} */ (wizardRoot());
   /** @type {string[]} */
   const out = [];
-  const blocks = '.wiz-title, .wiz-body p, .wiz-choice-title, .wiz-choice-detail, .wiz-action, .wiz-note, .wiz-back';
+  const blocks = '.onboarding-wizard-title, .onboarding-wizard-body p, .onboarding-wizard-choice-title, .onboarding-wizard-choice-detail, .onboarding-wizard-action, .onboarding-wizard-note, .onboarding-wizard-back';
   for (const el of root.querySelectorAll(blocks)) {
     const copy = /** @type {HTMLElement} */ (el.cloneNode(true));
     copy.querySelectorAll('code, strong, a').forEach((n) => {
@@ -102,7 +102,7 @@ function wizardText() {
  * @param {string} label - Substring of the control's text.
  */
 function clickAction(label) {
-  const buttons = Array.from(wizardRoot()?.querySelectorAll('.wiz-action, .wiz-choice') || []);
+  const buttons = Array.from(wizardRoot()?.querySelectorAll('.onboarding-wizard-action, .onboarding-wizard-choice') || []);
   const button = buttons.find((b) => (b.textContent || '').includes(label));
   assert(!!button, `no wizard button matching "${label}" (saw: ${buttons.map((b) => b.textContent).join(', ')})`);
   /** @type {HTMLElement} */ (button).click();
@@ -115,7 +115,7 @@ function clearWizard() {
   // Click the real close button rather than yanking the element: the wizard's
   // promise is settled by the modal closing, and a root removed behind its back
   // leaves that promise pending for ever.
-  const close = /** @type {HTMLElement|null} */ (root.querySelector('.wiz-close'));
+  const close = /** @type {HTMLElement|null} */ (root.querySelector('.onboarding-wizard-close'));
   if (close) close.click();
   else root.remove();
 }
@@ -333,7 +333,7 @@ export async function runTests() {
       description: 'the account question never rendered',
     });
     assert(
-      !wizardRoot()?.querySelector('.wiz-back'),
+      !wizardRoot()?.querySelector('.onboarding-wizard-back'),
       'the first screen offered a back control, with nothing behind it to go back to'
     );
 
@@ -342,7 +342,7 @@ export async function runTests() {
       description: 'the free-options screen never opened',
     });
 
-    const back = /** @type {HTMLElement|null} */ (wizardRoot()?.querySelector('.wiz-back'));
+    const back = /** @type {HTMLElement|null} */ (wizardRoot()?.querySelector('.onboarding-wizard-back'));
     assert(!!back, 'no back control on a screen reached from another one');
     /** @type {HTMLElement} */ (back).click();
     await waitFor(() => /What do you have/i.test(wizardText()), {
@@ -371,7 +371,7 @@ export async function runTests() {
     /** @type {string[]} */
     const raw = [];
     let screens = 0;
-    const title = () => wizardRoot()?.querySelector('.wiz-title')?.textContent || '';
+    const title = () => wizardRoot()?.querySelector('.onboarding-wizard-title')?.textContent || '';
     const collect = () => {
       screens++;
       for (const s of screenStrings()) if (!isPseudoLocalized(s)) raw.push(s);
@@ -398,8 +398,8 @@ export async function runTests() {
     for (const state of [{ claudeCLI: true }, { codexSignedIn: true }, { chatgptApp: true }, { codexCLI: true }, { claudeDesktopApp: true }]) {
       const done = startSetupWizard({ detect: async () => detection(state), platform: 'darwin' });
       await waitFor(() => title() !== '', { description: `the wizard never opened for ${JSON.stringify(state)}` });
-      press('.wiz-action.btn-primary');
-      await waitFor(() => !!wizardRoot()?.querySelector('.wiz-note'), { description: 'a fruitless check left no note' });
+      press('.onboarding-wizard-action.btn-primary');
+      await waitFor(() => !!wizardRoot()?.querySelector('.onboarding-wizard-note'), { description: 'a fruitless check left no note' });
       collect();
       clearWizard();
       await done;
@@ -415,10 +415,10 @@ export async function runTests() {
         for (let j = 0; j < 3; j++) {
           await advance(`[data-wiz-choice="${j}"]`);
           collect();
-          await advance('.wiz-back');
+          await advance('.onboarding-wizard-back');
         }
       }
-      await advance('.wiz-back');
+      await advance('.onboarding-wizard-back');
     }
     clearWizard();
     await done;

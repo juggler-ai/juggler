@@ -4,55 +4,24 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
-/* The two small uppercase labels, each stated once for every surface that
-   carries one. The selectors name roots other sheets own, which is the point:
-   the alternative is the same four declarations in twenty files, drifting.
+/* The small uppercase label: the eyebrow over a group of rows, a menu section
+   or a panel. `.caps-label-lg` is the section heading — a section of
+   settings, the workspace panel, the properties panel.
 
    Only the type lives here. Colour and spacing around the label belong to the
-   component, which can also override its own case from its own sheet.
+   component, which can also refine its own case from its own sheet: one class
+   of specificity, so a component's own rule beats it from above.
 
-   A chip, badge or toggle that happens to be uppercase is not a label, and
-   keeps its own type.
-
-   Each selector is held to one class at most, its scope in :where(), so that
-   from down here it never outranks a component's own rule. A label is never
-   a <p>: the onboarding overlay styles <p> by tag. (The
-   skill load panel's section titles also carry .skills-section-title, which
-   is how they are reached.) */
-
-/* The eyebrow: the label over a group of rows, a menu section or a panel. */
-.pp-recents-label,
-.model-picker-recent-label,
-.model-current-label,
-.model-thinking-label,
-.model-speed-label,
-.pending-messages-label,
-:where(.thread-result-final) .thread-result-label,
-:where(.permissions-popup) .plugin-section-heading,
-:where(.dropdown-menu) .category-header,
-.menu-header,
-.skill-panel-heading,
-.skills-section-title,
-.command-page-group-title,
-.workspace-move-now-lead,
-.workspace-banner-lead,
-:where(conversation-bar) .info-card__eyebrow,
-.pinboard-toolbar__identity,
-.app-header__board-kind {
+   A chip, badge or toggle that happens to be uppercase is not a label: it
+   keeps its own type and takes only --tracking-caps. */
+.caps-label,
+.caps-label-lg {
     font-size: var(--font-size-xs);
-    font-weight: 600;
-    letter-spacing: 0.04em;
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: var(--tracking-caps);
     text-transform: uppercase;
 }
 
-/* The section heading: the label heading a section of settings, the
-   workspace panel or the properties panel. */
-.workspace-panel-eyebrow,
-.workspace-panel-heading,
-:where(settings-panel) .settings-section-heading,
-.properties-panel-subtitle {
+.caps-label-lg {
     font-size: var(--font-size-sm);
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
 }

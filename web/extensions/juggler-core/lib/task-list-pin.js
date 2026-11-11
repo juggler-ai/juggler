@@ -29,7 +29,7 @@ injectStylesOnce('task-list-pin-styles', `
 .task-list-pin {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: var(--space-8);
   height: 100%;
 }
 

@@ -27,7 +27,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 1.5rem;
+    padding: var(--space-24);
 }
 
 /* Wider than a message-and-two-buttons dialog, because what is in it is two
@@ -48,9 +48,9 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.5rem;
+    gap: var(--space-8);
     flex-shrink: 0;
-    padding: 1.25rem 1.5rem;
+    padding: var(--space-20) var(--space-24);
     border-bottom: 0.0625rem solid var(--border-divider);
 }
 
@@ -64,24 +64,24 @@
    icon stays optically aligned with the title. */
 
 .workspace-move-close {
-    margin: -0.5rem -0.5rem -0.5rem 0;
+    margin: calc(-1 * var(--space-8)) calc(-1 * var(--space-8)) calc(-1 * var(--space-8)) 0;
 }
 
 .workspace-move-body {
     display: flex;
     flex-direction: column;
-    gap: 1.25rem;
+    gap: var(--space-20);
     min-height: 0;
-    padding: 1.25rem 1.5rem;
+    padding: var(--space-20) var(--space-24);
     overflow-y: auto;
 }
 
 .workspace-move-footer {
     display: flex;
     justify-content: flex-end;
-    gap: 0.75rem;
+    gap: var(--space-12);
     flex-shrink: 0;
-    padding: 1rem 1.5rem;
+    padding: var(--space-16) var(--space-24);
     border-top: 0.0625rem solid var(--border-divider);
 }
 
@@ -92,7 +92,7 @@
 .workspace-move-now {
     display: flex;
     flex-direction: column;
-    gap: 0.125rem;
+    gap: var(--space-2);
 }
 
 .workspace-move-now-lead {
@@ -101,7 +101,7 @@
 
 .workspace-move-now-label {
     font-size: var(--font-size-body-lg);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     color: var(--text-primary);
 }
 
@@ -115,8 +115,8 @@
 .workspace-move-now-path-row {
     display: flex;
     align-items: flex-start;
-    gap: 0.375rem;
-    margin-top: 0.125rem;
+    gap: var(--space-6);
+    margin-top: var(--space-2);
 }
 
 .workspace-move-now-path {
@@ -124,7 +124,7 @@
     min-width: 0;
     font-family: var(--font-mono);
     font-size: var(--font-size-sm);
-    line-height: 1.5;
+    line-height: var(--leading-normal);
     color: var(--text-tertiary);
     overflow-wrap: anywhere;
     user-select: text;
@@ -134,7 +134,7 @@
    the icons centre on the path's first line rather than on the block of them. */
 
 .workspace-move-now .properties-panel-filepath-actions {
-    margin-top: -0.1875rem;
+    margin-top: calc(-1 * var(--space-2));
 }
 
 /* What a dialog on this surface has to say in prose before its buttons. The
@@ -143,7 +143,7 @@
 .workspace-move-work {
     display: flex;
     flex-direction: column;
-    gap: 0.35rem;
+    gap: var(--space-6);
     color: var(--text-secondary);
 }
 
@@ -164,7 +164,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 1.5rem;
+    padding: var(--space-24);
 }
 
 /* Wider than the move dialog, and for the opposite reason: not a long list to
@@ -206,9 +206,9 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.5rem;
+    gap: var(--space-8);
     flex-shrink: 0;
-    padding: 1.25rem 1.5rem;
+    padding: var(--space-20) var(--space-24);
     border-bottom: 0.0625rem solid var(--border-divider);
 }
 
@@ -219,7 +219,7 @@
 }
 
 .workspace-create-close {
-    margin: -0.5rem -0.5rem -0.5rem 0;
+    margin: calc(-1 * var(--space-8)) calc(-1 * var(--space-8)) calc(-1 * var(--space-8)) 0;
 }
 
 /* The one sentence saying what is being made. Above the split rather than
@@ -228,7 +228,7 @@
 .workspace-create-lead {
     flex-shrink: 0;
     margin: 0;
-    padding: 1rem 1.5rem 0;
+    padding: var(--space-16) var(--space-24) 0;
     color: var(--text-secondary);
 }
 
@@ -239,10 +239,10 @@
 .workspace-create-body {
     display: grid;
     grid-template-columns: minmax(0, 14rem) minmax(0, 1fr);
-    gap: 1.25rem;
+    gap: var(--space-20);
     flex: 1 1 auto;
     min-height: 0;
-    padding: 1.25rem 1.5rem;
+    padding: var(--space-20) var(--space-24);
 
     /* The two halves scroll; the split does not. Scrolling the body scrolled
        the kinds away with the form, which is the one thing in this dialog that
@@ -280,10 +280,10 @@
 .workspace-create-rail {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: var(--space-4);
     min-width: 0;
     min-height: 0;
-    padding-right: 1.25rem;
+    padding-right: var(--space-20);
     border-right: 0.0625rem solid var(--border-divider);
     overflow-y: auto;
 }
@@ -294,15 +294,15 @@
    is. A heading over either would be the same thing said twice, once badly. */
 
 .workspace-create-rail .setup-rows + .setup-rows {
-    margin-top: 0.75rem;
-    padding-top: 0.75rem;
+    margin-top: var(--space-12);
+    padding-top: var(--space-12);
     border-top: 0.0625rem solid var(--border-divider);
 }
 
 .workspace-create-detail {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: var(--space-12);
     min-width: 0;
     min-height: 0;
     overflow-y: auto;
@@ -311,13 +311,13 @@
 .workspace-create-detail-head {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: var(--space-4);
 }
 
 .workspace-create-detail-title {
     margin: 0;
     font-size: var(--font-size-body-lg);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     color: var(--text-primary);
 }
 
@@ -334,9 +334,9 @@
 .workspace-create-footer {
     display: flex;
     justify-content: flex-end;
-    gap: 0.75rem;
+    gap: var(--space-12);
     flex-shrink: 0;
-    padding: 1rem 1.5rem;
+    padding: var(--space-16) var(--space-24);
     border-top: 0.0625rem solid var(--border-divider);
 }
 
@@ -350,7 +350,7 @@
 
     /* Stacked, the rule belongs under the kinds rather than beside them. */
     .workspace-create-rail {
-        padding: 0 0 1rem;
+        padding: 0 0 var(--space-16);
         border-right: 0;
         border-bottom: 0.0625rem solid var(--border-divider);
     }
@@ -366,14 +366,14 @@
    them about the same act. */
 
 .workspace-finish-body {
-    gap: 1rem;
+    gap: var(--space-16);
 }
 
 .workspace-finish-about {
     margin: 0;
     font-size: var(--font-size-md);
     color: var(--text-secondary);
-    line-height: 1.5;
+    line-height: var(--leading-normal);
 }
 
 /* What the host has to say about this tree before it goes — in practice the one
@@ -382,8 +382,8 @@
 
 .workspace-finish-warning {
     font-size: var(--font-size-md);
-    color: var(--error-color);
-    line-height: 1.5;
+    color: var(--danger);
+    line-height: var(--leading-normal);
 }
 
 /* The setup panel's field furniture, without its grid: that one sets a label in
@@ -394,20 +394,18 @@
 .workspace-finish-field {
     display: flex;
     flex-direction: column;
-    gap: 0.35rem;
+    gap: var(--space-6);
 }
 
 .workspace-finish-field .setup-field-input {
     width: 100%;
-    padding: 0.5rem 0.625rem;
     font-family: inherit;
-    font-size: var(--font-size-md);
 }
 
 .workspace-finish-field textarea.setup-field-input {
     resize: vertical;
     min-height: 6.5rem;
-    line-height: 1.5;
+    line-height: var(--leading-normal);
 }
 
 /* What is about to be committed, path by path. A box of its own with its own
@@ -418,7 +416,7 @@
 .workspace-finish-work {
     display: flex;
     flex-direction: column;
-    gap: 0.35rem;
+    gap: var(--space-6);
 }
 
 .workspace-finish-work-count {
@@ -429,9 +427,9 @@
 .workspace-finish-work-list {
     display: flex;
     flex-direction: column;
-    gap: 0.15rem;
+    gap: var(--space-2);
     max-height: 9rem;
-    padding: 0.4rem 0.5rem;
+    padding: var(--space-6) var(--space-8);
     overflow-y: auto;
     font-family: var(--font-mono);
     font-size: var(--font-size-sm);
@@ -439,7 +437,7 @@
 
 .workspace-finish-work-row {
     display: flex;
-    gap: 0.5rem;
+    gap: var(--space-8);
     min-width: 0;
 }
 
@@ -458,7 +456,7 @@
 }
 
 .workspace-finish-work-rest {
-    padding-top: 0.15rem;
+    padding-top: var(--space-2);
     color: var(--text-secondary);
 }
 
@@ -471,9 +469,9 @@
 .workspace-finish-alternative {
     display: flex;
     flex-direction: column;
-    gap: 0.2rem;
+    gap: var(--space-4);
     width: 100%;
-    padding: 0.6rem 0.75rem;
+    padding: var(--space-10) var(--space-12);
     background: var(--bg-secondary);
     border: 0.0625rem solid var(--border-color);
     border-radius: var(--radius-xl);
@@ -495,5 +493,5 @@
     display: block;
     font-size: var(--font-size-base);
     color: var(--text-secondary);
-    line-height: 1.45;
+    line-height: var(--leading-tight);
 }

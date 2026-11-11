@@ -51,8 +51,8 @@ export function skillPreviewShell(title, bodyHtml, footerHtml = '') {
     <modal-backdrop class="skills-preview-backdrop" data-action="drawer-close"></modal-backdrop>
     <modal-panel class="skills-preview-panel" ${dialogAttributes(titleId)}>
       <header class="skills-preview-header">
-        <h2 class="skills-preview-title" id="${titleId}">${title}</h2>
-        <button class="close-button skills-preview-close" data-action="drawer-close" title="${escapeHtml(t('Close (Esc)'))}" aria-label="${escapeHtml(t('Close'))}"><span class="icon-close"></span></button>
+        <h2 class="skills-preview-title text-truncate" id="${titleId}">${title}</h2>
+        <button class="btn btn-icon btn-icon-lg btn-ghost skills-preview-close" data-action="drawer-close" title="${escapeHtml(t('Close (Esc)'))}" aria-label="${escapeHtml(t('Close'))}"><span class="icon-close"></span></button>
       </header>
       <div class="skills-preview-body">${bodyHtml}</div>
       ${footerHtml ? `<footer class="skills-preview-footer">${footerHtml}</footer>` : ''}
@@ -98,7 +98,7 @@ function installedPreviewBody(skill, detail) {
 
   const location = detail.path
     ? `<div class="skills-section surface-card">
-         <div class="skills-section-title">${escapeHtml(t('Location'))}</div>
+         <div class="skills-section-title caps-label">${escapeHtml(t('Location'))}</div>
          <div class="skills-filepath-mount" data-path="${escapeHtml(detail.path)}"></div>
        </div>`
     : '';
@@ -106,7 +106,7 @@ function installedPreviewBody(skill, detail) {
   const files = detail.files || [];
   const fileList = files.length
     ? `<div class="skills-section surface-card skills-files">
-         <div class="skills-section-title">${escapeHtml(t('Files ({count})', { count: files.length }))}</div>
+         <div class="skills-section-title caps-label">${escapeHtml(t('Files ({count})', { count: files.length }))}</div>
          <div class="skills-files-list">
            ${files
               .map(
@@ -144,7 +144,7 @@ export async function openInstalledSkillPreview(skill) {
   const title = escapeHtml(name);
   overlay.innerHTML = skillPreviewShell(
     title,
-    `<div class="skills-loading"><juggler-spinner style="--size:1.5rem"></juggler-spinner></div>`
+    `<div class="skills-loading"><juggler-spinner style="--spinner-size:1.5rem"></juggler-spinner></div>`
   );
 
   let detail;

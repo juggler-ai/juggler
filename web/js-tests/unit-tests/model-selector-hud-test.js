@@ -126,9 +126,9 @@ export async function runTests(_ctx) {
     const picker = makePicker({ value: { provider: 'p', model: 'm', thinking: 'high' } });
     const rows = picker.querySelectorAll('.recent-model');
     assert(rows.length === 3, `expected three Recent rows, got ${rows.length}`);
-    assert(!rows[0].classList.contains('active'), 'same model at Default must not highlight');
-    assert(rows[1].classList.contains('active'), 'the exact high-thinking pair must highlight');
-    assert(!rows[2].classList.contains('active'), 'a different model must not highlight');
+    assert(!rows[0].classList.contains('menu-item-selected'), 'same model at Default must not highlight');
+    assert(rows[1].classList.contains('menu-item-selected'), 'the exact high-thinking pair must highlight');
+    assert(!rows[2].classList.contains('menu-item-selected'), 'a different model must not highlight');
   });
 
   await run('Recent hides entries that are not selectable', async () => {
@@ -182,7 +182,7 @@ export async function runTests(_ctx) {
       assert(anchor.isConnected && el.querySelector('.model-selector-button') === anchor,
         'the original anchor remains connected');
       assert(!el.querySelector('.model-picker'), 'no duplicate picker is left inside the selector');
-      assert(!!surface.querySelector('.model-selection-item.active[data-model="other"]'),
+      assert(!!surface.querySelector('.model-selection-item.menu-item-selected[data-model="other"]'),
         'the live picker highlights the newly selected model');
       assert(anchor.textContent.includes('Other'), 'the anchor label updates in place');
       el.close();

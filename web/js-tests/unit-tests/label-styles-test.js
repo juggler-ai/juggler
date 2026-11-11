@@ -4,10 +4,11 @@
 
 /**
  * The small uppercase labels come in two looks, each stated once in
- * patterns/labels.css: the eyebrow over a group of rows, and the heading of a
- * settings, workspace or properties section. The labels used to choose their
- * own size, weight and letter-spacing — 26 combinations across 38 rules, with
- * the spacing in both em and rem.
+ * patterns/labels.css and carried as a class: `.caps-label`, the eyebrow over a
+ * group of rows, and `.caps-label-lg`, the heading of a settings, workspace or
+ * properties section. A label's own rule chooses none of its type, and every
+ * run of capitals anywhere — label, chip, badge or toggle — is spaced by
+ * --tracking-caps, so the spacing cannot drift back into a dozen values.
  * @module unit-tests/label-styles-test
  */
 
@@ -20,19 +21,20 @@ import { assert } from '../utilities/test-helpers.js';
  * @property {string[]} errors - Error messages for failed tests.
  */
 
-/** Every eyebrow, by the selector its own sheet styles it under. */
+/** Every eyebrow (`.caps-label`), by the selector its own sheet styles it under. */
 const EYEBROWS = [
-  '.pp-recents-label',
+  '.project-picker-recents-label',
   '.model-picker-recent-label', '.model-current-label', '.model-thinking-label', '.model-speed-label',
   '.pending-messages-label',
   '.thread-result-final .thread-result-label', '.permissions-popup .plugin-section-heading',
-  ':where(.dropdown-menu) .category-header', '.menu-header',
+  '.menu-header',
   '.skill-panel-heading', '.skills-section-title',
   '.command-page-group-title', '.workspace-move-now-lead', '.workspace-banner-lead',
-  'conversation-bar .info-card__eyebrow', '.pinboard-toolbar__identity', '.app-header__board-kind'
+  'conversation-bar .info-card__eyebrow', '.pinboard-toolbar__identity', '.app-header__board-kind',
+  '.session-switcher-heading', '.plugin-tree-section', '.connectivity-address-label', '.question-custom-option .option-btn-label'
 ];
 
-/** Every section heading. */
+/** Every section heading (`.caps-label-lg`). */
 const HEADINGS = [
   '.workspace-panel-eyebrow', '.workspace-panel-heading',
   'settings-panel .settings-section-heading', '.properties-panel-subtitle'
@@ -118,14 +120,21 @@ export async function runTests() {
     assert(own.length === 0, `these still choose their own typography: ${own.join(' | ')}`);
   });
 
-  for (const [group, list] of /** @type {const} */ ([['eyebrow', EYEBROWS], ['section heading', HEADINGS]])) {
-    check(`every ${group} is named in the one shared ${group} rule`, () => {
-      const wanted = list.map(unwrapped);
-      const home = shared.find(({ rule }) => wanted.every(s => selectors(rule).includes(s)));
-      const missing = wanted.filter(s => !shared.some(({ rule }) => selectors(rule).includes(s)));
-      assert(!!home, `one rule in patterns/labels.css names them all; missing: ${missing.join(' | ') || '(split across rules)'}`);
-    });
-  }
+  check('the two looks are stated once, in patterns/labels.css', () => {
+    for (const label of ['.caps-label', '.caps-label-lg']) {
+      const home = shared.find(({ rule }) => selectors(rule).includes(label)
+        && rule.style.getPropertyValue('text-transform') === 'uppercase');
+      assert(!!home, `${label} is uppercase in patterns/labels.css`);
+    }
+  });
+
+  check('every run of capitals is spaced by --tracking-caps', () => {
+    const drifted = rules
+      .filter(({ rule }) => rule.style.getPropertyValue('text-transform') === 'uppercase')
+      .filter(({ rule }) => rule.style.getPropertyValue('letter-spacing').trim() !== 'var(--tracking-caps)')
+      .map(({ rule }) => `${rule.selectorText} (${rule.style.getPropertyValue('letter-spacing') || 'none'})`);
+    assert(drifted.length === 0, `these space their capitals otherwise: ${drifted.join(' | ')}`);
+  });
 
   return { passed, failed, errors };
 }

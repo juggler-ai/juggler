@@ -22,7 +22,7 @@
 }
 
 :where(.markdown) p {
-    margin: 0.625rem 0;
+    margin: var(--space-10) 0;
 }
 
 /* Zero the outer margin on the first/last block of any rendered markdown —
@@ -50,24 +50,8 @@
     contain: layout style;
 }
 
-/* Same flush-to-the-padding rule as above, one level down. Layout containment
-   means the inner block's margin can't collapse out through the box, so it
-   would otherwise show up as a gap the plain-markdown case doesn't have.
-
-   Only the outer box is weightless: `[data-markdown-scope] > :first-child` has
-   to keep enough weight to beat the margin the block-level rules below put on
-   whatever lands first — a `.code-block-wrap`, a table wrapper — which is the
-   whole point of the rule. */
-:where(.markdown-html-scope) > [data-markdown-scope] > :first-child {
-    margin-top: 0;
-}
-
-:where(.markdown-html-scope) > [data-markdown-scope] > :last-child {
-    margin-bottom: 0;
-}
-
 :where(.markdown) code {
-    padding: 0.1875rem 0.1rem;
+    padding: var(--space-2) var(--space-2);
     border-radius: var(--radius-sm);
     color: var(--accent-green);
 }
@@ -96,10 +80,10 @@
 
 :where(.markdown) pre {
     background: color-mix(in srgb, var(--overlay-dark-10) 30%, transparent);
-    padding: 0.875rem;
+    padding: var(--space-14);
     border-radius: var(--radius-md);
     overflow-x: auto;
-    margin: 0.75rem 0;
+    margin: var(--space-12) 0;
     border: 0.0625rem solid var(--border-color);
 }
 
@@ -113,43 +97,29 @@
 /* Non-scrolling positioning context wrapped around each rendered code block by
    decorateCodeBlocks(), so the corner copy button stays pinned to the visible
    corner while the <pre> scrolls horizontally. Inherits the <pre>'s vertical
-   rhythm; the inner <pre> drops its own margin to avoid doubling it. */
+   rhythm; the inner <pre> drops its own margin to avoid doubling it — by
+   order, after the `pre` rule, so it weighs no more than an element and no
+   component rule on a <pre> loses to it. */
 :where(.markdown) .code-block-wrap {
     position: relative;
-    margin: 0.75rem 0;
+    margin: var(--space-12) 0;
 }
 
-:where(.markdown) .code-block-wrap pre {
+:where(.markdown .code-block-wrap) pre {
     margin: 0;
 }
 
 /* Hover-reveal copy-to-clipboard button in the upper-right of a code block,
    and of a quote: decorateCodeBlocks() puts a quote's button inside the
-   blockquote and gives it `quote-copy-button` as well as this class. */
+   blockquote and gives it `quote-copy-button` as well as this class. The box
+   and its fill are `btn btn-icon btn-neutral` (patterns/buttons.css) — filled,
+   so the code under it does not show through. */
 .code-copy-button {
     position: absolute;
     top: 0.375rem;
     right: 0.375rem;
-    width: 1.5rem;
-    height: 1.5rem;
-    padding: 0.25rem;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
-    color: var(--text-secondary);
-    cursor: pointer;
     opacity: 0;
-    transition: opacity var(--transition-base), background var(--transition-base), color var(--transition-base);
-    display: flex;
-    align-items: center;
-    justify-content: center;
     z-index: 2;
-}
-
-.code-copy-button svg {
-    width: 0.875rem;
-    height: 0.875rem;
-    display: block;
 }
 
 /* Hovering the block reveals the button only translucently, so it stays
@@ -163,11 +133,6 @@
 .code-copy-button:hover,
 .code-copy-button.copied {
     opacity: 1;
-}
-
-.code-copy-button:hover {
-    background: var(--bg-raised);
-    color: var(--text-primary);
 }
 
 /* No hover to reveal the button, so it must stay visible — but reserving a
@@ -189,12 +154,12 @@
 
 :where(.markdown) ul,
 :where(.markdown) ol {
-    margin: 0.625rem 0;
-    padding-left: 1.5rem;
+    margin: var(--space-10) 0;
+    padding-left: var(--space-24);
 }
 
 :where(.markdown) li {
-    margin: 0.375rem 0;
+    margin: var(--space-6) 0;
 }
 
 /* Task-list tick box (`1. [/] step`), drawn rather than left to the platform
@@ -230,7 +195,7 @@
     --tick-box-fill: var(--task-progress-box);
     --tick-box-mark-color: var(--task-progress-mark);
 
-    animation: task-box-pulse 1.6s ease-in-out infinite;
+    animation: markdown-task-box-pulse 1.6s ease-in-out infinite;
 }
 
 :where(.markdown) .task-box--completed {
@@ -266,7 +231,7 @@
     mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M647-440H160v-80h487L423-744l57-56 320 320-320 320-57-56 224-224Z'/%3E%3C/svg%3E") center/contain no-repeat;
 }
 
-@keyframes task-box-pulse {
+@keyframes markdown-task-box-pulse {
     50% {
         opacity: 0.35;
     }
@@ -290,16 +255,16 @@
    code block, a second paragraph — would start a step to the left. Reset them
    all, then re-assert on the paragraph a *loose* list wraps the first line in,
    which is the one block the indent is actually for. */
-:where(.markdown) li.task-list-item > * {
+:where(.markdown li.task-list-item) > * {
     text-indent: 0;
 }
 
-:where(.markdown) li.task-list-item > p:first-child {
+:where(.markdown li.task-list-item > p):first-child {
     text-indent: calc(-1 * (var(--task-box-size) + var(--task-box-gap)));
 }
 
 /* A skipped step was passed over deliberately: still legible, no longer live. */
-:where(.markdown) li.task-list-item--skipped {
+:where(.markdown) :where(li).task-list-item--skipped {
     color: var(--text-secondary);
 }
 
@@ -318,9 +283,9 @@
 :where(.markdown) h4,
 :where(.markdown) h5,
 :where(.markdown) h6 {
-    margin: 1rem 0 0.5rem;
+    margin: var(--space-16) 0 var(--space-8);
     color: var(--text-primary);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
 }
 
 :where(.markdown) h1 { font-size: var(--font-size-3xl); }
@@ -332,8 +297,8 @@
 
 :where(.markdown) blockquote {
     border-left: 0.1875rem solid var(--accent-blue);
-    margin: 0.75rem 0;
-    padding: 0.5rem 1rem;
+    margin: var(--space-12) 0;
+    padding: var(--space-8) var(--space-16);
     background: var(--overlay-dark-15);
     color: var(--text-secondary);
 }
@@ -343,49 +308,75 @@
    instead of running underneath it. */
 :where(.markdown) blockquote:has(> :where(.quote-copy-button)) {
     position: relative;
-    padding-right: 2.25rem;
+    padding-right: var(--space-32);
 }
 
 :where(.markdown) hr {
     border: none;
     border-top: 0.0625rem solid var(--border-divider);
-    margin: 1rem 0;
+    margin: var(--space-16) 0;
+}
+
+:where(.markdown) table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: var(--space-12) 0;
 }
 
 /* Horizontal-scroll container wrapped around each rendered table by
    decorateCodeBlocks(), so a table too wide for the panel scrolls here instead
    of spilling off the edge. A <table> ignores overflow itself, so it needs
    this block ancestor to scroll. The wrapper owns the table's vertical rhythm;
-   the inner table drops its own margin to avoid doubling it. */
+   the inner table drops its own margin to avoid doubling it — by order, so
+   these sit after the `table` rule they override. */
 :where(.markdown) .table-scroll-wrap {
     overflow-x: auto;
-    margin: 0.75rem 0;
+    margin: var(--space-12) 0;
 }
 
-:where(.markdown) .table-scroll-wrap table {
+:where(.markdown .table-scroll-wrap) table {
     margin: 0;
-}
-
-:where(.markdown) table {
-    border-collapse: collapse;
-    width: 100%;
-    margin: 0.75rem 0;
 }
 
 :where(.markdown) table th,
 :where(.markdown) table td {
     border: 0.0625rem solid var(--border-color);
-    padding: 0.5rem 0.75rem;
+    padding: var(--space-8) var(--space-12);
     text-align: left;
 }
 
 :where(.markdown) table th {
     background: var(--overlay-dark-15);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
 }
 
 :where(.markdown) img {
     max-width: 100%;
     height: auto;
     border-radius: var(--radius-md);
+}
+
+/* Same flush-to-the-padding rule as the `.markdown` one, one level down, for
+   the box a message's own HTML is put in (`.markdown-html-scope`, above).
+   Layout containment means the inner block's margin can't collapse out
+   through the box, so it would otherwise show up as a gap the plain-markdown
+   case doesn't have.
+
+   It weighs one class (the pseudo-class) and is last in the sheet, so it beats
+   the block rules above by order — whatever lands first, a `.code-block-wrap`
+   or a table wrapper — without out-ranking the component rules above this
+   layer: authored HTML may carry any class.
+
+   Accepted: in its own layer it loses to the heavier patterns rules
+   (`modal-dialog .modal-title`, `.markdown .code-block-wrap pre`,
+   `.app-tooltip`, `.inline-rename-actions`, `.message-icon-box`, …). That
+   matters only if a message's own HTML borrows one of those host classes for
+   its first or last block, and then the host class's margin is what it asked
+   for. */
+:where(.markdown-html-scope > [data-markdown-scope]) > :first-child {
+    margin-top: 0;
+}
+
+:where(.markdown-html-scope > [data-markdown-scope]) > :last-child {
+    margin-bottom: 0;
 }

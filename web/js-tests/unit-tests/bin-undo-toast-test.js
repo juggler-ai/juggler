@@ -136,7 +136,7 @@ export async function runTests() {
     // so the attention-getting flash is behaviour, not decoration. (The rise is
     // dropped under prefers-reduced-motion; the flash is there either way.)
     const animation = undoBtn ? getComputedStyle(undoBtn).animationName : '';
-    assert(animation.includes('bin-undo-flash'),
+    assert(animation.includes('conversation-bar-bin-undo-flash'),
       `the Undo doesn't flash on arrival: animation-name is "${animation}"`);
     passed++;
 
@@ -188,7 +188,7 @@ export async function runTests() {
     session.conversations.set('conv_fly', { id: 'conv_fly', name: 'Flying' });
     bar.render();
     const flying = /** @type {HTMLElement} */ (
-      bar.querySelector('li.conversation-tab[data-conversation-id="conv_fly"]'));
+      bar.querySelector('li.conversation-bar-tab[data-conversation-id="conv_fly"]'));
     assert(!!flying, 'no tab to fly');
     const resting = flying.getBoundingClientRect();
     bar._flyTabToBin('conv_fly');
@@ -199,7 +199,7 @@ export async function runTests() {
       assert(Math.abs(launched.left - resting.left) < 1 && Math.abs(launched.top - resting.top) < 1,
         `the tab took off from somewhere else: (${resting.left}, ${resting.top}) in the strip, `
         + `(${launched.left}, ${launched.top}) in flight`);
-      const glyphs = Array.from(flying.querySelectorAll('.conversation-tab-glyph'))
+      const glyphs = Array.from(flying.querySelectorAll('.conversation-bar-tab-glyph'))
         .filter((g) => getComputedStyle(g).display !== 'none');
       assert(glyphs.length === 1, `the flying tab shows ${glyphs.length} status glyphs, not one`);
     } finally {

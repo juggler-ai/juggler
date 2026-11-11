@@ -128,7 +128,7 @@ function mountWindowed(code, lines, language, lineNumberStart) {
   // and the horizontal scrollbar would jump about as you scroll vertically.
   let widest = 0;
   for (const line of lines) if (line.length > widest) widest = line.length;
-  code.style.minWidth = `calc(${widest}ch + var(--line-gutter))`;
+  code.style.minWidth = `calc(${widest}ch + var(--ci-code-line-gutter))`;
 
   const topSpacer = document.createElement('span');
   topSpacer.className = 'ci-line-spacer';

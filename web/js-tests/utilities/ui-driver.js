@@ -294,7 +294,7 @@ class UIDriver {
   getSelectedItemId() {
     const conversationArea = this.getConversationArea();
     if (!conversationArea) return null;
-    const selected = conversationArea.querySelector('.conversation-item.selected');
+    const selected = conversationArea.querySelector('.conversation-item.is-selected');
     return selected ? selected.getAttribute('message-id') : null;
   }
 

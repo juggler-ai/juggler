@@ -190,7 +190,7 @@ export async function runTests() {
     document.body.appendChild(host);
     try {
       const tab = /** @type {any} */ (document.createElement('conversation-tab'));
-      tab.classList.add('active');
+      tab.classList.add('is-active');
       host.appendChild(tab);
       const viewport = /** @type {HTMLElement|null} */ (tab.querySelector('column-viewport'));
       const container = /** @type {HTMLElement|null} */ (tab.querySelector('column-viewport > column-container'));

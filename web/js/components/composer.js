@@ -2284,42 +2284,42 @@ class Composer extends JugglerElement {
                     enterkeyhint="enter"
                 ></textarea>
                 <input type="file" class="attach-file-input" multiple hidden />
-                <input-controls>
+                <input-controls class="input-controls">
                     <input-controls-tools>
                         <input-controls-actions>
-                            <button class="commands-button input-ctrl-btn" id="commands-button"
+                            <button class="commands-button input-ctrl-btn btn-ghost" id="commands-button"
                                     title="${escapeHtml(t('Commands'))}"
                                     aria-label="${escapeHtml(t('Commands menu'))}"
                                     aria-haspopup="menu" aria-expanded="false">
                                 <span class="icon-slash"></span>
                             </button>
-                            <button class="skill-button input-ctrl-btn" id="skill-button"
+                            <button class="skill-button input-ctrl-btn btn-ghost" id="skill-button"
                                     title="${escapeHtml(t('Load a skill ($)'))}"
                                     aria-label="${escapeHtml(t('Load a skill'))}"
                                     aria-haspopup="menu" aria-expanded="false">
                                 <span class="skill-glyph" aria-hidden="true">$</span>
                             </button>
-                            <button class="schedule-send-btn input-ctrl-btn"
+                            <button class="schedule-send-btn input-ctrl-btn btn-ghost"
                                     title="${escapeHtml(t('Send later'))}"
                                     aria-label="${escapeHtml(t('Send later'))}"
                                     aria-haspopup="dialog" aria-expanded="false">
                                 <span class="schedule-send-icon">${CLOCK_SVG}</span>
                             </button>
-                            <button class="expand-input-btn input-ctrl-btn" hidden
+                            <button class="expand-input-btn input-ctrl-btn btn-ghost" hidden
                                     title="${escapeHtml(t('Expand the message box'))}"
                                     aria-label="${escapeHtml(t('Expand the message box'))}"
                                     aria-pressed="false">
                                 <span class="expand-input-icon">${OPEN_IN_FULL_SVG}</span>
                                 <span class="shrink-input-icon">${CLOSE_FULLSCREEN_SVG}</span>
                             </button>
-                            <button class="attach-btn input-ctrl-btn" id="attach-button"
+                            <button class="attach-btn input-ctrl-btn btn-ghost" id="attach-button"
                                     title="${escapeHtml(t('Attach files — or drop or paste them here'))}"
                                     aria-label="${escapeHtml(t('Attach files'))}">
                                 <span class="attach-icon">${PAPERCLIP_SVG}</span>
                             </button>
                         </input-controls-actions>
                         <input-controls-send>
-                            <button class="new-thread-btn input-ctrl-btn" title="${escapeHtml(t('Create a new sub-thread'))}">
+                            <button class="new-thread-btn input-ctrl-btn btn-ghost" title="${escapeHtml(t('Create a new sub-thread'))}">
                                 <span class="new-thread-arrow" aria-hidden="true">${THREAD_ARROW_SVG}</span>
                                 <span class="new-thread-label">${escapeHtml(t('Thread'))}</span>
                             </button>

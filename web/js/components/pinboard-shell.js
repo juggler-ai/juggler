@@ -245,8 +245,8 @@ class PinboardShell extends JugglerElement {
    */
   _syncOpen() {
     const open = pinboardView.isOpen();
-    if (open === this.classList.contains('open')) return;
-    this.classList.toggle('open', open);
+    if (open === this.classList.contains('is-open')) return;
+    this.classList.toggle('is-open', open);
     this._toggleButton?.setAttribute('aria-expanded', String(open));
 
     // A detached board is the window's only content, so it holds no popup token

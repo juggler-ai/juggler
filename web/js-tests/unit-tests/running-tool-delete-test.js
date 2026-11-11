@@ -48,7 +48,7 @@ import '../../js/components/conversation-tab.js';
 function panelShowing(tab, itemId) {
   return waitFor(() => {
     const panel = /** @type {any} */ (tab.querySelector('column-container > properties-panel'));
-    return panel?.getSelectedItemId() === itemId && panel.querySelector('.properties-panel-btn.danger')
+    return panel?.getSelectedItemId() === itemId && panel.querySelector('.properties-panel-delete-btn')
       ? panel
       : null;
   }, () => `the properties panel to show ${itemId}`);
@@ -64,7 +64,7 @@ function dangerButton(tab, label) {
   const panel = tab.querySelector('column-container > properties-panel');
   assert(!!panel, 'selecting the item should have opened a properties panel');
   const btn = /** @type {HTMLButtonElement|undefined} */ (
-    Array.from(panel.querySelectorAll('.properties-panel-btn.danger'))
+    Array.from(panel.querySelectorAll('.properties-panel-delete-btn'))
       .find((/** @type {any} */ b) => label.test(b.textContent || ''))
   );
   assert(!!btn, `the properties panel should offer a button matching ${label}`);

@@ -102,7 +102,7 @@ export async function runTests() {
       assert(rows.length === defaults.length + 1, `expected ${defaults.length + 1} rows, got ${rows.length}`);
       const unroled = rows.filter((r) => r.getAttribute('role') !== 'menuitem').map((r) => (r.textContent || '').trim());
       assert(unroled.length === 0, `rows without role="menuitem": ${JSON.stringify(unroled)}`);
-      const added = rows.filter((r) => r.classList.contains('unavailable'));
+      const added = rows.filter((r) => r.classList.contains('menu-item-unavailable'));
       assert(added.length === 1 && added[0].getAttribute('aria-disabled') === 'true',
         'the already-added source is not a single disabled item');
       assert(m.querySelector('.menu-divider')?.getAttribute('role') === 'separator', 'the divider is not a separator');
@@ -383,9 +383,9 @@ async function runPseudoLocaleWalk() {
     await tab._openAddSourceMenu(button);
     const surface = document.querySelector('.skills-add-source-menu');
     assert(!!surface, 'the add-source menu did not open');
-    assert(!!surface?.querySelector('.menu-item.unavailable'), 'no already-added suggestion');
+    assert(!!surface?.querySelector('.menu-item.menu-item-unavailable'), 'no already-added suggestion');
     assertPseudoLocalized(/** @type {Element} */ (surface), {
-      skip: '.menu-item:not(.unavailable):not(:first-child)', atLeast: 4, where: 'add-source menu',
+      skip: '.menu-item:not(.menu-item-unavailable):not(:first-child)', atLeast: 4, where: 'add-source menu',
     });
     closeAllPopups();
 

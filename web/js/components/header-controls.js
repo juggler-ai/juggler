@@ -239,16 +239,16 @@ function localizeHeaderMarkup(root = document) {
 export function setupHeaderControls(session) {
   const pathDisplay = /** @type {HTMLElement|null} */ (document.getElementById('project-path-display'));
   const pathChip = /** @type {HTMLElement|null} */ (document.getElementById('project-path-chip'));
-  const pathLabel = /** @type {HTMLElement|null} */ (pathDisplay?.querySelector('.ppd-path') ?? null);
+  const pathLabel = /** @type {HTMLElement|null} */ (pathDisplay?.querySelector('.project-path-display__path') ?? null);
   const newWindowBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('project-new-window-button'));
   localizeHeaderMarkup();
 
   // The chip is the session switcher's button (session-popover.js): the
   // project's tile on its hue, as the switcher's rows draw it, and its whole
-  // path — the parent folders muted (.ppd-dir) before the folder's name
-  // (.ppd-name) — or, where the header has no room for that, the name alone.
+  // path — the parent folders muted (.project-path-display__dir) before the folder's name
+  // (.project-path-display__name) — or, where the header has no room for that, the name alone.
   // The title gives the whole path and the switcher's key.
-  const pathTile = /** @type {HTMLElement|null} */ (pathChip?.querySelector('.ss-chip-tile') ?? null);
+  const pathTile = /** @type {HTMLElement|null} */ (pathChip?.querySelector('.session-switcher-chip-tile') ?? null);
   let shownPath = '';
   // Tried whole first, and measured in the same frame, so a narrowed label
   // never paints the cut path before its name replaces it.
@@ -257,14 +257,14 @@ export function setupHeaderControls(session) {
     const name = baseName(shownPath);
     const dir = name && shownPath.endsWith(name) ? shownPath.slice(0, -name.length) : '';
     const nameEl = document.createElement('span');
-    nameEl.className = 'ppd-name';
+    nameEl.className = 'project-path-display__name';
     nameEl.textContent = dir ? name : shownPath;
     if (!dir) {
       pathLabel.replaceChildren(nameEl);
       return;
     }
     const dirEl = document.createElement('span');
-    dirEl.className = 'ppd-dir';
+    dirEl.className = 'project-path-display__dir';
     dirEl.textContent = dir;
     pathLabel.replaceChildren(dirEl, nameEl);
     if (pathLabel.scrollWidth > pathLabel.clientWidth) dirEl.remove();
@@ -282,7 +282,7 @@ export function setupHeaderControls(session) {
     fitPathLabel();
     if (pathTile) {
       pathTile.textContent = name ? initials(name) : '';
-      pathTile.style.setProperty('--ss-tint', workspaceTint(ownProjectLink()));
+      pathTile.style.setProperty('--session-switcher-tint', workspaceTint(ownProjectLink()));
     }
     const key = keyShortcutManager.formatBindings('switch-session')[0] || '';
     if (pathChip) {

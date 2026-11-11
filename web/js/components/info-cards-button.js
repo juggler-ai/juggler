@@ -78,7 +78,7 @@ class InfoCardsButton extends JugglerElement {
     if (this._button) return;
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'info-cards-button';
+    btn.className = 'btn btn-icon info-cards-button';
     btn.title = t('Show info cards');
     btn.setAttribute('aria-label', t('Show info cards'));
     btn.setAttribute('aria-haspopup', 'menu');
@@ -120,7 +120,7 @@ class InfoCardsButton extends JugglerElement {
     // dismissal wiring (Escape, outside-click, mutual exclusion). `show` up front
     // because display comes from the base `.dropdown-menu` rule.
     const menu = document.createElement('nav');
-    menu.className = 'dropdown-menu info-cards-menu show';
+    menu.className = 'dropdown-menu info-cards-menu is-open';
     this._menu = menu;
 
     this._popupRelease = presentPopup({
@@ -168,13 +168,13 @@ class InfoCardsButton extends JugglerElement {
     const list = document.createElement('menu');
 
     const heading = document.createElement('li');
-    heading.className = 'category-header';
+    heading.className = 'menu-header menu-header-plain caps-label';
     heading.textContent = t('Info cards');
     list.appendChild(heading);
 
     if (cards.length === 0) {
       const empty = document.createElement('li');
-      empty.className = 'menu-item unavailable';
+      empty.className = 'menu-item menu-item-unavailable';
       empty.textContent = t('No info cards.');
       list.appendChild(empty);
       applyMenuRoles(list, t('Info cards'));
@@ -185,8 +185,8 @@ class InfoCardsButton extends JugglerElement {
     for (const card of cards) {
       const shown = !card.hidden;
       const row = document.createElement('li');
-      // `.active` greens the row + its tick, matching the app's selected-item look.
-      row.className = `menu-item info-cards-menu__item${shown ? ' active' : ''}`;
+      // `aria-checked` greens the row and its tick (patterns/menus.css).
+      row.className = 'menu-item info-cards-menu__item';
       row.setAttribute('role', 'menuitemcheckbox');
       row.setAttribute('aria-checked', String(shown));
 

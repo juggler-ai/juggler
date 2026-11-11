@@ -76,7 +76,7 @@ export class ComposerPopup {
     const anchor = /** @type {HTMLElement|null} */ (this._host.querySelector(this._buttonSelector));
     if (!anchor) return;
 
-    surface.classList.add('show');
+    surface.classList.add('is-open');
     this.surface = surface;
     // presentPopup owns body-append, dismissal wiring (outside-click via
     // insideSelectors + Escape, which dismisses the popup rather than

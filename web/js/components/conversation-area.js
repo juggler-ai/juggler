@@ -860,12 +860,12 @@ class ConversationArea extends JugglerElement {
       <conversation-message-list-wrapper>
         <section class="conversation-message-list u-scrollbar-thin" id="message-list">
           <div class="conversation-message-list-inner" id="message-list-inner">
-            <thread-column-actions class="hidden">
-              <button class="properties-panel-btn thread-expand-btn" title="${escapeHtml(t('Expand this thread back into the parent'))}">
+            <thread-column-actions class="thread-column-actions hidden">
+              <button class="btn btn-sm btn-secondary thread-expand-btn" title="${escapeHtml(t('Expand this thread back into the parent'))}">
                 ${OPEN_IN_FULL_SVG}
                 ${escapeHtml(t('Expand into parent'))}
               </button>
-              <button class="properties-panel-btn thread-copy-tab-btn" title="${escapeHtml(t('Copy this thread (with inherited context) to a new conversation'))}">
+              <button class="btn btn-sm btn-secondary thread-copy-tab-btn" title="${escapeHtml(t('Copy this thread (with inherited context) to a new conversation'))}">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960"><path d="M440-160v-326L336-382l-56-58 200-200 200 200-56 58-104-104v326h-80ZM160-600v-120q0-33 23.5-56.5T240-800h480q33 0 56.5 23.5T800-720v120h-80v-120H240v120h-80Z"/></svg>
                 ${escapeHtml(t('Copy thread to new conversation'))}
               </button>
@@ -875,8 +875,8 @@ class ConversationArea extends JugglerElement {
         </section>
         ${emptyHintMarkup()}
         <div class="scroll-controls" id="scroll-controls">
-          <button type="button" class="scroll-control-btn hidden" data-scroll="top" title="${escapeHtml(t('Scroll to top'))}" aria-label="${escapeHtml(t('Scroll to top'))}">${SCROLL_TOP_SVG}</button>
-          <button type="button" class="scroll-control-btn hidden" data-scroll="bottom" title="${escapeHtml(t('Scroll to bottom'))}" aria-label="${escapeHtml(t('Scroll to bottom'))}">${SCROLL_BOTTOM_SVG}</button>
+          <button type="button" class="btn btn-icon btn-icon-lg btn-neutral scroll-control-btn hidden" data-scroll="top" title="${escapeHtml(t('Scroll to top'))}" aria-label="${escapeHtml(t('Scroll to top'))}">${SCROLL_TOP_SVG}</button>
+          <button type="button" class="btn btn-icon btn-icon-lg btn-neutral scroll-control-btn hidden" data-scroll="bottom" title="${escapeHtml(t('Scroll to bottom'))}" aria-label="${escapeHtml(t('Scroll to bottom'))}">${SCROLL_BOTTOM_SVG}</button>
         </div>
       </conversation-message-list-wrapper>
       <reply-suggestions></reply-suggestions>
@@ -987,7 +987,7 @@ class ConversationArea extends JugglerElement {
     }
 
     // Remove old dynamically-added delete controls and re-add via shared utility
-    actionsEl?.querySelectorAll('.properties-panel-btn.danger').forEach(b => b.remove());
+    actionsEl?.querySelectorAll('.properties-panel-delete-btn').forEach(b => b.remove());
 
     // Delete acts on the tile the user opened this column through, which for a
     // thread called more than once is one of several views of the same

@@ -4,29 +4,44 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
-/* ============================================================================
-   MENU UTILITY SYSTEM
-
-   Reusable menu/dropdown components for the entire application.
-   NO domain-specific styles - use semantic classes only.
-
-   Structure:
-   <menu class="dropdown-menu [show]">
-     <li class="menu-item">Interactive item</li>
-     <li class="menu-header">Section Header</li>
-     <li class="menu-divider"></li>
-     <li class="menu-item unavailable">Disabled item</li>
-     <menu class="menu-group">
-       <li class="menu-item">Nested item</li>
-     </menu>
-   </menu>
-
-   Geometry comes from the --*-menu tokens in tokens/scale.css.
-   ============================================================================ */
-
-/* Filed in `patterns`, which is what it is: chrome shared by unrelated
-   components, owned by none of them. `components` sits above it, so a component
-   refines a menu row by naming it, without having to out-specify it. */
+/**
+ * The app's one menu: a dropdown card of rows.
+ *
+ *   <menu class="dropdown-menu is-open">
+ *     <li class="menu-header">Section</li>
+ *     <li class="menu-item">A row</li>
+ *     <li class="menu-divider"></li>
+ *     <menu class="menu-group"><li class="menu-item">An indented row</li></menu>
+ *   </menu>
+ *
+ * Row modifiers, each one class:
+ *   .menu-item-selected      the chosen one of a set, as a filled accent row
+ *                            (a picker's current value)
+ *   .menu-item-danger        the action destroys something
+ *   .menu-item-unavailable   shown for context, not choosable
+ *   [aria-checked="true"]    a checkbox or radio row that is on: accent text,
+ *                            for the tick it carries — style the attribute,
+ *                            there is no class for it
+ * Header: .menu-header is a filled caption bar; .menu-header-plain beside it
+ * is an unfilled label that starts a section over a hairline (none above the
+ * first).
+ *
+ * Every state holds one class of specificity (`:where()`), so a component
+ * refines a row by naming it, never by out-ranking a state. Prefer the hooks
+ * to a competing declaration — set them on the list, and every row in it,
+ * nested groups included, follows:
+ *   --menu-item-pad-y        a row's block padding
+ *   --menu-item-pad-start    a row's inline-start padding (overrides the
+ *                            group indent too)
+ *   --menu-item-pad-end      a row's inline-end padding
+ *   --menu-header-pad-start  a plain header's inline-start padding
+ *
+ * Geometry defaults come from the --*-menu tokens in tokens/scale.css.
+ *
+ * Filed in `patterns`, which is what it is: chrome shared by unrelated
+ * components, owned by none of them. `components` sits above it, so a
+ * component refines a menu row by naming it, without having to out-specify it.
+ */
 
 /* Menu Container - Base dropdown/menu container */
 .dropdown-menu {
@@ -45,7 +60,7 @@
     max-height: 80vh;
 }
 
-.dropdown-menu.show {
+.dropdown-menu.is-open {
     display: block;
 }
 
@@ -62,7 +77,8 @@ body.hud-pointer-idle .dropdown-menu {
 /* Menu Item - Interactive clickable item. Rounded, inset rows whose corner runs
    concentric with the card's (see --radius-menu-item). */
 .menu-item {
-    padding: var(--menu-item-padding-block) var(--menu-item-padding-inline);
+    padding-block: var(--menu-item-pad-y, var(--menu-item-padding-block));
+    padding-inline: var(--menu-item-pad-start, var(--menu-item-padding-inline)) var(--menu-item-pad-end, var(--menu-item-padding-inline));
     border-radius: var(--radius-menu-item);
     color: var(--text-primary);
     font-size: var(--font-size-md);
@@ -70,11 +86,11 @@ body.hud-pointer-idle .dropdown-menu {
     transition: background var(--transition-base);
     display: flex;
     align-items: center;
-    gap: 0.625rem;
+    gap: var(--space-10);
     list-style: none;
 }
 
-.menu-item:hover {
+.menu-item:where(:hover) {
     background: var(--bg-raised);
 }
 
@@ -86,56 +102,70 @@ body.hud-pointer-idle .dropdown-menu {
 }
 
 /* Menu Item Variants */
-.menu-item.danger {
-    color: var(--accent-red);
+.menu-item-danger {
+    color: var(--danger);
 }
 
-.menu-item.danger:hover {
-    background: var(--bg-raised);
-}
-
-.menu-item.unavailable {
+.menu-item-unavailable {
     opacity: 0.4;
     cursor: not-allowed;
 }
 
-.menu-item.unavailable:hover {
+.menu-item-unavailable:where(:hover) {
     background: transparent;
 }
 
-.menu-item.active {
+/* A checkbox or radio row that is on. The accent carries to the tick, which
+   paints in currentcolor. */
+.menu-item:where([aria-checked="true"]) {
     color: var(--accent-green);
+}
+
+/* The chosen value of a picker, filled so the selection holds under the
+   pointer and beside a keyboard cursor's wash. */
+.menu-item-selected {
+    background: var(--accent-blue);
+    color: var(--text-on-accent);
+}
+
+.menu-item-selected:where(:hover) {
+    background: var(--accent-blue-strong);
 }
 
 /* Menu Divider - Horizontal separator */
 .menu-divider {
     height: 0.0625rem;
     background: var(--border-divider);
-    margin: 0.375rem 0;
+    margin: var(--space-6) 0;
     list-style: none;
 }
 
-/* Menu Header - Non-interactive section label */
+/* Menu Header - Non-interactive section label, a filled caption bar */
 .menu-header {
-    padding: 0.5rem var(--menu-item-padding-inline) 0.375rem;
-    margin-top: 1rem;
+    padding: var(--space-8) var(--menu-item-padding-inline) var(--space-6);
+    margin-top: var(--space-16);
     color: var(--text-secondary);
     cursor: default;
     list-style: none;
     background: var(--bg-raised);
-    margin-bottom: 0.2rem;
+    margin-bottom: var(--space-4);
 }
 
-.menu-header:hover {
-    background: var(--bg-raised);
-}
-
-/* Category heading - a lighter, unfilled section label for a dropdown that
-   groups its rows under headings. */
-:where(.dropdown-menu) .category-header {
+/* A section label with no fill, for a list of hoverable rows, where a filled
+   bar reads as a row already under the pointer. A hairline above starts the
+   section (a line below would close the one before); the first has none. */
+.menu-header-plain {
+    margin: 0 0 var(--space-4);
+    padding-block: var(--space-14) var(--space-4);
+    padding-inline: var(--menu-header-pad-start, var(--menu-item-padding-inline)) var(--menu-item-pad-end, var(--menu-item-padding-inline));
+    border-top: 0.0625rem solid var(--border-divider);
+    background: none;
     color: var(--text-tertiary);
-    cursor: default;
-    padding: 0.375rem var(--menu-item-padding-inline);
+}
+
+.menu-header-plain:where(:first-child) {
+    border-top: none;
+    padding-top: 0;
 }
 
 /* Menu Group - Nested submenu container */
@@ -147,7 +177,7 @@ body.hud-pointer-idle .dropdown-menu {
 
 /* Indented items in menu groups */
 :where(.menu-group) .menu-item {
-    padding-left: 2rem;
+    padding-inline-start: var(--menu-item-pad-start, var(--space-32));
     font-size: var(--font-size-base);
 }
 
@@ -164,17 +194,17 @@ body.hud-pointer-idle .dropdown-menu {
    group indent above, which it overrides at the same specificity. */
 .menu-item-hint {
     cursor: default;
-    padding: 0.75rem 1rem;
+    padding: var(--space-12) var(--space-16);
 }
 
-.menu-item-hint:hover {
+.menu-item-hint:where(:hover) {
     background: transparent;
 }
 
 .menu-hint-text {
     color: var(--text-secondary);
     font-size: var(--font-size-base);
-    line-height: 1.5;
+    line-height: var(--leading-normal);
     text-align: center;
     display: block;
 }
@@ -190,7 +220,7 @@ body.hud-pointer-idle .dropdown-menu {
     margin-left: auto;
 }
 
-.menu-item-icon svg {
+.menu-item-icon :where(svg) {
     width: 1.25rem;
     height: 1.25rem;
     fill: currentcolor;
@@ -206,7 +236,7 @@ body.hud-pointer-idle .dropdown-menu {
    the label: the other way to do the same thing, for next time. */
 .menu-item-shortcut {
     flex-shrink: 0;
-    padding-left: 1.5rem;
+    padding-left: var(--space-24);
     color: var(--text-tertiary);
     font-size: var(--font-size-sm);
     font-variant-numeric: tabular-nums;

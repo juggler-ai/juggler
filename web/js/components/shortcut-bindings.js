@@ -32,7 +32,7 @@ import findBar, { findPanelFor } from './find-bar.js';
  * @returns {boolean} True when there was a conversation column to step in.
  */
 function stepActiveTabSelection(direction) {
-  const tab = /** @type {any} */ (document.querySelector('conversation-tab.active'));
+  const tab = /** @type {any} */ (document.querySelector('conversation-tab.is-active'));
   return tab?.stepItemSelection?.(direction) ?? false;
 }
 
@@ -116,7 +116,7 @@ export function registerConversationShortcuts(session) {
   // the manager stands every command down behind an overlay, so the board
   // dispatches ⌘F itself, as it does its other chords.
   keyShortcutManager.register('find-in-conversation', () => {
-    const tab = /** @type {any} */ (document.querySelector('conversation-tab.active'));
+    const tab = /** @type {any} */ (document.querySelector('conversation-tab.is-active'));
     const panel = findPanelFor(document.activeElement) || tab?.getFindColumn?.();
     if (!panel) return false;
     findBar.open(panel);

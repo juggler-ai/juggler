@@ -7,242 +7,172 @@
    colours come from the shared theme vars so the tab tracks light/dark. */
 
 .skills-tab {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-12);
 
-  /* Lift all body text off the theme's --font-weight-normal (200 in dark, Inter
-     Extra-Light) — at these small sizes/dim colours 200 reads threadbare. 400 is
-     the readable base; emphasis rules below override. */
-  font-weight: 400;
+    /* Lift all body text off the theme's --font-weight-normal (200 in dark, Inter
+       Extra-Light) — at these small sizes/dim colours 200 reads threadbare. 400 is
+       the readable base; emphasis rules below override. */
+    font-weight: var(--font-weight-normal);
 }
 
 /* The active view (toolbar, chip rows, toggles, card grid) stacks vertically
    with consistent spacing — otherwise the rows/buttons butt against each other. */
 .skills-body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-12);
+    min-width: 0;
 }
 
 /* Keep the tab's content off the settings-panel scrollbar (the outer gutter sits
    outside this inner scroller, so add our own breathing room on the right). */
-#tab-skills {
-  padding-right: 0.6rem;
+.skills-tab-section {
+    padding-right: var(--space-10);
 }
 
 /* Header row: the Discover/Installed mode switch on the left, the refresh
    affordance pinned to the right. */
 .skills-header {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: var(--space-8);
 }
 
 /* Refresh the active view: re-fetch registries on Discover, rescan local folders
    on Installed. Icon-only, right-aligned on the header row. Carries
    .btn-ghost for the shared button chrome; this owns placement and size. */
 .skills-refresh {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.35rem;
-  flex-shrink: 0;
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-6);
+    flex-shrink: 0;
 }
 
 .skills-refresh svg {
-  width: 1rem;
-  height: 1rem;
-  display: block;
+    width: 1rem;
+    height: 1rem;
+    display: block;
 }
 
 /* Discover / Installed mode switch */
 .skills-modeswitch {
-  display: inline-flex;
-  gap: 0.25rem;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-md);
-  padding: 0.2rem;
+    display: inline-flex;
+    gap: var(--space-4);
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
 }
 
 .skills-mode {
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: var(--font-size-md);
-  font-weight: 500;
-  padding: 0.3rem 0.85rem;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: var(--font-size-md);
+    font-weight: var(--font-weight-medium);
+    padding: var(--space-4) var(--space-14);
+    border-radius: var(--radius-sm);
 }
 
-.skills-mode.active {
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  box-shadow: 0 0.0625rem 0.125rem color-mix(in srgb, var(--shadow-color) 12%, transparent);
+.skills-mode[aria-selected="true"] {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    box-shadow: 0 0.0625rem 0.125rem color-mix(in srgb, var(--shadow-color) 12%, transparent);
 }
 
 /* Toolbar: search + refresh + add */
 .skills-toolbar {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
+    display: flex;
+    gap: var(--space-8);
+    align-items: center;
 }
 
 .skills-search {
-  flex: 1;
-  min-width: 0;
-  padding: 0.45rem 0.7rem;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font: inherit;
-  font-size: var(--font-size-md);
-}
-
-.skills-search:focus {
-  outline: none;
-  border-color: var(--field-focus-border);
-  box-shadow: var(--field-focus-halo);
-}
-
-/* Buttons */
-.skills-btn {
-  border-width: 1px;
-  border-style: solid;
-  font: inherit;
-  font-size: var(--font-size-base);
-  font-weight: 500;
-  padding: 0.35rem 0.7rem;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  white-space: nowrap;
-  text-decoration: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-}
-
-/* The neutral fill, for the buttons with no role (patterns/buttons.css). */
-.skills-btn:not(.btn-primary) {
-  border-color: var(--border-color);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-}
-
-.skills-btn:not(.btn-primary):hover {
-  background: var(--bg-tertiary);
-}
-
-.skills-btn svg {
-  width: 0.95em;
-  height: 0.95em;
-  flex-shrink: 0;
-}
-
-.skills-btn.install:not(.btn-primary) {
-  border-color: var(--accent-blue);
-  color: var(--accent-blue);
-}
-
-.skills-btn.install.update {
-  border-color: var(--accent-green);
-  color: var(--accent-green);
-}
-
-.skills-btn.install.btn-primary {
-  align-self: flex-start;
-  padding: 0.5rem 1.1rem;
-}
-
-.skills-btn.danger {
-  border-color: var(--accent-red);
-  color: var(--accent-red);
+    flex: 1;
+    min-width: 0;
 }
 
 .skills-installed {
-  color: var(--accent-green);
-  font-size: var(--font-size-base);
-  font-weight: 600;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
+    color: var(--success);
+    font-size: var(--font-size-base);
+    font-weight: var(--font-weight-semibold);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-4);
 }
 
 .skills-installed svg {
-  width: 0.95em;
-  height: 0.95em;
+    width: 0.95em;
+    height: 0.95em;
 }
 
 /* Filter chips (sources + categories) */
 .skills-chiprow {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-6);
 }
 
 .skills-catrow {
-  padding-top: 0.1rem;
+    padding-top: var(--space-2);
 }
 
 .skills-chip {
-  border: 1px solid var(--border-color);
-  background: var(--bg-primary);
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  padding: 0.2rem 0.6rem;
-  border-radius: var(--radius-pill);
-  cursor: pointer;
+    border: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    padding: var(--space-4) var(--space-10);
+    border-radius: var(--radius-pill);
 }
 
 .skills-chip:hover {
-  background: var(--bg-tertiary);
+    background: var(--bg-tertiary);
 }
 
-.skills-chip.active {
-  background: var(--accent-blue);
-  color: var(--text-on-accent);
-  border-color: var(--accent-blue);
+.skills-chip.is-active {
+    background: var(--accent-blue);
+    color: var(--text-on-accent);
+    border-color: var(--accent-blue);
 }
 
 .skills-chip.dim {
-  opacity: 0.55;
+    opacity: 0.55;
 }
 
 /* Custom sources: chip + a joined remove (×) button, styled as one pill. */
 .skills-chip-wrap {
-  display: inline-flex;
-  align-items: stretch;
+    display: inline-flex;
+    align-items: stretch;
 }
 
 .skills-chip-wrap .skills-chip {
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
 }
 
 .skills-chip-remove {
-  border: 1px solid var(--border-color);
-  border-left: none;
-  background: var(--bg-primary);
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: var(--font-size-sm);
-  line-height: 1;
-  padding: 0.2rem 0.45rem;
-  border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
-  cursor: pointer;
+    border: 1px solid var(--border-color);
+    border-left: none;
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: var(--font-size-sm);
+    line-height: 1;
+    padding: var(--space-4) var(--space-8);
+    border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
 }
 
 .skills-chip-remove:hover {
-  background: color-mix(in srgb, var(--accent-red) 15%, transparent);
-  color: var(--accent-red);
+    background: color-mix(in srgb, var(--danger) 15%, transparent);
+    color: var(--danger);
 }
 
 /* The add-source menu opens from inside the settings panel, which is a
@@ -250,523 +180,515 @@
    would paint behind it, so lift it above the modal — the same convention path
    completions use (see --z-above-modal in styles.css). */
 .skills-add-source-menu {
-  z-index: var(--z-above-modal);
+    z-index: var(--z-above-modal);
 }
 
 .skills-togglerow {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
-  font-size: var(--font-size-base);
-  color: var(--text-secondary);
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-16);
+    font-size: var(--font-size-base);
+    color: var(--text-secondary);
 }
 
 .skills-togglerow label {
-  display: inline-flex;
-  gap: 0.35rem;
-  align-items: center;
-  cursor: pointer;
+    display: inline-flex;
+    gap: var(--space-6);
+    align-items: center;
+    cursor: pointer;
 }
 
 .skills-stale {
-  font-size: var(--font-size-sm);
-  color: var(--text-tertiary);
-  background: var(--bg-tertiary);
-  padding: 0.35rem 0.6rem;
-  border-radius: var(--radius-sm);
+    font-size: var(--font-size-sm);
+    color: var(--text-tertiary);
+    background: var(--bg-tertiary);
+    padding: var(--space-6) var(--space-10);
+    border-radius: var(--radius-sm);
 }
 
 /* Card grid */
 .skills-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
-  gap: 0.65rem;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+    gap: var(--space-10);
 }
 
 .skills-card {
-  padding: 0.7rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
+    padding: var(--space-12);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
 }
 
 .skills-card.is-installed {
-  border-color: var(--accent-green);
+    border-color: var(--success);
 }
 
 .skills-card-head {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  flex-wrap: wrap;
+    display: flex;
+    align-items: center;
+    gap: var(--space-6);
+    flex-wrap: wrap;
 }
 
 .skills-card-name {
-  font-weight: 700;
-  font-size: var(--font-size-md);
-  color: var(--text-primary);
+    font-weight: var(--font-weight-bold);
+    font-size: var(--font-size-md);
+    color: var(--text-primary);
 }
 
 .skills-card-meta {
-  font-size: var(--font-size-sm);
-  color: var(--text-tertiary);
+    font-size: var(--font-size-sm);
+    color: var(--text-tertiary);
 }
 
 .skills-card-desc {
-  font-size: var(--font-size-base);
-  color: var(--text-secondary);
-  line-height: 1.35;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+    font-size: var(--font-size-base);
+    color: var(--text-secondary);
+    line-height: var(--leading-tight);
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
 }
 
 .skills-card-actions {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: auto;
-  padding-top: 0.2rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: auto;
+    padding-top: var(--space-4);
 }
 
 /* Badges */
 .skills-badge {
-  font-size: var(--font-size-xs);
-  padding: 0.1rem 0.4rem;
-  border-radius: var(--radius-sm);
-  font-weight: 600;
+    font-size: var(--font-size-xs);
+    padding: var(--space-2) var(--space-6);
+    border-radius: var(--radius-sm);
+    font-weight: var(--font-weight-semibold);
 }
 
 .skills-badge.error {
-  max-width: 16rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+    max-width: 16rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .skills-scope-badge {
-  font-size: var(--font-size-xs);
-  font-family: var(--font-mono);
-  color: var(--text-tertiary);
-  background: var(--bg-tertiary);
-  padding: 0.1rem 0.4rem;
-  border-radius: var(--radius-sm);
+    font-size: var(--font-size-xs);
+    font-family: var(--font-mono);
+    color: var(--text-tertiary);
+    background: var(--bg-tertiary);
+    padding: var(--space-2) var(--space-6);
+    border-radius: var(--radius-sm);
 }
 
 /* Manage list */
 .skills-manage-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-8);
 }
 
 .skills-manage-row {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.6rem 0.7rem;
+    display: flex;
+    align-items: center;
+    gap: var(--space-12);
+    padding: var(--space-10) var(--space-12);
 }
 
 .skills-manage-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
 }
 
 /* Trailing action buttons on a manage/standing row (Preview + Uninstall). */
 .skills-manage-actions {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-8);
 }
 
 .skills-empty,
 .skills-loading {
-  padding: 1.5rem;
-  text-align: center;
-  color: var(--text-tertiary);
-  font-size: var(--font-size-md);
+    padding: var(--space-24);
+    text-align: center;
+    color: var(--text-tertiary);
+    font-size: var(--font-size-md);
 }
 
 .skills-loading {
-  display: flex;
-  justify-content: center;
+    display: flex;
+    justify-content: center;
 }
 
 /* Preview — a standard centered modal (same chrome as bin-modal / about-modal:
    a fixed full-viewport overlay with a <modal-backdrop> + <modal-panel>, both of
    which inherit the shared popup surface/backdrop rules). */
 .skills-drawer {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-modal);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 2rem;
-  font-weight: 400;
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-modal);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-32);
+    font-weight: var(--font-weight-normal);
 }
 
 .skills-preview-panel {
-  width: min(94vw, 54rem);
-  max-height: min(92vh, 62rem);
+    width: min(94vw, 54rem);
+    max-height: min(92vh, 62rem);
 
-  /* Re-rendered whole as its body loads (loading shell, then content), so the
-     popup-surface entrance would play twice. */
-  animation: none;
+    /* Re-rendered whole as its body loads (loading shell, then content), so the
+       popup-surface entrance would play twice. */
+    animation: none;
 }
 
 .skills-preview-header {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 1rem 1.25rem;
-  border-bottom: 0.0625rem solid var(--border-divider);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-12);
+    padding: var(--space-16) var(--space-20);
+    border-bottom: 0.0625rem solid var(--border-divider);
 }
 
 .skills-preview-title {
-  margin: 0;
-  font-size: var(--font-size-xl);
-  font-weight: 700;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+    margin: 0;
+    font-size: var(--font-size-xl);
+    font-weight: var(--font-weight-bold);
+    color: var(--text-primary);
 }
 
-/* The dialog's × is the shared .close-button (chrome + box from the house
-   style); .skills-preview-close remains only as the click hook in
+/* The dialog's × is the shared close button (`btn btn-icon btn-icon-lg
+   btn-ghost`); .skills-preview-close is only the click hook in
    skill-preview.js. */
 
 .skills-preview-body {
-  flex: 1 1 auto;
-  min-height: 0;
-  padding: 1.25rem 1.5rem;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: var(--space-20) var(--space-24);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-16);
 }
 
 .skills-preview-meta {
-  font-size: var(--font-size-sm);
-  color: var(--text-tertiary);
+    font-size: var(--font-size-sm);
+    color: var(--text-tertiary);
 }
 
 .skills-preview-footer {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.85rem 1.25rem;
-  border-top: 0.0625rem solid var(--border-divider);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-12);
+    padding: var(--space-14) var(--space-20);
+    border-top: 0.0625rem solid var(--border-divider);
 }
 
 .skills-safety {
-  font-size: var(--font-size-sm);
-  color: var(--text-secondary);
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-sm);
-  padding: 0.5rem 0.6rem;
-  line-height: 1.4;
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-sm);
+    padding: var(--space-8) var(--space-10);
+    line-height: var(--leading-tight);
 }
 
 /* A bordered subsection on the preview panel (installed-at, file list). Gives
    related rows a shared frame so the panel reads as distinct sections rather
    than a single run-on column. */
 .skills-section {
-  padding: 0.6rem 0.75rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+    padding: var(--space-10) var(--space-12);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-8);
 }
 
 .skills-section-title {
-  color: var(--text-tertiary);
+    color: var(--text-tertiary);
 }
 
 /* Frontmatter rendered as a key/value table (was a raw `--- … ---` block that
    markdown turned into one giant setext heading). */
 .skills-meta-table {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  font-size: var(--font-size-base);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  overflow: hidden;
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: var(--font-size-base);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    overflow: hidden;
 }
 
 .skills-meta-table th,
 .skills-meta-table td {
-  text-align: left;
-  vertical-align: top;
-  padding: 0.35rem 0.6rem;
-  border-bottom: 1px solid var(--border-divider);
+    text-align: left;
+    vertical-align: top;
+    padding: var(--space-6) var(--space-10);
+    border-bottom: 1px solid var(--border-divider);
 }
 
 .skills-meta-table tr:last-child th,
 .skills-meta-table tr:last-child td {
-  border-bottom: none;
+    border-bottom: none;
 }
 
 .skills-meta-table th {
-  width: 1%;
-  white-space: nowrap;
-  font-weight: 600;
-  color: var(--text-secondary);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
-  border-right: 1px solid var(--border-divider);
+    width: 1%;
+    white-space: nowrap;
+    font-weight: var(--font-weight-semibold);
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-sm);
+    border-right: 1px solid var(--border-divider);
 }
 
 .skills-meta-table td {
-  color: var(--text-primary);
-  overflow-wrap: anywhere;
+    color: var(--text-primary);
+    overflow-wrap: anywhere;
 }
 
 .skills-installed-section {
-  border-color: color-mix(in srgb, var(--accent-green) 45%, var(--border-color));
+    border-color: color-mix(in srgb, var(--success) 45%, var(--border-color));
 }
 
 .skills-drawer-installed {
-  font-size: var(--font-size-base);
-  font-weight: 600;
-  color: var(--accent-green);
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
+    font-size: var(--font-size-base);
+    font-weight: var(--font-weight-semibold);
+    color: var(--success);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-4);
 }
 
 .skills-drawer-installed svg {
-  width: 0.95em;
-  height: 0.95em;
+    width: 0.95em;
+    height: 0.95em;
 }
 
 .skills-runs {
-  border: 1px solid color-mix(in srgb, var(--accent-red) 40%, var(--border-color));
-  border-radius: var(--radius-sm);
-  padding: 0.5rem 0.6rem;
-  background: color-mix(in srgb, var(--accent-red) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-red) 40%, var(--border-color));
+    border-radius: var(--radius-sm);
+    padding: var(--space-8) var(--space-10);
+    background: color-mix(in srgb, var(--accent-red) 8%, transparent);
 }
 
 .skills-runs-title {
-  font-weight: 600;
-  font-size: var(--font-size-base);
-  color: var(--accent-red);
-  margin-bottom: 0.25rem;
+    font-weight: var(--font-weight-semibold);
+    font-size: var(--font-size-base);
+    color: var(--accent-red);
+    margin-bottom: var(--space-4);
 }
 
 .skills-run-file {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
-  color: var(--text-secondary);
-  display: flex;
-  justify-content: space-between;
-  gap: 0.5rem;
-  padding: 0.1rem 0;
+    font-family: var(--font-mono);
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-8);
+    padding: var(--space-2) 0;
 }
 
 /* File list: one row per file, zebra-free but divided, with the path allowed to
    wrap/ellipsize and the size pinned to the right. Always shown (never many),
    replacing the old <details> collapse. */
 .skills-files-list {
-  display: flex;
-  flex-direction: column;
+    display: flex;
+    flex-direction: column;
 }
 
 .skills-file {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
-  color: var(--text-secondary);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.3rem 0;
-  border-bottom: 1px solid var(--border-divider);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-12);
+    padding: var(--space-4) 0;
+    border-bottom: 1px solid var(--border-divider);
 }
 
 .skills-file:last-child {
-  border-bottom: none;
+    border-bottom: none;
 }
 
 .skills-file-path {
-  min-width: 0;
-  word-break: break-all;
+    min-width: 0;
+    word-break: break-all;
 }
 
 .skills-file.runs .skills-file-path {
-  color: var(--accent-red);
+    color: var(--accent-red);
 }
 
 .skills-file-size {
-  color: var(--text-tertiary);
-  flex-shrink: 0;
-  white-space: nowrap;
+    color: var(--text-tertiary);
+    flex-shrink: 0;
+    white-space: nowrap;
 }
 
 /* The rendered SKILL.md. The modal body already scrolls, so this just sets
    readable typography and top/bottom dividers to separate it from the meta
    above and the file list below. */
 .skills-drawer-body {
-  border-top: 1px solid var(--border-divider);
-  border-bottom: 1px solid var(--border-divider);
-  padding: 0.85rem 0;
-  font-size: var(--font-size-md);
-  line-height: 1.55;
+    border-top: 1px solid var(--border-divider);
+    border-bottom: 1px solid var(--border-divider);
+    padding: var(--space-14) 0;
+    font-size: var(--font-size-md);
+    line-height: var(--leading-normal);
 }
 
 .skills-slug-note {
-  font-size: var(--font-size-sm);
-  color: var(--text-secondary);
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
 }
 
 .skills-slug-note code {
-  font-family: var(--font-mono);
+    font-family: var(--font-mono);
 }
 
 /* "Choose install location" dialog — a standard centered modal whose body is a
    clear set of three action buttons (one per destination). Replaces the old
    inline radio scope-picker + separate install button. */
 .skills-scope-dialog {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-modal);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 2rem;
-  font-weight: 400;
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-modal);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-32);
+    font-weight: var(--font-weight-normal);
 }
 
 .skills-scope-panel {
-  width: min(92vw, 30rem);
-  padding: 1.25rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
+    width: min(92vw, 30rem);
+    padding: var(--space-20);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-14);
 }
 
 .skills-scope-dialog-title {
-  margin: 0;
-  font-size: var(--font-size-lg);
-  font-weight: 700;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+    margin: 0;
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-bold);
+    color: var(--text-primary);
 }
 
 .skills-scope-dialog-sub {
-  margin: 0;
-  font-size: var(--font-size-base);
-  color: var(--text-secondary);
+    margin: 0;
+    font-size: var(--font-size-base);
+    color: var(--text-secondary);
 }
 
 .skills-scope-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-8);
 }
 
 .skills-scope-action {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  text-align: left;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: var(--bg-secondary);
-  padding: 0.6rem 0.8rem;
-  cursor: pointer;
-  font: inherit;
-  transition: background var(--transition-base), border-color var(--transition-base);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    text-align: left;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--bg-secondary);
+    padding: var(--space-10) var(--space-12);
+    font: inherit;
+    transition: background var(--transition-base), border-color var(--transition-base);
 }
 
 .skills-scope-action:hover {
-  background: var(--bg-tertiary);
-  border-color: var(--accent-blue);
+    background: var(--bg-tertiary);
+    border-color: var(--accent-blue);
 }
 
 .skills-scope-action-label {
-  font-size: var(--font-size-md);
-  font-weight: 600;
-  color: var(--text-primary);
+    font-size: var(--font-size-md);
+    font-weight: var(--font-weight-semibold);
+    color: var(--text-primary);
 }
 
 .skills-scope-action-hint {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
-  color: var(--text-tertiary);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-sm);
+    color: var(--text-tertiary);
 }
 
 .skills-scope-dialog-footer {
-  display: flex;
-  justify-content: flex-end;
+    display: flex;
+    justify-content: flex-end;
 }
 
 /* ─── Narrow panel / phone ─────────────────────────────────────────────────
    The settings panel can dock to a ~360px column on mobile. Uses the app's
    primary phone breakpoint (see components.css / plugin-catalog.css). */
 @media (width <= 36rem) {
-  /* Search + "Add source" can't share one row at this width — let the search
-     take a full row and the button wrap beneath it. */
-  .skills-toolbar {
-    flex-wrap: wrap;
-  }
+    /* Search + "Add source" can't share one row at this width — let the search
+       take a full row and the button wrap beneath it. */
+    .skills-toolbar {
+        flex-wrap: wrap;
+    }
 
-  .skills-search {
-    flex-basis: 100%;
-  }
+    .skills-search {
+        flex-basis: 100%;
+    }
 
-  /* Single column; drop the 15rem track min so a panel narrower than one card
-     can't force horizontal scroll. */
-  .skills-grid {
-    grid-template-columns: 1fr;
-  }
+    /* Single column; drop the 15rem track min so a panel narrower than one card
+       can't force horizontal scroll. */
+    .skills-grid {
+        grid-template-columns: 1fr;
+    }
 
-  /* Trim modal chrome so 2rem of frame padding doesn't squeeze the panel. */
-  .skills-drawer,
-  .skills-scope-dialog {
-    padding: 0.75rem;
-  }
+    /* Trim modal chrome so 2rem of frame padding doesn't squeeze the panel. */
+    .skills-drawer,
+    .skills-scope-dialog {
+        padding: var(--space-12);
+    }
 
-  .skills-scope-panel {
-    padding: 1rem;
-  }
+    .skills-scope-panel {
+        padding: var(--space-16);
+    }
 
-  .skills-preview-header,
-  .skills-preview-footer {
-    padding: 0.75rem 1rem;
-  }
+    .skills-preview-header,
+    .skills-preview-footer {
+        padding: var(--space-12) var(--space-16);
+    }
 
-  .skills-preview-body {
-    padding: 1rem;
-  }
+    .skills-preview-body {
+        padding: var(--space-16);
+    }
 
-  /* Footer carries two buttons ("View on GitHub" + Install) — wrap rather than
-     overflow on the narrowest screens. */
-  .skills-preview-footer {
-    flex-wrap: wrap;
-  }
+    /* Footer carries two buttons ("View on GitHub" + Install) — wrap rather than
+       overflow on the narrowest screens. */
+    .skills-preview-footer {
+        flex-wrap: wrap;
+    }
 }
 
 /* Touch devices have no hover — give the interactive controls a visible pressed
    state so taps read as presses (mirrors the app's other hover:none blocks). */
 @media (hover: none) {
-  .skills-btn:not(.btn-primary):active,
-  .skills-chip:active,
-  .skills-mode:active,
-  .skills-scope-action:active {
-    background: var(--bg-tertiary);
-  }
+    .skills-chip:active,
+    .skills-mode:active,
+    .skills-scope-action:active {
+        background: var(--bg-tertiary);
+    }
 }

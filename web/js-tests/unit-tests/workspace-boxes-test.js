@@ -109,10 +109,10 @@ function strip(bar) {
     .filter(child => !child.classList.contains('conversation-add-item')
       && !child.classList.contains('conversation-box-new'))
     .map(child => {
-      if (child.classList.contains('conversation-tab')) {
+      if (child.classList.contains('conversation-bar-tab')) {
         return /** @type {HTMLElement} */ (child).dataset.conversationId;
       }
-      const inside = Array.from(child.querySelectorAll('.conversation-tab'))
+      const inside = Array.from(child.querySelectorAll('.conversation-bar-tab'))
         .map(tab => /** @type {HTMLElement} */ (tab).dataset.conversationId);
       return `${/** @type {HTMLElement} */ (child).dataset.workspaceId}{${inside.join(',')}}`;
     })
@@ -361,7 +361,7 @@ export async function runTests() {
         bar._session.conversations.set('c9', { id: 'c9', name: 'c9', workspaceId: 'ws_a' });
         bar.render();
         const tab = /** @type {HTMLElement} */ (
-          box.querySelector('.conversation-tab[data-conversation-id="c9"]'));
+          box.querySelector('.conversation-bar-tab[data-conversation-id="c9"]'));
         tab.dispatchEvent(new PointerEvent('pointerdown', {
           bubbles: true, button: 0, pointerType: 'mouse'
         }));
@@ -459,7 +459,7 @@ export async function runTests() {
 
       const box = /** @type {HTMLElement} */ (
         bar.querySelector('.conversation-box[data-workspace-id="ws_a"]'));
-      const tab = /** @type {HTMLElement} */ (box.querySelector('.conversation-tab'));
+      const tab = /** @type {HTMLElement} */ (box.querySelector('.conversation-bar-tab'));
 
       // Both themes, because the strip is drawn on the wrong side of a ramp in
       // exactly one of them: the box and the tabs in it were within a few
@@ -494,14 +494,14 @@ export async function runTests() {
 
       const box = /** @type {HTMLElement} */ (
         bar.querySelector('.conversation-box[data-workspace-id="ws_a"]'));
-      const tab = /** @type {HTMLElement} */ (box.querySelector('.conversation-tab'));
+      const tab = /** @type {HTMLElement} */ (box.querySelector('.conversation-bar-tab'));
 
       // The selected box is blue, and a tab's alert colours are yellow. Any
       // alpha in one of them mixes the two into a colour neither means: the
       // alert states were drawn against the page, and a box put a surface
       // between the tab and the page it was mixing with.
-      box.classList.add('active');
-      tab.classList.remove('active');
+      box.setAttribute('aria-current', 'true');
+      tab.setAttribute('aria-current', 'false');
       // The tab eases its background over 150ms, and a value read inside that
       // window is an interpolation of the two colours rather than either of
       // them — which is opaque whatever the colour it is heading for. The
@@ -523,7 +523,7 @@ export async function runTests() {
           // The flash's "off" frame is the tab as it would otherwise be, which
           // is a colour — reachable only by driving the animation to that frame.
           tab.classList.add('attention-flash');
-          const flash = tab.getAnimations().find(a => /** @type {any} */ (a).animationName === 'tab-attention-flash');
+          const flash = tab.getAnimations().find(a => /** @type {any} */ (a).animationName === 'conversation-bar-tab-attention-flash');
           assert(flash !== undefined, 'precondition: the one-shot flash is running on the tab');
           /** @type {any} */ (flash).currentTime = 200;
           const off = getComputedStyle(tab).backgroundColor;
@@ -536,7 +536,7 @@ export async function runTests() {
       } finally {
         if (was === undefined) delete root.dataset.theme; else root.dataset.theme = was;
         tab.classList.remove('needs-attention', 'attention-flash');
-        box.classList.remove('active');
+        box.setAttribute('aria-current', 'false');
         // The next render keeps this tab, so its easing comes back only once it
         // has settled on its resting fill: restored in the same style change, it
         // would ease from the alert to transparent under the next case's reading.
@@ -570,7 +570,7 @@ export async function runTests() {
     await check('the focus ring marks a keyboard arrival in the strip, never a click on its background', () => {
       const box = /** @type {HTMLElement} */ (
         bar.querySelector('.conversation-box[data-workspace-id="ws_a"]'));
-      box.classList.add('active');
+      box.setAttribute('aria-current', 'true');
       /**
        * @param {string} how - Which way in is being read, for the message.
        * @returns {boolean} Whether the bar is set to ring its active entry.
@@ -602,7 +602,7 @@ export async function runTests() {
         assert(!bar.classList.contains('tab-list-ring'), 'and leaving the strip takes the ring with it');
       } finally {
         bar._exitTabListFocus();
-        box.classList.remove('active');
+        box.setAttribute('aria-current', 'false');
       }
     });
 
@@ -651,7 +651,7 @@ export async function runTests() {
       // It is not one of the things the strip is a list of: a drag looks for
       // tabs and boxes, and this row is neither.
       const outline = /** @type {HTMLElement} */ (outlines[0]);
-      const isTab = outline.classList.contains('conversation-tab');
+      const isTab = outline.classList.contains('conversation-bar-tab');
       const isBox = outline.classList.contains('conversation-box');
       assert(!isTab && !isBox,
         'and is neither a tab nor a box, so nothing that walks either finds it');
@@ -726,7 +726,7 @@ export async function runTests() {
 
       assert(!aside(outline) && !aside(plus), 'both rows are in the strip before anything is picked up');
 
-      const tab = /** @type {HTMLElement} */ (menu.querySelector('.conversation-tab'));
+      const tab = /** @type {HTMLElement} */ (menu.querySelector('.conversation-bar-tab'));
       assert(duringDrag(tab, (press) => bar._startDrag(press, tab)),
         'a tab is dragged about a strip of places it can land, and neither the "+" nor the row that makes a '
         + 'box is one of them — so neither is in the way while one is in the air');
@@ -835,13 +835,13 @@ export async function runTests() {
       );
       bar.render();
 
-      const tab = bar.querySelector('.conversation-tab[data-conversation-id="c2"]');
+      const tab = bar.querySelector('.conversation-bar-tab[data-conversation-id="c2"]');
       bar._session.conversations.get('c2').workspaceId = 'ws_a';
       bar.render();
 
       assert(strip(bar) === 'ws_a{c1,c2} ws_b{}',
         `it is drawn where it now works, and the box it left stays, got "${strip(bar)}"`);
-      assert(bar.querySelector('.conversation-tab[data-conversation-id="c2"]') === tab,
+      assert(bar.querySelector('.conversation-bar-tab[data-conversation-id="c2"]') === tab,
         'the tab itself is the same element — a conversation that moved tree did not lose its tab');
     });
 

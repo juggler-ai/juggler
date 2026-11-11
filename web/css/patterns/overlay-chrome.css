@@ -41,7 +41,7 @@ modal-backdrop {
     /* Fades in rather than snapping the page dark. An animation rather than a
        transition, because a modal shows its scrim by inserting it or by taking
        its host out of `display: none`, and either one restarts it. */
-    animation: modal-scrim-in var(--modal-scrim-fade) ease-out;
+    animation: modal-backdrop-in var(--modal-scrim-fade) ease-out;
 }
 
 /* The stand-in a scrim leaves on <body> when its modal closes
@@ -50,14 +50,14 @@ modal-backdrop {
 modal-backdrop.is-leaving {
     z-index: var(--z-modal);
     pointer-events: none;
-    animation: modal-scrim-out var(--modal-scrim-fade) ease-in forwards;
+    animation: modal-backdrop-out var(--modal-scrim-fade) ease-in forwards;
 }
 
-@keyframes modal-scrim-in {
+@keyframes modal-backdrop-in {
     from { opacity: 0; }
 }
 
-@keyframes modal-scrim-out {
+@keyframes modal-backdrop-out {
     from { opacity: var(--scrim-from, 1); }
     to { opacity: 0; }
 }
@@ -87,7 +87,7 @@ modal-panel {
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 2rem;
+    padding: var(--space-32);
     overflow: hidden;
     background: var(--overlay-dark-70);
     z-index: var(--z-modal);
@@ -135,8 +135,8 @@ modal-panel {
     transform: translateX(-50%);
     display: flex;
     align-items: center;
-    gap: 0.125rem;
-    padding: 0.25rem;
+    gap: var(--space-2);
+    padding: var(--space-4);
     background: var(--bg-raised);
     border: 1px solid var(--border-floating);
     border-radius: var(--radius-popup);
@@ -150,7 +150,7 @@ modal-panel {
     justify-content: center;
     min-width: 2rem;
     height: 2rem;
-    padding: 0 0.375rem;
+    padding: 0 var(--space-6);
     border-radius: var(--radius-popup-item);
     color: var(--text-secondary);
     font-size: var(--font-size-sm);
@@ -158,7 +158,7 @@ modal-panel {
 }
 
 .image-lightbox-btn:where(:hover:not(:disabled)) {
-    background: var(--overlay-light-10);
+    background: var(--wash-3);
     color: var(--text-primary);
 }
 
@@ -171,14 +171,14 @@ token-display {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 0.5rem;
+    gap: var(--space-8);
     font-family: var(--font-sans);
-    padding: 0.5rem 0;
+    padding: var(--space-8) 0;
 }
 
 /* The pill becomes a control only once it has numbers behind it — role=button
    is set alongside these, so the affordance and the behaviour arrive together. */
-token-display[role="button"] {
+token-display:where([role="button"]) {
     cursor: pointer;
 }
 
@@ -194,7 +194,7 @@ token-display .token-bar {
 token-display .token-fill,
 token-display .token-fill-cached {
     height: 100%;
-    transition: width 0.3s, background 0.3s;
+    transition: width var(--duration-slower), background var(--duration-slower);
 }
 
 token-display .token-fill-cached {
@@ -224,20 +224,20 @@ token-display .token-fill {
 }
 
 /* Capacity escalation — only at 60%+ does the meter earn colour. */
-token-display.token-medium .token-fill { background: var(--accent-yellow); }
-token-display.token-high   .token-fill { background: var(--accent-red); }
+token-display.token-medium .token-fill { background: var(--warning); }
+token-display.token-high   .token-fill { background: var(--danger); }
 
 /* Cache-warn — localised to the `+Nk new` segment inside the cached
  * parenthetical. The total count and the bar fill are unaffected;
  * the signal is *about* the cached portion, so it lives there. */
 token-display.cache-warn .token-new {
-    color: var(--accent-yellow);
+    color: var(--warning);
 }
 
 /* Code Block Component */
 code-block {
     position: relative;
-    background: var(--bg-code-medium);
+    background: var(--bg-code);
     border: 0.0625rem solid var(--border-code);
     border-radius: var(--radius-md);
     overflow: hidden;
@@ -248,8 +248,8 @@ code-block .code-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 0.5rem 0.75rem;
-    background: var(--bg-code-dark);
+    padding: var(--space-8) var(--space-12);
+    background: var(--bg-code-deep);
     border-bottom: 0.0625rem solid var(--border-code);
     font-family: var(--font-mono);
     font-size: var(--font-size-xs);
@@ -258,6 +258,7 @@ code-block .code-header {
 code-block .language {
     color: var(--text-tertiary);
     text-transform: uppercase;
+    letter-spacing: var(--tracking-caps);
 }
 
 code-block .copy-btn {
@@ -267,8 +268,8 @@ code-block .copy-btn {
     cursor: pointer;
     font-family: inherit;
     font-size: var(--font-size-xs);
-    padding: 0.25rem 0.5rem;
-    transition: color 0.2s;
+    padding: var(--space-4) var(--space-8);
+    transition: color var(--duration-slow);
 }
 
 code-block .copy-btn:hover {
@@ -276,30 +277,32 @@ code-block .copy-btn:hover {
 }
 
 code-block .copy-btn.copied {
-    color: var(--accent-green);
+    color: var(--success);
 }
 
 code-block pre {
     margin: 0;
-    padding: 0.9375rem;
+    padding: var(--space-14);
     overflow-x: auto;
 }
 
-/* Scrollbar styling for code blocks - uses code-specific colors */
-code-block pre::-webkit-scrollbar {
+/* Scrollbar styling for code blocks - uses code-specific colors. Addressed by
+   the <pre>'s class: a scrollbar part takes no :where() after it, so this is
+   what out-weighs base's `::-webkit-scrollbar-thumb:hover`. */
+code-block .code-block-pre::-webkit-scrollbar {
     height: var(--scrollbar-size-medium);
 }
 
-code-block pre::-webkit-scrollbar-track {
-    background: var(--bg-code-dark);
+code-block .code-block-pre::-webkit-scrollbar-track {
+    background: var(--bg-code-deep);
 }
 
-code-block pre::-webkit-scrollbar-thumb {
+code-block .code-block-pre::-webkit-scrollbar-thumb {
     background: var(--border-code);
     border-radius: var(--scrollbar-thumb-radius);
 }
 
-code-block pre::-webkit-scrollbar-thumb:hover {
+code-block .code-block-pre::-webkit-scrollbar-thumb:hover {
     background: var(--scrollbar-thumb-hover-bg);
 }
 

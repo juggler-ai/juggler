@@ -51,7 +51,7 @@ function build() {
   trigger.style.cssText = 'position:fixed;left:10px;top:10px;';
   document.body.appendChild(trigger);
   const surface = document.createElement('nav');
-  surface.className = 'dropdown-menu show';
+  surface.className = 'dropdown-menu is-open';
   const menu = document.createElement('menu');
   /** @type {string[]} */
   const clicks = [];

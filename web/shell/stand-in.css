@@ -24,7 +24,7 @@
 .si-page {
     margin: auto;
     max-width: 36rem;
-    padding: var(--spacing-xl) var(--spacing-lg);
+    padding: var(--space-24) var(--space-16);
 }
 
 /* The explanation, a paragraph per message, each keeping its own line breaks
@@ -32,7 +32,7 @@
 .si-message {
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-md);
+    gap: var(--space-12);
 }
 
 .si-message p {

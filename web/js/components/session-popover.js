@@ -129,7 +129,7 @@ export class SessionPopover {
     };
     this._onGestureClick = (/** @type {MouseEvent} */ e) => {
       if (!this._gesture || !this._sw) return;
-      const row = /** @type {HTMLElement|null} */ ((/** @type {Element} */ (e.target)).closest('.ss-row'));
+      const row = /** @type {HTMLElement|null} */ ((/** @type {Element} */ (e.target)).closest('.session-switcher-row'));
       if (!row) return;
       e.preventDefault();
       e.stopPropagation();
@@ -216,7 +216,7 @@ export class SessionPopover {
       this._release = registerOpenPopup({
         id: SESSION_SWITCHER_POPUP_ID,
         onClose: () => this.close(),
-        insideSelectors: ['.ss--popover', `#${chip.id}`],
+        insideSelectors: ['.session-switcher--popover', `#${chip.id}`],
       });
       window.addEventListener('juggler:open-project', this._onOpenProject, { capture: true });
       chip.setAttribute('aria-expanded', 'true');
@@ -233,9 +233,9 @@ export class SessionPopover {
     if (!this._sw) return;
     const rect = this._deps.chip.getBoundingClientRect();
     const at = placePopover({ chipLeft: rect.left, chipBottom: rect.bottom, viewportWidth: window.innerWidth });
-    this._sw.el.style.setProperty('--ss-left', `${at.left}px`);
-    this._sw.el.style.setProperty('--ss-top', `${at.top}px`);
-    this._sw.el.style.setProperty('--ss-width', `${at.width}px`);
+    this._sw.el.style.setProperty('--session-switcher-left', `${at.left}px`);
+    this._sw.el.style.setProperty('--session-switcher-top', `${at.top}px`);
+    this._sw.el.style.setProperty('--session-switcher-width', `${at.width}px`);
   }
 
   /**

@@ -29,9 +29,9 @@ import '../../js/components/conversation-bar.js';
  */
 function tabMarkup(id) {
   return `
-    <li class="conversation-tab" data-conversation-id="${id}">
+    <li class="conversation-bar-tab" data-conversation-id="${id}">
       <span class="drag-grip" aria-hidden="true">⠿</span>
-      <button class="conversation-tab-button"><span class="conversation-tab-name">${id}</span></button>
+      <button class="conversation-bar-tab-button"><span class="conversation-bar-tab-name">${id}</span></button>
     </li>`;
 }
 
@@ -69,7 +69,7 @@ function mountBar(ids) {
     }
   };
 
-  const tabs = /** @type {HTMLElement[]} */ (Array.from(bar.querySelectorAll('.conversation-tab')));
+  const tabs = /** @type {HTMLElement[]} */ (Array.from(bar.querySelectorAll('.conversation-bar-tab')));
   for (const t of tabs) {
     t.setPointerCapture = () => {};
     t.releasePointerCapture = () => {};
@@ -82,7 +82,7 @@ function mountBar(ids) {
  * @returns {string} The strip's current order, for assertion messages
  */
 function stripOrder(bar) {
-  return Array.from(bar.querySelectorAll('.conversation-tab:not(.drag-ghost)'))
+  return Array.from(bar.querySelectorAll('.conversation-bar-tab:not(.drag-ghost)'))
     .map((/** @type {any} */ t) => t.dataset.conversationId).join(',');
 }
 
@@ -142,7 +142,7 @@ export async function runTests(_ctx) {
       assert(bar._renderDeferred === true, 'the held render must be owed for the release');
 
       release();
-      assert(bar.querySelectorAll('.conversation-tab').length === 0,
+      assert(bar.querySelectorAll('.conversation-bar-tab').length === 0,
         'the render held during the drag must be drawn when it lets go');
       passed++;
     } catch (e) {

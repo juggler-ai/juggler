@@ -254,7 +254,7 @@ export async function runTests(_ctx) {
   await run('a built-in shows what it does and leads to its own entry in Extensions', () => withTab(async ({ root, opened }) => {
     row(root, 'builtin:alpha').click();
     await waitFor(() => !!detail(root, '.command-page-builtin'), { description: 'the built-in detail' });
-    assert(row(root, 'builtin:alpha').classList.contains('selected'), 'the row must carry the selection');
+    assert(row(root, 'builtin:alpha').classList.contains('is-selected'), 'the row must carry the selection');
     assert(row(root, 'builtin:alpha').getAttribute('aria-current') === 'true', 'the selected row must say so to assistive tech');
     const heading = detail(root, 'h2')?.textContent;
     assert(heading === '/alpha <x>', `the heading must spell the command as typed, got ${heading}`);
@@ -278,7 +278,7 @@ export async function runTests(_ctx) {
     await waitFor(() => writes.length === 1, { description: 'the save' });
     assert(writes[0]?.method === 'PUT' && writes[0]?.url === '/api/user-commands/project/mine', `wrote ${JSON.stringify(writes[0])}`);
     assert(writes[0]?.body.description === 'a better description', `description = ${writes[0]?.body.description}`);
-    await waitFor(() => row(root, 'user:project:mine').classList.contains('selected') && !!detail(root, '#cmd-name'),
+    await waitFor(() => row(root, 'user:project:mine').classList.contains('is-selected') && !!detail(root, '#cmd-name'),
       { description: 'the saved command, still selected' });
   }));
 
@@ -292,7 +292,7 @@ export async function runTests(_ctx) {
     await waitFor(() => writes.length === 2, { description: 'the write and the old file\'s delete' });
     assert(writes[0]?.method === 'PUT' && writes[0]?.url === '/api/user-commands/user/renamed', `wrote ${JSON.stringify(writes[0])}`);
     assert(writes[1]?.method === 'DELETE' && writes[1]?.url === '/api/user-commands/project/mine', `then ${JSON.stringify(writes[1])}`);
-    await waitFor(() => !!root.querySelector('.command-page-row.selected[data-key="user:user:renamed"]'),
+    await waitFor(() => !!root.querySelector('.command-page-row.is-selected[data-key="user:user:renamed"]'),
       { description: 'the renamed command, selected' });
   }));
 
@@ -330,7 +330,7 @@ export async function runTests(_ctx) {
     row(root, 'builtin:clear').click();
     await waitFor(() => confirms.length === 1, { description: 'the discard question' });
     assert(detail(root, '#cmd-template')?.value === 'edited', 'keeping the edit must leave the editor as it was');
-    assert(row(root, 'user:project:mine').classList.contains('selected'), 'keeping the edit must keep the selection');
+    assert(row(root, 'user:project:mine').classList.contains('is-selected'), 'keeping the edit must keep the selection');
 
     answerConfirms(true);
     row(root, 'builtin:clear').click();

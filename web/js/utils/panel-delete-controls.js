@@ -59,7 +59,8 @@ async function stopRunningWorkForDelete(conversation) {
 
 /**
  * Append standard Delete / Delete up to here / Delete from here buttons to a container.
- * Buttons use properties-panel-btn danger styling, matching other properties panels.
+ * Buttons are the panel's quiet-danger buttons (`btn-danger-quiet`), and carry
+ * `properties-panel-delete-btn` so a caller can find them again.
  *
  * All three are always enabled. While the conversation has work running, a
  * click asks before stopping it, and deletes only once it has stopped
@@ -89,7 +90,7 @@ export function appendDeleteControls(container, parentThread, itemId, onDelete) 
    */
   const makeBtn = (label, action) => {
     const btn = document.createElement('button');
-    btn.className = 'properties-panel-btn danger';
+    btn.className = 'btn btn-sm btn-secondary btn-danger-quiet properties-panel-delete-btn';
     btn.innerHTML = `<span class="icon-trashcan"></span> ${escapeHtml(label)}`;
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();

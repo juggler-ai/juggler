@@ -915,12 +915,12 @@ class ConversationFooter extends JugglerElement {
             <footer-processing class="hidden">
                 <juggler-spinner live></juggler-spinner>
                 <span class="llm-busy-text"></span>
-                <button class="message-action-btn footer-pause-btn" type="button" title="${escapeHtml(t('Pause as soon as possible, without cancelling any operations in progress'))}">
+                <button class="btn btn-sm btn-secondary message-action-btn footer-pause-btn" type="button" title="${escapeHtml(t('Pause as soon as possible, without cancelling any operations in progress'))}">
                     <svg class="footer-pause-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960"><path d="M560-200v-560h160v560H560Zm-320 0v-560h160v560H240Z"/></svg>
-                    <juggler-spinner class="footer-pause-spinner" style="--size: 1rem"></juggler-spinner>
+                    <juggler-spinner class="footer-pause-spinner" style="--spinner-size: 1rem"></juggler-spinner>
                     <span class="footer-pause-label">${escapeHtml(t('Pause'))}</span>
                 </button>
-                <button class="message-action-btn footer-stop-btn" type="button" title="${escapeHtml(t('Cancel all pending operations and stop'))}">
+                <button class="btn btn-sm btn-secondary message-action-btn footer-stop-btn" type="button" title="${escapeHtml(t('Cancel all pending operations and stop'))}">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960"><path d="m336-280-56-56 144-144-144-143 56-56 144 144 143-144 56 56-144 143 144 144-56 56-143-144-144 144Z"/></svg>
                     ${escapeHtml(t('Stop'))}
                 </button>
@@ -928,7 +928,7 @@ class ConversationFooter extends JugglerElement {
             <div class="llm-next-steps hidden"></div>
             <div class="footer-undo-offer hidden" role="status">
                 <span class="footer-undo-text"></span>
-                <button class="message-action-btn footer-undo-btn" type="button">
+                <button class="btn btn-sm btn-secondary message-action-btn footer-undo-btn" type="button">
                     ${UNDO_SVG}
                     ${escapeHtml(t('Undo'))}
                 </button>
@@ -938,7 +938,7 @@ class ConversationFooter extends JugglerElement {
                 <token-display></token-display>
                 <div class="footer-activity hidden">
                     <span class="footer-last-activity"></span>
-                    <button class="properties-panel-header-icon-btn footer-log-btn" type="button" title="${escapeHtml(t("Open this conversation's log"))}" aria-label="${escapeHtml(t('Open conversation log'))}">${LOG_ICON_SVG}</button>
+                    <button class="btn btn-icon btn-secondary footer-log-btn" type="button" title="${escapeHtml(t("Open this conversation's log"))}" aria-label="${escapeHtml(t('Open conversation log'))}">${LOG_ICON_SVG}</button>
                 </div>
             </div>
             <footer-idle>
@@ -946,29 +946,29 @@ class ConversationFooter extends JugglerElement {
                     <div class="footer-idle-left">
                         <div class="footer-paused hidden" role="status">
                             <span class="footer-paused-label">${escapeHtml(t('Paused'))}</span>
-                            <button class="message-action-btn footer-resume-btn" type="button" title="${escapeHtml(t('Lift the pause and carry on'))}">
+                            <button class="btn btn-sm btn-secondary message-action-btn footer-resume-btn" type="button" title="${escapeHtml(t('Lift the pause and carry on'))}">
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960"><path d="M240-240v-480h66.67v480H240Zm169.33 0 390-240-390-240v480ZM476-363.67v-232.66L665-480 476-363.67ZM476-480Z"/></svg>
                                 ${escapeHtml(t('Resume'))}
                             </button>
                         </div>
-                        <button class="message-action-btn add-context-item-btn hidden" aria-haspopup="menu" aria-expanded="false">
+                        <button class="btn btn-sm btn-secondary message-action-btn add-context-item-btn hidden" aria-haspopup="menu" aria-expanded="false">
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960"><path d="M440-120v-320H120v-80h320v-320h80v320h320v80H520v320h-80Z"/></svg>
                             ${escapeHtml(t('Add context item'))}
                         </button>
                     </div>
                     <div class="footer-idle-right">
                         <div class="footer-history hidden">
-                            <button class="message-action-btn footer-history-btn footer-history-undo" type="button" data-shortcut-id="undo"
+                            <button class="btn btn-sm btn-secondary message-action-btn footer-history-btn footer-history-undo" type="button" data-shortcut-id="undo"
                                     title="${escapeHtml(t('Undo'))}" aria-label="${escapeHtml(t('Undo last operation'))}" disabled>${UNDO_SVG}</button>
-                            <button class="message-action-btn footer-history-btn footer-history-redo" type="button" data-shortcut-id="redo"
+                            <button class="btn btn-sm btn-secondary message-action-btn footer-history-btn footer-history-redo" type="button" data-shortcut-id="redo"
                                     title="${escapeHtml(t('Redo'))}" aria-label="${escapeHtml(t('Redo last undone operation'))}" disabled>${REDO_SVG}</button>
                         </div>
-                        <button class="message-action-btn duplicate-to-tab-btn hidden" type="button"
+                        <button class="btn btn-sm btn-secondary message-action-btn duplicate-to-tab-btn hidden" type="button"
                                 title="${escapeHtml(t('Duplicate as new conversation'))}" aria-label="${escapeHtml(t('Duplicate as new conversation'))}">
                             ${FORK_SVG}
                             <span class="duplicate-to-tab-label">${escapeHtml(t('Duplicate as new conversation'))}</span>
                         </button>
-                        <button class="message-action-btn continue-btn">
+                        <button class="btn btn-sm btn-secondary message-action-btn continue-btn">
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960"><path d="M240-240v-480h66.67v480H240Zm169.33 0 390-240-390-240v480ZM476-363.67v-232.66L665-480 476-363.67ZM476-480Z"/></svg>
                             ${escapeHtml(t('Continue'))}
                         </button>
@@ -1020,7 +1020,7 @@ class ConversationFooter extends JugglerElement {
       // conversation even from a sub-thread's column, like the log beside it.
       logBtn.before(createCopyButton(
         () => conversationToMarkdown(this._messageThread?.conversation),
-        'properties-panel-header-icon-btn footer-copy-btn',
+        'btn btn-icon btn-secondary footer-copy-btn',
         t('Copy conversation to clipboard')
       ));
     }
@@ -1287,8 +1287,7 @@ class ConversationFooter extends JugglerElement {
       const pauseBtn = this.querySelector('.footer-pause-btn');
       if (pauseBtn) {
         const pending = !!state.politePending;
-        pauseBtn.classList.toggle('active', pending);
-        pauseBtn.classList.toggle('pending', pending);
+        pauseBtn.classList.toggle('is-pending', pending);
         setText(pauseBtn.querySelector('.footer-pause-label'), pending ? t('Pausing…') : t('Pause'));
       }
     } else {

@@ -468,7 +468,7 @@ class SkillContextItem extends ContextItem {
     container.appendChild(SkillContextItem._explainer());
 
     const heading = skills.length ? t('Available skills ({count})', { count: skills.length }) : t('Available skills');
-    container.appendChild(createElement('div', 'skill-panel-heading', heading));
+    container.appendChild(createElement('div', 'skill-panel-heading caps-label', heading));
 
     if (!Array.isArray(skills) || skills.length === 0) {
       container.appendChild(createElement('div', 'skills-empty', t('No skills yet.')));
@@ -556,7 +556,7 @@ class SkillContextItem extends ContextItem {
    * @private
    */
   static _manageSkillsButton() {
-    const btn = /** @type {HTMLButtonElement} */ (createElement('button', 'skills-btn skill-manage-btn', t('Manage skills')));
+    const btn = /** @type {HTMLButtonElement} */ (createElement('button', 'btn btn-sm btn-neutral skill-manage-btn', t('Manage skills')));
     btn.type = 'button';
     btn.addEventListener('click', () => {
       const open = /** @type {any} */ (window).openSettings;
@@ -606,7 +606,7 @@ class SkillContextItem extends ContextItem {
     // runs in the viewer, never in the engine worker that also loads this module.
     if (withPreview && skill.name && skill.scope && skill.source) {
       const actions = createElement('div', 'skills-manage-actions');
-      const btn = /** @type {HTMLButtonElement} */ (createElement('button', 'skills-btn', t('Details')));
+      const btn = /** @type {HTMLButtonElement} */ (createElement('button', 'btn btn-sm btn-neutral', t('Details')));
       btn.type = 'button';
       btn.title = t('View this skill\'s SKILL.md and files');
       btn.addEventListener('click', () => {
@@ -627,7 +627,7 @@ class SkillContextItem extends ContextItem {
    * @private
    */
   static _sectionTitle(text) {
-    return createElement('div', 'skills-section-title skill-panel-section-title', text);
+    return createElement('div', 'skills-section-title skill-panel-section-title caps-label', text);
   }
 
   /**

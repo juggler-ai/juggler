@@ -80,7 +80,7 @@ export function setupHeaderOverflowMenu(button, items) {
 
   const open = () => {
     const surface = document.createElement('nav');
-    surface.className = 'dropdown-menu header-overflow-menu show';
+    surface.className = 'dropdown-menu header-overflow-menu is-open';
     const list = document.createElement('menu');
     for (const item of shownItems(items)) {
       if ('separator' in item) {

@@ -159,7 +159,7 @@ export function openConversationExport(conversation, options = {}) {
       title.className = 'workspace-move-title';
       title.textContent = t('Export as HTML');
       header.appendChild(title);
-      const close = setupButton('close-button workspace-move-close', '', () => modal.close(undefined));
+      const close = setupButton('btn btn-icon btn-icon-lg btn-ghost workspace-move-close', '', () => modal.close(undefined));
       close.setAttribute('aria-label', t('Close'));
       close.title = t('Close');
       const cross = document.createElement('span');

@@ -4,9 +4,38 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import FileViewer from 'juggler/file-viewer';
+import { injectStylesOnce } from 'juggler/ui';
 import { translator, markUntranslated } from 'juggler/i18n';
 
 const t = translator('@juggler/core');
+
+/**
+ * One canvas per page, drawn lazily as it scrolls into view. The aspect-ratio
+ * is set per page from its viewport, so the box is reserved before the page is
+ * drawn and the column does not jump as pages fill in. Injected on first
+ * render only: `extract()` runs in the engine, which has no DOM.
+ */
+const STYLES = `
+.pdf-view-pages {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
+.pdf-view-page {
+  width: 100%;
+  height: auto;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+}
+
+.pdf-view-pagecount {
+  font-size: var(--font-size-2xs);
+  font-family: var(--font-mono);
+  opacity: 0.7;
+}
+`;
 
 /**
  * Resolve a vendored asset next to this module. Static assets are served under a
@@ -144,6 +173,7 @@ class PdfFileViewer extends FileViewer {
    * @returns {Promise<() => void>} Teardown that destroys the document and its worker
    */
   async render(source, host, ctx = {}) {
+    injectStylesOnce('pdf-file-viewer-styles', STYLES);
     const pdfjs = await loadPdfJs();
     const opened = await openDocument(pdfjs, source);
     const viaURL = opened.viaURL;

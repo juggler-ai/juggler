@@ -109,7 +109,7 @@ class NoConversationsOverlay extends JugglerElement {
     this.innerHTML = `
       <section class="onboarding-panel" aria-label="${escapeHtml(t('No conversations'))}">
         <div class="onboarding-logo" role="img" aria-label="${escapeHtml(product)}"></div>
-        <p>${escapeHtml(t('Click \'+ New conversation\' in the sidebar to start one.'))}</p>
+        <p class="onboarding-copy">${escapeHtml(t('Click \'+ New conversation\' in the sidebar to start one.'))}</p>
       </section>
     `;
   }

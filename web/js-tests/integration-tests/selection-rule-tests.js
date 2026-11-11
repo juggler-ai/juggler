@@ -64,7 +64,7 @@ const selectionAutoSelectToolAction = {
     if (!tab) return; // Non-UI mode — skip
     const rootCol = tab.querySelector('conversation-area');
     if (!rootCol) return;
-    const selected = rootCol.querySelector('.conversation-item.selected');
+    const selected = rootCol.querySelector('.conversation-item.is-selected');
     if (!selected) {
       throw new Error('No item has .selected — expected a tool-action to be auto-selected');
     }
@@ -146,7 +146,7 @@ const selectionToolActionOverridesManual = {
     if (!tab) return;
     const rootCol = tab.querySelector('conversation-area');
     if (!rootCol) return;
-    const selected = rootCol.querySelector('.conversation-item.selected');
+    const selected = rootCol.querySelector('.conversation-item.is-selected');
     if (!selected) {
       throw new Error('No item has .selected — expected second tool-action to be auto-selected');
     }
@@ -222,7 +222,7 @@ const selectionUserMessageResets = {
     if (!tab) return;
     const rootCol = tab.querySelector('conversation-area');
     if (!rootCol) return;
-    const selected = rootCol.querySelector('.conversation-item.selected');
+    const selected = rootCol.querySelector('.conversation-item.is-selected');
     if (!selected) {
       throw new Error('No item has .selected — expected tool-action to be auto-selected after user message reset');
     }
@@ -404,7 +404,7 @@ const selectionAutoSelectInSubThread = {
 
     // The thread column should have a tool-action-message selected.
     const threadCol = threadCols[threadCols.length - 1];
-    const selected = threadCol.querySelector('.conversation-item.selected');
+    const selected = threadCol.querySelector('.conversation-item.is-selected');
     if (!selected) {
       throw new Error(
         'No item is selected in the thread column — expected a tool-action to be auto-selected when inserted into the thread'
@@ -473,7 +473,7 @@ const selectionAutoSelectInRootAfterThread = {
     if (!tab) return;
     const rootCol = tab.querySelector('conversation-area:not(.thread-column)');
     if (!rootCol) return;
-    const selected = rootCol.querySelector('.conversation-item.selected');
+    const selected = rootCol.querySelector('.conversation-item.is-selected');
     if (!selected) {
       throw new Error('No item selected in root column — expected root tool-action to be auto-selected after thread');
     }
@@ -587,7 +587,7 @@ const selectionPendingApprovalAutoSelect = {
     { type: 'wait-for-approval', toolUseId: 'call_1' },
     // KEY ASSERTION: the pending tool-action must be auto-selected BEFORE
     // the user approves it so the properties panel shows the diff.
-    { type: 'assert-dom', selector: 'tool-action-message.selected' },
+    { type: 'assert-dom', selector: 'tool-action-message.is-selected' },
     { type: 'approve', toolUseId: 'call_1' }
   ],
 
@@ -644,7 +644,7 @@ const selectionAutoSelectsNextPendingAfterApprove = {
     { type: 'wait-for-approval', toolUseId: 'call_1' },
     { type: 'wait-for-approval', toolUseId: 'call_2' },
     // Sanity: call_1 (first PENDING) is the initial auto-select.
-    { type: 'assert-dom', selector: 'tool-action-message[data-tool-use-id="call_1"].selected' },
+    { type: 'assert-dom', selector: 'tool-action-message[data-tool-use-id="call_1"].is-selected' },
     // Approve call_1. approve-no-wait because the LLM turn is still gated
     // on call_2's pending approval — waitForTurnComplete would deadlock.
     { type: 'approve-no-wait', toolUseId: 'call_1' },
@@ -655,7 +655,7 @@ const selectionAutoSelectsNextPendingAfterApprove = {
     // pending tool-action — without any user click. call_2 is still
     // PENDING at this point (we haven't approved it yet), so its
     // .selected class must be present in the DOM.
-    { type: 'assert-dom', selector: 'tool-action-message[data-tool-use-id="call_2"].selected' },
+    { type: 'assert-dom', selector: 'tool-action-message[data-tool-use-id="call_2"].is-selected' },
     // Cleanup: approve call_2 so the turn can complete.
     { type: 'approve', toolUseId: 'call_2' }
   ],
@@ -721,13 +721,13 @@ const selectionAutoSelectsNextPendingAfterUserClickAndApprove = {
     // User clicks to select call_2 (skipping past the auto-selected call_1).
     // This pins origin='user' and would, without the fix, suppress rule 2b.
     { type: 'click-item', toolUseId: 'call_2' },
-    { type: 'assert-dom', selector: 'tool-action-message[data-tool-use-id="call_2"].selected' },
+    { type: 'assert-dom', selector: 'tool-action-message[data-tool-use-id="call_2"].is-selected' },
     // User approves call_2 — should hand selection to call_1 (first
     // remaining PENDING in document order), not stay on the now-approved
     // call_2.
     { type: 'approve-no-wait', toolUseId: 'call_2' },
     { type: 'wait-for-execution', toolUseId: 'call_2' },
-    { type: 'assert-dom', selector: 'tool-action-message[data-tool-use-id="call_1"].selected' },
+    { type: 'assert-dom', selector: 'tool-action-message[data-tool-use-id="call_1"].is-selected' },
     // Cleanup
     { type: 'approve-no-wait', toolUseId: 'call_1' },
     { type: 'wait-for-execution', toolUseId: 'call_1' },
@@ -780,13 +780,13 @@ const selectionApprovalClickShiftKeepsSelection = {
     { type: 'send-message', message: 'Run echo acsks-test' },
     { type: 'wait-for-approval', toolUseId: 'call_1' },
     // Rule 2 auto-selects the pending tool-action.
-    { type: 'assert-dom', selector: 'tool-action-message[data-tool-use-id="call_1"].selected' },
+    { type: 'assert-dom', selector: 'tool-action-message[data-tool-use-id="call_1"].is-selected' },
     // Press on the Yes button, but the box shifts so the click lands on the
     // assistant-message above.
     { type: 'click-approval-shifted', toolUseId: 'call_1', aboveSelector: 'assistant-message' },
     // Selection must stay on the approval item; the item above is untouched.
-    { type: 'assert-dom', selector: 'tool-action-message[data-tool-use-id="call_1"].selected' },
-    { type: 'assert-dom', selector: 'assistant-message.selected', absent: true },
+    { type: 'assert-dom', selector: 'tool-action-message[data-tool-use-id="call_1"].is-selected' },
+    { type: 'assert-dom', selector: 'assistant-message.is-selected', absent: true },
     // Cleanup: actually approve so the turn completes.
     { type: 'approve', toolUseId: 'call_1' }
   ],

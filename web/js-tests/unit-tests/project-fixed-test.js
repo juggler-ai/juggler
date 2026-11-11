@@ -70,7 +70,7 @@ export async function runTests() {
       assert(opened.length === 1, `opened ${opened.length} windows, want 1`);
       assert(opened[0][0] === sessionsPageUrl() && opened[0][1] === SESSIONS_PAGE_TARGET,
         `opened ${JSON.stringify(opened[0])}, want the sessions page in ${SESSIONS_PAGE_TARGET}`);
-      assert(!document.querySelector('.pp-panel-popup'), 'a picker was presented');
+      assert(!document.querySelector('.project-picker-panel-popup'), 'a picker was presented');
     });
 
     await test('in a desktop window another project asks the app for a window on the server\'s page', async () => {
@@ -80,7 +80,7 @@ export async function runTests() {
       await chooseProject((url) => { opened.push(url); }, { newWindow: async () => { asked++; } });
       assert(asked === 1, `asked the app ${asked} times, want 1`);
       assert(opened.length === 0, `opened ${JSON.stringify(opened)} in a desktop window`);
-      assert(!document.querySelector('.pp-panel-popup'), 'a picker was presented');
+      assert(!document.querySelector('.project-picker-panel-popup'), 'a picker was presented');
     });
 
     await test('in a desktop window on a server by URL another project shows that server\'s page in this window', async () => {

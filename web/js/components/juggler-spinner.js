@@ -9,17 +9,17 @@
  *
  * Usage:
  *   <juggler-spinner></juggler-spinner>
- *   <juggler-spinner style="--size: 2rem"></juggler-spinner>
- *   <juggler-spinner style="--size: 1rem; --duration: 1.2s; color: white"></juggler-spinner>
+ *   <juggler-spinner style="--spinner-size: 2rem"></juggler-spinner>
+ *   <juggler-spinner style="--spinner-size: 1rem; --spinner-duration: 1.2s; color: white"></juggler-spinner>
  *   <juggler-spinner live></juggler-spinner>
  *
  * CSS knobs (set on the host):
- *   --size      — overall diameter         (default 1.5rem)
- *   --duration  — one orbital cycle        (default 1.5s)
- *   color       — club fill                (inherited from the parent's
- *                                           `color`, so the spinner adapts
- *                                           to the surrounding theme by
- *                                           default)
+ *   --spinner-size      — overall diameter         (default 1.5rem)
+ *   --spinner-duration  — one orbital cycle        (default 1.5s)
+ *   color               — club fill                (inherited from the parent's
+ *                                                   `color`, so the spinner adapts
+ *                                                   to the surrounding theme by
+ *                                                   default)
  *
  * The clubs are drawn with `fill: currentColor`, so changing `color` on the
  * host (or any ancestor) recolours the spinner — no extra knob needed.
@@ -107,7 +107,7 @@ const TUNING = Object.freeze({
   /**
    * Fallback length of the fumble, for when the running animation cannot be
    * measured. The real length is read off the animation itself: the CSS states
-   * it as a fraction of `--duration`, and playback rate stretches it further.
+   * it as a fraction of `--spinner-duration`, and playback rate stretches it further.
    */
   dropMs: 1100,
   /**
@@ -625,7 +625,7 @@ class JugglerSpinner extends JugglerElement {
    * How long the fumble on `club` will actually take, in wall-clock ms.
    *
    * Measured from the running animation rather than assumed, because two things
-   * stretch it. The CSS states the length as a fraction of `--duration`, which a
+   * stretch it. The CSS states the length as a fraction of `--spinner-duration`, which a
    * host can override; and playback rate scales every animation on the club, so
    * a fumble during a slow tool-call ramp can run several times longer than the
    * nominal length. A fixed timer would strip the class mid-fall and teleport
@@ -729,9 +729,9 @@ class JugglerSpinner extends JugglerElement {
   /**
    * Set the playback rate of every animation in the cascade.
    *
-   * `updatePlaybackRate` rather than a `--duration` rewrite: it preserves each
+   * `updatePlaybackRate` rather than a `--spinner-duration` rewrite: it preserves each
    * animation's current time and adjusts its start time instead, so the cascade
-   * changes speed without jumping. Rewriting `--duration` (or
+   * changes speed without jumping. Rewriting `--spinner-duration` (or
    * `animation-duration`) re-maps progress against the new duration and makes
    * the clubs lurch. Orbit and flip take the same rate so each club's
    * slow-zone stays pinned to the bottom of its orbit at any speed.

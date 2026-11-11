@@ -1,0 +1,112 @@
+/*
+ *     ▄▄ ▄▄ ▄▄  ▄▄▄▄  ▄▄▄▄ ▄▄    ▄▄▄▄▄ ▄▄▄▄
+ *     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
+ *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
+ */
+
+/* ===================================================================
+   Project Picker Modal
+   ================================================================== */
+.project-picker-overlay {
+    position: fixed;
+    inset: 0;
+    background: var(--modal-scrim);
+    z-index: var(--z-modal);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Outer card chrome comes from the shared popup-surface rule in styles.css.
+   overflow:hidden clips the full-bleed header/body to the rounded corner. */
+.project-picker-panel {
+    width: 32rem;
+    max-width: calc(100vw - 2rem);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.project-picker-header {
+    padding: var(--space-16) var(--popup-padding-inline) var(--space-12);
+    border-bottom: 0.0625rem solid var(--border-divider);
+}
+
+.project-picker-title {
+    font-size: var(--font-size-body-lg);
+    font-weight: var(--font-weight-semibold);
+    color: var(--text-primary);
+}
+
+.project-picker-subtitle {
+    display: block;
+    margin-top: var(--space-6);
+    font-size: var(--font-size-base);
+    line-height: var(--leading-tight);
+    font-weight: var(--font-weight-normal);
+    color: var(--text-secondary);
+}
+
+.project-picker-body {
+    padding: var(--space-16) var(--popup-padding-inline);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-8);
+}
+
+.project-picker-input-row {
+    display: flex;
+    gap: var(--space-8);
+}
+
+/* path-input component used inside the path picker (project-picker.js) */
+.project-picker-path-input {
+    flex: 1;
+    display: block;
+}
+
+/* Native "Browse…" button, shown only in the desktop app (see project-picker.js). */
+.project-picker-btn-browse {
+    flex: 0 0 auto;
+    align-self: stretch;
+}
+
+.project-picker-recents {
+    margin-top: var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    max-height: 12rem;
+    overflow-y: auto;
+}
+
+.project-picker-recents-label {
+    color: var(--text-secondary);
+    padding: var(--space-4) var(--space-2);
+}
+
+.project-picker-recent-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-base);
+    padding: var(--space-4) var(--space-8);
+    transition: background var(--transition-fast);
+}
+
+.project-picker-recent-item:hover {
+    background: var(--bg-raised);
+}
+
+.project-picker-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-8);
+    padding: var(--space-12) var(--popup-padding-inline) var(--space-16);
+    border-top: 0.0625rem solid var(--border-divider);
+}

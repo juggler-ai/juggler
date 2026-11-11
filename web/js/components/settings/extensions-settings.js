@@ -159,7 +159,7 @@ export class ExtensionSettingsEditor {
     actions.className = 'extension-settings-actions';
     const save = document.createElement('button');
     save.type = 'submit';
-    save.className = 'settings-btn btn-primary small extension-settings-save';
+    save.className = 'btn btn-sm btn-primary extension-settings-save';
     save.textContent = t('Save settings');
     actions.appendChild(save);
     form.appendChild(actions);
@@ -241,7 +241,7 @@ export class ExtensionSettingsEditor {
     if (setting.type === 'text') {
       const textarea = document.createElement('textarea');
       textarea.id = this._inputId(setting.key);
-      textarea.className = 'settings-input extension-setting-input extension-setting-textarea';
+      textarea.className = 'settings-input field-input extension-setting-input extension-setting-textarea';
       textarea.spellcheck = false;
       textarea.rows = 6;
       textarea.required = !!setting.required;
@@ -268,7 +268,7 @@ export class ExtensionSettingsEditor {
 
     const input = document.createElement('input');
     input.id = this._inputId(setting.key);
-    input.className = 'settings-input extension-setting-input';
+    input.className = 'settings-input field-input extension-setting-input';
     input.required = !!setting.required;
     input.autocomplete = 'off';
     if (setting.type === 'boolean') {
@@ -307,12 +307,12 @@ export class ExtensionSettingsEditor {
     buttons.className = 'extension-secret-actions';
     const save = document.createElement('button');
     save.type = 'button';
-    save.className = 'settings-btn btn-primary small';
+    save.className = 'btn btn-sm btn-primary';
     save.textContent = t('Save');
     save.addEventListener('click', () => this._saveSecret(setting, String(control.value)));
     const clear = document.createElement('button');
     clear.type = 'button';
-    clear.className = 'settings-btn btn-danger small extension-secret-clear';
+    clear.className = 'btn btn-sm btn-danger extension-secret-clear';
     clear.textContent = t('Clear');
     clear.disabled = !!setting.required;
     if (setting.required) clear.title = t('Required settings cannot be cleared');

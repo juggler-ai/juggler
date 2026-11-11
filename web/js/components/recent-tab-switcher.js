@@ -158,7 +158,7 @@ export default class RecentTabSwitcher {
   /** @private */
   _open() {
     const hud = document.createElement('nav');
-    hud.className = 'dropdown-menu show recent-tabs-hud';
+    hud.className = 'dropdown-menu is-open recent-tabs-hud';
     hud.setAttribute('aria-label', t('Recent conversations'));
     const list = document.createElement('menu');
     list.setAttribute('role', 'listbox');
@@ -173,12 +173,12 @@ export default class RecentTabSwitcher {
       circle.setAttribute('aria-hidden', 'true');
       circle.innerHTML = row.glyphHtml;
       const name = document.createElement('span');
-      name.className = 'recent-tabs-name';
+      name.className = 'recent-tabs-name text-truncate';
       name.textContent = row.name;
       item.append(circle, name);
       if (row.place) {
         const place = document.createElement('span');
-        place.className = 'recent-tabs-place';
+        place.className = 'recent-tabs-place text-truncate';
         place.textContent = row.place;
         item.append(place);
       }

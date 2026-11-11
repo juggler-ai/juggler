@@ -232,8 +232,6 @@ import { runTests as runModalShellTests } from '../unit-tests/modal-shell-test.j
 import { runTests as runButtonVariantsTests } from '../unit-tests/button-variants-test.js';
 import { runTests as runBadgeTintsTests } from '../unit-tests/badge-tints-test.js';
 import { runTests as runTextOnAccentTests } from '../unit-tests/text-on-accent-test.js';
-import { runTests as runTypeScaleTests } from '../unit-tests/type-scale-test.js';
-import { runTests as runWarningTextTests } from '../unit-tests/warning-text-test.js';
 import { runTests as runSurfacesTests } from '../unit-tests/surfaces-test.js';
 import { runTests as runLabelStylesTests } from '../unit-tests/label-styles-test.js';
 import { runTests as runFocusRingsTests } from '../unit-tests/focus-rings-test.js';
@@ -886,8 +884,6 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:button-variants', run: runButtonVariantsTests },
   { name: 'unit:badge-tints', run: runBadgeTintsTests },
   { name: 'unit:text-on-accent', run: runTextOnAccentTests },
-  { name: 'unit:type-scale', run: runTypeScaleTests },
-  { name: 'unit:warning-text', run: runWarningTextTests },
   { name: 'unit:surfaces', run: runSurfacesTests },
   { name: 'unit:label-styles', run: runLabelStylesTests },
   { name: 'unit:focus-rings', run: runFocusRingsTests },
@@ -1398,7 +1394,7 @@ async function runUnitSuiteWithConvCleanup(suite, ctx) {
   // overlay a prior suite left open leaks into this one. The confirm/alert host
   // is a reused <modal-dialog> singleton (see modal-dialog.js): showConfirm and
   // showAlert only resolve on a user click, so a suite that opens one without
-  // dismissing it leaves `modal-dialog.show` in the DOM — and any later suite
+  // dismissing it leaves `modal-dialog.is-open` in the DOM — and any later suite
   // that consults it globally (e.g. hold-to-cycle's defaultShouldHandle, which
   // treats an open modal as "don't handle") then fails. The open-state token is
   // worse, because it is invisible: `suppressedByOverlay()` reads it, so one

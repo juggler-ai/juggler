@@ -22,9 +22,9 @@
 pre {
     background: var(--bg-secondary);
     border-radius: var(--radius-md);
-    padding: 0.9375rem;
+    padding: var(--space-14);
     overflow-x: auto;
-    margin: 0.625rem 0;
+    margin: var(--space-10) 0;
 }
 
 code {
@@ -34,7 +34,7 @@ code {
 
 /* Inline code */
 :where(:not(pre)) > code {
-    padding: 0.125rem 0.375rem;
+    padding: var(--space-2) var(--space-6);
     border-radius: var(--radius-sm);
     color: var(--accent-green);
 }
@@ -55,7 +55,7 @@ pre:where([class*="language-"]) {
     word-spacing: normal;
     word-break: normal;
     overflow-wrap: normal;
-    line-height: 1.5;
+    line-height: var(--leading-normal);
     tab-size: 4;
     hyphens: none;
 }

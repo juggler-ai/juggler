@@ -33,13 +33,13 @@ plugin-catalog {
    ========================================================================== */
 
 .catalog-header {
-  padding: 0 1rem 1rem;
+  padding: 0 var(--space-16) var(--space-16);
   border-bottom: 0.0625rem solid var(--border-divider);
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 2rem;
+  gap: var(--space-32);
 }
 
 .catalog-header-left {
@@ -52,9 +52,9 @@ plugin-catalog {
 }
 
 .catalog-title {
-  margin: 0 0 0.25rem;
+  margin: 0 0 var(--space-4);
   font-size: var(--font-size-3xl);
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
   color: var(--text-primary);
   letter-spacing: -0.0125rem;
 }
@@ -63,29 +63,29 @@ plugin-catalog {
   margin: 0;
   font-size: var(--font-size-md);
   color: var(--text-secondary);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
 }
 
 .catalog-explanation {
   margin: 0;
   font-size: var(--font-size-md);
   color: var(--text-secondary);
-  font-weight: 400;
-  line-height: 1.5;
+  font-weight: var(--font-weight-normal);
+  line-height: var(--leading-normal);
   font-style: italic;
 }
 
 /* Explicit reload, under the explanation at the right edge of the header. The
    chrome comes from .btn-ghost (utilities.css); this owns size and placement. */
 .catalog-reload {
-  margin-top: 0.5rem;
-  padding: 0.25rem 0.75rem;
+  margin-top: var(--space-8);
+  padding: var(--space-4) var(--space-12);
   font-size: var(--font-size-base);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
 }
 
 .catalog-reload:disabled {
-  opacity: 0.4;
+  opacity: var(--disabled-opacity);
   cursor: default;
 }
 
@@ -112,7 +112,7 @@ plugin-catalog {
 .catalog-detail-panel {
   flex: 1;
   overflow-y: auto;
-  padding: 2rem 2.5rem;
+  padding: var(--space-32) var(--space-40);
   min-width: 0;
 }
 
@@ -133,12 +133,12 @@ plugin-catalog {
   }
 
   .catalog-detail-panel {
-    padding: 1rem;
+    padding: var(--space-16);
   }
 }
 
 .catalog-empty {
-  padding: 4rem 2rem;
+  padding: var(--space-64) var(--space-32);
   text-align: center;
   color: var(--text-secondary);
   font-size: var(--font-size-body-lg);
@@ -151,7 +151,7 @@ plugin-catalog {
    ========================================================================== */
 
 .plugin-tree {
-  padding: 0.5rem 0;
+  padding: var(--space-8) 0;
 }
 
 .plugin-tree-node {
@@ -166,12 +166,12 @@ plugin-catalog {
 .plugin-tree-row {
   display: flex;
   align-items: center;
-  gap: 0.375rem;
-  padding: 0.5rem 1rem;
+  gap: var(--space-6);
+  padding: var(--space-8) var(--space-16);
   font-size: var(--font-size-md);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: color 0.15s, background 0.15s;
+  transition: color var(--duration-base), background var(--duration-base);
 }
 
 .plugin-tree-row:hover {
@@ -179,22 +179,22 @@ plugin-catalog {
   background: var(--bg-tertiary);
 }
 
-.plugin-tree-row.selected {
+.plugin-tree-row.is-selected {
   color: var(--text-primary);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   background: var(--bg-tertiary);
   box-shadow: inset 0.1875rem 0 0 var(--accent-blue);
 }
 
 .plugin-tree-ext {
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   color: var(--text-primary);
 }
 
 /* Capabilities sit indented beneath their type sub-heading. */
 .plugin-tree-leaf {
-  padding-left: 1.25rem;
-  font-weight: 400;
+  padding-left: var(--space-20);
+  font-weight: var(--font-weight-normal);
 }
 
 .plugin-tree-row-off .plugin-tree-label,
@@ -219,23 +219,16 @@ plugin-catalog {
 .plugin-tree-label {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* Per-type sub-heading inside an expanded extension. */
 .plugin-tree-section {
-  padding: 0.5rem 1rem 0.25rem 0.75rem;
-  font-size: var(--font-size-xs);
-  font-weight: 700;
+  padding: var(--space-8) var(--space-16) var(--space-4) var(--space-12);
   color: var(--accent-blue);
-  text-transform: uppercase;
-  letter-spacing: 0.0625rem;
 }
 
 .plugin-tree-empty {
-  padding: 0.375rem 1rem 0.5rem 0.75rem;
+  padding: var(--space-6) var(--space-16) var(--space-8) var(--space-12);
   font-size: var(--font-size-sm);
   font-style: italic;
   color: var(--text-tertiary);
@@ -244,40 +237,39 @@ plugin-catalog {
 /* Children are indented under their extension and share a vertical rail, so the
    containment (these items live inside this extension) reads at a glance. */
 .plugin-tree-children {
-  margin-left: 1.75rem;
+  margin-left: var(--space-24);
   border-left: 0.0625rem solid var(--border-divider);
-  padding-bottom: 0.5rem;
+  padding-bottom: var(--space-8);
 }
 
 /* On/off toggle on a tree row — reads as a status pill, acts as a button. It is
    the primary enable/disable control (the detail pane has no toggle). */
 .plugin-tree-toggle {
   flex-shrink: 0;
-  margin-left: 0.5rem;
+  margin-left: var(--space-8);
   font-family: inherit;
   font-size: var(--font-size-2xs);
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
   text-transform: uppercase;
-  letter-spacing: 0.0313rem;
-  padding: 0.0625rem 0.4375rem;
+  letter-spacing: var(--tracking-caps);
+  padding: 0.0625rem var(--space-6);
   border-radius: var(--radius-2xl);
   border: 0.0625rem solid transparent;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  transition: background var(--duration-base), color var(--duration-base), border-color var(--duration-base);
 }
 
 .plugin-tree-toggle-on {
-  background: color-mix(in srgb, var(--accent-green) 15%, transparent);
-  color: var(--accent-green);
-  border-color: color-mix(in srgb, var(--accent-green) 35%, transparent);
+  background: color-mix(in srgb, var(--success) 15%, transparent);
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 35%, transparent);
 }
 
 .plugin-tree-toggle-on:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent-green) 25%, transparent);
+  background: color-mix(in srgb, var(--success) 25%, transparent);
 }
 
 .plugin-tree-toggle-off {
-  background: var(--overlay-light-10);
+  background: var(--wash-3);
   color: var(--text-tertiary);
   border-color: var(--border-color);
 }
@@ -288,14 +280,14 @@ plugin-catalog {
 }
 
 .plugin-tree-toggle-failed {
-  background: color-mix(in srgb, var(--accent-red) 15%, transparent);
-  color: var(--accent-red);
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
+  color: var(--danger);
   cursor: default;
 }
 
 /* A row whose id could not be read: neither on nor off is known to be true. */
 .plugin-tree-toggle-unknown {
-  background: var(--overlay-light-8);
+  background: var(--wash-2);
   color: var(--text-tertiary);
   border-color: var(--border-color);
   font-style: italic;
@@ -303,7 +295,7 @@ plugin-catalog {
 
 .plugin-tree-toggle:disabled {
   cursor: not-allowed;
-  opacity: 0.55;
+  opacity: var(--disabled-opacity);
 }
 
 /* ==========================================================================
@@ -316,22 +308,22 @@ plugin-catalog {
 }
 
 .plugin-detail-header {
-  margin-bottom: 2.5rem;
-  padding-bottom: 1.5rem;
+  margin-bottom: var(--space-40);
+  padding-bottom: var(--space-24);
   border-bottom: 0.0625rem solid var(--border-divider);
 }
 
 .plugin-title-row {
   display: flex;
   align-items: center;
-  gap: 1rem;
-  margin-bottom: 0.75rem;
+  gap: var(--space-16);
+  margin-bottom: var(--space-12);
 }
 
 .plugin-detail-name {
   margin: 0;
   font-size: var(--font-size-3xl);
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
   color: var(--text-primary);
   letter-spacing: -0.0125rem;
 }
@@ -339,14 +331,14 @@ plugin-catalog {
 .plugin-badges {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--space-8);
 }
 
 .plugin-badge {
-  padding: 0.3125rem 0.75rem;
+  padding: var(--space-4) var(--space-12);
   border-radius: var(--radius-lg);
   font-size: var(--font-size-sm);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   font-family: var(--font-mono);
 }
 
@@ -356,21 +348,21 @@ plugin-catalog {
 }
 
 .plugin-description {
-  margin: 0.75rem 0;
+  margin: var(--space-12) 0;
   color: var(--text-secondary);
 }
 
 .plugin-id-container {
-  margin: 0 0 0.5rem;
+  margin: 0 0 var(--space-8);
   font-size: var(--font-size-base);
   color: var(--text-secondary);
   display: flex;
   align-items: baseline;
-  gap: 0.375rem;
+  gap: var(--space-6);
 }
 
 .plugin-id-label {
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .plugin-id-value {
@@ -378,15 +370,15 @@ plugin-catalog {
   font-size: var(--font-size-base);
   color: var(--accent-blue);
   background: var(--bg-tertiary);
-  padding: 0.1875rem 0.5rem;
+  padding: var(--space-2) var(--space-8);
   border-radius: var(--radius-md);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .plugin-detail-content {
   display: flex;
   flex-direction: column;
-  gap: 2.5rem;
+  gap: var(--space-40);
 }
 
 /* ==========================================================================
@@ -394,23 +386,23 @@ plugin-catalog {
    ========================================================================== */
 
 .plugin-section-header {
-  margin-bottom: 1rem;
+  margin-bottom: var(--space-16);
 }
 
 .plugin-section-title {
   margin: 0;
   font-size: var(--font-size-lg);
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
   color: var(--text-primary);
   text-transform: uppercase;
-  letter-spacing: 0.05rem;
+  letter-spacing: var(--tracking-caps);
 }
 
 .plugin-section-explanation {
-  margin-top: 0.25rem;
+  margin-top: var(--space-4);
   font-size: var(--font-size-base);
   color: var(--text-secondary);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   font-style: italic;
 }
 
@@ -433,10 +425,10 @@ plugin-catalog {
    ========================================================================== */
 
 .permission-badge {
-  padding: 0.375rem 0.75rem;
+  padding: var(--space-6) var(--space-12);
   border-radius: var(--radius-lg);
   font-size: var(--font-size-sm);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   font-family: var(--font-mono);
 }
 
@@ -451,56 +443,56 @@ plugin-catalog {
 .tools-list {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
-  margin-top: 1rem;
+  gap: var(--space-24);
+  margin-top: var(--space-16);
 }
 
 .tool-item {
-  padding: 1rem;
+  padding: var(--space-16);
 }
 
 .tool-header {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 0.75rem;
+  gap: var(--space-12);
+  margin-bottom: var(--space-12);
 }
 
 .tool-name {
   font-family: var(--font-mono);
   font-size: var(--font-size-md);
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
   color: var(--accent-blue);
   background: var(--bg-primary);
-  padding: 0.25rem 0.625rem;
+  padding: var(--space-4) var(--space-10);
   border-radius: var(--radius-md);
 }
 
 .tool-category {
-  padding: 0.25rem 0.625rem;
+  padding: var(--space-4) var(--space-10);
   border-radius: var(--radius-md);
   font-size: var(--font-size-xs);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   text-transform: uppercase;
-  letter-spacing: 0.0313rem;
+  letter-spacing: var(--tracking-caps);
 }
 
 .tool-description {
   font-size: var(--font-size-md);
   color: var(--text-secondary);
-  line-height: 1.5;
-  margin-bottom: 0.75rem;
+  line-height: var(--leading-normal);
+  margin-bottom: var(--space-12);
 }
 
 .tool-params-list {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  margin-top: 0.5rem;
+  gap: var(--space-12);
+  margin-top: var(--space-8);
 }
 
 .tool-param {
-  padding: 0.75rem;
+  padding: var(--space-12);
   background: var(--bg-primary);
   border: 0.0625rem solid var(--border-color);
   border-radius: var(--radius-lg);
@@ -509,21 +501,21 @@ plugin-catalog {
 .tool-param-header {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.375rem;
+  gap: var(--space-8);
+  margin-bottom: var(--space-6);
 }
 
 .tool-param-name {
   font-family: var(--font-mono);
   font-size: var(--font-size-base);
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
   color: var(--accent-blue);
 }
 
 .tool-param-type {
   font-size: var(--font-size-xs);
-  font-weight: 600;
-  padding: 0.125rem 0.5rem;
+  font-weight: var(--font-weight-semibold);
+  padding: var(--space-2) var(--space-8);
   border-radius: var(--radius-md);
   background: var(--bg-tertiary);
   color: var(--text-secondary);
@@ -532,8 +524,8 @@ plugin-catalog {
 
 .tool-param-required {
   font-size: var(--font-size-xs);
-  font-weight: 600;
-  padding: 0.125rem 0.5rem;
+  font-weight: var(--font-weight-semibold);
+  padding: var(--space-2) var(--space-8);
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--required-text) 15%, transparent);
   color: var(--required-text);
@@ -541,14 +533,14 @@ plugin-catalog {
 
 .tool-param-optional {
   font-size: var(--font-size-xs);
-  font-weight: 600;
-  padding: 0.125rem 0.5rem;
+  font-weight: var(--font-weight-semibold);
+  padding: var(--space-2) var(--space-8);
   border-radius: var(--radius-md);
 }
 
 .tool-param-description {
   font-size: var(--font-size-base);
-  line-height: 1.6;
+  line-height: var(--leading-relaxed);
   color: var(--text-secondary);
   white-space: pre-line;
 }
@@ -571,33 +563,33 @@ plugin-catalog {
 .strategy-recommendations {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
-  margin-top: 1rem;
+  gap: var(--space-24);
+  margin-top: var(--space-16);
 }
 
 .recommendation-group {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: var(--space-8);
 }
 
 .recommendation-label {
   font-size: var(--font-size-base);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   color: var(--text-primary);
 }
 
 .recommendation-badges {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: var(--space-8);
 }
 
 .recommendation-badge {
-  padding: 0.375rem 0.75rem;
+  padding: var(--space-6) var(--space-12);
   border-radius: var(--radius-lg);
   font-size: var(--font-size-sm);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   background: var(--bg-tertiary);
   color: var(--text-secondary);
   border: 0.0625rem solid var(--border-color);
@@ -606,7 +598,7 @@ plugin-catalog {
 .approach-text {
   margin: 0;
   font-size: var(--font-size-md);
-  line-height: 1.6;
+  line-height: var(--leading-relaxed);
   color: var(--text-secondary);
 }
 
@@ -614,46 +606,46 @@ plugin-catalog {
    monospaced and wrapped rather than reflowed, so what is on screen is the
    string that was sent. */
 .strategy-guidance-text {
-  margin: 1rem 0 0;
-  padding: 0.75rem;
+  margin: var(--space-16) 0 0;
+  padding: var(--space-12);
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
-  line-height: 1.6;
+  line-height: var(--leading-relaxed);
   color: var(--text-secondary);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
 .strategy-guidance-none {
-  margin-top: 1rem;
+  margin-top: var(--space-16);
   font-size: var(--font-size-md);
-  line-height: 1.6;
+  line-height: var(--leading-relaxed);
   color: var(--text-secondary);
 }
 
 /* Failed plugins banner */
 .catalog-failed-banner {
-  margin: 0.75rem 1rem;
-  padding: 0.75rem 1rem;
-  background: color-mix(in srgb, var(--error-color) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--error-color) 30%, transparent);
+  margin: var(--space-12) var(--space-16);
+  padding: var(--space-12) var(--space-16);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
   border-radius: var(--radius-lg);
   font-size: var(--font-size-base);
 }
 
 .catalog-failed-title {
-  font-weight: 600;
-  color: var(--error-color);
-  margin-bottom: 0.375rem;
+  font-weight: var(--font-weight-semibold);
+  color: var(--danger);
+  margin-bottom: var(--space-6);
 }
 
 .catalog-failed-entry {
   display: flex;
   flex-direction: column;
-  gap: 0.125rem;
-  margin-top: 0.375rem;
-  padding-top: 0.375rem;
-  border-top: 1px solid color-mix(in srgb, var(--error-color) 15%, transparent);
+  gap: var(--space-2);
+  margin-top: var(--space-6);
+  padding-top: var(--space-6);
+  border-top: 1px solid color-mix(in srgb, var(--danger) 15%, transparent);
 }
 
 .catalog-failed-path {
@@ -663,28 +655,28 @@ plugin-catalog {
 
 .catalog-failed-error {
   font-size: var(--font-size-sm);
-  color: var(--error-color);
+  color: var(--danger);
 }
 
 /* Plugin directory paths */
 .catalog-plugin-dirs {
-  margin: 0.5rem 1rem;
-  padding: 0.5rem 0.75rem;
+  margin: var(--space-8) var(--space-16);
+  padding: var(--space-8) var(--space-12);
   font-size: var(--font-size-sm);
   color: var(--text-tertiary);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--space-8);
 }
 
 .catalog-plugin-dirs-label {
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
 }
 
 .catalog-plugin-dir-path {
   background: var(--bg-secondary);
-  padding: 0.125rem 0.375rem;
+  padding: var(--space-2) var(--space-6);
   border-radius: var(--radius-md);
   font-size: var(--font-size-xs);
 }
@@ -696,7 +688,7 @@ plugin-catalog {
 
 /* Empty-state placeholder shown in the detail pane / sub-sections. */
 .catalog-detail-empty {
-  padding: 3rem 1rem;
+  padding: var(--space-48) var(--space-16);
   text-align: center;
   color: var(--text-tertiary);
   font-size: var(--font-size-body-lg);
@@ -705,12 +697,12 @@ plugin-catalog {
 
 /* "From extension:" back-link in a capability's detail. */
 .plugin-detail-from {
-  margin: 0 0 0.5rem;
+  margin: 0 0 var(--space-8);
   font-size: var(--font-size-base);
   color: var(--text-secondary);
   display: flex;
   align-items: baseline;
-  gap: 0.375rem;
+  gap: var(--space-6);
 }
 
 .plugin-detail-from-link {
@@ -726,14 +718,14 @@ plugin-catalog {
 .permissions-explained {
   display: flex;
   flex-direction: column;
-  gap: 0.625rem;
-  margin-top: 0.75rem;
+  gap: var(--space-10);
+  margin-top: var(--space-12);
 }
 
 .permission-explained-item {
   display: flex;
   align-items: baseline;
-  gap: 0.75rem;
+  gap: var(--space-12);
 }
 
 .permission-explained-item .permission-badge {
@@ -742,7 +734,7 @@ plugin-catalog {
 
 .permission-explained-desc {
   font-size: var(--font-size-base);
-  line-height: 1.45;
+  line-height: var(--leading-tight);
   color: var(--text-secondary);
 }
 
@@ -750,15 +742,15 @@ plugin-catalog {
 .extension-settings-form {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: var(--space-12);
 }
 
 .extension-setting-field {
   display: grid;
   grid-template-columns: minmax(10rem, 0.8fr) minmax(12rem, 1.2fr);
-  gap: 1rem;
+  gap: var(--space-16);
   align-items: center;
-  padding: 0.875rem 1rem;
+  padding: var(--space-14) var(--space-16);
 }
 
 .extension-setting-info,
@@ -769,29 +761,30 @@ plugin-catalog {
 .extension-setting-label {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--space-8);
   color: var(--text-primary);
   font-size: var(--font-size-md);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .extension-setting-required {
-  padding: 0.0625rem 0.375rem;
+  padding: 0.0625rem var(--space-6);
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--required-text) 15%, transparent);
   color: var(--required-text);
   font-size: var(--font-size-2xs);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
 }
 
 .extension-setting-help,
 .extension-setting-default,
 .extension-secret-status {
-  margin-top: 0.25rem;
+  margin-top: var(--space-4);
   color: var(--text-tertiary);
   font-size: var(--font-size-sm);
-  line-height: 1.4;
+  line-height: var(--leading-tight);
 }
 
 .extension-setting-default {
@@ -801,7 +794,7 @@ plugin-catalog {
 .extension-setting-control {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--space-8);
   flex-wrap: wrap;
 }
 
@@ -813,7 +806,7 @@ plugin-catalog {
 /* A multi-line value needs the row's full width, so its control drops under the label. */
 .extension-setting-field.extension-setting-wide {
   grid-template-columns: 1fr;
-  gap: 0.5rem;
+  gap: var(--space-8);
 }
 
 .extension-setting-textarea {
@@ -821,7 +814,7 @@ plugin-catalog {
   resize: vertical;
   font-family: var(--font-mono);
   font-size: var(--font-size-base);
-  line-height: 1.45;
+  line-height: var(--leading-tight);
 }
 
 /* A preview of a value not in effect (a preset's built-in text): readable, visibly not editable. */
@@ -839,29 +832,29 @@ plugin-catalog {
 .extension-secret-status {
   min-width: 3.5rem;
   margin: 0;
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .extension-secret-actions,
 .extension-settings-actions {
   display: flex;
-  gap: 0.5rem;
+  gap: var(--space-8);
 }
 
 .extension-settings-actions {
   justify-content: flex-end;
-  padding-top: 0.25rem;
+  padding-top: var(--space-4);
 }
 
 .extension-settings-message {
   min-height: 1.25rem;
-  color: var(--accent-green);
+  color: var(--success);
   font-size: var(--font-size-base);
   text-align: right;
 }
 
 .extension-settings-message.error {
-  color: var(--accent-red);
+  color: var(--danger);
 }
 
 @media (width <= 48rem) {
@@ -873,7 +866,7 @@ plugin-catalog {
 /* A clickable capability row inside an extension's detail. */
 .ext-cap-link {
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
+  transition: border-color var(--duration-base), background var(--duration-base);
 }
 
 .ext-cap-link:hover {
@@ -883,16 +876,16 @@ plugin-catalog {
 
 .ext-source {
   text-transform: uppercase;
-  letter-spacing: 0.0313rem;
+  letter-spacing: var(--tracking-caps);
   font-size: var(--font-size-xs);
 }
 
 .ext-card-error-msg {
-  padding: 0.5rem 0.75rem;
-  background: color-mix(in srgb, var(--accent-red) 12%, transparent);
+  padding: var(--space-8) var(--space-12);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
   border-radius: var(--radius-lg);
   font-size: var(--font-size-base);
-  color: var(--accent-red);
+  color: var(--danger);
   overflow-wrap: anywhere;
 }
 
@@ -901,32 +894,32 @@ plugin-catalog {
 .ext-cap-list {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  margin-top: 0.25rem;
+  gap: var(--space-8);
+  margin-top: var(--space-4);
 }
 
 .ext-cap {
-  padding: 0.625rem 0.75rem;
+  padding: var(--space-10) var(--space-12);
 }
 
 .ext-cap-disabled {
-  opacity: 0.6;
+  opacity: var(--disabled-opacity);
 }
 
 .ext-cap-failed {
-  border-color: var(--accent-red);
+  border-color: var(--danger);
 }
 
 .ext-cap-main {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: var(--space-8);
   min-width: 0;
 }
 
 .ext-cap-name {
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   font-size: var(--font-size-md);
   color: var(--text-primary);
 }
@@ -937,23 +930,23 @@ plugin-catalog {
 
 .ext-cap-status {
   font-size: var(--font-size-xs);
-  font-weight: 600;
-  padding: 0.125rem 0.5rem;
+  font-weight: var(--font-weight-semibold);
+  padding: var(--space-2) var(--space-8);
   border-radius: var(--radius-md);
 }
 
 .ext-cap-desc {
-  margin-top: 0.375rem;
+  margin-top: var(--space-6);
   font-size: var(--font-size-base);
-  line-height: 1.45;
+  line-height: var(--leading-tight);
   color: var(--text-secondary);
 }
 
 .ext-cap-error {
-  margin-top: 0.375rem;
+  margin-top: var(--space-6);
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
-  color: var(--accent-red);
+  color: var(--danger);
   overflow-wrap: anywhere;
 }
 

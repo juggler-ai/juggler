@@ -120,7 +120,7 @@ function mountBar(workspaces, bindings) {
   // needs none of that, so the session is attached directly.
   bar._session = session;
   bar.render();
-  for (const tab of Array.from(bar.querySelectorAll('.conversation-tab'))) {
+  for (const tab of Array.from(bar.querySelectorAll('.conversation-bar-tab'))) {
     /** @type {any} */ (tab).setPointerCapture = () => {};
     /** @type {any} */ (tab).releasePointerCapture = () => {};
   }
@@ -133,7 +133,7 @@ function mountBar(workspaces, bindings) {
  * @returns {HTMLElement} The tab element.
  */
 function tabFor(bar, id) {
-  return /** @type {HTMLElement} */ (bar.querySelector(`.conversation-tab[data-conversation-id="${id}"]`));
+  return /** @type {HTMLElement} */ (bar.querySelector(`.conversation-bar-tab[data-conversation-id="${id}"]`));
 }
 
 /**

@@ -168,7 +168,7 @@ export async function runTests(_ctx) {
       assert((status.textContent || '').includes('/login'),
         `the row must carry the remediation, got ${status.textContent}`);
 
-      const refresh = el.querySelector('#provider-fields-container .settings-btn.icon');
+      const refresh = el.querySelector('#provider-fields-container .settings-recheck-btn');
       assert(!!refresh, 'the row must offer a re-check');
       assert((refresh.getAttribute('aria-label') || '').includes('Fake CLI'),
         `the re-check must name its provider, got ${refresh.getAttribute('aria-label')}`);
@@ -184,7 +184,7 @@ export async function runTests(_ctx) {
       const status = el.querySelector('#fake-cli-oauth-status');
       assert(!!status && status.textContent === NOT_INSTALLED_HINT,
         `the row must carry the hint as given, got ${status?.textContent}`);
-      const refresh = el.querySelector('#provider-fields-container .settings-btn.icon');
+      const refresh = el.querySelector('#provider-fields-container .settings-recheck-btn');
       assert(!!refresh, 'the row must offer a re-check');
       const words = `${refresh.title} ${refresh.getAttribute('aria-label')}`;
       assert(!/sign-in/i.test(words), `a keyless re-check must not mention a sign-in, got "${words}"`);

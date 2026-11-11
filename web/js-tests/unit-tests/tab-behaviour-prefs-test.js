@@ -59,7 +59,7 @@ import '../../js/components/conversation-bar.js';
  */
 function mountTab(convId) {
   const tab = document.createElement('div');
-  tab.className = 'conversation-tab';
+  tab.className = 'conversation-bar-tab';
   tab.dataset.conversationId = convId;
   tab.style.cssText = 'position:absolute;left:-9999px;top:-9999px;';
   document.body.appendChild(tab);

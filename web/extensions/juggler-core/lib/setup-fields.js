@@ -52,7 +52,7 @@ export function field(container, id, name, label, placeholder) {
   const input = document.createElement('input');
   input.type = 'text';
   input.id = id;
-  input.className = 'setup-field-input';
+  input.className = 'setup-field-input field-input field-input-sm';
   input.placeholder = placeholder;
   input.spellcheck = false;
   input.autocomplete = 'off';
@@ -137,7 +137,7 @@ export function choice(container, id, name, label, options) {
 
   const select = document.createElement('select');
   select.id = id;
-  select.className = 'setup-field-select';
+  select.className = 'setup-field-select field-input field-input-sm';
   select.dataset.field = name;
   for (const option of options) {
     const item = document.createElement('option');

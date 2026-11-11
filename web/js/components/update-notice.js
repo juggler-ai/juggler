@@ -580,16 +580,13 @@ class UpdateNotice extends JugglerElement {
   /**
    * @private
    * @param {string} label
-   * @param {string} extraClass
+   * @param {string} role - 'btn-primary' for the action the notice is about; ''
+   *   for an ordinary one beside it, which wears the neutral fill.
    * @param {() => void} onClick
    * @returns {HTMLButtonElement} The constructed footer button.
    */
-  _button(label, extraClass, onClick) {
-    return createButton(
-      label,
-      'update-notice__button' + (extraClass ? ' ' + extraClass : ''),
-      onClick,
-    );
+  _button(label, role, onClick) {
+    return createButton(label, role ? 'btn ' + role : 'btn btn-neutral', onClick);
   }
 
   /**

@@ -117,7 +117,7 @@ class PathInput extends JugglerElement {
     const placeholder = this.getAttribute('placeholder') || '';
     const initial = this.getAttribute('value') || '';
 
-    this.innerHTML = `<input class="path-input-field field-input" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">`;
+    this.innerHTML = `<input class="path-input-field field-input field-input-sm" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">`;
     this._input = /** @type {HTMLInputElement} */ (this.querySelector('.path-input-field'));
     this._input.placeholder = placeholder;
     this._input.value = initial;
@@ -234,7 +234,7 @@ class PathInput extends JugglerElement {
     this._index = -1;
 
     const menu = document.createElement('ul');
-    menu.className = 'dropdown-menu completions-menu path-input-menu show';
+    menu.className = 'dropdown-menu completions-menu path-input-menu is-open';
     // A re-filter replaces the open menu: it skips the entrance, or the menu
     // would pop again on every keystroke.
     if (refreshing) menu.classList.add('completions-menu--refresh');
@@ -328,8 +328,6 @@ class PathInput extends JugglerElement {
    */
   _highlight(idx) {
     if (!this._menu) return;
-    const items = this._menu.querySelectorAll('.menu-item');
-    items.forEach((el, i) => el.classList.toggle('highlighted', i === idx));
     if (this._input) setActiveOption(this._input, this._menu, idx);
     this._index = idx;
   }

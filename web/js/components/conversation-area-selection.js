@@ -664,15 +664,15 @@ export class ColumnSelection {
     if (!messageList) return;
     selectedId = selectedId ? this._area.displayIdFor(selectedId) : selectedId;
 
-    const currentlySelected = messageList.querySelectorAll('.selected');
+    const currentlySelected = messageList.querySelectorAll('.is-selected');
     if (selectedId && currentlySelected.length === 1 &&
         currentlySelected[0]?.getAttribute('message-id') === selectedId) {
       return; // already correct
     }
-    currentlySelected.forEach(el => el.classList.remove('selected'));
+    currentlySelected.forEach(el => el.classList.remove('is-selected'));
     if (selectedId) {
       const el = messageList.querySelector(`[message-id="${selectedId}"]`);
-      if (el) el.classList.add('selected');
+      if (el) el.classList.add('is-selected');
     }
   }
 }

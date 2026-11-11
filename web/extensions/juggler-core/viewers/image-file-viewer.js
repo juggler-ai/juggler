@@ -5,10 +5,25 @@
 
 import FileViewer from 'juggler/file-viewer';
 import { uploadAssetBase64 } from 'juggler/ops';
-import { createImageThumb } from 'juggler/ui';
+import { createImageThumb, injectStylesOnce } from 'juggler/ui';
 import { translator } from 'juggler/i18n';
 
 const t = translator('@juggler/core');
+
+/**
+ * Capped to the panel, since an image renders at its intrinsic size otherwise.
+ * Injected on first render only: `extract()` runs in the engine, which has no DOM.
+ */
+const STYLES = `
+.file-view-image {
+  max-width: 100%;
+  height: auto;
+  align-self: flex-start;
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  cursor: zoom-in;
+}
+`;
 
 /**
  * Convert bytes to base64 without blowing the argument limit on a large image
@@ -60,6 +75,7 @@ class ImageFileViewer extends FileViewer {
    * @returns {Promise<void>}
    */
   async render(source, host) {
+    injectStylesOnce('image-file-viewer-styles', STYLES);
     const img = createImageThumb({
       src: source.url(),
       alt: source.path || t('image'),

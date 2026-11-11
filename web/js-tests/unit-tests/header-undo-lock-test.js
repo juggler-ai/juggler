@@ -58,7 +58,7 @@ async function syncUndoState(conversation) {
 function buildHeaderDom() {
   const root = document.createElement('div');
   root.innerHTML = `
-		<div id="project-path-display"><span class="ppd-path" style="display: block; overflow: hidden; white-space: nowrap"></span></div>
+		<div id="project-path-display"><span class="project-path-display__path" style="display: block; overflow: hidden; white-space: nowrap"></span></div>
 		<span id="project-path-chip"></span>
 		<button id="project-new-window-button"></button>
 	`;
@@ -219,7 +219,7 @@ export async function runTests() {
     // --- The project path is read-only ------------------------------------
     // A session stays on its project: the path names it and leads nowhere.
     assert(!!headerListener, 'precondition: the header subscribed to the session');
-    const pathLabel = /** @type {HTMLElement} */ (root.querySelector('.ppd-path'));
+    const pathLabel = /** @type {HTMLElement} */ (root.querySelector('.project-path-display__path'));
     const pathChip = /** @type {HTMLElement} */ (root.querySelector('#project-path-chip'));
     const { default: apiService } = await import('../../js/services/api.js');
     {

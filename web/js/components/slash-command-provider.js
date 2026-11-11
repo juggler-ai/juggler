@@ -124,7 +124,7 @@ export const slashCommandProvider = {
     }
 
     const li = document.createElement('li');
-    li.className = 'menu-item slash-command-item' + (cmd.danger ? ' danger' : '');
+    li.className = 'menu-item slash-command-item' + (cmd.danger ? ' menu-item-danger' : '');
     li.dataset.command = cmd.name;
 
     const code = document.createElement('code');
@@ -135,7 +135,9 @@ export const slashCommandProvider = {
     // Provenance badge for user-defined commands (built-ins carry none).
     if (cmd.userDefined && cmd.scope) {
       const badge = document.createElement('span');
-      badge.className = 'slash-command-scope-badge slash-command-scope-' + cmd.scope;
+      badge.className = 'slash-command-scope-badge';
+      if (cmd.scope === 'user') badge.classList.add('slash-command-scope-user');
+      else if (cmd.scope === 'project') badge.classList.add('slash-command-scope-project');
       badge.textContent = scopeBadgeText(cmd.scope);
       li.appendChild(badge);
     }

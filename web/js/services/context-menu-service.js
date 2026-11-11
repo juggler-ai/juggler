@@ -291,7 +291,7 @@ export function buildTextEditMenu(start) {
  * @private
  */
 function activeComposer() {
-  const tab = /** @type {any} */ (document.querySelector('conversation-tab.active'));
+  const tab = /** @type {any} */ (document.querySelector('conversation-tab.is-active'));
   return tab?.getComposer?.() || null;
 }
 
@@ -476,9 +476,9 @@ function _onOutside(e) {
  * Render and position the juggler popup menu at viewport coords (x, y).
  *
  * It is built from the app's shared menu classes — a shown `.dropdown-menu` of
- * `.menu-item` rows, `.menu-divider` separators, `.danger` and `.unavailable`
+ * `.menu-item` rows, `.menu-divider` separators, `.menu-item-danger` and `.menu-item-unavailable`
  * variants — so it looks like every other menu. `.juggler-context-menu` adds
- * only the stacking layer (overlays-and-updates.css).
+ * only the stacking layer (components/context-menu.css).
  * @param {ContextMenuItem[]} items
  * @param {number} x
  * @param {number} y
@@ -492,7 +492,7 @@ function showMenu(items, x, y, anchor) {
     : null;
 
   const menu = document.createElement('div');
-  menu.className = 'dropdown-menu juggler-context-menu show';
+  menu.className = 'dropdown-menu juggler-context-menu is-open';
   const list = document.createElement('menu');
   list.setAttribute('role', 'menu');
   list.setAttribute('aria-label', t('Context menu'));
@@ -508,11 +508,11 @@ function showMenu(items, x, y, anchor) {
     }
     const row = document.createElement('li');
     row.className = 'menu-item';
-    if (item.danger) row.classList.add('danger');
+    if (item.danger) row.classList.add('menu-item-danger');
     row.setAttribute('role', 'menuitem');
     row.textContent = item.label || '';
     if (item.disabled) {
-      row.classList.add('unavailable');
+      row.classList.add('menu-item-unavailable');
       row.setAttribute('aria-disabled', 'true');
     } else {
       row.addEventListener('click', () => {

@@ -398,7 +398,7 @@ class WriteFileContextItem extends EditBase {
   _appendOutcomeBanner(wrapper, result) {
     const section = labeledSubsection(t('Result'));
     const div = document.createElement('div');
-    div.className = result.cancelled ? 'properties-panel-result cancelled' : 'properties-panel-result error';
+    div.className = result.cancelled ? 'properties-panel-result is-cancelled' : 'properties-panel-result is-error';
     // An error is the model's English, shown as it was.
     div.textContent = result.cancelled ? t('Cancelled') : (result.fullResult?.error || result.content || t('Error'));
     section.appendChild(div);

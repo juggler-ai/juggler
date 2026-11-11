@@ -250,7 +250,7 @@ function exposureRow(title, description, controls, warning) {
  */
 function exposureButton(text, kind) {
   return /** @type {HTMLButtonElement} */ (el('button', {
-    className: `ms-button ${kind === 'stop' ? 'ms-button-quiet' : 'ms-button-primary'}`,
+    className: `btn btn-sm ${kind === 'stop' ? 'btn-secondary' : 'btn-primary'}`,
     text,
     attrs: { type: 'button' },
   }));
@@ -434,8 +434,8 @@ function serverLocation(config, framed = null) {
 export function serverTitle(config, { framed = null, chooser = null } = {}) {
   return el('div', { className: 'ms-header' }, [
     el('div', { className: 'ms-title' }, [
-      el('h1', { text: t('Sessions') }),
-      chooser || el('p', { className: 'ms-subtitle', text: serverLocation(config, framed) }),
+      el('h1', { className: 'text-truncate', text: t('Sessions') }),
+      chooser || el('p', { className: 'ms-subtitle text-truncate', text: serverLocation(config, framed) }),
     ]),
     !framed && config.version ? el('span', { className: 'ms-version', text: config.version }) : null,
   ]);
@@ -598,7 +598,7 @@ export function mountSessionsPage(root, {
   const connectError = el('p', { className: 'ms-launch-error ms-connect-error', attrs: { role: 'alert' } });
   const connectForm = /** @type {HTMLFormElement} */ (el('form', { className: 'ms-launch ms-connect' }, [
     connectInput,
-    el('button', { className: 'ms-button ms-button-primary', text: t('Connect'), attrs: { type: 'submit' } }),
+    el('button', { className: 'btn btn-sm btn-primary', text: t('Connect'), attrs: { type: 'submit' } }),
   ]));
   // Three parts, each set off from the next: this computer; the servers on
   // the network — the one framed, found or not, then those the app has found
@@ -613,20 +613,20 @@ export function mountSessionsPage(root, {
   foundFirewall.hidden = true;
   const chooser = canSwitch
     ? el('div', {
-      className: 'dropdown-menu show ms-chooser',
+      className: 'dropdown-menu is-open ms-chooser',
       attrs: { id: chooserId, role: 'dialog', 'aria-label': t('Choose a server') },
     }, [
       el('div', { className: 'ms-chooser-section' }, [hereList]),
       host?.discover
         ? el('div', { className: 'ms-chooser-section' }, [
-          el('p', { className: 'ms-chooser-label', text: t('Found on this network') }),
+          el('p', { className: 'ms-chooser-label caps-label', text: t('Found on this network') }),
           foundList,
           foundHint,
           foundFirewall,
         ])
         : null,
       el('div', { className: 'ms-chooser-section ms-chooser-connect' }, [
-        el('label', { className: 'ms-chooser-label', text: t('Server address'), attrs: { for: connectInputId } }),
+        el('label', { className: 'ms-chooser-label caps-label', text: t('Server address'), attrs: { for: connectInputId } }),
         connectForm,
         connectError,
       ]),
@@ -637,10 +637,10 @@ export function mountSessionsPage(root, {
   // This computer, as the chooser's own row names it, never its host.
   const switchButton = canSwitch
     ? /** @type {HTMLButtonElement} */ (el('button', {
-      className: 'ms-button ms-button-quiet ms-server-switch',
+      className: 'btn btn-sm btn-secondary ms-server-switch',
       attrs: { type: 'button', title: t('Change server…') },
     }, [
-      el('span', { className: 'ms-server-label', text: framed ? serverLocation(config, framed) : t('This computer') }),
+      el('span', { className: 'ms-server-label text-truncate', text: framed ? serverLocation(config, framed) : t('This computer') }),
       icon(DROPDOWN_ARROW_SVG),
     ]))
     : null;
@@ -685,7 +685,7 @@ export function mountSessionsPage(root, {
     : null;
   const exposureSection = exposure
     ? el('section', { className: 'ms-section ms-exposure' }, [
-      el('h2', { text: t('Connectivity') }),
+      el('h2', { className: 'caps-label', text: t('Connectivity') }),
       serverBox,
       lanBox,
       tunnelBox,
@@ -825,13 +825,13 @@ export function mountSessionsPage(root, {
    * @returns {HTMLElement} Its list item.
    */
   function choiceRow(className, url, { name, where, current, version }) {
-    const address = where ? el('span', { className: 'ms-found-address', text: url ? shownAddress(where) : where }) : null;
+    const address = where ? el('span', { className: 'ms-found-address text-truncate', text: url ? shownAddress(where) : where }) : null;
     if (address && url) address.title = where;
     const mark = current ? el('span', { className: 'ms-chooser-mark', attrs: { title: t('Current') } }, [icon(CHECK_SVG)]) : null;
     const choice = /** @type {HTMLButtonElement} */ (el('button', { className: 'ms-chooser-choice', attrs: { type: 'button' } }, [
       el('span', { className: 'ms-chooser-icon' }, [icon(url ? DESKTOP_SVG : COMPUTER_SVG)]),
       el('span', { className: 'ms-recent-main' }, [
-        el('span', { className: 'ms-recent-name', text: name }),
+        el('span', { className: 'ms-recent-name text-truncate', text: name }),
         address,
       ]),
       version ? el('span', { className: 'ms-version ms-chooser-version', text: version }) : null,
@@ -1109,7 +1109,7 @@ export function mountSessionsPage(root, {
    * @param {string} project - The folder.
    */
   function offerLinked(project) {
-    opening.replaceChildren(button(t('Open {name}', { name: baseName(project) }), 'ms-button-primary ms-opening-confirm',
+    opening.replaceChildren(button(t('Open {name}', { name: baseName(project) }), 'btn-primary ms-opening-confirm',
       () => { void openLinked(project); }));
     opening.hidden = false;
   }
@@ -1153,7 +1153,7 @@ export function mountSessionsPage(root, {
    * @returns {HTMLButtonElement} The button.
    */
   function button(label, className, onClick, disabled = false) {
-    const b = /** @type {HTMLButtonElement} */ (el('button', { className: `ms-button ${className}`, text: label, attrs: { type: 'button' } }));
+    const b = /** @type {HTMLButtonElement} */ (el('button', { className: `btn btn-sm ${className}`, text: label, attrs: { type: 'button' } }));
     b.disabled = disabled;
     b.addEventListener('click', onClick);
     return b;
@@ -1198,7 +1198,7 @@ export function mountSessionsPage(root, {
             ? t('This page belongs to a Juggler server that has since restarted. Reload it to continue.')
             : t('Can’t reach Juggler on this machine. Trying again…'),
         }),
-        outOfDate ? button(t('Reload'), 'ms-button-quiet', () => window.location.reload()) : null,
+        outOfDate ? button(t('Reload'), 'btn-secondary', () => window.location.reload()) : null,
       ]));
     } else {
       banner.replaceChildren();

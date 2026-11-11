@@ -56,7 +56,7 @@ const cycleSettled = (bar) => waitFor(() => bar._cycleTimer === null, 'the keybo
  * @returns {string|undefined} The conversation the strip marks as selected.
  */
 const highlighted = (bar) =>
-  /** @type {HTMLElement|null} */ (bar.querySelector('.conversation-tab.active'))?.dataset.conversationId;
+  /** @type {HTMLElement|null} */ (bar.querySelector('.conversation-bar-tab[aria-current="true"]'))?.dataset.conversationId;
 
 /**
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Aggregated test results.
@@ -137,7 +137,7 @@ export async function runTests() {
         ['w2', { id: 'w2', name: 'w2', workspaceId: 'ws' }],
       ]);
       bar.render();
-      const drawn = [...bar.querySelectorAll('.conversation-tab')]
+      const drawn = [...bar.querySelectorAll('.conversation-bar-tab')]
         .map((tab) => /** @type {HTMLElement} */ (tab).dataset.conversationId).join();
       assert(drawn === 'a,b,w1,w2', `the strip must draw a,b,w1,w2 — got ${drawn}`);
 

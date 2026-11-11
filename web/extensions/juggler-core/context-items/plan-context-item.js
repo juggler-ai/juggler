@@ -336,7 +336,7 @@ class PlanContextItem extends ContextItem {
    * @returns {HTMLElement} Properties panel element
    */
   createPropertiesPanelElement() {
-    const container = createElement('div', 'ci-expanded');
+    const container = createElement('div', 'task-list-panel');
 
     const steps = PlanContextItem._planOf(this).steps;
     if (steps.length === 0) {

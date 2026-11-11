@@ -14,7 +14,7 @@ no-conversations-overlay {
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 3rem;
+    padding: var(--space-48);
 }
 
 no-conversations-overlay .onboarding-panel {
@@ -28,7 +28,7 @@ no-conversations-overlay .onboarding-panel {
 no-conversations-overlay .onboarding-logo {
     height: 3rem;
     aspect-ratio: 79.433 / 31.038;
-    margin: 0 auto 1.5rem;
+    margin: 0 auto var(--space-24);
     background-color: var(--text-primary);
     mask-image: var(--logo-with-name-url);
     mask-size: contain;
@@ -37,20 +37,13 @@ no-conversations-overlay .onboarding-logo {
     opacity: 0.85;
 }
 
-no-conversations-overlay h1 {
-    margin: 0 0 1rem;
-    color: var(--text-primary);
-    font-size: var(--font-size-3xl);
-    font-weight: 600;
-}
-
-no-conversations-overlay p {
-    margin: 0 auto 0.875rem;
+no-conversations-overlay .onboarding-copy {
+    margin: 0 auto var(--space-14);
     font-size: var(--font-size-body-lg);
-    line-height: 1.6;
+    line-height: var(--leading-relaxed);
 }
 
-no-conversations-overlay p:last-child {
+no-conversations-overlay .onboarding-copy:last-child {
     margin-bottom: 0;
 }
 
@@ -70,11 +63,11 @@ no-conversations-overlay p:last-child {
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 2rem;
-    font-weight: 400;
+    padding: var(--space-32);
+    font-weight: var(--font-weight-normal);
 }
 
-.onboarding-wizard .wiz-panel {
+.onboarding-wizard .onboarding-wizard-panel {
     width: min(32rem, calc(100vw - 3rem));
     max-height: calc(100vh - 6rem);
     display: flex;
@@ -84,32 +77,32 @@ no-conversations-overlay p:last-child {
 
 /* Each step re-renders the panel (step-modal.js); only the first screen makes
    the popup-surface entrance. */
-.onboarding-wizard .wiz-panel.wiz-panel--settled {
+.onboarding-wizard .onboarding-wizard-panel.onboarding-wizard-panel--settled {
     animation: none;
 }
 
-.onboarding-wizard .wiz-header {
+.onboarding-wizard .onboarding-wizard-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
-    padding: 1rem 1rem 0.5rem 1.25rem;
+    gap: var(--space-16);
+    padding: var(--space-16) var(--space-16) var(--space-8) var(--space-20);
 }
 
-.onboarding-wizard .wiz-title {
+.onboarding-wizard .onboarding-wizard-title {
     flex: 1;
     margin: 0;
     color: var(--text-primary);
     font-size: var(--font-size-lg);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
 }
 
 /* Kept quiet and at the top-left: it moves between screens, so it should not
    read as one of the answers the footer is asking for. */
-.onboarding-wizard .wiz-back {
+.onboarding-wizard .onboarding-wizard-back {
     flex: none;
     margin: 0;
-    padding: 0.125rem 0.375rem 0.125rem 0;
+    padding: var(--space-2) var(--space-6) var(--space-2) 0;
     border: 0;
     background: none;
     color: var(--text-secondary);
@@ -118,85 +111,85 @@ no-conversations-overlay p:last-child {
     font-size: var(--font-size-base);
 }
 
-.onboarding-wizard .wiz-back:hover {
+.onboarding-wizard .onboarding-wizard-back:hover {
     color: var(--text-primary);
 }
 
-.onboarding-wizard .wiz-body {
+.onboarding-wizard .onboarding-wizard-body {
     overflow-y: auto;
-    padding: 0.25rem 1.25rem 0.5rem;
+    padding: var(--space-4) var(--space-20) var(--space-8);
     color: var(--text-secondary);
     font-size: var(--font-size-body-lg);
-    line-height: 1.6;
+    line-height: var(--leading-relaxed);
 }
 
-.onboarding-wizard .wiz-body p {
-    margin: 0 0 0.75rem;
+.onboarding-wizard .onboarding-wizard-body p {
+    margin: 0 0 var(--space-12);
 }
 
-.onboarding-wizard .wiz-body p:last-child {
+.onboarding-wizard .onboarding-wizard-body p:last-child {
     margin-bottom: 0;
 }
 
-.onboarding-wizard .wiz-body strong {
+.onboarding-wizard .onboarding-wizard-body strong {
     color: var(--text-primary);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
 }
 
-.onboarding-wizard .wiz-body a {
+.onboarding-wizard .onboarding-wizard-body a {
     color: var(--accent-blue);
 }
 
-.onboarding-wizard .wiz-footer {
+.onboarding-wizard .onboarding-wizard-footer {
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-end;
-    gap: 0.5rem;
-    padding: 0.75rem 1.25rem 1rem;
+    gap: var(--space-8);
+    padding: var(--space-12) var(--space-20) var(--space-16);
 }
 
-.onboarding-wizard .wiz-action {
+.onboarding-wizard .onboarding-wizard-action {
     border: none;
     border-radius: var(--radius-lg);
     cursor: pointer;
     font-family: inherit;
     font-size: var(--font-size-md);
-    padding: 0.5rem 1rem;
+    padding: var(--space-8) var(--space-16);
     transition: background var(--transition-base), opacity var(--transition-base);
 }
 
 /* The neutral fill, for the actions with no role (patterns/buttons.css). */
-.onboarding-wizard .wiz-action:not(.btn-primary) {
+.onboarding-wizard .onboarding-wizard-action:not(.btn-primary) {
     background: var(--bg-raised);
     color: var(--text-primary);
 }
 
-.onboarding-wizard .wiz-action:not(.btn-primary):hover:not(:disabled) {
+.onboarding-wizard .onboarding-wizard-action:not(.btn-primary):hover:where(:not(:disabled)) {
     background: var(--bg-tertiary);
 }
 
 /* Held inert while an action that reaches the network runs, so a slow
    "check again" reads as working rather than as a click that did nothing. */
-.onboarding-wizard .wiz-action:disabled {
+.onboarding-wizard .onboarding-wizard-action:disabled {
     cursor: default;
-    opacity: 0.55;
+    opacity: var(--disabled-opacity);
 }
 
-.onboarding-wizard .wiz-note {
+.onboarding-wizard .onboarding-wizard-note {
     margin: 0;
-    padding: 0 1.25rem 1rem;
+    padding: 0 var(--space-20) var(--space-16);
     color: var(--text-secondary);
     font-size: var(--font-size-base);
-    line-height: 1.5;
+    line-height: var(--leading-normal);
 }
 
 /* A command the reader is expected to run elsewhere: shown whole, selectable,
    and wrapped rather than truncated — a half-copied install command fails in a
    way that looks like the instruction was wrong. */
-.onboarding-wizard .wiz-command {
+.onboarding-wizard .onboarding-wizard-command {
     display: block;
-    margin: 0 0 0.75rem;
-    padding: 0.5rem 0.625rem;
+    margin: 0 0 var(--space-12);
+    padding: var(--space-8) var(--space-10);
     border-radius: var(--radius-lg);
     background: var(--bg-raised);
     color: var(--text-primary);
@@ -208,17 +201,17 @@ no-conversations-overlay p:last-child {
 
 /* The routes offered when nothing was detected. Cards rather than a list,
    because they are alternatives to weigh rather than prose to read past. */
-.onboarding-wizard .wiz-choices {
+.onboarding-wizard .onboarding-wizard-choices {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
-    padding: 0.25rem 0 0.5rem;
+    gap: var(--space-8);
+    padding: var(--space-4) 0 var(--space-8);
 }
 
-.onboarding-wizard .wiz-choice {
+.onboarding-wizard .onboarding-wizard-choice {
     display: block;
     width: 100%;
-    padding: 0.625rem 0.75rem;
+    padding: var(--space-10) var(--space-12);
     border: 0.0625rem solid var(--border-subtle);
     border-radius: var(--radius-lg);
     background: transparent;
@@ -226,23 +219,23 @@ no-conversations-overlay p:last-child {
     cursor: pointer;
     font: inherit;
     text-align: left;
-    transition: background 120ms ease, border-color 120ms ease;
+    transition: background var(--transition-fast), border-color var(--transition-fast);
 }
 
-.onboarding-wizard .wiz-choice:hover {
+.onboarding-wizard .onboarding-wizard-choice:hover {
     background: var(--bg-raised);
     border-color: color-mix(in srgb, var(--text-primary) 18%, transparent);
 }
 
-.onboarding-wizard .wiz-choice-title {
+.onboarding-wizard .onboarding-wizard-choice-title {
     display: block;
     font-size: var(--font-size-body-lg);
 }
 
-.onboarding-wizard .wiz-choice-detail {
+.onboarding-wizard .onboarding-wizard-choice-detail {
     display: block;
-    padding-top: 0.1875rem;
+    padding-top: var(--space-2);
     color: var(--text-secondary);
     font-size: var(--font-size-base);
-    line-height: 1.5;
+    line-height: var(--leading-normal);
 }

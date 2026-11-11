@@ -8,8 +8,9 @@
  * - A control (a button, a toggle, a row) gets the ring, `--focus-ring` at
  *   `--focus-ring-offset`, from one base rule on `:focus-visible`.
  * - A text field gets an accent border, `--field-focus-border`, and a soft
- *   halo, `--field-focus-halo`. The field chrome itself (fill, hairline border,
- *   corner) is the shared `.field-input` (patterns/fields.css).
+ *   halo, `--field-focus-halo` (`--field-invalid-halo` when it is marked
+ *   invalid). The field chrome itself (fill, hairline border, corner) is the
+ *   shared `.field-input` (patterns/fields.css).
  *
  * A focus rule may suppress a ring (`outline: none`) or place the shared one;
  * it may not draw one of its own, which is how the app came to have green,
@@ -29,7 +30,7 @@ import { assert } from '../utilities/test-helpers.js';
 /** The fields that wear `.field-input`, by the selector of their own base rule. */
 const FIELD_MEMBERS = [
   'path-input .path-input-field', '.pinboard-add-picker__filter',
-  'settings-panel .model-visibility-filter', 'settings-panel .copilot-host-field input',
+  'settings-panel .settings-model-visibility-filter', 'settings-panel .copilot-host-field input',
   'settings-panel .settings-select', 'settings-panel .chime-select', 'settings-panel .proxy-mode-select',
   'settings-panel .proxy-url-input', 'settings-panel .mcp-input', 'settings-panel .provider-input-wrapper',
   '.model-picker-filter-input', 'modal-dialog .modal-input', '.review-panel__editor-text',
@@ -127,7 +128,7 @@ export async function runTests() {
     for (const rule of rules) {
       // A state shared with :hover is a fill change, not a focus indicator.
       const parts = rule.selectorText.split(/,\s*/)
-        .filter(part => /:focus|\.focused\b/.test(part) && !/:hover/.test(part));
+        .filter(part => /:focus|\.is-focused\b/.test(part) && !/:hover/.test(part));
       if (parts.length === 0) continue;
       const style = rule.style;
       // `outline: none` serialises its shorthand as "medium" in WebKit; the
@@ -140,7 +141,7 @@ export async function runTests() {
           && `outline-color: ${style.getPropertyValue('outline-color')}`,
         !sharedOrNone(style.getPropertyValue('outline-offset'), ['--focus-ring-offset', '--focus-ring-width'])
           && `outline-offset: ${style.getPropertyValue('outline-offset')}`,
-        !sharedOrNone(style.getPropertyValue('box-shadow'), ['--field-focus-halo'])
+        !sharedOrNone(style.getPropertyValue('box-shadow'), ['--field-focus-halo', '--field-invalid-halo'])
           && `box-shadow: ${style.getPropertyValue('box-shadow')}`,
         style.getPropertyValue('border-color') !== 'transparent'
           && !sharedOrNone(style.getPropertyValue('border-color'), ['--field-focus-border'])
@@ -160,7 +161,7 @@ export async function runTests() {
     const offenders = rules
       .filter(rule => rule.style.getPropertyValue('outline-style') === 'none')
       .flatMap(rule => rule.selectorText.split(/,\s*/))
-      .filter(part => !/:focus|:has\(|\.focused\b/.test(part) && !field.test(part));
+      .filter(part => !/:focus|:has\(|\.is-focused\b/.test(part) && !field.test(part));
     assert(offenders.length === 0, `these switch the ring off for good: ${offenders.join(' | ')}`);
   });
 

@@ -481,7 +481,7 @@ class PluginCatalog extends JugglerElement {
     const key = `cap:${itemType}:${capId}`;
     if (!this._buildEntries().some((e) => e.key === key)) return false;
     this._select(key);
-    const row = /** @type {HTMLElement|null} */ (this._sidebar?.querySelector('.plugin-tree-row.selected') ?? null);
+    const row = /** @type {HTMLElement|null} */ (this._sidebar?.querySelector('.plugin-tree-row.is-selected') ?? null);
     row?.scrollIntoView?.({ block: 'nearest' });
     return true;
   }
@@ -955,7 +955,7 @@ class PluginCatalog extends JugglerElement {
         for (const [itemType, heading] of CAP_SECTIONS) {
           const inSection = caps.filter((e) => e.section === itemType);
           if (inSection.length === 0) continue;
-          children.appendChild(this._createElement('div', 'plugin-tree-section', t(heading)));
+          children.appendChild(this._createElement('div', 'plugin-tree-section caps-label', t(heading)));
           for (const cap of inSection) children.appendChild(this._renderTreeCap(cap));
         }
         if (caps.length === 0) {
@@ -974,7 +974,7 @@ class PluginCatalog extends JugglerElement {
       const node = this._createElement('div', 'plugin-tree-node');
       const header = this._createElement('div', 'plugin-tree-row plugin-tree-ext plugin-tree-row-off');
       header.appendChild(this._createElement('span', 'plugin-tree-caret', '▾'));
-      header.appendChild(this._createElement('span', 'plugin-tree-label', t('Not installed')));
+      header.appendChild(this._createElement('span', 'plugin-tree-label text-truncate', t('Not installed')));
       node.appendChild(header);
       const children = this._createElement('div', 'plugin-tree-children');
       for (const orphan of orphans) children.appendChild(this._renderTreeCap(orphan));
@@ -996,7 +996,7 @@ class PluginCatalog extends JugglerElement {
   _renderTreeExtension(entry, isOpen) {
     const row = this._createElement('div', 'plugin-tree-row plugin-tree-ext');
     row.dataset.key = entry.key;
-    if (entry.key === this._selectedKey) row.classList.add('selected');
+    if (entry.key === this._selectedKey) row.classList.add('is-selected');
     if (entry.failed) row.classList.add('plugin-tree-row-failed');
     else if (entry.disabled) row.classList.add('plugin-tree-row-off');
 
@@ -1007,7 +1007,7 @@ class PluginCatalog extends JugglerElement {
     });
     row.appendChild(caret);
 
-    row.appendChild(this._createElement('span', 'plugin-tree-label', extensionText(entry.card, entry.label)));
+    row.appendChild(this._createElement('span', 'plugin-tree-label text-truncate', extensionText(entry.card, entry.label)));
     row.appendChild(this._renderToggleBadge(entry));
     row.addEventListener('click', () => this._select(entry.key));
     return row;
@@ -1024,10 +1024,10 @@ class PluginCatalog extends JugglerElement {
   _renderTreeCap(entry) {
     const row = this._createElement('div', 'plugin-tree-row plugin-tree-leaf');
     row.dataset.key = entry.key;
-    if (entry.key === this._selectedKey) row.classList.add('selected');
+    if (entry.key === this._selectedKey) row.classList.add('is-selected');
     if (entry.failed) row.classList.add('plugin-tree-row-failed');
     else if (entry.disabled) row.classList.add('plugin-tree-row-off');
-    row.appendChild(this._createElement('span', 'plugin-tree-label', extensionText(entry.card, entry.label)));
+    row.appendChild(this._createElement('span', 'plugin-tree-label text-truncate', extensionText(entry.card, entry.label)));
     row.appendChild(this._renderToggleBadge(entry));
     row.addEventListener('click', () => this._select(entry.key));
     return row;
@@ -1076,7 +1076,7 @@ class PluginCatalog extends JugglerElement {
       return badge;
     }
 
-    badge.className = `plugin-tree-toggle plugin-tree-toggle-${enabled ? 'on' : 'off'}`;
+    badge.className = enabled ? 'plugin-tree-toggle plugin-tree-toggle-on' : 'plugin-tree-toggle plugin-tree-toggle-off';
     badge.textContent = enabled ? t('on') : t('off');
 
     if (!canToggle) {
@@ -1126,7 +1126,7 @@ class PluginCatalog extends JugglerElement {
       this._fillSidebar(this._sidebar, entries);
     } else if (this._sidebar) {
       this._sidebar.querySelectorAll('.plugin-tree-row').forEach((el) => {
-        el.classList.toggle('selected', /** @type {HTMLElement} */ (el).dataset.key === key);
+        el.classList.toggle('is-selected', /** @type {HTMLElement} */ (el).dataset.key === key);
       });
     }
     this._renderDetailInto(entries);
@@ -1605,11 +1605,13 @@ class PluginCatalog extends JugglerElement {
       + 'not a change to the system prompt, and it is everything the model is told about the strategy.')));
     section.appendChild(header);
 
-    section.appendChild(declared
-      ? this._createElement('pre', 'strategy-guidance-text surface-well', declared)
-      : this._createElement('div', 'strategy-guidance-none',
+    if (declared) {
+      section.appendChild(this._createElement('pre', 'strategy-guidance-text surface-well', declared));
+    } else {
+      section.appendChild(this._createElement('div', 'strategy-guidance-none',
         t('Nothing. This strategy says nothing to the model — it only decides which tools the model is '
         + 'offered and which of its calls need your approval.')));
+    }
     return section;
   }
 

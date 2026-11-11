@@ -170,7 +170,7 @@ function failureText(lead, err) {
 function addressLine(into, url, label, open) {
   if (label) {
     const name = document.createElement('div');
-    name.className = 'connectivity-address-label';
+    name.className = 'connectivity-address-label caps-label';
     name.textContent = label;
     into.appendChild(name);
   }

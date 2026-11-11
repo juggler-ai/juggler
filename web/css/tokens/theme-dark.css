@@ -13,9 +13,13 @@
        scrollbars, and form widgets regardless of the active theme. */
     color-scheme: dark;
 
-    /* Font weights - single source of truth */
+    /* Font weights, by role. Every weight in the app is one of these
+       (scale-literal holds them to it). Each role is a step lighter here than
+       in the light theme, because light text on a dark ground reads heavier
+       than the same weight the other way round. */
     --font-weight-normal: 200;
     --font-weight-medium: 400;
+    --font-weight-semibold: 500;
     --font-weight-bold: 600;
 
     /* Background colors */
@@ -41,6 +45,23 @@
     --accent-orange: #e3b341;
     --accent-red: #f85149;
     --accent-purple: #bc8cff;
+
+    /* Each accent at more contrast with the page than itself: lighter here,
+       darker in the light theme. The hover of a fill the accent paints, and
+       text that has to read as the accent on the page's own ground. */
+    --accent-blue-strong: #6cb6ff;
+    --accent-green-strong: #00cc7f;
+    --accent-red-strong: #ff6b6b;
+
+    /* What a colour MEANS, for every rule that is saying so: something failed
+       or will destroy (danger), something succeeded or is allowed (success),
+       something wants care (warning), something is merely so (info). Say the
+       role, not the hue — a rule that paints an error --accent-red is right
+       only until the theme decides errors are another red. */
+    --danger: var(--accent-red);
+    --success: var(--accent-green);
+    --warning: var(--accent-yellow);
+    --info: var(--accent-blue);
 
     /* Text-selection highlight (see TEXT SELECTION POLICY). The colour WebKit
        paints for a dark-appearance selection on macOS: the system blue at 80%,
@@ -206,20 +227,18 @@
     --bash-segment-5-arg: #8be3e9;
 
     /* Code block specific colors */
-    --bg-code-dark: #0a0a0a;
-    --bg-code-medium: #1a1a1a;
+    --bg-code-deep: #0a0a0a;
+    --bg-code: #1a1a1a;
     --border-code: #333;
     --text-code: #e0e0e0;
 
     /* Additional background/border colors */
     --bg-tertiary: #282e33;           /* Between secondary and raised */
     --border-subtle: rgb(255 255 255 / 8%); /* Very subtle borders */
-    --error-color: var(--accent-red); /* Error state color */
 
     /* A QR code is dark on light in every theme: scanners read an inverted one badly. */
     --qr-light: #fff;
     --qr-dark: #000;
-    --accent-text: #6cb6ff;           /* Accent text for highlighted items */
     --accent-green-muted: #166534;    /* Muted green for permission buttons */
 
     /* Diff highlighting */
@@ -232,19 +251,15 @@
     --diff-line-add-bg: rgb(30 110 55 / 45%);
     --diff-line-remove-bg: rgb(140 35 30 / 45%);
 
-    /* UI component colors */
-    --bg-dark-alt: #21262d;           /* Darker alternative for borders/backgrounds */
-    --accent-blue-light: #6cb6ff;     /* Lighter blue for buttons/highlights */
-    --accent-green-bright: #00cc7f;   /* Bright green for success/confirm */
-    --accent-red-soft: #ff6b6b;       /* Soft red for errors/warnings */
-
-    /* White overlays. The black ones are theme-independent and live in
-       tokens/scale.css. */
-    --overlay-light-30: rgb(255 255 255 / 30%);
-    --overlay-light-20: rgb(255 255 255 / 20%);
-    --overlay-light-10: rgb(255 255 255 / 10%);
-    --overlay-light-8: rgb(255 255 255 / 8%);
-    --overlay-light-5: rgb(255 255 255 / 5%);
+    /* Washes: the text colour laid thinly over a surface — white here, black
+       in the light theme — faintest (1) to strongest (5). Hover and pressed
+       fills, hairlines on chrome. The always-black overlays are
+       theme-independent and live in tokens/scale.css. */
+    --wash-5: rgb(255 255 255 / 30%);
+    --wash-4: rgb(255 255 255 / 20%);
+    --wash-3: rgb(255 255 255 / 10%);
+    --wash-2: rgb(255 255 255 / 8%);
+    --wash-1: rgb(255 255 255 / 5%);
 
     /* Selected conversation item — stronger than the generic overlay so the
        highlight reads clearly against the dark background. */
@@ -263,28 +278,25 @@
     --tooltip-text: var(--text-primary);
     --tooltip-shadow: 0 0.5rem 1.25rem rgb(0 0 0 / 45%);
 
+    /* The ghost-button hover (patterns/buttons.css ▸ .btn-ghost, and the
+       composer's .input-ctrl-btn): a dark fill under a faint hairline here, a
+       near-white wash under a grey hairline in light. */
+    --ghost-hover-bg: var(--overlay-dark-70);
+    --ghost-hover-border: var(--wash-5);
+
+    /* The permissions popup when it drops below its button rather than
+       docking as a sheet: the popup family's own shadow here, a lighter one
+       in light, where the family's would read as a smudge. */
+    --permissions-popup-shadow: var(--popup-shadow);
+
+    /* The update pill as a progress bar (components/updates.css):
+       the accent fill growing over the track, and the shadow that keeps the
+       label legible over both. */
+    --update-progress-fill: color-mix(in srgb, var(--accent-blue) 50%, transparent);
+    --update-progress-label-shadow: color-mix(in srgb, var(--shadow-color) 28%, transparent);
+
     /* Scrollbar colours. The metrics are in tokens/scale.css. */
     --scrollbar-track-bg: rgb(0 0 0 / 20%);
     --scrollbar-thumb-bg: rgb(255 255 255 / 20%);
     --scrollbar-thumb-hover-bg: rgb(255 255 255 / 30%);
-}
-
-/* Blanket i-beam substitution for the same Windows bug. The UA draws the native
-   i-beam automatically over any selectable/editable text — we never wrote
-   `cursor: text` for those, so there's no per-element rule to override and every
-   untouched text region still shows the invisible white cursor. A fixed `url()`
-   cursor can't replicate the UA's context-sensitive `auto` (i-beam only over
-   glyphs, arrow over padding), so instead we set it once on each text-region
-   root and lean on `cursor` inheritance to reach all their text children. Scoped
-   to Windows so macOS/Linux keep the pixel-perfect native i-beam. Interactive
-   descendants (links/buttons) inherit it too, so the second rule re-asserts the
-   pointer for them. input/textarea already carry --cursor-text via their own
-   rule. Part of the TEMPORARY workaround — remove with the cursor tokens in
-   tokens/scale.css. */
-:where(:root[data-os="windows"]) :is(.markdown, pre, code, .ci-text-block, .ci-code-block, [contenteditable]) {
-    cursor: var(--cursor-text);
-}
-
-:where(:root[data-os="windows"]) :where(.markdown, .ci-text-block, .ci-code-block) :is(a, button, [role="button"]) {
-    cursor: pointer;
 }

@@ -103,7 +103,7 @@ export async function runTests() {
     // option button is clicked — the state the bug needs (an already-selected
     // tile takes the repeat-click path, which has always guarded controls).
     column.querySelector('user-message')?.click();
-    assert(!column.querySelector('tool-action-message.selected'),
+    assert(!column.querySelector('tool-action-message.is-selected'),
       'question tile must be unselected before the option click');
 
     column.querySelector('.question-option-btn')?.click();

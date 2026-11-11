@@ -19,8 +19,8 @@ import { whenRevealed } from './popup-surface.js';
  * Give a fully built menu its ARIA. The element is a named `menu`; each
  * `.menu-item` row a `menuitem`, unless it already carries an item role of its
  * own (a checkbox or radio item); a row that does nothing when chosen (the
- * empty-state hint, an `.unavailable` row) a disabled one; each divider a
- * `separator`; each `.menu-header`/`.category-header` caption no role at all —
+ * empty-state hint, a `.menu-item-unavailable` row) a disabled one; each divider a
+ * `separator`; each `.menu-header` caption no role at all —
  * a menu owns only items, groups and separators, and the rows under a caption
  * name themselves. Each collapsible sheet section is a group named by its
  * header, and the header an item that says whether it is expanded: a collapsed
@@ -33,12 +33,12 @@ export function applyMenuRoles(menu, label) {
   menu.setAttribute('aria-label', label);
   menu.querySelectorAll('.menu-item').forEach((row) => {
     if (!row.matches(ITEM_SELECTOR)) row.setAttribute('role', 'menuitem');
-    if (row.classList.contains('menu-item-hint') || row.classList.contains('unavailable')) {
+    if (row.classList.contains('menu-item-hint') || row.classList.contains('menu-item-unavailable')) {
       row.setAttribute('aria-disabled', 'true');
     }
   });
   menu.querySelectorAll('.menu-divider').forEach((divider) => divider.setAttribute('role', 'separator'));
-  menu.querySelectorAll('.menu-header, .category-header').forEach((caption) => caption.setAttribute('role', 'none'));
+  menu.querySelectorAll('.menu-header').forEach((caption) => caption.setAttribute('role', 'none'));
   menu.querySelectorAll('details').forEach((section) => {
     const details = /** @type {HTMLDetailsElement} */ (section);
     const summary = details.querySelector('summary');

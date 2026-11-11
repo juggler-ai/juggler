@@ -1,41 +1,100 @@
 {
+  "$comment": {
+    "selector-max-compound-selectors": "4 is the deepest the tree has (composer-box's status-line and touch-composer chains, settings-panel's card rows). 3 would mean rewriting a dozen of them, each a specificity change.",
+    "selector-max-specificity": "0,4,2 is the highest the tree holds once each selector's conditions (a :not([hidden]), a :not(:disabled), a window-state gate) sit in :where(): composer-box.touch-composer's hover pins, which must out-rank the composer's own hovers at 0,3,2. Wrap the part that is a condition rather than an identity in :where() before raising it.",
+    "selector-disallowed-list": "No [data-theme] outside tokens/ (the override below): a theme-dependent value is a token defined in both theme files.",
+    "report*Disables": "Every stylelint-disable says why after ' -- ', disables nothing that would not fire, and names only rules that exist."
+  },
   "extends": "stylelint-config-standard",
-  "plugins": ["stylelint-rem-over-px", "./stylelint-rules/no-literal-colour-function.js"],
+  "plugins": [
+    "stylelint-rem-over-px",
+    "./stylelint-rules/no-literal-colour-function.js"
+  ],
+  "reportDescriptionlessDisables": true,
+  "reportNeedlessDisables": true,
+  "reportInvalidScopeDisables": true,
   "rules": {
     "rem-over-px/rem-over-px": [
       true,
       {
-        "ignore": ["1px"],
+        "ignore": [
+          "1px"
+        ],
         "fontSize": 16,
-        "ignoreFunctions": ["url"],
+        "ignoreFunctions": [
+          "url"
+        ],
         "ignoreAtRules": [],
         "ignoreProperties": []
       }
     ],
     "unit-disallowed-list": [
-      ["px"],
+      [
+        "px"
+      ],
       {
         "ignoreProperties": {
-          "px": ["/^border/", "outline", "box-shadow"]
+          "px": [
+            "/^border/",
+            "outline",
+            "box-shadow"
+          ]
         }
       }
     ],
-    "color-no-hex": [true, { "reportDisables": true }],
-    "color-named": ["never", { "reportDisables": true }],
-    "juggler/no-literal-colour-function": [true, { "reportDisables": true }],
+    "color-no-hex": [
+      true,
+      {
+        "reportDisables": true
+      }
+    ],
+    "color-named": [
+      "never",
+      {
+        "reportDisables": true
+      }
+    ],
+    "juggler/no-literal-colour-function": [
+      true,
+      {
+        "reportDisables": true
+      }
+    ],
+    "declaration-no-important": true,
+    "selector-max-id": 0,
+    "selector-max-compound-selectors": 4,
+    "selector-max-specificity": "0,4,2",
+    "selector-disallowed-list": [
+      [
+        "/data-theme/"
+      ],
+      {
+        "splitList": false
+      }
+    ],
     "selector-class-pattern": null,
-    "custom-property-pattern": null,
-    "keyframes-name-pattern": null,
+    "custom-property-pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+    "keyframes-name-pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
     "no-descending-specificity": null,
-    "property-no-vendor-prefix": [true, { "ignoreProperties": ["-webkit-user-select"] }]
+    "property-no-vendor-prefix": [
+      true,
+      {
+        "ignoreProperties": [
+          "-webkit-user-select"
+        ]
+      }
+    ]
   },
   "overrides": [
     {
-      "files": ["../web/css/tokens/*.css"],
+      "files": [
+        "../web/css/tokens/*.css"
+      ],
       "rules": {
         "color-no-hex": null,
         "color-named": null,
-        "juggler/no-literal-colour-function": null
+        "juggler/no-literal-colour-function": null,
+        "selector-disallowed-list": null
       }
     }
   ]

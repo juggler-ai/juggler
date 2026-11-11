@@ -292,7 +292,7 @@ export async function runTests() {
         'and what it is offering to rename is the box, not something inside it');
 
       const tab = /** @type {Element} */ (
-        bar.querySelector('.conversation-tab[data-conversation-id="c1"]'));
+        bar.querySelector('.conversation-bar-tab[data-conversation-id="c1"]'));
       const onATab = resolveMenu(tab);
       assert(onATab?.subject === tab,
         'a tab inside a box is still a tab: its own menu claims it first, or renaming a conversation '

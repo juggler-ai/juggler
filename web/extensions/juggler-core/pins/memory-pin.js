@@ -21,19 +21,19 @@ injectStylesOnce('memory-pin-styles', `
 .memory-pin {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: var(--space-8);
   height: 100%;
 }
 
 .memory-pin .memory-delete {
   flex-shrink: 0;
   opacity: 0.5;
-  transition: opacity 0.15s;
+  transition: opacity var(--duration-base);
 }
 .memory-pin .memory-delete:hover { opacity: 1; }
 
 .memory-pin__error {
-  color: var(--error-color, var(--text-secondary));
+  color: var(--danger, var(--text-secondary));
   font-size: var(--font-size-sm);
 }
 `);

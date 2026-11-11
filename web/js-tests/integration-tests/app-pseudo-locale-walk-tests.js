@@ -40,10 +40,10 @@ const SETTINGS_TABS = [
 /**
  * Text that is data, not UI: what the conversation and project hold, which no
  * catalogue translates.
- * - `.ppd-path`: the project directory.
+ * - `.project-path-display__path`: the project directory.
  * - `.user-message-text`: what the user typed; `.markdown`: what the model wrote.
  * - `.model-name`: the model's own display name.
- * - `.info-card__usage-sub`: the usage card's provider name and plan.
+ * - `.usage-card__sub`: the usage card's provider name and plan.
  * - `.properties-panel-filepath`: a file's path on disk.
  * - `#auto-name-instruction-input`: its placeholder is the built-in prompt sent
  *   to the model, which stays in English whatever the UI language.
@@ -52,7 +52,7 @@ const SETTINGS_TABS = [
  * - `option[lang]`: a Language menu entry naming a language in itself
  *   ("简体中文"), which stays in that language whatever the UI language.
  */
-const DATA = '.ppd-path, .ss-chip-tile, .user-message-text, .markdown, .model-name, .info-card__usage-sub, '
+const DATA = '.project-path-display__path, .session-switcher-chip-tile, .user-message-text, .markdown, .model-name, .usage-card__sub, '
   + '#auto-name-instruction-input, .plugin-version, .plugin-author, .properties-panel-filepath, '
   + 'code, pre, option[lang]';
 
@@ -73,7 +73,7 @@ function isData(el) {
   const page = el.ownerDocument.documentElement;
   const marked = el.closest('[lang]');
   if (marked && marked !== page && marked.getAttribute('lang') !== page.lang) return true;
-  const name = el.closest('.conversation-tab-name');
+  const name = el.closest('.conversation-bar-tab-name');
   return !!name && !UNTITLED_NAME_RE.test((name.textContent || '').trim());
 }
 
@@ -283,7 +283,7 @@ const appPseudoLocaleWalkTest = {
       describeShell = () => {
         const own = /** @type {any} */ (session.conversations.get(conversation.id));
         const t = ownTab();
-        const active = /** @type {any} */ (doc.querySelector('conversation-tab.active'));
+        const active = /** @type {any} */ (doc.querySelector('conversation-tab.is-active'));
         return `\n  shell: visible=${session.visibleConversationId} own=${conversation.id}`
           + ` ownTab=${t ? (t.isConnected ? 'connected' : 'detached') : 'none'}`
           + ` ownToolRows=${t ? t.querySelectorAll('tool-action-message, tool-group-message').length : '-'}`

@@ -109,13 +109,13 @@ const press = (sw, key, init = {}) => {
  * @param {string} key - The row's item key.
  * @returns {HTMLElement} Its row.
  */
-const rowOf = (sw, key) => /** @type {HTMLElement} */ (sw.el.querySelector(`.ss-row[data-key="${CSS.escape(key)}"]`));
+const rowOf = (sw, key) => /** @type {HTMLElement} */ (sw.el.querySelector(`.session-switcher-row[data-key="${CSS.escape(key)}"]`));
 
 /**
  * @param {SessionSwitcher} sw
  * @returns {string|undefined} The lit row's key.
  */
-const lit = (sw) => /** @type {HTMLElement|null} */ (sw.el.querySelector('.ss-row[aria-selected="true"]'))?.dataset.key;
+const lit = (sw) => /** @type {HTMLElement|null} */ (sw.el.querySelector('.session-switcher-row[aria-selected="true"]'))?.dataset.key;
 
 /**
  * A status line as it reads: its parts, with the middle dots the stylesheet
@@ -152,7 +152,7 @@ export async function runTests() {
   await test('the page\'s session rows have a Stop button; the popover\'s have none', () => {
     const page = mount({ mode: 'page' });
     try {
-      const stop = rowOf(page.sw, 's:beta').querySelector('button.ss-stop');
+      const stop = rowOf(page.sw, 's:beta').querySelector('button.session-switcher-stop');
       assert(!!stop, 'the page\'s row ends in no Stop button');
       assert(stop?.getAttribute('aria-label') === 'Stop beta', `it names what it stops — got ${stop?.getAttribute('aria-label')}`);
     } finally {
@@ -160,7 +160,7 @@ export async function runTests() {
     }
     const pop = mount();
     try {
-      const buttons = [...pop.sw.el.querySelectorAll('.ss-row button')].map((b) => b.className);
+      const buttons = [...pop.sw.el.querySelectorAll('.session-switcher-row button')].map((b) => b.className);
       assert(buttons.length === 0, `the popover's rows have buttons: ${buttons.join()}`);
     } finally {
       pop.done();
@@ -179,25 +179,25 @@ export async function runTests() {
     });
     try {
       const beta = rowOf(sw, 's:beta');
-      assert(beta.querySelector('.ss-badge-waiting')?.textContent === '2', 'a yellow count of what waits');
-      const sub = reads(beta.querySelector('.ss-sub'));
+      assert(beta.querySelector('.session-switcher-badge-waiting')?.textContent === '2', 'a yellow count of what waits');
+      const sub = reads(beta.querySelector('.session-switcher-sub'));
       assert(sub === '2 waiting · idle · 4 conversations', `status line — got ${sub}`);
-      assert(!!rowOf(sw, 's:gamma').querySelector('.ss-badge-working'), 'a working dot');
-      assert(!!rowOf(sw, 's:delta').querySelector('.ss-tile-spinner'), 'a spinner while starting');
-      assert(rowOf(sw, 's:broken').querySelector('.ss-badge-failed')?.textContent === '!', 'a red ! for a failure');
-      assert(rowOf(sw, 's:here').querySelector('.ss-tag-here')?.textContent === 'this window', 'this window is tagged');
-      assert(rowOf(sw, 's:gamma').querySelector('.ss-tag-other')?.textContent?.trim() === 'other window', 'another window is tagged');
-      for (const row of sw.el.querySelectorAll('.ss-row')) {
+      assert(!!rowOf(sw, 's:gamma').querySelector('.session-switcher-badge-working'), 'a working dot');
+      assert(!!rowOf(sw, 's:delta').querySelector('.session-switcher-tile-spinner'), 'a spinner while starting');
+      assert(rowOf(sw, 's:broken').querySelector('.session-switcher-badge-failed')?.textContent === '!', 'a red ! for a failure');
+      assert(rowOf(sw, 's:here').querySelector('.session-switcher-tag-here')?.textContent === 'this window', 'this window is tagged');
+      assert(rowOf(sw, 's:gamma').querySelector('.session-switcher-tag-other')?.textContent?.trim() === 'other window', 'another window is tagged');
+      for (const row of sw.el.querySelectorAll('.session-switcher-row')) {
         const buttons = [...row.querySelectorAll('button')];
         assert(buttons.length === 0, `${/** @type {HTMLElement} */ (row).dataset.key} has buttons at rest`);
       }
-      const betaPath = beta.querySelector('.ss-top .ss-path')?.textContent;
+      const betaPath = beta.querySelector('.session-switcher-top .session-switcher-path')?.textContent;
       assert(betaPath === '/code/beta', `a session row shows its project's path beside its name — got ${betaPath}`);
       const recent = rowOf(sw, 'r:/code/old1');
-      assert(recent.querySelector('.ss-sub')?.textContent === '/code/old1', 'a recent row shows its path');
-      const age = recent.querySelector('.ss-meta')?.textContent;
+      assert(recent.querySelector('.session-switcher-sub')?.textContent === '/code/old1', 'a recent row shows its path');
+      const age = recent.querySelector('.session-switcher-meta')?.textContent;
       assert(age === '2 hours ago', `and its age — got ${age}`);
-      const headings = [...sw.el.querySelectorAll('.ss-heading')].map((h) => h.textContent).join();
+      const headings = [...sw.el.querySelectorAll('.session-switcher-heading')].map((h) => h.textContent).join();
       assert(headings === 'Open,Recent', `Open, then Recent — got ${headings}`);
     } finally {
       done();
@@ -267,9 +267,9 @@ export async function runTests() {
     try {
       sw.input.value = 'zzz';
       sw.input.dispatchEvent(new Event('input'));
-      const empty = sw.el.querySelector('.ss-empty')?.textContent;
+      const empty = sw.el.querySelector('.session-switcher-empty')?.textContent;
       assert(empty === 'No session matches “zzz”.', `got ${empty}`);
-      assert(!sw.el.querySelector('.ss-row[data-key^="s:"]'), 'no session row');
+      assert(!sw.el.querySelector('.session-switcher-row[data-key^="s:"]'), 'no session row');
     } finally {
       done();
     }
@@ -305,11 +305,11 @@ export async function runTests() {
       press(sw, 'ArrowDown');
       assert(lit(sw) === 's:gamma', `got ${lit(sw)}`);
       press(sw, 'Backspace', { metaKey: true });
-      const confirm = rowOf(sw, 's:gamma').querySelector('.ss-confirm');
+      const confirm = rowOf(sw, 's:gamma').querySelector('.session-switcher-confirm');
       assert(confirm?.textContent?.startsWith('A turn is running. Stop it anyway?') === true, confirm?.textContent || 'no confirm');
       assert(calls.join() === 'stop:beta', 'busy gamma is not stopped yet');
       press(sw, 'Escape');
-      assert(!sw.el.querySelector('.ss-confirm') && calls.join() === 'stop:beta', `Esc keeps it, and closes nothing — got ${calls.join()}`);
+      assert(!sw.el.querySelector('.session-switcher-confirm') && calls.join() === 'stop:beta', `Esc keeps it, and closes nothing — got ${calls.join()}`);
 
       press(sw, 'Backspace', { metaKey: true });
       press(sw, 'Enter');
@@ -323,7 +323,7 @@ export async function runTests() {
   await test('the page\'s Stop stops, asking first only when a turn runs; [Stop] in the confirm stops', async () => {
     const { sw, calls, done } = mount({ mode: 'page', tweak: (m) => { m.sessions[1].busy = true; } });
     try {
-      /** @type {HTMLElement} */ (rowOf(sw, 's:gamma').querySelector('.ss-stop')).click();
+      /** @type {HTMLElement} */ (rowOf(sw, 's:gamma').querySelector('.session-switcher-stop')).click();
       assert(calls.length === 0, 'a busy session asks first');
       /** @type {HTMLElement} */ (rowOf(sw, 's:gamma').querySelector('[data-confirm="yes"]')).click();
       await settle();
@@ -346,7 +346,7 @@ export async function runTests() {
     }
     const page = mount({ mode: 'page', tweak: broken });
     try {
-      const dismiss = /** @type {HTMLElement} */ (rowOf(page.sw, 's:broken').querySelector('.ss-stop'));
+      const dismiss = /** @type {HTMLElement} */ (rowOf(page.sw, 's:broken').querySelector('.session-switcher-stop'));
       assert(dismiss.textContent === 'Dismiss', `a failed session's button says ${dismiss.textContent}`);
       dismiss.click();
       await settle();
@@ -371,7 +371,7 @@ export async function runTests() {
     const { sw, calls, done } = mount({ canPickFolder: false });
     try {
       rowOf(sw, 'act:new').click();
-      const field = /** @type {HTMLInputElement|null} */ (rowOf(sw, 'act:new').querySelector('.ss-field input'));
+      const field = /** @type {HTMLInputElement|null} */ (rowOf(sw, 'act:new').querySelector('.session-switcher-field input'));
       assert(!!field, 'New folder… shows its field');
       if (!field) return;
       field.value = '~/code/fresh';
@@ -380,9 +380,9 @@ export async function runTests() {
       assert(calls.join() === 'create:~/code/fresh', calls.join());
 
       rowOf(sw, 'act:open').click();
-      const open = /** @type {HTMLInputElement} */ (rowOf(sw, 'act:open').querySelector('.ss-field input'));
+      const open = /** @type {HTMLInputElement} */ (rowOf(sw, 'act:open').querySelector('.session-switcher-field input'));
       open.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
-      assert(!sw.el.querySelector('.ss-field'), 'Esc leaves the field');
+      assert(!sw.el.querySelector('.session-switcher-field'), 'Esc leaves the field');
       assert(!calls.includes('close'), 'and closes nothing');
 
       sw.input.value = '~/code/typed';
@@ -425,7 +425,7 @@ export async function runTests() {
       });
       try {
         // Ages are the platform's Intl formatting; key glyphs are no words.
-        assertPseudoLocalized(sw.el, { skip: '.ss-name, .ss-tile-wrap, .ss-path, .ss-meta, kbd', atLeast: 8 });
+        assertPseudoLocalized(sw.el, { skip: '.session-switcher-name, .session-switcher-tile-wrap, .session-switcher-path, .session-switcher-meta, kbd', atLeast: 8 });
       } finally {
         done();
       }

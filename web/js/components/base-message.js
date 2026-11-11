@@ -175,7 +175,7 @@ class BaseMessage extends JugglerElement {
    * @protected
    */
   _appendCopyButton(article, getText) {
-    article.appendChild(createCopyButton(getText, 'message-copy-button'));
+    article.appendChild(createCopyButton(getText, 'btn btn-icon btn-neutral message-copy-button'));
   }
 
   /**

@@ -66,7 +66,7 @@ export class ShortcutsTab {
 
     for (const group of keyShortcutManager.byCategoryForPlatform(isMac())) {
       const heading = document.createElement('h3');
-      heading.className = 'settings-section-heading';
+      heading.className = 'settings-section-heading caps-label-lg';
       heading.textContent = t(group.category);
       container.appendChild(heading);
 

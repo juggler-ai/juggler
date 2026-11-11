@@ -59,7 +59,7 @@ function mountDrawer({ open = true } = {}) {
     <button id="sidebar-toggle-button" aria-expanded="${open}"></button>
     <div id="sidebar-backdrop"></div>
     <div id="conversation-bar" style="position:absolute;inset:0 auto 0 0;width:240px;">
-      <div class="conversation-tab active"><span class="tab-title">A tab</span></div>
+      <div class="conversation-bar-tab" aria-current="true"><span class="tab-title">A tab</span></div>
     </div>`;
   document.body.appendChild(host);
 
@@ -72,7 +72,7 @@ function mountDrawer({ open = true } = {}) {
   if (open) document.body.classList.add('sidebar-open');
 
   const sidebar = /** @type {HTMLElement} */ (host.querySelector('#conversation-bar'));
-  const tab = /** @type {HTMLElement} */ (host.querySelector('.conversation-tab'));
+  const tab = /** @type {HTMLElement} */ (host.querySelector('.conversation-bar-tab'));
   const toggle = /** @type {HTMLElement} */ (host.querySelector('#sidebar-toggle-button'));
   return {
     manager,

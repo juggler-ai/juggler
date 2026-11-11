@@ -26,7 +26,7 @@ import { assert } from '../utilities/test-helpers.js';
 const MEMBERS = [
   '.ext-cap', '.tool-item', '.extension-setting-field',
   '.skills-card', '.skills-manage-row', '.skills-section',
-  'settings-panel .model-visibility-list', 'settings-panel .logs-viewer',
+  'settings-panel .settings-model-visibility-list', 'settings-panel .logs-viewer',
   '.skill-load-raw', '.workspace-finish-work-list', '.command-editor-preview',
   '.strategy-guidance-text'
 ];

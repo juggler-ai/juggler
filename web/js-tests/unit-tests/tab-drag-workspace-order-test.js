@@ -85,7 +85,7 @@ function mountBar(workspaces, bindings) {
 
   bar._session = session;
   bar.render();
-  for (const tab of Array.from(bar.querySelectorAll('.conversation-tab'))) {
+  for (const tab of Array.from(bar.querySelectorAll('.conversation-bar-tab'))) {
     /** @type {any} */ (tab).setPointerCapture = () => {};
     /** @type {any} */ (tab).releasePointerCapture = () => {};
   }
@@ -104,12 +104,12 @@ function drawn(bar) {
   const menu = /** @type {HTMLElement|null} */ (bar.querySelector('.conversation-tabs'));
   if (!menu) return '(no strip)';
   return /** @type {HTMLElement[]} */ (Array.from(menu.children))
-    .filter(child => child.classList.contains('conversation-tab')
+    .filter(child => child.classList.contains('conversation-bar-tab')
       || child.classList.contains('conversation-box'))
     .map((child) => {
-      if (child.classList.contains('conversation-tab')) return child.dataset.conversationId ?? '?';
+      if (child.classList.contains('conversation-bar-tab')) return child.dataset.conversationId ?? '?';
       const held = /** @type {HTMLElement[]} */ (
-        Array.from(child.querySelectorAll('.conversation-tab')))
+        Array.from(child.querySelectorAll('.conversation-bar-tab')))
         .map(tab => tab.dataset.conversationId ?? '?');
       return held.length ? `[${child.dataset.workspaceId}:${held.join(',')}]` : `[${child.dataset.workspaceId}]`;
     })
@@ -122,7 +122,7 @@ function drawn(bar) {
  * @returns {HTMLElement} The tab element.
  */
 function tabFor(bar, id) {
-  return /** @type {HTMLElement} */ (bar.querySelector(`.conversation-tab[data-conversation-id="${id}"]`));
+  return /** @type {HTMLElement} */ (bar.querySelector(`.conversation-bar-tab[data-conversation-id="${id}"]`));
 }
 
 /**
@@ -187,7 +187,7 @@ function releasePointer() {
 function topSlots(bar) {
   const menu = /** @type {HTMLElement} */ (bar.querySelector('.conversation-tabs'));
   return /** @type {HTMLElement[]} */ (Array.from(menu.children))
-    .filter(child => child.classList.contains('conversation-tab')
+    .filter(child => child.classList.contains('conversation-bar-tab')
       || child.classList.contains('conversation-box'));
 }
 
@@ -446,7 +446,7 @@ export async function runTests() {
         await new Promise(resolve => setTimeout(resolve, 0));
         await new Promise(resolve => setTimeout(resolve, 0));
 
-        for (const other of /** @type {HTMLElement[]} */ (Array.from(bar.querySelectorAll('.conversation-tab')))) {
+        for (const other of /** @type {HTMLElement[]} */ (Array.from(bar.querySelectorAll('.conversation-bar-tab')))) {
           if (other.classList.contains('drag-source') || other.classList.contains('drag-ghost')) continue;
           const style = getComputedStyle(other);
           const animates = parseFloat(style.transitionDuration) > 0
@@ -700,7 +700,7 @@ export async function runTests() {
     for (const [label, mount] of arrangements) {
       const scout = mount();
       const slots = topSlots(scout.bar);
-      const ids = slots.filter(slot => slot.classList.contains('conversation-tab'))
+      const ids = slots.filter(slot => slot.classList.contains('conversation-bar-tab'))
         .map(slot => /** @type {string} */ (slot.dataset.conversationId));
       const top = slots[0].getBoundingClientRect().top;
       const bottom = slots[slots.length - 1].getBoundingClientRect().bottom;
@@ -993,7 +993,7 @@ async function dropSweep(fixtures) {
       const scout = mount();
       const slotCount = topSlots(scout.bar).length;
       const draggable = [
-        ...(/** @type {HTMLElement[]} */ (Array.from(scout.bar.querySelectorAll('.conversation-tab'))))
+        ...(/** @type {HTMLElement[]} */ (Array.from(scout.bar.querySelectorAll('.conversation-bar-tab'))))
           .map(tab => `tab:${tab.dataset.conversationId}`),
         ...topSlots(scout.bar)
           .filter(slot => slot.classList.contains('conversation-box'))

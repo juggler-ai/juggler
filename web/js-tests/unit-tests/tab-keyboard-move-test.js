@@ -101,9 +101,9 @@ function drawn(bar) {
   const list = /** @type {HTMLElement} */ (bar.querySelector('.conversation-tabs'));
   return Array.from(list.children).map((child) => {
     const el = /** @type {HTMLElement} */ (child);
-    if (el.classList.contains('conversation-tab')) return el.dataset.conversationId;
+    if (el.classList.contains('conversation-bar-tab')) return el.dataset.conversationId;
     if (el.classList.contains('conversation-box')) {
-      const inner = Array.from(el.querySelectorAll('.conversation-tab'))
+      const inner = Array.from(el.querySelectorAll('.conversation-bar-tab'))
         .map((t) => /** @type {HTMLElement} */ (t).dataset.conversationId);
       return `[${inner.join(',')}]`;
     }
@@ -225,7 +225,7 @@ export async function runTests(_ctx) {
        * @param {string} id - Whose tab.
        * @returns {HTMLElement} The tab.
        */
-      const tab = (id) => /** @type {HTMLElement} */ (bar.querySelector(`.conversation-tab[data-conversation-id="${id}"]`));
+      const tab = (id) => /** @type {HTMLElement} */ (bar.querySelector(`.conversation-bar-tab[data-conversation-id="${id}"]`));
       const aTopBefore = tab('a').getBoundingClientRect().top;
       const bTopBefore = tab('b').getBoundingClientRect().top;
       move(bar, 'b', 'up');
@@ -258,7 +258,7 @@ export async function runTests(_ctx) {
       move(bar, 'b', 'up');
       assert(calls.at(-1) === 'b,a,c' && drawn(bar) === 'b,a,c',
         `the move itself is not motion: wrote ${JSON.stringify(calls)}, drew ${drawn(bar)}`);
-      const tabs = /** @type {HTMLElement[]} */ (Array.from(bar.querySelectorAll('.conversation-tab')));
+      const tabs = /** @type {HTMLElement[]} */ (Array.from(bar.querySelectorAll('.conversation-bar-tab')));
       const gliding = tabs.filter((el) => el.getAnimations().some((anim) => anim.id === 'tab-keyboard-glide'));
       assert(gliding.length === 0, `nothing should glide, ${gliding.length} did`);
       assert(!tabs.some((el) => el.classList.contains('keyboard-moving')), 'nor be lifted');

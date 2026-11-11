@@ -144,11 +144,11 @@ export async function runTests(_ctx) {
     owed.push(() => { stop?.(); contentEl.remove(); });
     return {
       contentEl,
-      rows: () => /** @type {HTMLElement[]} */ ([...contentEl.querySelectorAll('.info-card__task-row')]),
+      rows: () => /** @type {HTMLElement[]} */ ([...contentEl.querySelectorAll('.task-progress-card__row')]),
       // The strip is the plan/todo pins' own bar (lib/task-lists.js), one
       // segment per state; a state with no items draws no segment.
       width: (/** @type {string} */ kind, /** @type {string} */ state) => /** @type {HTMLElement|null} */ (
-        contentEl.querySelector(`.info-card__task-row[data-kind="${kind}"] .task-progress__segment--${state}`))
+        contentEl.querySelector(`.task-progress-card__row[data-kind="${kind}"] .task-progress__segment--${state}`))
         ?.style.width ?? 'none',
     };
   }

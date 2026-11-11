@@ -661,7 +661,6 @@ class StrategySelector extends JugglerElement {
       // Just update button state without full re-render to avoid focus disruption
       const button = this.querySelector('.strategy-selector-button');
       if (button) {
-        button.classList.remove('open');
         button.setAttribute('aria-expanded', 'false');
       }
     }
@@ -730,7 +729,7 @@ class StrategySelector extends JugglerElement {
   generateDropdownContent() {
     if (this._strategies.length === 0) {
       return `
-                <li class="strategy-item unavailable" role="none">
+                <li class="strategy-item is-unavailable" role="none">
                     <div class="strategy-item-body" role="menuitem" aria-disabled="true">
                         <p class="strategy-item-description">${escapeHtml(t('No strategies.'))}</p>
                     </div>
@@ -752,7 +751,7 @@ class StrategySelector extends JugglerElement {
       // its details — since a menu item may not contain another control. The
       // <li> is only the row they share, and clicks on the body bubble to it.
       return `
-                <li class="strategy-item ${isActive ? 'active' : ''}" data-strategy-id="${escapeHtml(id)}" role="none" ${colorStyle}>
+                <li class="strategy-item ${isActive ? 'is-active' : ''}" data-strategy-id="${escapeHtml(id)}" role="none" ${colorStyle}>
                     <div class="strategy-item-body" role="menuitemradio" aria-checked="${isActive}">
                         <header class="strategy-item-header">
                             <span class="strategy-item-label">
@@ -762,7 +761,7 @@ class StrategySelector extends JugglerElement {
                         </header>
                         <p class="strategy-item-description">${escapeHtml(description)}</p>
                     </div>
-                    <button type="button" class="strategy-info-button btn-ghost" role="menuitem" data-strategy-info-id="${escapeHtml(id)}" title="${escapeHtml(t('View strategy details'))}" aria-label="${escapeHtml(t('View {name} strategy details', { name }))}">${INFO_SVG}</button>
+                    <button type="button" class="btn btn-icon btn-ghost strategy-info-button" role="menuitem" data-strategy-info-id="${escapeHtml(id)}" title="${escapeHtml(t('View strategy details'))}" aria-label="${escapeHtml(t('View {name} strategy details', { name }))}">${INFO_SVG}</button>
                 </li>
             `;
     }).join('');
@@ -918,7 +917,7 @@ class StrategySelector extends JugglerElement {
     }
 
     const dropdownHtml = (this._dropdownOpen && !liveDropdown)
-      ? `<nav class="dropdown-menu strategy-dropdown show" id="strategy-dropdown"><menu role="menu" aria-label="${escapeHtml(t('Strategy'))}">${dropdownContent}</menu></nav>`
+      ? `<nav class="dropdown-menu strategy-dropdown is-open" id="strategy-dropdown"><menu role="menu" aria-label="${escapeHtml(t('Strategy'))}">${dropdownContent}</menu></nav>`
       : '';
 
     const buttonIconHtml = strategyIcon
@@ -926,9 +925,9 @@ class StrategySelector extends JugglerElement {
       : '';
 
     this.innerHTML = `
-            <button class="strategy-selector-button input-ctrl-btn ${this._dropdownOpen ? 'open' : ''}" id="strategy-button" tabindex="-1" title="${escapeHtml(t('Select Strategy'))}" aria-haspopup="menu" aria-expanded="${this._dropdownOpen ? 'true' : 'false'}" ${colorStyleHTML} ${hasColorAttrHTML}>
+            <button class="strategy-selector-button input-ctrl-btn btn-ghost" id="strategy-button" tabindex="-1" title="${escapeHtml(t('Select Strategy'))}" aria-haspopup="menu" aria-expanded="${this._dropdownOpen ? 'true' : 'false'}" ${colorStyleHTML} ${hasColorAttrHTML}>
                 ${buttonIconHtml}
-                <span class="strategy-name">${escapeHtml(strategyName)}</span>
+                <span class="strategy-name text-truncate">${escapeHtml(strategyName)}</span>
             </button>
             ${dropdownHtml}
         `;
@@ -989,7 +988,6 @@ class StrategySelector extends JugglerElement {
       button.style.removeProperty('--strategy-color');
       button.removeAttribute('data-has-color');
     }
-    button.classList.toggle('open', this._dropdownOpen);
     button.setAttribute('aria-expanded', String(this._dropdownOpen));
   }
 

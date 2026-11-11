@@ -643,11 +643,11 @@ export async function runTests(_ctx) {
         assert(toggle.getAttribute('aria-label') === 'Toggle Pinboard',
           `the toggle's label stays literal, got "${toggle.getAttribute('aria-label')}"`);
         toggle.click();
-        assert(shell.classList.contains('open'), 'a click must latch the board open');
+        assert(shell.classList.contains('is-open'), 'a click must latch the board open');
         assert(toggle.getAttribute('aria-expanded') === 'true', 'the button must report the board open');
         assert(isAnyPopupOpen(), 'an open board holds a popup token, so Escape and Back reach it');
         toggle.click();
-        assert(!shell.classList.contains('open'), 'a second click must close it');
+        assert(!shell.classList.contains('is-open'), 'a second click must close it');
         assert(toggle.getAttribute('aria-expanded') === 'false', 'and report it closed again');
         assert(!isAnyPopupOpen(), 'a closed board must release its popup token');
       } finally {
@@ -684,9 +684,9 @@ export async function runTests(_ctx) {
       const { shell, teardown } = await mountShell([]);
       try {
         document.body.dispatchEvent(chord());
-        assert(shell.classList.contains('open'), 'the chord must open the board');
+        assert(shell.classList.contains('is-open'), 'the chord must open the board');
         document.body.dispatchEvent(chord());
-        assert(!shell.classList.contains('open'),
+        assert(!shell.classList.contains('is-open'),
           'the chord must close the board it opened, not stand down behind it');
       } finally {
         teardown();
@@ -698,11 +698,11 @@ export async function runTests(_ctx) {
       try {
         pinboardView.open();
         document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-        assert(!shell.classList.contains('open'), 'Escape must dismiss the board through popup-manager');
+        assert(!shell.classList.contains('is-open'), 'Escape must dismiss the board through popup-manager');
 
         pinboardView.open();
         shell.querySelector('.pinboard-scrim').click();
-        assert(!shell.classList.contains('open'), 'a click on the scrim must close the board');
+        assert(!shell.classList.contains('is-open'), 'a click on the scrim must close the board');
       } finally {
         teardown();
       }
@@ -759,8 +759,8 @@ export async function runTests(_ctx) {
         // somewhere off to the right. Put the panel where an open board holds
         // it, in one step.
         panel.style.transition = 'none';
-        if (!shell.classList.contains('open')) toggle.click();
-        assert(shell.classList.contains('open'), 'the fixture needs the board open to hit-test it');
+        if (!shell.classList.contains('is-open')) toggle.click();
+        assert(shell.classList.contains('is-open'), 'the fixture needs the board open to hit-test it');
         assert(Math.abs(panel.getBoundingClientRect().right - shell.getBoundingClientRect().right) < 1,
           'the open panel must sit against the shell edge before anything is hit-tested');
 
@@ -1318,7 +1318,7 @@ export async function runTests(_ctx) {
         pinboardView.open();
         shell.querySelector('.pinboard-tabbar__add').click();
         const picker = /** @type {any} */ (document.querySelector('.pinboard-add-picker'));
-        const headings = [...picker.querySelectorAll('.category-header')];
+        const headings = [...picker.querySelectorAll('.menu-header')];
         assert(headings.length === 0,
           `nothing is written over the list: it is short, it hangs from the + that opened it, and a heading there is furniture, got ${headings.length}`);
 
@@ -1362,7 +1362,7 @@ export async function runTests(_ctx) {
         const picker = /** @type {any} */ (document.querySelector('.pinboard-add-picker'));
         const row = /** @type {any} */ (picker.querySelector('[data-type-id="broken"]'));
         assert(!!row, 'the row stays, so the list is the same list every time it opens');
-        assert(row.getAttribute('aria-disabled') === 'true' && row.classList.contains('unavailable'),
+        assert(row.getAttribute('aria-disabled') === 'true' && row.classList.contains('menu-item-unavailable'),
           'and is dead: a click on it could not add anything, and a row that looks live and does nothing is worse than one that says it is spent');
         assert(!row.querySelector('.pinboard-add-picker__note'),
           'with nothing written beside it — being dead already says it is on the board');

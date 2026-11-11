@@ -24,6 +24,7 @@
    ========================================================================== */
 
 .hidden {
+    /* stylelint-disable-next-line declaration-no-important -- hidden means hidden, whatever display a component gives the element */
     display: none !important;
 }
 
@@ -32,8 +33,36 @@
    a child its own `display` would otherwise keep showing it — which is why a
    component never needs a `[hidden]` rule of its own. */
 [hidden] {
+    /* stylelint-disable-next-line declaration-no-important -- hidden means hidden, whatever display a component gives the element */
     display: none !important;
 }
+
+/* ==========================================================================
+   Visually hidden (.u-visually-hidden)
+   Gone from the screen but still in the accessibility tree and the tab order:
+   the native control under a drawn switch or dial, text that only a screen
+   reader needs. `.hidden` and [hidden] take an element out of both, which is
+   wrong for either. A utility because nothing that carries it ever wants to be
+   seen; a control that shows itself in some state should not carry it.
+   Important for the reason `.hidden` is: a component's rule for the element
+   (an `input` in a settings row, a scope's `> :first-child` margin) must not
+   give it back a size. The clip alone hides it; the rest keeps it from taking
+   space or stretching a scroller.
+   ========================================================================== */
+
+/* stylelint-disable declaration-no-important -- visually hidden means hidden, whatever geometry a component gives the element */
+.u-visually-hidden {
+    position: absolute !important;
+    width: 0.0625rem !important;
+    height: 0.0625rem !important;
+    margin: -0.0625rem !important;
+    padding: 0 !important;
+    border: 0 !important;
+    overflow: hidden !important;
+    clip-path: inset(50%) !important;
+    white-space: nowrap !important;
+}
+/* stylelint-enable declaration-no-important */
 
 /* ==========================================================================
    Thin scrollbar (.u-scrollbar-thin)
@@ -44,7 +73,7 @@
 
 .u-scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: var(--overlay-light-10) transparent;
+    scrollbar-color: var(--wash-3) transparent;
 }
 
 .u-scrollbar-thin::-webkit-scrollbar {
@@ -56,6 +85,6 @@
 }
 
 .u-scrollbar-thin::-webkit-scrollbar-thumb {
-    background: var(--overlay-light-10);
+    background: var(--wash-3);
     border-radius: var(--radius-sm);
 }

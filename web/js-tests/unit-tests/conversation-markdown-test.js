@@ -200,7 +200,7 @@ export async function runTests() {
     bar.render();
 
     const tab = /** @type {Element|null} */ (
-      bar.querySelector(`.conversation-tab[data-conversation-id="${conversation.id}"]`));
+      bar.querySelector(`.conversation-bar-tab[data-conversation-id="${conversation.id}"]`));
     assert(!!tab, 'the strip draws a tab for the conversation');
     const menu = resolveMenu(/** @type {Element} */ (tab));
     const row = menu?.items.find((item) => item.label === 'Copy Conversation to Clipboard');

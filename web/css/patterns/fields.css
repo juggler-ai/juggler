@@ -4,27 +4,118 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
-/* The text field: an input, textarea or select set into a panel, shared by
-   settings, the project picker, the model picker, the pinboard, the find bar,
-   the review panel, the command editor and the modal dialog.
-
-   Only the fill, border, corner and the focus look live here. Size, padding
-   and type belong to the component.
-
-   :focus-within rather than :focus, so a wrapper drawing the box around a bare
-   input (with a button or a prefix beside it) takes the same look as an input
-   drawing its own. It is held in :where() so that from down here it never
-   outranks a component's own rule. */
+/**
+ * The app's one text field: an input, textarea or select.
+ *
+ *   size   .field-input                 (default: a settings row, a dialog's
+ *                                        one field)
+ *          .field-input .field-input-sm (compact: secondary forms, filters,
+ *                                        editors in a panel)
+ *          .field-input .field-input-xs (inline in a dense row or toolbar)
+ *   state  :focus-within                accent border and halo
+ *          [aria-invalid="true"]        danger border (and halo, focused)
+ *          :disabled                    --disabled-opacity, not-allowed
+ *          ::placeholder                --text-placeholder
+ *
+ * A select also gets the chevron and a hover border. A component class on a
+ * field keeps only what is its own — width, flex, a monospace face, text
+ * alignment — and never re-states the box, the size or a state.
+ *
+ * On a wrapper. `.field-input` on an element drawing the box around a bare
+ * control (with a button or a prefix beside it) gives the wrapper the fill,
+ * border, corner and focus look; the size is only for a control carrying the
+ * class itself, and the bare control inside drops its own ring, since the
+ * wrapper shows its focus.
+ *
+ * Every state is held in :where(), one class of specificity, so a component
+ * refines a field from above without out-ranking it. Prefer the hooks:
+ *
+ *   --field-bg          the resting fill (--bg-primary)
+ *   --field-border      the resting border colour (--border-color)
+ *   --field-radius      the corner (--radius-lg)
+ *   --field-pad-y / --field-pad-x
+ *                       the padding; set by the size classes, and by a
+ *                       component only for a field whose size is its own (a
+ *                       full editor), which states its font-size too
+ */
 
 .field-input {
-    background-color: var(--bg-primary);
-    border: 0.0625rem solid var(--border-color);
-    border-radius: var(--radius-lg);
+    --field-pad-y: var(--space-10);
+    --field-pad-x: var(--space-14);
+
+    box-sizing: border-box;
+    background-color: var(--field-bg, var(--bg-primary));
+    border: 0.0625rem solid var(--field-border, var(--border-color));
+    border-radius: var(--field-radius, var(--radius-lg));
+    color: var(--text-primary);
     transition: border-color var(--transition-base), box-shadow var(--transition-base);
+}
+
+.field-input-sm {
+    --field-pad-y: var(--space-6);
+    --field-pad-x: var(--space-10);
+}
+
+.field-input-xs {
+    --field-pad-y: var(--space-2);
+    --field-pad-x: var(--space-6);
+    --field-radius: var(--radius-md);
+}
+
+.field-input:where(input, textarea, select) {
+    padding: var(--field-pad-y) var(--field-pad-x);
+    font-size: var(--font-size-md);
+}
+
+.field-input-sm:where(input, textarea, select) {
+    font-size: var(--font-size-base);
+}
+
+.field-input-xs:where(input, textarea, select) {
+    font-size: var(--font-size-sm);
+}
+
+/* The chevron stands in the right padding, inset from the edge as the text
+   is from the left. */
+.field-input:where(select) {
+    padding-right: calc(var(--field-pad-x) + var(--space-20));
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960' width='16' height='16'%3E%3Cpath fill='%238b949e' d='M480-360 280-560h400L480-360Z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right calc(var(--field-pad-x) - 0.25rem) center;
+    cursor: pointer;
+}
+
+.field-input:where(select:hover:not(:focus, :disabled)) {
+    border-color: var(--text-secondary);
+}
+
+/* At an element's specificity, so any component's own placeholder wins. */
+:where(.field-input)::placeholder,
+:where(.field-input) :where(input, textarea)::placeholder {
+    color: var(--text-placeholder);
 }
 
 .field-input:where(:focus-within) {
     outline: none;
     border-color: var(--field-focus-border);
     box-shadow: var(--field-focus-halo);
+}
+
+:where(.field-input) input,
+:where(.field-input) textarea {
+    outline: none;
+}
+
+.field-input:where([aria-invalid="true"]) {
+    border-color: var(--danger);
+}
+
+.field-input:where([aria-invalid="true"]:focus) {
+    box-shadow: var(--field-invalid-halo);
+}
+
+.field-input:where(:disabled) {
+    opacity: var(--disabled-opacity);
+    cursor: not-allowed;
 }

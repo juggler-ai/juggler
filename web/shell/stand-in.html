@@ -11,6 +11,7 @@
     {{template "window-shell-head" .}}
     <!-- The sessions page's header and buttons, and the notice every
          whole-window message is laid out as. -->
+    <link rel="stylesheet" href="{{.AssetBase}}/css/patterns/buttons.css">
     <link rel="stylesheet" href="{{.AssetBase}}/machine/sessions.css">
     <link rel="stylesheet" href="{{.AssetBase}}/css/patterns/notice.css">
     <link rel="stylesheet" href="{{.AssetBase}}/shell/stand-in.css">
@@ -41,7 +42,7 @@
                      that answers it is on its way. -->
                 <div class="notice__actions si-actions">
                     {{range .Buttons}}<form method="post" action="{{.Action}}"{{if .Busy}} data-busy="{{.Busy}}"{{end}}>
-                        <button type="submit" class="ms-button{{if .Primary}} ms-button-primary{{end}}">{{.Label}}</button>
+                        <button type="submit" class="btn btn-sm {{if .Primary}}btn-primary{{else}}btn-neutral{{end}}">{{.Label}}</button>
                     </form>
                     {{end}}
                 </div>

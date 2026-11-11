@@ -49,7 +49,7 @@ const TRANSACTION_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0
 // Colour preset for the transaction panel's own header. A round-trip is not an
 // item type, so it takes the neutral default rather than borrowing a family's
 // hue — but it must be a real preset: the `.color-*` blocks are what define
-// --preset-bg / --preset-badge-bg, and a name with no block leaves the icon box
+// --color-preset-bg / --color-preset-badge-bg, and a name with no block leaves the icon box
 // and the lozenge with no background at all while the light theme still forces
 // their glyph and label white.
 const TRANSACTION_HEADER_COLOR = 'slate';
@@ -908,7 +908,7 @@ class PropertiesPanel extends JugglerElement {
   _buildViewTransactionButton() {
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'properties-panel-header-icon-btn';
+    btn.className = 'btn btn-icon btn-secondary properties-panel-header-icon-btn';
     btn.title = t('View the LLM input/output for this round-trip');
     btn.setAttribute('aria-label', t('View transaction'));
     btn.innerHTML = TRANSACTION_ICON_SVG;
@@ -955,14 +955,14 @@ class PropertiesPanel extends JugglerElement {
     // range don't apply — the one action is to remove it from the queue.
     if (messageItemId && this._messageThread && this._resolveItem(messageItemId).isPending) {
       const removeBtn = document.createElement('button');
-      removeBtn.className = 'properties-panel-btn danger';
+      removeBtn.className = 'btn btn-sm btn-secondary btn-danger-quiet properties-panel-delete-btn';
       removeBtn.innerHTML = `<span class="icon-trashcan"></span> ${escapeHtml(t('Remove from queue'))}`;
       removeBtn.addEventListener('click', () => this._removePendingItem(messageItemId));
       // A held send ("Send later") can also go now: the worker drops its hold.
       const { msg } = this._resolveItem(messageItemId);
       if (msg && queuedHoldLabel(msg) !== null) {
         const sendNowBtn = document.createElement('button');
-        sendNowBtn.className = 'properties-panel-btn';
+        sendNowBtn.className = 'btn btn-sm btn-secondary';
         sendNowBtn.innerHTML = `<span class="icon-play"></span> ${escapeHtml(t('Send now'))}`;
         sendNowBtn.addEventListener('click', () => this._messageThread?.releaseQueued(messageItemId));
         controls.appendChild(sendNowBtn);
@@ -980,7 +980,7 @@ class PropertiesPanel extends JugglerElement {
         // message's alone.
         if (type === 'user') {
           const rollbackBtn = document.createElement('button');
-          rollbackBtn.className = 'properties-panel-btn';
+          rollbackBtn.className = 'btn btn-sm btn-secondary';
           rollbackBtn.innerHTML = `
                         ${UNDO_SVG}
                         ${escapeHtml(t('Rewind to this message'))}
@@ -995,7 +995,7 @@ class PropertiesPanel extends JugglerElement {
         // is offered in the root column only.
         if ((type === 'user' || type === 'assistant') && !this._messageThread.threadItemId) {
           const branchBtn = document.createElement('button');
-          branchBtn.className = 'properties-panel-btn properties-panel-fork-btn';
+          branchBtn.className = 'btn btn-sm btn-secondary properties-panel-fork-btn';
           const conversation = this._messageThread.conversation;
           branchBtn.disabled = !!conversation?.session?.isDuplicating?.(conversation.id);
           const label = type === 'user'
@@ -1034,7 +1034,7 @@ class PropertiesPanel extends JugglerElement {
     // Refresh button (if context item supports refresh)
     if (typeof /** @type {any} */ (contextItem).refresh === 'function') {
       const refreshBtn = document.createElement('button');
-      refreshBtn.className = 'properties-panel-btn';
+      refreshBtn.className = 'btn btn-sm btn-secondary';
       refreshBtn.innerHTML = `
                 ${RETRY_SVG}
                 ${escapeHtml(t('Refresh'))}
@@ -1051,7 +1051,7 @@ class PropertiesPanel extends JugglerElement {
           () => this._removeContextItem(contextItem));
       } else {
         const removeBtn = document.createElement('button');
-        removeBtn.className = 'properties-panel-btn danger';
+        removeBtn.className = 'btn btn-sm btn-secondary btn-danger-quiet properties-panel-delete-btn';
         removeBtn.innerHTML = `<span class="icon-trashcan"></span> ${escapeHtml(t('Remove'))}`;
         removeBtn.addEventListener('click', () => this._removeContextItem(contextItem));
         controls.appendChild(removeBtn);
@@ -1084,7 +1084,7 @@ class PropertiesPanel extends JugglerElement {
     const rerunnable = ActionClass?.isRerunnable?.() !== false;
     if (taResult && rerunnable && this._isRetryable(toolAction)) {
       const retryBtn = document.createElement('button');
-      retryBtn.className = 'properties-panel-btn';
+      retryBtn.className = 'btn btn-sm btn-secondary';
       retryBtn.innerHTML = `
                 ${UNDO_SVG}
                 ${escapeHtml(t('Re-run command'))}

@@ -189,7 +189,8 @@ export function buildPlaceRows(request) {
   } = request;
 
   const group = document.createElement('div');
-  group.className = ['setup-rows', asRail && 'setup-rows-rail'].filter(Boolean).join(' ');
+  group.className = 'setup-rows';
+  if (asRail) group.classList.add('setup-rows-rail');
   group.setAttribute('role', role);
   group.setAttribute('aria-label', label);
 
@@ -232,7 +233,7 @@ export function buildPlaceRows(request) {
     // in both views.
     if (row.meaning) {
       const means = document.createElement('span');
-      means.className = 'setup-row-meaning';
+      means.className = 'setup-row-meaning text-truncate';
       means.textContent = row.meaning;
       element.appendChild(means);
     }
@@ -253,7 +254,8 @@ export function buildPlaceRows(request) {
       // Which of the two this line is, because they are not set alike: a probe
       // answers in a sentence, and the fallback is an address. Monospace is what
       // makes a path scannable and what makes a sentence read as output.
-      note.className = status?.detail ? 'setup-row-detail setup-row-said' : 'setup-row-detail';
+      note.className = 'setup-row-detail text-truncate';
+      if (status?.detail) note.classList.add('setup-row-said');
       note.textContent = detail;
       element.appendChild(note);
     }

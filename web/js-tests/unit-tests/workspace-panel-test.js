@@ -178,13 +178,13 @@ function actionsIn(panel, selector) {
 async function pressAndAgree(panel, actionId) {
   /** @type {HTMLElement} */ (panel.querySelector(`[data-action="${actionId}"]`)).click();
 
-  const confirmed = 'modal-dialog.show:not(.is-notice) .modal-button.btn-primary, modal-dialog.show:not(.is-notice) .modal-button.btn-danger';
+  const confirmed = 'modal-dialog.is-open:not(.is-notice) .modal-footer .btn-primary, modal-dialog.is-open:not(.is-notice) .modal-footer .btn-danger';
   await waitFor(() => !!document.querySelector(confirmed), { description: 'the confirmation to appear' });
   /** @type {HTMLElement} */ (document.querySelector(confirmed)).click();
 
-  await waitFor(() => !!document.querySelector('modal-dialog.is-notice.show .modal-message'),
+  await waitFor(() => !!document.querySelector('modal-dialog.is-notice.is-open .modal-message'),
     { description: 'the panel to say what happened' });
-  return document.querySelector('modal-dialog.is-notice.show .modal-message')?.textContent ?? '';
+  return document.querySelector('modal-dialog.is-notice.is-open .modal-message')?.textContent ?? '';
 }
 
 /**
@@ -281,7 +281,7 @@ export async function runTests() {
       // are right on the first draw. The name is where this one workspace
       // starts, and nothing above it may be about the instance.
       const head = [...(panel.querySelector('.workspace-panel-head')?.children ?? [])]
-        .map((/** @type {any} */ line) => line.className).join(',');
+        .map((/** @type {any} */ line) => line.classList[0]).join(',');
       assert(head === 'workspace-panel-eyebrow,workspace-panel-kind-note,workspace-panel-title',
         `the kind is said before the name and each of those once, got ${JSON.stringify(head)}`);
     } finally {
@@ -762,15 +762,15 @@ export async function runTests() {
         session.conversations.set('c_x1', { id: 'c_x1', name: '1', workspaceId: 'ws_xa', isProcessing: true });
         session.conversations.set('c_x2', { id: 'c_x2', name: '2', workspaceId: 'ws_xa', isProcessing: true });
         /** @type {HTMLElement} */ (panel.querySelector('[data-action="end"]')).click();
-        await waitFor(() => !!document.querySelector('modal-dialog.is-notice.show .modal-message'),
+        await waitFor(() => !!document.querySelector('modal-dialog.is-notice.is-open .modal-message'),
           { description: 'the refusal notice' });
-        shown.push({ where: 'refusal (two)', text: document.querySelector('modal-dialog.is-notice.show .modal-message')?.textContent ?? '' });
+        shown.push({ where: 'refusal (two)', text: document.querySelector('modal-dialog.is-notice.is-open .modal-message')?.textContent ?? '' });
         neutralizeStrayOverlays();
         session.conversations.delete('c_x2');
         /** @type {HTMLElement} */ (panel.querySelector('[data-action="end"]')).click();
-        await waitFor(() => !!document.querySelector('modal-dialog.is-notice.show .modal-message'),
+        await waitFor(() => !!document.querySelector('modal-dialog.is-notice.is-open .modal-message'),
           { description: 'the refusal notice for one' });
-        shown.push({ where: 'refusal (one)', text: document.querySelector('modal-dialog.is-notice.show .modal-message')?.textContent ?? '' });
+        shown.push({ where: 'refusal (one)', text: document.querySelector('modal-dialog.is-notice.is-open .modal-message')?.textContent ?? '' });
         neutralizeStrayOverlays();
         session.conversations.clear();
 

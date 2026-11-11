@@ -99,7 +99,7 @@ class NoticeMessage extends BaseMessage {
       actions.className = 'notice-message-actions message-row-body';
       const button = document.createElement('button');
       button.type = 'button';
-      button.className = 'message-action-btn notice-retry-btn';
+      button.className = 'btn btn-sm btn-secondary message-action-btn notice-retry-btn';
       button.textContent = t('Retry with {count} tokens', { count: formatTokens(retryMaxOutput) });
       button.title = t('Run this turn again once, with Max output raised to {count} tokens. Settings stay as they are.',
         { count: formatTokens(retryMaxOutput) });
@@ -116,7 +116,7 @@ class NoticeMessage extends BaseMessage {
       actions.className = 'notice-message-actions message-row-body';
       const button = document.createElement('button');
       button.type = 'button';
-      button.className = 'message-action-btn notice-settings-btn';
+      button.className = 'btn btn-sm btn-secondary message-action-btn notice-settings-btn';
       button.textContent = t('Set context window');
       button.title = t('Open {model}\'s Context window field in Settings → Providers', { model: target.model });
       button.addEventListener('click', (event) => {

@@ -11,6 +11,10 @@
     {{template "window-shell-head" .}}
     <!-- The app's spinner, shown while the first list loads. -->
     <link rel="stylesheet" href="{{.AssetBase}}/css/patterns/spinner.css">
+    <!-- The caps label and the one-line truncation, as the app's sheets use
+         them (the switcher's headings, the page's names and addresses). -->
+    <link rel="stylesheet" href="{{.AssetBase}}/css/patterns/labels.css">
+    <link rel="stylesheet" href="{{.AssetBase}}/css/patterns/text.css">
     <!-- LAN access and tunnels, drawn as a session's Settings → Connectivity
          draws them (js/components/connectivity/exposure-view.js): their cards,
          checkboxes and the address cards' copy buttons. -->

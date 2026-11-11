@@ -24,8 +24,8 @@ injectStylesOnce('binary-file-viewer-styles', `
 .binary-file__facts {
   display: grid;
   grid-template-columns: max-content 1fr;
-  gap: 0.125rem 0.75rem;
-  margin-top: 0.5rem;
+  gap: var(--space-2) var(--space-12);
+  margin-top: var(--space-8);
   font-size: var(--font-size-sm);
 }
 

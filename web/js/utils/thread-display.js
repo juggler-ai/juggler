@@ -358,7 +358,7 @@ export function paintThreadSummary(el, text, opts) {
   el.className = 'thread-summary thread-status';
   el.dataset.kind = status.kind;
   const spinnerHTML = status.spinner
-    ? '<juggler-spinner class="thread-status-spinner" style="--size: 0.9em"></juggler-spinner>'
+    ? '<juggler-spinner class="thread-status-spinner" style="--spinner-size: 0.9em"></juggler-spinner>'
     : '';
   // A status with nothing to say and no spinner renders no line at all, rather
   // than an empty one the column gap would still space out.

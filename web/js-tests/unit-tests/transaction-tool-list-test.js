@@ -162,28 +162,28 @@ export async function runTests(_ctx) {
       input: { systemPrompt: 'You are a test.', messages: [], tools },
     });
 
-    const toolsRow = /** @type {HTMLDetailsElement|null} */ (host.querySelector('.tx-row'));
+    const toolsRow = /** @type {HTMLDetailsElement|null} */ (host.querySelector('.transaction-row'));
     assert(toolsRow, 'no input rows rendered');
 
     // Rows build their body on first open, matching how a long history stays
     // cheap until asked for.
-    const rows = [...host.querySelectorAll('.tx-row')];
-    const row = rows.find((r) => r.querySelector('.tx-row-kind')?.textContent === 'tools');
-    assert(row, `no tools row; kinds were ${JSON.stringify(rows.map((r) => r.querySelector('.tx-row-kind')?.textContent))}`);
+    const rows = [...host.querySelectorAll('.transaction-row')];
+    const row = rows.find((r) => r.querySelector('.transaction-row-kind')?.textContent === 'tools');
+    assert(row, `no tools row; kinds were ${JSON.stringify(rows.map((r) => r.querySelector('.transaction-row-kind')?.textContent))}`);
 
-    const label = row.querySelector('.tx-row-label')?.textContent || '';
+    const label = row.querySelector('.transaction-row-label')?.textContent || '';
     assert(label === '4 tools · 2 from MCP', `label was ${JSON.stringify(label)}`);
 
     /** @type {HTMLDetailsElement} */ (row).open = true;
     row.dispatchEvent(new Event('toggle'));
 
-    const headings = [...row.querySelectorAll('.tx-tool-group-title')].map((e) => e.textContent);
+    const headings = [...row.querySelectorAll('.transaction-tool-group-title')].map((e) => e.textContent);
     assert(
       JSON.stringify(headings) === JSON.stringify(['Juggler tools', 'MCP · linear']),
       `headings were ${JSON.stringify(headings)}`
     );
 
-    const names = [...row.querySelectorAll('.tx-tool-name')].map((e) => e.getAttribute('title'));
+    const names = [...row.querySelectorAll('.transaction-tool-name')].map((e) => e.getAttribute('title'));
     assert(names.length === 4, `expected 4 tool rows, got ${names.length}: ${JSON.stringify(names)}`);
     for (const t of tools) {
       assert(names.includes(String(t.name)), `${t.name} missing from the rendered list`);
@@ -196,13 +196,13 @@ export async function runTests(_ctx) {
       id: 'txn_2',
       input: { systemPrompt: '', messages: [], tools: [tool('mcp__linear__create_issue')] },
     });
-    const row = [...host.querySelectorAll('.tx-row')]
-      .find((r) => r.querySelector('.tx-row-kind')?.textContent === 'tools');
+    const row = [...host.querySelectorAll('.transaction-row')]
+      .find((r) => r.querySelector('.transaction-row-kind')?.textContent === 'tools');
     assert(row, 'no tools row rendered');
     /** @type {HTMLDetailsElement} */ (row).open = true;
     row.dispatchEvent(new Event('toggle'));
 
-    const nameEl = row.querySelector('.tx-tool-name');
+    const nameEl = row.querySelector('.transaction-tool-name');
     assert(nameEl?.textContent === 'create_issue', `displayed name was ${JSON.stringify(nameEl?.textContent)}`);
     assert(
       nameEl?.getAttribute('title') === 'mcp__linear__create_issue',
@@ -216,13 +216,13 @@ export async function runTests(_ctx) {
       id: 'txn_3',
       input: { systemPrompt: '', messages: [], tools: [tool('bash')] },
     });
-    const row = [...host.querySelectorAll('.tx-row')]
-      .find((r) => r.querySelector('.tx-row-kind')?.textContent === 'tools');
+    const row = [...host.querySelectorAll('.transaction-row')]
+      .find((r) => r.querySelector('.transaction-row-kind')?.textContent === 'tools');
     assert(row, 'no tools row rendered');
     /** @type {HTMLDetailsElement} */ (row).open = true;
     row.dispatchEvent(new Event('toggle'));
 
-    const desc = row.querySelector('.tx-tool-desc')?.textContent || '';
+    const desc = row.querySelector('.transaction-tool-desc')?.textContent || '';
     assert(desc === 'Description of bash.', `description line was ${JSON.stringify(desc)}`);
   });
 
@@ -238,8 +238,8 @@ export async function runTests(_ctx) {
    * @returns {HTMLElement} The opened tools row
    */
   const openToolsRow = (host) => {
-    const row = [...host.querySelectorAll('.tx-row')]
-      .find((r) => r.querySelector('.tx-row-kind')?.textContent === 'tools');
+    const row = [...host.querySelectorAll('.transaction-row')]
+      .find((r) => r.querySelector('.transaction-row-kind')?.textContent === 'tools');
     assert(row, 'no tools row rendered');
     /** @type {HTMLDetailsElement} */ (row).open = true;
     row.dispatchEvent(new Event('toggle'));
@@ -260,7 +260,7 @@ export async function runTests(_ctx) {
         timestamp,
         input: { systemPrompt: '', messages: [], tools: [tool('bash'), tool('mcp__linear__create_issue')] },
       });
-      header = openToolsRow(host).querySelector('.tx-tools-sent')?.textContent || '';
+      header = openToolsRow(host).querySelector('.transaction-tools-sent')?.textContent || '';
     } finally {
       setLocale(previousLocale);
     }
@@ -278,7 +278,7 @@ export async function runTests(_ctx) {
       id: 'txn_6',
       input: { systemPrompt: '', messages: [], tools: [tool('bash')] },
     });
-    const header = openToolsRow(host).querySelector('.tx-tools-sent')?.textContent || '';
+    const header = openToolsRow(host).querySelector('.transaction-tools-sent')?.textContent || '';
     assert(header === '1 tool, as sent — not the live list.', `header was ${JSON.stringify(header)}`);
   });
 
@@ -289,7 +289,7 @@ export async function runTests(_ctx) {
       timestamp: 'not a date',
       input: { systemPrompt: '', messages: [], tools: [tool('bash')] },
     });
-    const header = openToolsRow(host).querySelector('.tx-tools-sent')?.textContent || '';
+    const header = openToolsRow(host).querySelector('.transaction-tools-sent')?.textContent || '';
     assert(header === '1 tool, as sent — not the live list.', `header was ${JSON.stringify(header)}`);
     assert(!host.textContent?.includes('Time:'), 'the metadata bar leaves the time out');
   });
@@ -324,8 +324,8 @@ export async function runTests(_ctx) {
    * @returns {Promise<string>} The drift line's text
    */
   const driftText = async (row) => {
-    await waitFor(() => !!row.querySelector('.tx-tools-drift'), { description: 'the tool list\'s drift line' });
-    return row.querySelector('.tx-tools-drift')?.textContent || '';
+    await waitFor(() => !!row.querySelector('.transaction-tools-drift'), { description: 'the tool list\'s drift line' });
+    return row.querySelector('.transaction-tools-drift')?.textContent || '';
   };
 
   await run('a tool that appeared since the turn is reported, not silently missing', async () => {
@@ -343,7 +343,7 @@ export async function runTests(_ctx) {
       text.includes('the model has not been offered the current list yet'),
       `drift line was ${JSON.stringify(text)}`
     );
-    const title = row.querySelector('.tx-tools-drift')?.getAttribute('title') || '';
+    const title = row.querySelector('.transaction-tools-drift')?.getAttribute('title') || '';
     assert(title.includes('mcp__linear__create_issue'), `the tooltip should name the tool, was ${JSON.stringify(title)}`);
   });
 
@@ -360,7 +360,7 @@ export async function runTests(_ctx) {
     // Once the live list has been read, a drift line is a microtask away at most.
     await waitFor(() => thread.asked > 0, 'the live tool list to be compared');
     await new Promise((resolve) => setTimeout(resolve, 0));
-    assert(!row.querySelector('.tx-tools-drift'), 'no drift means no line');
+    assert(!row.querySelector('.transaction-tools-drift'), 'no drift means no line');
   });
 
   await run('without a thread the list still renders, minus the comparison', async () => {
@@ -372,8 +372,8 @@ export async function runTests(_ctx) {
     // The header is drawn with the row, and only a thread starts the comparison
     // that could add a drift line later, so both hold as soon as it renders.
     const row = openToolsRow(host);
-    assert(row.querySelector('.tx-tools-sent'), 'the header must not depend on having a thread');
-    assert(!row.querySelector('.tx-tools-drift'), 'nothing to compare against means no drift line');
+    assert(row.querySelector('.transaction-tools-sent'), 'the header must not depend on having a thread');
+    assert(!row.querySelector('.transaction-tools-drift'), 'nothing to compare against means no drift line');
   });
 
   await run('a blob with no tools renders no tools row', () => {
@@ -382,7 +382,7 @@ export async function runTests(_ctx) {
       id: 'txn_4',
       input: { systemPrompt: 'prompt', messages: [], tools: [] },
     });
-    const kinds = [...host.querySelectorAll('.tx-row-kind')].map((e) => e.textContent);
+    const kinds = [...host.querySelectorAll('.transaction-row-kind')].map((e) => e.textContent);
     assert(!kinds.includes('tools'), `expected no tools row, kinds were ${JSON.stringify(kinds)}`);
   });
 
@@ -397,9 +397,9 @@ export async function runTests(_ctx) {
     // Model data and lone figures: bodies, tool names and descriptions, labels
     // previewing a message, and the bare `~123` size figures.
     const skip = [
-      '.tx-out-block', '.tx-row-body .properties-panel-json-display', '.tx-row-body .tx-text',
-      '.tx-field-key', '.tx-row-label', '.tx-row-size', '.tx-tool-group-count', '.tx-tool-name',
-      '.tx-tool-desc', '.properties-panel-result.error',
+      '.transaction-out-block', '.transaction-row-body .properties-panel-json-display', '.transaction-row-body .transaction-text',
+      '.transaction-field-key', '.transaction-row-label', '.transaction-row-size', '.transaction-tool-group-count', '.transaction-tool-name',
+      '.transaction-tool-desc', '.properties-panel-result.is-error',
     ].join(', ');
     /**
      * @param {string} where - The state, for the failure message
@@ -420,7 +420,7 @@ export async function runTests(_ctx) {
      * @returns {HTMLElement} The opened row
      */
     const openRow = (host, index) => {
-      const row = /** @type {HTMLDetailsElement} */ (host.querySelectorAll('.tx-row')[index]);
+      const row = /** @type {HTMLDetailsElement} */ (host.querySelectorAll('.transaction-row')[index]);
       assert(row, `no row ${index}`);
       row.open = true;
       row.dispatchEvent(new Event('toggle'));
@@ -460,22 +460,22 @@ export async function runTests(_ctx) {
       const row = openRow(full, 1);
       const drift = await driftText(row);
       if (!drift) problems.push('the drift line never appeared');
-      for (const entry of full.querySelectorAll('.tx-tool')) {
+      for (const entry of full.querySelectorAll('.transaction-tool')) {
         /** @type {HTMLDetailsElement} */ (entry).open = true;
         entry.dispatchEvent(new Event('toggle'));
       }
       check('full round-trip', shownStrings(full, skip), time);
-      const kinds = [...full.querySelectorAll('.tx-row-kind')].map((e) => e.textContent || '');
+      const kinds = [...full.querySelectorAll('.transaction-row-kind')].map((e) => e.textContent || '');
       if (kinds.length !== 3) problems.push(`expected three row kinds, got ${JSON.stringify(kinds)}`);
-      if (full.querySelectorAll('.tx-tool-category').length !== 2) problems.push('expected two category lozenges');
-      if (full.querySelectorAll('.tx-tool-group').length !== 2) problems.push('expected two tool groups');
+      if (full.querySelectorAll('.transaction-tool-category').length !== 2) problems.push('expected two category lozenges');
+      if (full.querySelectorAll('.transaction-tool-group').length !== 2) problems.push('expected two tool groups');
       // The skipped figures' own tooltips, and the fallback kind of a typeless block.
-      check('figure tooltips', [...full.querySelectorAll('.tx-row-size, .tx-tool-group-count')]
+      check('figure tooltips', [...full.querySelectorAll('.transaction-row-size, .transaction-tool-group-count')]
         .map((e) => e.getAttribute('title') || ''));
-      const blockKinds = [...full.querySelectorAll('.tx-out-kind')].map((e) => e.textContent || '');
+      const blockKinds = [...full.querySelectorAll('.transaction-out-kind')].map((e) => e.textContent || '');
       check('typeless block kind', blockKinds.slice(1));
       if (blockKinds[0] !== 'text') problems.push(`a block's type is shown as it is, got ${JSON.stringify(blockKinds[0])}`);
-      if (full.querySelector('.tx-tool-name')?.textContent !== '1') problems.push('the tool name changed');
+      if (full.querySelector('.transaction-tool-name')?.textContent !== '1') problems.push('the tool name changed');
       const meta = [...full.querySelectorAll('.meta-item')].map((e) => e.textContent || '');
       if (meta.length !== 6) problems.push(`expected six metadata fields, got ${JSON.stringify(meta)}`);
 

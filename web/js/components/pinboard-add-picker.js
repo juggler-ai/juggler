@@ -97,7 +97,7 @@ export function openAddPicker({ anchor, active, onPick }) {
   const entries = collectEntries(active);
 
   const menu = document.createElement('nav');
-  menu.className = 'dropdown-menu pinboard-add-picker show';
+  menu.className = 'dropdown-menu pinboard-add-picker is-open';
 
   /** @type {(() => void)|null} */
   let release = null;
@@ -115,7 +115,7 @@ export function openAddPicker({ anchor, active, onPick }) {
   if (entries.length > FILTER_THRESHOLD) {
     filter = document.createElement('input');
     filter.type = 'search';
-    filter.className = 'pinboard-add-picker__filter field-input';
+    filter.className = 'pinboard-add-picker__filter field-input field-input-sm';
     filter.placeholder = t('Search…');
     filter.setAttribute('aria-label', t('Search pinboard items'));
     filter.addEventListener('input', () => render(filter?.value || ''));
@@ -151,7 +151,7 @@ export function openAddPicker({ anchor, active, onPick }) {
 
     if (!shown.length) {
       const empty = document.createElement('li');
-      empty.className = 'menu-item unavailable';
+      empty.className = 'menu-item menu-item-unavailable';
       empty.setAttribute('role', 'menuitem');
       empty.setAttribute('aria-disabled', 'true');
       empty.textContent = needle ? t('Nothing.') : t('Nothing to add.');
@@ -173,7 +173,7 @@ export function openAddPicker({ anchor, active, onPick }) {
     // dead, because "add" is not what a second click on it would mean.
     const spent = entry.pinned || !!entry.reason;
     const row = document.createElement('li');
-    row.className = `menu-item pinboard-add-picker__item${spent ? ' unavailable' : ''}`;
+    row.className = `menu-item pinboard-add-picker__item${spent ? ' menu-item-unavailable' : ''}`;
     row.setAttribute('role', 'menuitem');
     row.dataset.typeId = entry.id;
 

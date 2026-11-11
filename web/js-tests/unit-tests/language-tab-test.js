@@ -123,11 +123,11 @@ export async function runTests(_ctx) {
         assert(button?.dataset.tab === 'language',
           `the first tab is ${JSON.stringify(button?.dataset.tab)}, not language`);
         assert(button.querySelector('.icon-language'), 'the Language tab carries the language icon');
-        assert(tabs.find((b) => b.classList.contains('active'))?.dataset.tab === 'providers',
+        assert(tabs.find((b) => b.classList.contains('is-active'))?.dataset.tab === 'providers',
           'Providers is still the tab the panel opens on');
         panel.switchTab('language');
         const section = /** @type {HTMLElement|null} */ (panel.querySelector('#tab-language'));
-        assert(section?.classList.contains('active'), 'switching to it shows its section');
+        assert(section?.classList.contains('is-active'), 'switching to it shows its section');
         assert(section.querySelector('#language-select'), 'and the section holds the language menu');
         assert(!panel.querySelector('#tab-appearance #language-select'), 'Appearance no longer holds it');
       } finally {

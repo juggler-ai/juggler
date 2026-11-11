@@ -43,7 +43,7 @@ import '../../js/components/code-block.js';
 import pinboardItemRegistry from '../../js/registries/pinboard-item-registry.js';
 
 // Unique marker so our test provider never collides with real providers or
-// real DOM. Real providers match code-block / diff-viewer / .conversation-tab /
+// real DOM. Real providers match code-block / diff-viewer / .conversation-bar-tab /
 // [data-file-path] and a[href]; none of those match this attribute.
 const MARK = 'data-cm-unit-test';
 
@@ -331,7 +331,7 @@ export async function runTests() {
   // before the text-edit menu is ever reached — so the row has to be offered
   // there too, or it silently disappears on every surface with a provider.
   const tab = document.createElement('conversation-tab');
-  tab.className = 'active';
+  tab.className = 'is-active';
   const composerStub = document.createElement('div');
   composerStub.appendChild(document.createElement('textarea'));
   /** @type {any[]} */
@@ -562,7 +562,7 @@ export async function runTests() {
   variantsHost.setAttribute(MARK, 'variants');
   document.body.appendChild(variantsHost);
   const probe = document.createElement('nav');
-  probe.className = 'dropdown-menu show';
+  probe.className = 'dropdown-menu is-open';
   const probeList = document.createElement('menu');
   const probeRow = document.createElement('li');
   probeRow.className = 'menu-item';
@@ -575,7 +575,7 @@ export async function runTests() {
       bubbles: true, cancelable: true, clientX: 20, clientY: 20,
     }));
     const menu = /** @type {HTMLElement|null} */ (document.querySelector('.juggler-context-menu'));
-    tally(check(!!menu && menu.classList.contains('dropdown-menu') && menu.classList.contains('show'),
+    tally(check(!!menu && menu.classList.contains('dropdown-menu') && menu.classList.contains('is-open'),
       `style: the right-click menu is a shown .dropdown-menu (got "${menu?.className}")`, errors));
     const rows = menu ? [...menu.querySelectorAll('[role="menuitem"]')] : [];
     tally(check(rows.length === 3 && rows.every((r) => r.classList.contains('menu-item')),
@@ -584,8 +584,8 @@ export async function runTests() {
       `style: rows keep their labels (got ${JSON.stringify(rows.map((r) => r.textContent))})`, errors));
     const greyed = rows[1];
     tally(check(!!greyed && greyed.getAttribute('aria-disabled') === 'true'
-      && greyed.classList.contains('unavailable') && /** @type {HTMLElement} */ (greyed).tabIndex !== 0,
-    'style: a disabled row is aria-disabled, wears .unavailable and is never the tab stop', errors));
+      && greyed.classList.contains('menu-item-unavailable') && /** @type {HTMLElement} */ (greyed).tabIndex !== 0,
+    'style: a disabled row is aria-disabled, wears .menu-item-unavailable and is never the tab stop', errors));
     tally(check(/** @type {HTMLElement} */ (rows[0]).tabIndex === 0,
       'style: the first enabled row is the keyboard\'s way in', errors));
     try {
@@ -594,8 +594,8 @@ export async function runTests() {
     } catch (e) {
       tally(check(false, `aria: ${e instanceof Error ? e.message : String(e)}`, errors));
     }
-    tally(check(!!rows[2]?.classList.contains('danger'),
-      'style: a danger row wears .danger', errors));
+    tally(check(!!rows[2]?.classList.contains('menu-item-danger'),
+      'style: a danger row wears .menu-item-danger', errors));
     const sep = menu?.querySelector('[role="separator"]');
     tally(check(!!sep && sep.classList.contains('menu-divider'),
       `style: a separator is a .menu-divider (got "${sep?.className}")`, errors));
@@ -668,7 +668,7 @@ export async function runTests() {
     /** @type {string[]} */
     const shown = [];
     const xaTab = document.createElement('conversation-tab');
-    xaTab.className = 'active';
+    xaTab.className = 'is-active';
     const xaComposer = document.createElement('div');
     xaComposer.appendChild(document.createElement('textarea'));
     /** @type {any} */ (xaTab).getComposer = () => xaComposer;

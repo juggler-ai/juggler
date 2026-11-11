@@ -175,7 +175,7 @@ class PinboardTabbar extends JugglerElement {
     // Reordering has to be reachable without a pointer, and the strip is the only
     // place that says so.
     button.setAttribute('aria-keyshortcuts', 'Alt+ArrowLeft Alt+ArrowRight');
-    button.innerHTML = '<span class="pinboard-tab__label"></span><span class="pinboard-tab__badge" hidden></span>';
+    button.innerHTML = '<span class="pinboard-tab__label text-truncate"></span><span class="pinboard-tab__badge" hidden></span>';
 
     const remove = document.createElement('button');
     remove.type = 'button';
@@ -205,7 +205,10 @@ class PinboardTabbar extends JugglerElement {
     const badge = /** @type {HTMLElement} */ (wrapper.querySelector('.pinboard-tab__badge'));
     const remove = /** @type {HTMLElement} */ (wrapper.querySelector('.pinboard-tab__remove'));
 
-    wrapper.classList.toggle('active', active);
+    // The wrapper carries the look as well as the button its aria-selected:
+    // the drag ghost is a copy of the wrapper that must look like the tab it
+    // carries while answering to no `[aria-selected]` query (see prepareGhost).
+    wrapper.classList.toggle('is-selected', active);
     button.setAttribute('aria-selected', String(active));
     // Roving tabindex: one stop for the whole strip, and the arrow keys move
     // within it.

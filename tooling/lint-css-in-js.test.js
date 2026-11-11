@@ -101,7 +101,7 @@ for (const arg of ['css', 'makeCss()', "'.a {' + body + '}'", 'TWICE']) {
 assert.deepEqual(await findings("injectStylesOnce('a');"), ['1:1 lint-css-in-js'], 'no CSS argument');
 
 // A disable comment in the CSS is refused, as in a sheet.
-const disabled = await lintSource("injectStylesOnce('a', `/* stylelint-disable color-no-hex */\n.a {\n  color: #fff;\n}\n`);", FILE);
+const disabled = await lintSource("injectStylesOnce('a', `/* stylelint-disable color-no-hex -- a reason */\n.a {\n  color: #fff;\n}\n`);", FILE);
 assert.deepEqual(disabled.map((f) => f.text), ['Rule "color-no-hex" may not be disabled']);
 
 // The token files' carve-out is for sheets in web/css/tokens/, never a JS file.

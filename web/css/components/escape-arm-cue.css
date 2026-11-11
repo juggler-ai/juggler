@@ -24,7 +24,7 @@
     bottom: 6rem;
     transform: translateX(-50%);
     z-index: var(--z-toast);
-    padding: 0.5rem 0.875rem;
+    padding: var(--space-8) var(--space-14);
     background: var(--tooltip-bg);
     color: var(--tooltip-text);
     border-radius: var(--radius-lg);

@@ -220,11 +220,11 @@ export async function runTests(_ctx) {
       },
     ], { keys: { p1: true } });
     try {
-      const filter = /** @type {HTMLInputElement} */ (present(host.querySelector('.model-visibility-filter'), 'the filter'));
-      const empty = present(host.querySelector('.model-visibility-empty'), 'the empty line');
-      const status = present(host.querySelector('.model-visibility-status'), 'the status line');
-      const alpha = present(host.querySelector('.model-visibility-row[data-model="alpha"]'), 'the alpha row');
-      const beta = present(host.querySelector('.model-visibility-row[data-model="beta"]'), 'the beta row');
+      const filter = /** @type {HTMLInputElement} */ (present(host.querySelector('.settings-model-visibility-filter'), 'the filter'));
+      const empty = present(host.querySelector('.settings-model-visibility-empty'), 'the empty line');
+      const status = present(host.querySelector('.settings-model-visibility-status'), 'the status line');
+      const alpha = present(host.querySelector('.settings-model-visibility-row[data-model="alpha"]'), 'the alpha row');
+      const beta = present(host.querySelector('.settings-model-visibility-row[data-model="beta"]'), 'the beta row');
       assert(empty.hidden && status.hidden, 'the empty and status lines start shown');
 
       filter.value = 'alp';

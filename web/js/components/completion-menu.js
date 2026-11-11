@@ -379,7 +379,7 @@ export class CompletionMenu {
     linkListbox(this._textarea, menu);
     setActiveOption(this._textarea, menu, -1);
 
-    menu.classList.add('show');
+    menu.classList.add('is-open');
     this._menu = menu;
     this._active = true;
 
@@ -445,9 +445,6 @@ export class CompletionMenu {
   _highlight() {
     if (!this._menu) return;
     const items = this._menu.querySelectorAll('.menu-item');
-    items.forEach((item, i) => {
-      item.classList.toggle('highlighted', i === this._index);
-    });
     setActiveOption(this._textarea, this._menu, this._index);
     const item = items[this._index];
     if (this._index >= 0 && item) {

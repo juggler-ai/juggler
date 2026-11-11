@@ -31,9 +31,9 @@ function clearAllDialogs() {
  * @returns {Promise<HTMLElement>} The open dialog
  */
 async function openDialog() {
-  await waitFor(() => !!document.querySelector('modal-dialog.show:not(.is-notice)'),
+  await waitFor(() => !!document.querySelector('modal-dialog.is-open:not(.is-notice)'),
     { description: 'the dialog to open' });
-  return /** @type {HTMLElement} */ (document.querySelector('modal-dialog.show:not(.is-notice)'));
+  return /** @type {HTMLElement} */ (document.querySelector('modal-dialog.is-open:not(.is-notice)'));
 }
 
 /**

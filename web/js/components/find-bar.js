@@ -262,14 +262,14 @@ class FindBar {
     const nextKeys = formatBindingLabel({ key: 'Enter' }, mac);
     const closeKey = formatBindingLabel({ key: 'Escape' }, mac);
     el.innerHTML = `
-      <input type="text" class="find-bar__input field-input" aria-label="${findHtml}"
+      <input type="text" class="find-bar__input field-input field-input-sm" aria-label="${findHtml}"
         placeholder="${findHtml}" spellcheck="false" autocomplete="off" />
       <span class="find-bar__counter" aria-live="polite"></span>
-      <button type="button" class="find-bar__btn find-bar__prev" aria-label="${prevHtml}" title="${escapeHtml(t('Previous match ({keys})', { keys: prevKeys }))}">${EXPAND_LESS_SVG}</button>
-      <button type="button" class="find-bar__btn find-bar__next" aria-label="${nextHtml}" title="${escapeHtml(t('Next match ({keys})', { keys: nextKeys }))}">${EXPAND_MORE_SVG}</button>
-      <button type="button" class="find-bar__btn find-bar__toggle find-bar__case" aria-label="${matchCaseHtml}" aria-pressed="false" title="${matchCaseHtml}">${escapeHtml(t('Aa', undefined, { context: 'match-case toggle glyph' }))}</button>
-      <button type="button" class="find-bar__btn find-bar__toggle find-bar__word" aria-label="${wholeWordHtml}" aria-pressed="false" title="${wholeWordHtml}">${escapeHtml(t('W', undefined, { context: 'whole-word toggle glyph' }))}</button>
-      <button type="button" class="find-bar__btn find-bar__close" aria-label="${escapeHtml(t('Close find'))}" title="${escapeHtml(t('Close ({key})', { key: closeKey }))}">&#x2715;</button>
+      <button type="button" class="btn btn-icon find-bar__btn find-bar__prev" aria-label="${prevHtml}" title="${escapeHtml(t('Previous match ({keys})', { keys: prevKeys }))}">${EXPAND_LESS_SVG}</button>
+      <button type="button" class="btn btn-icon find-bar__btn find-bar__next" aria-label="${nextHtml}" title="${escapeHtml(t('Next match ({keys})', { keys: nextKeys }))}">${EXPAND_MORE_SVG}</button>
+      <button type="button" class="btn btn-icon find-bar__btn find-bar__toggle find-bar__case" aria-label="${matchCaseHtml}" aria-pressed="false" title="${matchCaseHtml}">${escapeHtml(t('Aa', undefined, { context: 'match-case toggle glyph' }))}</button>
+      <button type="button" class="btn btn-icon find-bar__btn find-bar__toggle find-bar__word" aria-label="${wholeWordHtml}" aria-pressed="false" title="${wholeWordHtml}">${escapeHtml(t('W', undefined, { context: 'whole-word toggle glyph' }))}</button>
+      <button type="button" class="btn btn-icon find-bar__btn find-bar__close" aria-label="${escapeHtml(t('Close find'))}" title="${escapeHtml(t('Close ({key})', { key: closeKey }))}">&#x2715;</button>
     `;
 
     const input = /** @type {HTMLInputElement} */ (el.querySelector('.find-bar__input'));
@@ -409,7 +409,7 @@ class FindBar {
       text = t('{current} of {total}', { current: result.current, total: result.total });
     }
     this._counter.textContent = text;
-    this._counter.classList.toggle('find-bar__counter--empty', empty);
+    this._counter.classList.toggle('is-empty', empty);
   }
 
   /**

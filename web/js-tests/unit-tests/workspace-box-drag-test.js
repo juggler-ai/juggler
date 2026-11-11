@@ -115,7 +115,7 @@ function boxFor(bar, id) {
  * @returns {HTMLElement} The tab element.
  */
 function tabFor(bar, id) {
-  return /** @type {HTMLElement} */ (bar.querySelector(`.conversation-tab[data-conversation-id="${id}"]`));
+  return /** @type {HTMLElement} */ (bar.querySelector(`.conversation-bar-tab[data-conversation-id="${id}"]`));
 }
 
 /**
@@ -474,7 +474,7 @@ export async function runTests() {
     );
     try {
       const tab = tabFor(bar, 'c1');
-      const name = /** @type {HTMLElement} */ (tab.querySelector('.conversation-tab-name'));
+      const name = /** @type {HTMLElement} */ (tab.querySelector('.conversation-bar-tab-name'));
       const menus = holdAndLetGo(bar, name, tab);
       assert(menus.length === 1 && tab.contains(menus[0]),
         `a long-press is how a finger asks for a tab's menu, got ${menus.length} menu(s)`);

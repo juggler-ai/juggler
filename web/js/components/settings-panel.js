@@ -198,12 +198,12 @@ class SettingsPanel extends JugglerElement {
     this.innerHTML = `
             <modal-backdrop class="settings-backdrop" id="settings-backdrop"></modal-backdrop>
             <modal-panel class="settings-container" role="dialog" aria-modal="true" aria-label="${escapeHtml(t('Settings'))}">
-                <button class="close-button" id="settings-close" title="${escapeHtml(t('Close'))}" aria-label="${escapeHtml(t('Close'))}"><span class="icon-close"></span></button>
+                <button class="btn btn-icon btn-icon-lg btn-ghost settings-close" id="settings-close" title="${escapeHtml(t('Close'))}" aria-label="${escapeHtml(t('Close'))}"><span class="icon-close"></span></button>
                 <nav class="settings-tabs">
                     <div class="settings-tabs-scroll">
                         <!-- First, and marked by its icon: whoever needs this tab may not read the language the rest are in. -->
                         <button class="settings-tab settings-tab-language" data-tab="language"><span class="icon-language" aria-hidden="true"></span><span>${escapeHtml(t('Language'))}</span></button>
-                        <button class="settings-tab active" data-tab="providers">${escapeHtml(t('Providers'))}</button>
+                        <button class="settings-tab is-active" data-tab="providers">${escapeHtml(t('Providers'))}</button>
                         <button class="settings-tab" data-tab="defaults">${escapeHtml(t('Defaults'))}</button>
                         <button class="settings-tab" data-tab="connectivity">${escapeHtml(t('Connectivity'))}</button>
                         <button class="settings-tab" data-tab="extensions">${escapeHtml(t('Extensions'))}</button>
@@ -220,12 +220,12 @@ class SettingsPanel extends JugglerElement {
                 </nav>
 
                 <div class="settings-loading" id="settings-loading">
-                    <juggler-spinner style="--size: 2.5rem"></juggler-spinner>
+                    <juggler-spinner style="--spinner-size: 2.5rem"></juggler-spinner>
                     <div class="settings-loading-text">${escapeHtml(t('Loading settings...'))}</div>
                 </div>
 
                 <main class="settings-content">
-                    <section class="settings-tab-content active" id="tab-providers">
+                    <section class="settings-tab-content is-active" id="tab-providers">
                         <p class="settings-description">
                             ${withHtml(t('Provider keys are stored in {path}.', htmlSlots(credentials)), credentials)}
                         </p>
@@ -236,7 +236,7 @@ class SettingsPanel extends JugglerElement {
                     </section>
 
                     <section class="settings-tab-content" id="tab-defaults">
-                        <div class="settings-section-heading">${escapeHtml(t('New conversation defaults'))}</div>
+                        <div class="settings-section-heading caps-label-lg">${escapeHtml(t('New conversation defaults'))}</div>
                         <div class="settings-form" id="new-conversation-defaults-form">
                             <div class="settings-card">
                                 <div id="default-model-field-container"></div>
@@ -244,7 +244,7 @@ class SettingsPanel extends JugglerElement {
                             </div>
                         </div>
 
-                        <div class="settings-section-heading">${escapeHtml(t('Cheap model'))}</div>
+                        <div class="settings-section-heading caps-label-lg">${escapeHtml(t('Cheap model'))}</div>
                         <p class="settings-description">
                             ${escapeHtml(t('A small, fast model for the background jobs below. Extensions can use it too. Never used for your conversations.'))}
                         </p>
@@ -256,7 +256,7 @@ class SettingsPanel extends JugglerElement {
                             </div>
                         </div>
 
-                        <div class="settings-section-heading">${escapeHtml(t('Decision model'))}</div>
+                        <div class="settings-section-heading caps-label-lg">${escapeHtml(t('Decision model'))}</div>
                         <p class="settings-description">
                             ${escapeHtml(t('A model that answers yes/no and multiple-choice questions with probabilities instead of writing text. Auto-approve uses it to judge tool calls. Add one in Providers; without one, the cheap model does the job.'))}
                         </p>
@@ -266,18 +266,18 @@ class SettingsPanel extends JugglerElement {
                             </div>
                         </div>
 
-                        <div class="settings-form" id="global-settings"></div>
+                        <div class="settings-form settings-global-form" id="global-settings"></div>
                     </section>
 
                      <section class="settings-tab-content" id="tab-extensions">
                           <plugin-catalog></plugin-catalog>
                      </section>
 
-                      <section class="settings-tab-content" id="tab-commands">
+                      <section class="settings-tab-content settings-tab-fill" id="tab-commands">
                           <div class="command-page" id="commands-tab-root"></div>
                       </section>
 
-                      <section class="settings-tab-content" id="tab-skills">
+                      <section class="settings-tab-content skills-tab-section" id="tab-skills">
                           <p class="settings-description">
                               ${escapeHtml(t('Discover and install Agent Skills from external registries, or manage the ones you have. Installing downloads and writes files — it never runs anything; a skill\'s scripts run later only under normal approval.'))}
                           </p>
@@ -302,9 +302,9 @@ class SettingsPanel extends JugglerElement {
                         <p class="settings-description">
                             ${escapeHtml(t('How other devices reach Juggler on this machine, who else is connected to this session, and the proxy Juggler uses to reach the internet.'))}
                         </p>
-                        <div class="settings-form" id="connectivity-form">
+                        <div class="settings-form settings-connectivity-form" id="connectivity-form">
                         </div>
-                        <div class="settings-section-heading">${escapeHtml(t('Proxy Settings'))}</div>
+                        <div class="settings-section-heading caps-label-lg">${escapeHtml(t('Proxy Settings'))}</div>
                         <div class="settings-form" id="proxy-form"></div>
                     </section>
 
@@ -318,7 +318,7 @@ class SettingsPanel extends JugglerElement {
 
                     <section class="settings-tab-content" id="tab-notifications">
                         <div class="settings-form" id="notifications-form"></div>
-                        <div class="settings-section-heading">${escapeHtml(t('Tabs'))}</div>
+                        <div class="settings-section-heading caps-label-lg">${escapeHtml(t('Tabs'))}</div>
                         <div class="settings-form" id="tab-behaviour-form"></div>
                     </section>
 
@@ -329,15 +329,15 @@ class SettingsPanel extends JugglerElement {
                         <div class="settings-form" id="shortcuts-form"></div>
                     </section>
 
-                    <section class="settings-tab-content" id="tab-logs">
+                    <section class="settings-tab-content settings-tab-fill" id="tab-logs">
                         <p class="settings-description">
                             ${escapeHtml(t('Logs for the current session. Pick a file to view it live — it updates as the app writes to it. To report a bug, reveal the file and zip its folder.'))}
                         </p>
-                        <div class="settings-form" id="logs-form">
+                        <div class="settings-form settings-logs-form" id="logs-form">
                             <div class="logs-empty" id="logs-empty">${escapeHtml(t('No log files yet.'))}</div>
                             <div class="logs-controls" id="logs-controls" hidden>
                                 <label class="logs-picker-label" for="logs-picker">${escapeHtml(t('Log file'))}</label>
-                                <select class="logs-picker" id="logs-picker"></select>
+                                <select class="logs-picker field-input field-input-sm" id="logs-picker"></select>
                             </div>
                             <div class="logs-filepath" id="logs-filepath"></div>
                             <pre class="logs-viewer surface-well" id="logs-viewer" tabindex="0" hidden></pre>
@@ -453,13 +453,13 @@ class SettingsPanel extends JugglerElement {
     tabButtons.forEach(button => {
       const htmlButton = /** @type {HTMLElement} */ (button);
       if (htmlButton.dataset.tab === tabName) {
-        button.classList.add('active');
+        button.classList.add('is-active');
         // Bring an off-screen tab into the horizontally-scrollable strip (the
         // strip swipes on narrow screens). Guarded for jsdom, where
         // scrollIntoView is absent.
         htmlButton.scrollIntoView?.({ inline: 'nearest', block: 'nearest' });
       } else {
-        button.classList.remove('active');
+        button.classList.remove('is-active');
       }
     });
 
@@ -467,9 +467,9 @@ class SettingsPanel extends JugglerElement {
     const tabContents = this.querySelectorAll('.settings-tab-content');
     tabContents.forEach(content => {
       if (content.id === `tab-${tabName}`) {
-        content.classList.add('active');
+        content.classList.add('is-active');
       } else {
-        content.classList.remove('active');
+        content.classList.remove('is-active');
       }
     });
 
@@ -489,10 +489,10 @@ class SettingsPanel extends JugglerElement {
    */
   async open(tab, options = {}) {
     const isFirstLoad = !this._hasLoadedOnce;
-    const wasOpen = this.classList.contains('show');
+    const wasOpen = this.classList.contains('is-open');
 
     // Show panel - only show loading state on first load
-    this.classList.add('show');
+    this.classList.add('is-open');
     if (isFirstLoad) {
       this.classList.remove('loaded');
     }
@@ -614,7 +614,7 @@ class SettingsPanel extends JugglerElement {
    */
   close() {
     fadeOutScrims(this);
-    this.classList.remove('show');
+    this.classList.remove('is-open');
     if (this._releasePopupOpen) {
       this._releasePopupOpen();
       this._releasePopupOpen = null;

@@ -31,7 +31,7 @@ export const THREAD_FOCUS_CHANGED = 'juggler:thread-focus-changed';
  * @returns {string|null} The focused thread item's id, or null for the root.
  */
 export function focusedThreadItemId() {
-  const tab = /** @type {any} */ (document.querySelector('conversation-tab.active'));
+  const tab = /** @type {any} */ (document.querySelector('conversation-tab.is-active'));
   return tab?.getFocusedThreadItemId?.() ?? null;
 }
 

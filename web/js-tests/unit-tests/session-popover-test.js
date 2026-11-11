@@ -133,10 +133,10 @@ function mount({ tweak = () => {}, surface = 'local' } = {}) {
 }
 
 /** @returns {HTMLElement|null} The popover, if it is up. */
-const popover = () => /** @type {HTMLElement|null} */ (document.querySelector('.ss--popover'));
+const popover = () => /** @type {HTMLElement|null} */ (document.querySelector('.session-switcher--popover'));
 
 /** @returns {string|undefined} The lit row's key. */
-const lit = () => /** @type {HTMLElement|null} */ (popover()?.querySelector('.ss-row[aria-selected="true"]') ?? null)?.dataset.key;
+const lit = () => /** @type {HTMLElement|null} */ (popover()?.querySelector('.session-switcher-row[aria-selected="true"]') ?? null)?.dataset.key;
 
 /**
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Results.
@@ -158,7 +158,7 @@ export async function runTests() {
       failed++;
       errors.push(`${label}: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
-      for (const el of document.querySelectorAll('.ss--popover')) el.remove();
+      for (const el of document.querySelectorAll('.session-switcher--popover')) el.remove();
     }
   };
 
@@ -177,13 +177,13 @@ export async function runTests() {
       await nextTask();
       assert(calls.length === 0, `nothing moved — got ${calls.join()}`);
       const pop = popover();
-      assert(!!pop && !pop.classList.contains('ss--gesture'), 'the list stays up, with its filter');
+      assert(!!pop && !pop.classList.contains('session-switcher--gesture'), 'the list stays up, with its filter');
       const holder = (/** @type {Element|null} */ a) => (a ? `<${a.localName}${a.id ? `#${a.id}` : ''}${a.className && typeof a.className === 'string' ? `.${a.className.trim().split(/\s+/).join('.')}` : ''}>` : 'nothing');
-      assert(document.activeElement === pop?.querySelector('.ss-input'),
+      assert(document.activeElement === pop?.querySelector('.session-switcher-input'),
         `the filter has the keyboard — held by ${holder(document.activeElement)}`);
       assert(chip.getAttribute('aria-expanded') === 'true', 'the chip says so');
       assert(lit() === 's:here', `this window is lit — got ${lit()}`);
-      const input = /** @type {HTMLInputElement} */ (pop?.querySelector('.ss-input'));
+      const input = /** @type {HTMLInputElement} */ (pop?.querySelector('.session-switcher-input'));
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
       assert(lit() === 's:beta', `↓ moves on — got ${lit()}`);
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
@@ -202,10 +202,10 @@ export async function runTests() {
       pressK();
       const hud = popover();
       assert(!!hud, 'the list is up while ⌘ is held');
-      assert(hud?.classList.contains('ss--gesture') === true, 'as a HUD');
+      assert(hud?.classList.contains('session-switcher--gesture') === true, 'as a HUD');
       // The filter is there from the first frame, so settling into the list
       // a tap leaves up shifts nothing.
-      assert(hud?.querySelector('.ss-search')?.checkVisibility() === true, 'with its filter, laid out from the start');
+      assert(hud?.querySelector('.session-switcher-search')?.checkVisibility() === true, 'with its filter, laid out from the start');
       assert(document.body.classList.contains('hud-pointer-idle'), 'rows ignore the pointer until it moves');
       assert(lit() === 's:here', `this window is lit — got ${lit()}`);
       pressK();
@@ -287,7 +287,7 @@ export async function runTests() {
       pressK();
       document.dispatchEvent(new PointerEvent('pointermove', { bubbles: true }));
       assert(!document.body.classList.contains('hud-pointer-idle'), 'a moved pointer works the rows again');
-      const row = /** @type {HTMLElement|null} */ (popover()?.querySelector('.ss-row[data-key="s:delta"]') ?? null);
+      const row = /** @type {HTMLElement|null} */ (popover()?.querySelector('.session-switcher-row[data-key="s:delta"]') ?? null);
       assert(!!row, 'delta has a row');
       row?.click();
       await nextTask();
@@ -332,11 +332,11 @@ export async function runTests() {
       chip.click();
       focus.steal();
       const pop = popover();
-      assert(!!pop && !pop.classList.contains('ss--gesture'), 'the popover is up, with its filter');
-      assert(document.activeElement === pop?.querySelector('.ss-input'), 'the filter has the keyboard');
+      assert(!!pop && !pop.classList.contains('session-switcher--gesture'), 'the popover is up, with its filter');
+      assert(document.activeElement === pop?.querySelector('.session-switcher-input'), 'the filter has the keyboard');
       assert(chip.getAttribute('aria-expanded') === 'true', 'the chip says so');
       assert(lit() === 's:here', `got ${lit()}`);
-      const input = /** @type {HTMLInputElement} */ (pop?.querySelector('.ss-input'));
+      const input = /** @type {HTMLInputElement} */ (pop?.querySelector('.session-switcher-input'));
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
       assert(!popover() && chip.getAttribute('aria-expanded') === 'false', 'Escape closes it');
       await nextTask();
@@ -388,18 +388,18 @@ export async function runTests() {
     const { calls, chip, done } = mount();
     try {
       chip.click();
-      const here = /** @type {HTMLInputElement} */ (popover()?.querySelector('.ss-input') ?? document.createElement('input'));
+      const here = /** @type {HTMLInputElement} */ (popover()?.querySelector('.session-switcher-input') ?? document.createElement('input'));
       here.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
       await nextTask();
       assert(calls.length === 0 && !popover(), `↵ on this window closes the list and moves nothing — got ${calls.join()}`);
       chip.click();
-      const input = /** @type {HTMLInputElement} */ (popover()?.querySelector('.ss-input') ?? document.createElement('input'));
+      const input = /** @type {HTMLInputElement} */ (popover()?.querySelector('.session-switcher-input') ?? document.createElement('input'));
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
       await nextTask();
       assert(calls.join() === 'go:/p/beta-0000/' && !popover(), `got ${calls.join()}`);
       chip.click();
-      const again = /** @type {HTMLInputElement} */ (popover()?.querySelector('.ss-input') ?? document.createElement('input'));
+      const again = /** @type {HTMLInputElement} */ (popover()?.querySelector('.session-switcher-input') ?? document.createElement('input'));
       again.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
       again.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, ...modFlag }));
       await nextTask();
@@ -413,12 +413,12 @@ export async function runTests() {
     const { calls, chip, resolveOpen, done } = mount();
     try {
       chip.click();
-      const row = /** @type {HTMLElement} */ (popover()?.querySelector('.ss-row[data-key="r:/code/old"]') ?? document.createElement('div'));
+      const row = /** @type {HTMLElement} */ (popover()?.querySelector('.session-switcher-row[data-key="r:/code/old"]') ?? document.createElement('div'));
       row.click();
       await nextTask();
       assert(calls.join() === 'open:/code/old', `got ${calls.join()}`);
       assert(!!popover(), 'the popover stays up while it starts');
-      const sub = popover()?.querySelector('.ss-row[data-key="r:/code/old"] .ss-sub')?.textContent;
+      const sub = popover()?.querySelector('.session-switcher-row[data-key="r:/code/old"] .session-switcher-sub')?.textContent;
       assert(sub === 'Starting…', `got ${sub}`);
       resolveOpen(session('old', { project: '/code/old', link: '/p/old-0000/' }));
       await nextTask();
@@ -433,9 +433,9 @@ export async function runTests() {
     const { calls, chip, resolveOpen, done } = mount();
     try {
       chip.click();
-      /** @type {HTMLElement} */ (popover()?.querySelector('.ss-row[data-key="r:/code/old"]') ?? document.createElement('div')).click();
+      /** @type {HTMLElement} */ (popover()?.querySelector('.session-switcher-row[data-key="r:/code/old"]') ?? document.createElement('div')).click();
       await nextTask();
-      const input = /** @type {HTMLInputElement} */ (popover()?.querySelector('.ss-input') ?? document.createElement('input'));
+      const input = /** @type {HTMLInputElement} */ (popover()?.querySelector('.session-switcher-input') ?? document.createElement('input'));
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
       resolveOpen(session('old', { project: '/code/old', link: '/p/old-0000/' }));
       await nextTask();
@@ -449,7 +449,7 @@ export async function runTests() {
     const { calls, chip, done } = mount({ surface: 'tab' });
     try {
       chip.click();
-      /** @type {HTMLElement} */ (popover()?.querySelector('.ss-row[data-key="r:/code/old"]') ?? document.createElement('div')).click();
+      /** @type {HTMLElement} */ (popover()?.querySelector('.session-switcher-row[data-key="r:/code/old"]') ?? document.createElement('div')).click();
       await nextTask();
       assert(calls.join() === 'go:/p/old-0000/', `got ${calls.join()}`);
     } finally {
@@ -461,7 +461,7 @@ export async function runTests() {
     const { calls, chip, done } = mount();
     try {
       chip.click();
-      const input = /** @type {HTMLInputElement} */ (popover()?.querySelector('.ss-input') ?? document.createElement('input'));
+      const input = /** @type {HTMLInputElement} */ (popover()?.querySelector('.session-switcher-input') ?? document.createElement('input'));
       assert(lit() === 's:here', `got ${lit()}`);
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true, ...modFlag }));
       await nextTask();
@@ -476,7 +476,7 @@ export async function runTests() {
     const { calls, chip, done } = mount();
     try {
       chip.click();
-      const input = /** @type {HTMLInputElement} */ (popover()?.querySelector('.ss-input') ?? document.createElement('input'));
+      const input = /** @type {HTMLInputElement} */ (popover()?.querySelector('.session-switcher-input') ?? document.createElement('input'));
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true, ...modFlag }));
       await nextTask();
@@ -514,9 +514,9 @@ export async function runTests() {
     const { calls, chip, done } = mount();
     try {
       chip.click();
-      const bar = popover()?.querySelector('.ss-sheetbar');
-      assert(bar?.querySelector('.ss-sheet-title')?.textContent === 'Switch to', 'the sheet has its title');
-      /** @type {HTMLElement} */ (bar?.querySelector('.ss-sheet-cancel') ?? document.createElement('button')).click();
+      const bar = popover()?.querySelector('.session-switcher-sheetbar');
+      assert(bar?.querySelector('.session-switcher-sheet-title')?.textContent === 'Switch to', 'the sheet has its title');
+      /** @type {HTMLElement} */ (bar?.querySelector('.session-switcher-sheet-cancel') ?? document.createElement('button')).click();
       assert(!popover() && calls.length === 0, 'Cancel closes it, moving nothing');
     } finally {
       done();

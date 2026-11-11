@@ -261,7 +261,7 @@ class TodoContextItem extends ContextItem {
    * @returns {HTMLElement} Panel element
    */
   createPropertiesPanelElement() {
-    const container = createElement('div', 'ci-expanded');
+    const container = createElement('div', 'task-list-panel');
     const todos = this._todos();
     if (todos.length === 0) {
       container.appendChild(createEmptyState(t('No todos yet'), ''));

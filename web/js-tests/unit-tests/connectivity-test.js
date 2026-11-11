@@ -671,7 +671,7 @@ export async function runTests(_ctx) {
     await withRoutes({ exposure: true, lan: { enabled: true, urls: [lanURL('http://192.168.1.4:3939/')] }, tunnel: tunnelModes() }, async () => {
       const { el } = await mountWith({ clientCount: 1, clients: [], exposure: true });
       try {
-        el.classList.add('show');
+        el.classList.add('is-open');
         el.switchTab('connectivity');
         const rows = [...el.querySelectorAll('#connectivity-form .provider-field')];
         assert(rows[0]?.id === 'connectivity-clients-section', `the first row is ${rows[0]?.id || rows[0]?.textContent}`);

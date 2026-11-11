@@ -149,7 +149,7 @@ function mountCard(row, { provider } = {}) {
     // matters here is that the card asks for it, not what it builds.
     modelRow: (p) => {
       const el = document.createElement('div');
-      el.className = 'model-visibility';
+      el.className = 'settings-model-visibility';
       el.dataset.provider = p.name;
       return el;
     },
@@ -357,7 +357,7 @@ export async function runTests(_ctx) {
         'the base URL is not on the card');
       assert(input(card, 'custom-endpoint-name-input').value === 'Acme Gateway', 'the name is not on the card');
       assert(!!card.querySelector('.custom-endpoint-key-input'), 'the API key is not on the card');
-      assert(!!card.querySelector('.model-visibility'),
+      assert(!!card.querySelector('.settings-model-visibility'),
         'the models, and their limits, are configured somewhere other than the endpoint they belong to');
       assert(!!card.querySelector('.custom-endpoint-remove'), 'there is no way to remove the endpoint');
 
@@ -496,7 +496,7 @@ export async function runTests(_ctx) {
   await run('switching an endpoint off changes that card and nothing around it', async () => {
     const { host, ops, scrollWrites, restore } = mountTab([endpoint()]);
     try {
-      await waitFor(() => !!host.querySelector('.custom-endpoint .model-visibility'), {
+      await waitFor(() => !!host.querySelector('.custom-endpoint .settings-model-visibility'), {
         timeoutMs: budgetFor(2000),
         description: 'the endpoint card and its model list to be drawn',
       });
@@ -509,7 +509,7 @@ export async function runTests(_ctx) {
       toggle.dispatchEvent(new Event('change'));
       await awaitOp(ops, 'save');
       // Switched off means unregistered, so the models it can no longer serve go.
-      await waitFor(() => !host.querySelector('.custom-endpoint .model-visibility'), {
+      await waitFor(() => !host.querySelector('.custom-endpoint .settings-model-visibility'), {
         timeoutMs: budgetFor(2000),
         description: 'the model list to go with the endpoint',
       });
@@ -543,7 +543,7 @@ export async function runTests(_ctx) {
         `the reason it isn’t working must be on the card — got "${problem?.textContent}"`);
       // The card exists precisely so this can be corrected.
       assert(input(card, 'custom-endpoint-url-input').value === 'nope', 'the offending URL is not editable');
-      assert(!card.querySelector('.model-visibility'),
+      assert(!card.querySelector('.settings-model-visibility'),
         'an endpoint that never registered is offering a model list it cannot have');
     } finally {
       restore();
@@ -1297,7 +1297,7 @@ export async function runTests(_ctx) {
 
         // Names, descriptions, model ids, numbers and addresses are data; their
         // elements' own labels are checked one by one below.
-        const skip = '.provider-name, .provider-description, .model-visibility-name, .model-visibility-count, '
+        const skip = '.provider-name, .provider-description, .settings-model-visibility-name, .settings-model-visibility-count, '
           + '.model-limit-input, .provider-switch-reason, #p9-oauth-status, #ollama-host-input, .copilot-host-field input';
         /**
          * Every limit field's title and aria-label is a message; its placeholder
@@ -1349,28 +1349,28 @@ export async function runTests(_ctx) {
         await dialogCount(3, 'the refused switch to be reported');
 
         // The model list: a model hidden, then a limit and a hide that fail.
-        const list = /** @type {HTMLDetailsElement} */ (fieldOf('p1').querySelector('details.model-visibility'));
+        const list = /** @type {HTMLDetailsElement} */ (fieldOf('p1').querySelector('details.settings-model-visibility'));
         assert(list.open, 'a list with an assumed window did not open');
-        const box = /** @type {HTMLInputElement} */ (list.querySelector('[data-model="1"] .model-visibility-check'));
+        const box = /** @type {HTMLInputElement} */ (list.querySelector('[data-model="1"] .settings-model-visibility-check'));
         box.checked = false;
         box.dispatchEvent(new Event('change'));
         await nextTask();
-        const count = list.querySelector('.model-visibility-count')?.textContent || '';
+        const count = list.querySelector('.settings-model-visibility-count')?.textContent || '';
         assert(isPseudoLocalized(count), `the shown count is plain English: ${JSON.stringify(count)}`);
         fail.settings = true;
         const limit = /** @type {HTMLInputElement} */ (list.querySelector('[data-model="1"] [data-limit="contextWindow"]'));
         limit.value = '2000';
         limit.dispatchEvent(new Event('change'));
-        const status = /** @type {HTMLElement} */ (list.querySelector('.model-visibility-status'));
+        const status = /** @type {HTMLElement} */ (list.querySelector('.settings-model-visibility-status'));
         await waitFor(() => !status.hidden, { timeoutMs: budgetFor(2000), description: 'the limit save to fail' });
         const limitError = status.textContent;
         assert(isPseudoLocalized(limitError || ''), `the limit failure is plain English: ${JSON.stringify(limitError)}`);
-        const box2 = /** @type {HTMLInputElement} */ (list.querySelector('[data-model="2"] .model-visibility-check'));
+        const box2 = /** @type {HTMLInputElement} */ (list.querySelector('[data-model="2"] .settings-model-visibility-check'));
         box2.checked = false;
         box2.dispatchEvent(new Event('change'));
         await waitFor(() => status.textContent !== limitError, { timeoutMs: budgetFor(2000), description: 'the hide to fail' });
         fail.settings = false;
-        const filter = /** @type {HTMLInputElement} */ (list.querySelector('.model-visibility-filter'));
+        const filter = /** @type {HTMLInputElement} */ (list.querySelector('.settings-model-visibility-filter'));
         filter.value = '0';
         filter.dispatchEvent(new Event('input'));
         check('model list filtered to nothing');
@@ -1412,12 +1412,12 @@ export async function runTests(_ctx) {
         // Re-checking a sign-in, and a keyless provider's status.
         for (const name of ['p4', 'p9']) {
           const before = calls.length;
-          /** @type {HTMLElement} */ (fieldOf(name).querySelector('.settings-btn.icon')).click();
+          /** @type {HTMLElement} */ (fieldOf(name).querySelector('.settings-recheck-btn')).click();
           await waitFor(() => calls.slice(before).some(c => c.endsWith('/providers/refresh')), {
             timeoutMs: budgetFor(2000), description: `${name}'s re-check to ask for a refresh`,
           });
           wsService._emit('providers-update', providers());
-          await waitFor(() => !host.querySelector('.settings-btn.icon.spinning'), {
+          await waitFor(() => !host.querySelector('.settings-recheck-btn.spinning'), {
             timeoutMs: budgetFor(2000), description: `${name}'s re-check to finish`,
           });
         }

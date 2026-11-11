@@ -108,7 +108,7 @@ export function renderUsageRow(stat) {
     return `
             <div class="usage-stat usage-stat-value">
                 <div class="usage-stat-top">
-                    <span class="usage-stat-name">${escapeHtml(stat.name)}</span>
+                    <span class="usage-stat-name text-truncate">${escapeHtml(stat.name)}</span>
                     <span class="usage-stat-pct">${detail || '—'}</span>
                 </div>
                 ${resetRow}
@@ -124,7 +124,7 @@ export function renderUsageRow(stat) {
   return `
             <div class="usage-stat">
                 <div class="usage-stat-top">
-                    <span class="usage-stat-name">${escapeHtml(stat.name)}</span>
+                    <span class="usage-stat-name text-truncate">${escapeHtml(stat.name)}</span>
                     <span class="usage-stat-pct">${Math.round(pct)}%</span>
                 </div>
                 <div class="usage-stat-bar-wrap">

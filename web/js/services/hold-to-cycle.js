@@ -354,7 +354,7 @@ export function defaultShouldHandle(e) {
   }
 
   // Don't handle if a modal dialog is open
-  const modalOpen = document.querySelector('modal-dialog.show');
+  const modalOpen = document.querySelector('modal-dialog.is-open');
   if (modalOpen) {
     return false;
   }

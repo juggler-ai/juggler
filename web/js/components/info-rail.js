@@ -59,7 +59,7 @@ import JugglerElement from './juggler-element.js';
 /**
  * How much of the top card has to stay visible, in rem, for showing it clipped to
  * beat showing nothing. Twice the fade the CSS signs the cut with
- * (`--info-card-fade`), so there is always as much solid card as faded card —
+ * (`--conversation-bar-info-card-fade`), so there is always as much solid card as faded card —
  * below that the whole thing is fade and reads as a rendering fault. Under this,
  * the rail is visibly just its "i" row and no space looks unaccounted for.
  * @type {number}
@@ -114,6 +114,7 @@ class InfoRail extends JugglerElement {
   }
 
   connectedCallback() {
+    this.classList.add('info-rail');
     // The "i" menu leads the stack, so it sits immediately above the topmost card
     // (and just above the Bin when no card is showing). Appended before any card,
     // and cards only ever append after it, so it stays first.
@@ -385,7 +386,7 @@ class InfoRail extends JugglerElement {
     header.className = 'info-card__header';
 
     const eyebrow = document.createElement('span');
-    eyebrow.className = 'info-card__eyebrow';
+    eyebrow.className = 'info-card__eyebrow caps-label';
     // A manifest literal, extracted into the owning extension's catalogue.
     eyebrow.textContent = capabilityLabel(provider.eyebrow, provider.id, infoCardRegistry);
     header.appendChild(eyebrow);

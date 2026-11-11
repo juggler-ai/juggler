@@ -1,0 +1,22 @@
+/*
+ *     ▄▄ ▄▄ ▄▄  ▄▄▄▄  ▄▄▄▄ ▄▄    ▄▄▄▄▄ ▄▄▄▄
+ *     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
+ *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
+ */
+
+/* One line of text, cut with an ellipsis where it runs out of room: a name, a
+   path, a description in a row.
+
+   A pattern rather than a u- utility because a component may need to take it
+   back — a row that wraps when expanded, a label that may break on a narrow
+   sheet — and a utility, last in the cascade, can be overridden by nothing. One
+   class of specificity, so the component's own rule beats it from above.
+
+   Only the cut lives here. In a flex row the item also needs `min-width: 0`
+   (or a max-width) to be allowed to shrink at all; that is the component's,
+   because it is about the row, not the text. */
+.text-truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

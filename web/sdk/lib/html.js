@@ -120,7 +120,7 @@ export function createElement(tag, className, textContent) {
 /**
  * Create a `<button>` with a class, text label, and click handler. The
  * `className` is applied verbatim so callers control their own styling
- * convention (e.g. "modal-button btn-primary", "update-notice__button").
+ * convention (e.g. "btn btn-primary", "btn btn-sm btn-neutral").
  * @param {string} text - Button label
  * @param {string} className - Full class string applied verbatim
  * @param {() => void} onClick - Click handler
@@ -178,7 +178,7 @@ export function renderResultStatusMessage(config) {
   statusRow.className = 'action-result-status';
 
   const summaryEl = document.createElement('span');
-  summaryEl.className = 'action-result-summary';
+  summaryEl.className = 'action-result-summary text-truncate';
 
   if (config.typeName) {
     const badge = document.createElement('span');

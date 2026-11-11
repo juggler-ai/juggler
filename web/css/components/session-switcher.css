@@ -5,12 +5,12 @@
  */
 
 /* The session switcher (components/session-switcher.js): one list, two mounts.
-   `.ss--popover` drops under a project page's chip (session-popover.js), and
-   is a full-screen sheet on a phone; `.ss--page` is the server page's body
+   `.session-switcher--popover` drops under a project page's chip (session-popover.js), and
+   is a full-screen sheet on a phone; `.session-switcher--page` is the server page's body
    (web/machine/sessions-view.js). The tile's hue says which project; the marks
    on it say how it is doing, in the app's tab-circle language. */
-.ss {
-    --ss-surface: var(--bg-secondary);
+.session-switcher {
+    --session-switcher-surface: var(--bg-secondary);
 
     display: flex;
     flex-direction: column;
@@ -19,24 +19,23 @@
     font-size: var(--font-size-base);
 }
 
-.ss--page {
-    --ss-surface: var(--bg-primary);
+.session-switcher--page {
+    --session-switcher-surface: var(--bg-primary);
 }
 
-.ss-sheetbar {
+.session-switcher-sheetbar {
     display: none;
 }
 
-.ss-search {
+.session-switcher-search {
     display: flex;
     align-items: center;
-    gap: 0.6rem;
-    padding: 0.8rem 1.25rem 0.7rem;
-    border-bottom: 1px solid var(--border-divider);
+    gap: var(--space-10);
+    padding: var(--space-12) var(--space-20) var(--space-12);
     color: var(--text-tertiary);
 }
 
-.ss-input {
+.session-switcher-input {
     flex: 1;
     min-width: 0;
     padding: 0;
@@ -48,262 +47,261 @@
     font-size: var(--font-size-lg);
 }
 
-.ss-input::placeholder {
+.session-switcher-input::placeholder {
     color: var(--text-placeholder);
 }
 
-.ss--page .ss-search {
-    margin-bottom: 0.5rem;
-    padding: 0.6rem 1rem;
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-2xl);
-    background: var(--bg-secondary);
+/* The input draws no box of its own, so the row shows where the keyboard is:
+   in the popover the divider under it takes the field focus colour, and on
+   the page the row is a .field-input wrapper, focus look and all. */
+.session-switcher--popover .session-switcher-search {
+    border-bottom: 1px solid var(--border-divider);
+}
+
+.session-switcher--popover .session-switcher-search:focus-within {
+    border-bottom-color: var(--field-focus-border);
+}
+
+.session-switcher--page .session-switcher-search {
+    --field-bg: var(--bg-secondary);
+    --field-radius: var(--radius-2xl);
+
+    margin-bottom: var(--space-8);
+    padding: var(--space-10) var(--space-16);
 }
 
 /* A filter with nothing to filter (showFilter) is hidden. While ⌘ is held
    (the hold-to-cycle gesture) the filter stays, though nothing can be typed
    in it yet, so the list does not jump when a tap settles into it; rows
    ignore a pointer that has not moved since (HoldToCycleController's
-   body.hud-pointer-idle). */
-.ss-search[hidden] {
+   body.hud-pointer-idle). The machine page loads this sheet without
+   utilities.css, whose [hidden] rule would otherwise cover this one. */
+.session-switcher-search[hidden] {
     display: none;
 }
 
-body.hud-pointer-idle .ss--gesture .ss-list {
+body.hud-pointer-idle .session-switcher--gesture .session-switcher-list {
     pointer-events: none;
 }
 
-.ss-list {
+.session-switcher-list {
     overflow: auto;
-    padding: 0.35rem 0.6rem 0.6rem;
+    padding: var(--space-6) var(--space-10) var(--space-10);
     overscroll-behavior: contain;
 }
 
-.ss--page .ss-list {
+.session-switcher--page .session-switcher-list {
     overflow: visible;
     padding: 0;
 }
 
-.ss-heading {
-    padding: 0.7rem 0.75rem 0.3rem;
+.session-switcher-heading {
+    padding: var(--space-12) var(--space-12) var(--space-4);
     color: var(--text-tertiary);
-    font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
 }
 
-.ss .ss-list > .ss-rule {
-    margin: 0.45rem 0.75rem;
+.session-switcher .session-switcher-list > .session-switcher-rule {
+    margin: var(--space-8) var(--space-12);
     border-top: 1px solid var(--border-divider);
 }
 
-.ss-empty {
-    padding: 0.9rem 0.75rem 0.3rem;
+.session-switcher-empty {
+    padding: var(--space-14) var(--space-12) var(--space-4);
     color: var(--text-tertiary);
 }
 
-.ss-row {
+.session-switcher-row {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
-    gap: 0.75rem;
-    padding: 0.42rem 0.5rem 0.42rem 0.75rem;
+    gap: var(--space-12);
+    padding: var(--space-6) var(--space-8) var(--space-6) var(--space-12);
     border-radius: var(--radius-popup-item);
     cursor: pointer;
     user-select: none;
 }
 
-.ss-row[aria-selected="true"] {
+.session-switcher-row[aria-selected="true"] {
     background: var(--item-selected-strong-bg);
 }
 
 /* On the page the lit row is the keyboard's (session-switcher.js); the
    pointer only shades the row a click would open. In the popover the lit row
    follows the pointer instead, so it needs no shade of its own. */
-.ss--page .ss-row:hover:not([aria-selected="true"]) {
-    background: var(--overlay-light-8);
+.session-switcher--page .session-switcher-row:hover:not([aria-selected="true"]) {
+    background: var(--wash-2);
 }
 
-.ss-main {
+.session-switcher-main {
     min-width: 0;
 }
 
-.ss-top {
+.session-switcher-top {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--space-8);
     min-width: 0;
 }
 
-.ss-name,
-.ss-action-name {
-    overflow: hidden;
+.session-switcher-name,
+.session-switcher-action-name {
     font-weight: var(--font-weight-medium);
-    white-space: nowrap;
-    text-overflow: ellipsis;
 }
 
-.ss-sub {
-    overflow: hidden;
+.session-switcher-sub {
     color: var(--text-secondary);
     font-size: var(--font-size-sm);
-    white-space: nowrap;
-    text-overflow: ellipsis;
 }
 
 /* The status line's parts, set off by middle dots that are not words. */
-.ss-sub > span + span::before {
+.session-switcher-sub > span + span::before {
     content: " · ";
     color: var(--text-secondary);
 }
 
-.ss-path {
+.session-switcher-path {
     font-family: var(--font-mono);
 }
 
 /* An open session's path, beside its name: what gives way first when the row
    is narrow, before the name and its tag. */
-.ss-top:has(.ss-top-path) > .ss-name {
+.session-switcher-top:has(.session-switcher-top-path) > .session-switcher-name {
     flex-shrink: 0;
     max-width: 60%;
 }
 
-.ss-top-path {
+.session-switcher-top-path {
     flex: 0 1 auto;
-    overflow: hidden;
     min-width: 0;
     color: var(--text-tertiary);
     font-size: var(--font-size-sm);
-    white-space: nowrap;
-    text-overflow: ellipsis;
 }
 
-.ss .ss-tone-waiting {
-    color: var(--accent-yellow);
+.session-switcher .session-switcher-tone-waiting {
+    color: var(--warning);
 }
 
-.ss .ss-tone-failed {
-    color: var(--accent-red);
+.session-switcher .session-switcher-tone-failed {
+    color: var(--danger);
 }
 
-.ss .ss-tone-working {
+.session-switcher .session-switcher-tone-working {
     color: var(--accent-green);
 }
 
-.ss .ss-touch-only {
+.session-switcher .session-switcher-touch-only {
     display: none;
 }
 
-.ss-tag {
+.session-switcher-tag {
     flex-shrink: 0;
-    padding: 0 0.45rem;
+    padding: 0 var(--space-8);
     border-radius: var(--radius-pill);
     color: var(--text-tertiary);
     font-size: var(--font-size-xs);
     white-space: nowrap;
 }
 
-.ss-tag-here {
+.session-switcher-tag-here {
     border: 1px solid var(--border-color);
 }
 
-.ss-tag-other {
+.session-switcher-tag-other {
     display: inline-flex;
     align-items: center;
-    gap: 0.25rem;
+    gap: var(--space-4);
 }
 
-.ss .ss-icon {
+.session-switcher .session-switcher-icon {
     display: inline-grid;
     width: 1rem;
     height: 1rem;
     flex-shrink: 0;
 }
 
-.ss .ss-icon > svg {
+.session-switcher .session-switcher-icon > svg {
     width: 100%;
     height: 100%;
     fill: currentcolor;
 }
 
-.ss-search .ss-icon {
+.session-switcher-search .session-switcher-icon {
     width: 1.25rem;
     height: 1.25rem;
 }
 
-.ss-tag-other .ss-icon {
+.session-switcher-tag-other .session-switcher-icon {
     width: 0.8rem;
     height: 0.8rem;
 }
 
 /* The row's end: its age or key at rest; on the server page, a session's Stop
    (or a failed one's Dismiss) over it under the pointer. */
-.ss-end {
+.session-switcher-end {
     display: grid;
     place-items: center end;
     min-width: 1.75rem;
 }
 
-.ss-end > * {
+.session-switcher-end > * {
     grid-area: 1 / 1;
 }
 
-.ss-meta {
+.session-switcher-meta {
     color: var(--text-tertiary);
     font-family: inherit;
     font-size: var(--font-size-sm);
     white-space: nowrap;
 }
 
-/* A pill like the confirm's (ss-mini), turning red under the pointer: what it
+/* A pill like the confirm's (session-switcher-mini), turning red under the pointer: what it
    ends is a session, not the row. */
-.ss .ss-stop {
+.session-switcher .session-switcher-stop {
     visibility: hidden;
     color: var(--text-secondary);
 }
 
-.ss .ss-stop:hover {
-    border-color: var(--accent-red);
-    color: var(--accent-red);
+.session-switcher .session-switcher-stop:hover {
+    border-color: var(--danger);
+    color: var(--danger);
 }
 
-.ss-row:hover .ss-stop {
+.session-switcher-row:hover .session-switcher-stop {
     visibility: visible;
 }
 
-.ss-row:hover .ss-meta:has(+ .ss-stop) {
+.session-switcher-row:hover .session-switcher-meta:has(+ .session-switcher-stop) {
     visibility: hidden;
 }
 
 /* The tile: the project's initials on its hue. */
-.ss-tile-wrap {
+.session-switcher-tile-wrap {
     position: relative;
     display: inline-flex;
     flex-shrink: 0;
 }
 
-.ss-tile {
+.session-switcher-tile {
     display: inline-grid;
     place-items: center;
     width: 1.85rem;
     height: 1.85rem;
     border-radius: var(--radius-xl);
-    background: color-mix(in srgb, var(--ss-tint, var(--text-tertiary)) 30%, transparent);
+    background: color-mix(in srgb, var(--session-switcher-tint, var(--text-tertiary)) 30%, transparent);
     font-size: var(--font-size-xs);
     font-weight: var(--font-weight-bold);
 }
 
-.ss-tile-dim {
+.session-switcher-tile-dim {
     opacity: 0.7;
 }
 
-.ss-tile-action {
-    background: var(--overlay-light-8);
+.session-switcher-tile-action {
+    background: var(--wash-2);
     color: var(--text-secondary);
 }
 
-.ss-badge {
+.session-switcher-badge {
     position: absolute;
     top: -0.45rem;
     right: -0.6rem;
@@ -312,25 +310,25 @@ body.hud-pointer-idle .ss--gesture .ss-list {
     box-sizing: content-box;
     min-width: 0.6rem;
     height: 0.95rem;
-    padding: 0 0.17rem;
-    border: 0.125rem solid var(--ss-surface);
+    padding: 0 var(--space-2);
+    border: 0.125rem solid var(--session-switcher-surface);
     border-radius: var(--radius-pill);
     font-size: var(--font-size-2xs);
     font-weight: var(--font-weight-bold);
     line-height: 1;
 }
 
-.ss-badge-waiting {
-    background: var(--accent-yellow);
+.session-switcher-badge-waiting {
+    background: var(--warning);
     color: var(--bg-primary);
 }
 
-.ss-badge-failed {
-    background: var(--accent-red);
+.session-switcher-badge-failed {
+    background: var(--danger);
     color: var(--text-on-accent);
 }
 
-.ss-badge-working {
+.session-switcher-badge-working {
     top: auto;
     right: -0.3rem;
     bottom: -0.25rem;
@@ -339,42 +337,36 @@ body.hud-pointer-idle .ss--gesture .ss-list {
     height: 0.5rem;
     padding: 0;
     background: var(--accent-green);
-    animation: ss-pulse 0.8s ease-in-out infinite alternate;
+    animation: session-switcher-pulse 0.8s ease-in-out infinite alternate;
 }
 
-.ss-tile-spinner {
+.session-switcher-tile-spinner {
     position: absolute;
     right: -0.35rem;
     bottom: -0.3rem;
     width: 0.8rem;
     height: 0.8rem;
     border-radius: 50%;
-    background: var(--ss-surface);
+    background: var(--session-switcher-surface);
 }
 
-@keyframes ss-pulse {
+@keyframes session-switcher-pulse {
     from { opacity: 1; }
     to { opacity: 0.35; }
 }
 
 /* An inline confirm, in place of the status line. */
-.ss-confirm {
+.session-switcher-confirm {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--space-8);
     color: var(--text-primary);
     font-size: var(--font-size-sm);
 }
 
-.ss-confirm span {
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-}
-
-.ss .ss-mini {
+.session-switcher .session-switcher-mini {
     flex-shrink: 0;
-    padding: 0.05rem 0.55rem;
+    padding: 0.0625rem var(--space-8);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-pill);
     background: var(--bg-secondary);
@@ -384,50 +376,43 @@ body.hud-pointer-idle .ss--gesture .ss-list {
     cursor: pointer;
 }
 
-.ss .ss-mini-danger {
-    border-color: var(--accent-red);
-    background: var(--accent-red);
+.session-switcher .session-switcher-mini-danger {
+    border-color: var(--danger);
+    background: var(--danger);
     color: var(--text-on-accent);
 }
 
 /* A path field, in place of a folder chooser. */
-.ss .ss-main > .ss-field {
+.session-switcher .session-switcher-main > .session-switcher-field {
     display: flex;
-    gap: 0.5rem;
-    margin-top: 0.3rem;
+    gap: var(--space-8);
+    margin-top: var(--space-4);
 }
 
-.ss .ss-field-input {
+.session-switcher .session-switcher-field-input {
     flex: 1;
     min-width: 0;
-    padding: 0.3rem 0.6rem;
-    border: 1px solid var(--accent-blue);
-    border-radius: var(--radius-lg);
-    outline: 0;
-    background: var(--bg-primary);
-    color: var(--text-primary);
     font-family: var(--font-mono);
-    font-size: var(--font-size-sm);
 }
 
-.ss-foot {
+.session-switcher-foot {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.3rem 1rem;
-    padding: 0.55rem 1.25rem;
+    gap: var(--space-4) var(--space-16);
+    padding: var(--space-8) var(--space-20);
     border-top: 1px solid var(--border-divider);
     color: var(--text-tertiary);
     font-size: var(--font-size-sm);
 }
 
-.ss-foot kbd {
+.session-switcher-foot kbd {
     color: var(--text-secondary);
     font-family: inherit;
 }
 
-.ss--page .ss-foot {
-    margin-top: 0.75rem;
-    padding-inline: 0.75rem;
+.session-switcher--page .session-switcher-foot {
+    margin-top: var(--space-12);
+    padding-inline: var(--space-12);
     border-top: 0;
 }
 
@@ -435,76 +420,76 @@ body.hud-pointer-idle .ss--gesture .ss-list {
    project's tile on its hue, as the rows draw it, its name and the arrow it
    opens by; pressed while the popover is up. A faint fill at rest makes the
    three one object, apart from the icon buttons beside it. */
-.ss-chip {
-    gap: 0.5rem;
+.session-switcher-chip {
+    gap: var(--space-8);
     height: 2rem;
-    padding: 0 0.375rem 0 0.25rem;
+    padding: 0 var(--space-6) 0 var(--space-4);
     border: 0;
     border-radius: var(--radius-xl);
-    background: var(--overlay-light-5);
+    background: var(--wash-1);
     color: inherit;
     font: inherit;
     font-size: var(--font-size-md);
-    line-height: 1.25;
+    line-height: var(--leading-snug);
     font-weight: var(--font-weight-normal);
     transition: background-color var(--transition-fast);
 }
 
-.ss-chip:hover {
-    background: var(--overlay-light-10);
+.session-switcher-chip:hover {
+    background: var(--wash-3);
 }
 
-.ss-chip[aria-expanded="true"] {
+.session-switcher-chip[aria-expanded="true"] {
     background: var(--item-selected-bg);
 }
 
-.ss-chip-tile {
+.session-switcher-chip-tile {
     display: inline-grid;
     place-items: center;
     flex-shrink: 0;
     width: 1.375rem;
     height: 1.375rem;
     border-radius: var(--radius-lg);
-    background: color-mix(in srgb, var(--ss-tint) 30%, transparent);
+    background: color-mix(in srgb, var(--session-switcher-tint) 30%, transparent);
     font-size: var(--font-size-2xs);
     line-height: 1;
     font-weight: var(--font-weight-bold);
     letter-spacing: 0.02em;
 }
 
-.ss-chip-tile:empty {
+.session-switcher-chip-tile:empty {
     display: none;
 }
 
 /* The arrow sits close to the name it belongs to: the chip's gap less the
    empty margin the glyph draws around itself. */
-.ss-chip > .ss-chip-caret {
+.session-switcher-chip > .session-switcher-chip-caret {
     width: 1.125rem;
     height: 1.125rem;
     flex-shrink: 0;
-    margin-left: -0.25rem;
+    margin-left: calc(-1 * var(--space-4));
     fill: var(--text-tertiary);
 }
 
 /* Mount 1: the popover, under the chip, kept inside the window, where
-   session-popover.js stands it (--ss-top, --ss-left, --ss-width). */
-.ss--popover {
+   session-popover.js stands it (--session-switcher-top, --session-switcher-left, --session-switcher-width). */
+.session-switcher--popover {
     position: fixed;
     z-index: var(--z-dropdown);
-    top: var(--ss-top);
-    left: var(--ss-left);
-    width: var(--ss-width);
-    max-height: calc(100vh - var(--ss-top) - 1.5rem);
+    top: var(--session-switcher-top);
+    left: var(--session-switcher-left);
+    width: var(--session-switcher-width);
+    max-height: calc(100vh - var(--session-switcher-top) - 1.5rem);
     overflow: hidden;
     border: 1px solid color-mix(in srgb, var(--border-floating) 45%, transparent);
     border-radius: var(--radius-popup);
-    background: var(--ss-surface);
+    background: var(--session-switcher-surface);
     box-shadow: var(--popup-shadow);
-    animation: ss-in 90ms cubic-bezier(0.22, 1, 0.36, 1);
+    animation: session-switcher-in 90ms var(--ease-out);
     transform-origin: top left;
 }
 
-@keyframes ss-in {
+@keyframes session-switcher-in {
     from {
         opacity: 0;
         scale: 0.98;
@@ -512,7 +497,7 @@ body.hud-pointer-idle .ss--gesture .ss-list {
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .ss--popover {
+    .session-switcher--popover {
         animation: none;
     }
 }
@@ -520,7 +505,7 @@ body.hud-pointer-idle .ss--gesture .ss-list {
 /* A phone (≤36rem): the popover is a full-screen sheet, and touch has no
    hover, so the × is always there, quietly. */
 @media (width <= 36rem) {
-    .ss--popover {
+    .session-switcher--popover {
         inset: 0;
         width: auto;
         max-height: none;
@@ -529,19 +514,19 @@ body.hud-pointer-idle .ss--gesture .ss-list {
         box-shadow: none;
     }
 
-    .ss--popover .ss-sheetbar {
+    .session-switcher--popover .session-switcher-sheetbar {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 0.75rem 1rem 0.25rem;
+        padding: var(--space-12) var(--space-16) var(--space-4);
     }
 
-    .ss-sheet-title {
+    .session-switcher-sheet-title {
         font-size: var(--font-size-lg);
         font-weight: var(--font-weight-medium);
     }
 
-    .ss .ss-sheet-cancel {
+    .session-switcher .session-switcher-sheet-cancel {
         border: 0;
         background: none;
         color: var(--accent-blue);
@@ -550,24 +535,24 @@ body.hud-pointer-idle .ss--gesture .ss-list {
         cursor: pointer;
     }
 
-    .ss-row {
-        padding-block: 0.65rem;
+    .session-switcher-row {
+        padding-block: var(--space-10);
     }
 
-    .ss-foot,
-    .ss .ss-desk-only {
+    .session-switcher-foot,
+    .session-switcher .session-switcher-desk-only {
         display: none;
     }
 
-    .ss .ss-touch-only {
+    .session-switcher .session-switcher-touch-only {
         display: inline;
     }
 
-    .ss .ss-stop {
+    .session-switcher .session-switcher-stop {
         visibility: visible;
     }
 
-    .ss-meta:has(+ .ss-stop) {
+    .session-switcher-meta:has(+ .session-switcher-stop) {
         visibility: hidden;
     }
 }

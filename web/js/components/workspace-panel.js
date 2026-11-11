@@ -333,7 +333,7 @@ class WorkspacePanel extends JugglerElement {
 
     const kind = this._kind();
     const what = document.createElement('div');
-    what.className = 'workspace-panel-eyebrow';
+    what.className = 'workspace-panel-eyebrow caps-label-lg';
     what.textContent = kind ? t('Workspace · {kind}', { kind }) : t('Workspace');
     head.appendChild(what);
 
@@ -443,7 +443,7 @@ class WorkspacePanel extends JugglerElement {
     section.className = 'workspace-panel-section workspace-panel-state';
 
     const heading = document.createElement('h3');
-    heading.className = 'workspace-panel-heading';
+    heading.className = 'workspace-panel-heading caps-label-lg';
     heading.textContent = t('Status');
     section.appendChild(heading);
 

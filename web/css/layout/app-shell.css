@@ -21,7 +21,7 @@ app-container {
        tokens/theme-*.css. */
     --chrome-pattern-url: url("../../resources/chrome-pattern.svg");
     --chrome-pattern-scale: 1.4;
-    /* stylelint-disable rem-over-px/rem-over-px, unit-disallowed-list */
+    /* stylelint-disable rem-over-px/rem-over-px, unit-disallowed-list -- the SVG tile's own width and height, in its own pixels */
     --chrome-pattern-size:
         calc(639px * var(--chrome-pattern-scale))
         calc(177px * var(--chrome-pattern-scale));
@@ -36,7 +36,7 @@ app-container {
 .logo {
     display: flex;
     align-items: center;
-    gap: 0.625rem;
+    gap: var(--space-10);
     flex-shrink: 0;
     cursor: pointer;
 }
@@ -145,19 +145,21 @@ app-container {
    and set on the button's outer corner to fit the glyph's bare top-right,
    right of its top box and above its crossbar, so it covers none of the ink. */
 .network-button__clients {
+    --network-button-badge-size: 0.75rem;
+
     position: absolute;
     top: -0.0625rem;
     right: -0.0625rem;
-    min-width: 0.75rem;
-    height: 0.75rem;
-    padding: 0 0.125rem;
+    min-width: var(--network-button-badge-size);
+    height: var(--network-button-badge-size);
+    padding: 0 var(--space-2);
     border-radius: var(--radius-pill);
     background-color: var(--text-secondary);
     color: var(--bg-primary);
     font-size: var(--font-size-2xs);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     font-variant-numeric: tabular-nums;
-    line-height: 0.75rem;
+    line-height: var(--network-button-badge-size);
     text-align: center;
     pointer-events: none;
 }
@@ -179,12 +181,12 @@ app-container {
     width: auto;
     flex-direction: column;
     align-items: flex-start;
-    padding: 0 0.5rem 0 1.875rem;
+    padding: 0 var(--space-8) 0 var(--space-32);
 
     /* It holds a value (the host), so it wears the header's resting fill, as
        the chip does (layout/app-header.css). */
-    --btn-ghost-bg: var(--overlay-light-5);
-    --btn-ghost-hover-bg: var(--overlay-light-10);
+    --btn-ghost-bg: var(--wash-1);
+    --btn-ghost-hover-bg: var(--wash-3);
 }
 
 /* The glyph sits a touch left of the inset's middle, so the badge has room
@@ -196,7 +198,7 @@ app-container {
 .network-button__host {
     color: var(--text-secondary);
     font-size: var(--font-size-xs);
-    line-height: 0.8125rem;
+    line-height: var(--leading-snug);
     white-space: nowrap;
 }
 
@@ -242,13 +244,9 @@ app-container {
    The button carries both glyphs and shows the one for the transcript's current
    state: folded while grouping is on, unfolded while it is off. The glyph is the
    whole signal — both paint exactly like any other header icon, untinted. */
-.tool-grouping-button .tool-grouping-fold,
-.tool-grouping-button.is-active .tool-grouping-unfold {
+:where(.tool-grouping-button:not(.is-active)) .tool-grouping-fold,
+:where(.tool-grouping-button.is-active) .tool-grouping-unfold {
     display: none;
-}
-
-.tool-grouping-button.is-active .tool-grouping-fold {
-    display: block;
 }
 
 /* Settings Button - mask icon with rotation on hover */
@@ -298,7 +296,7 @@ conversation-tabs-container {
    No conversations: the sidebar must stay — it holds the "+" that ends this
    state — but the tab column has no tabs to hold, so
    <no-conversations-overlay> takes the room it would claim. */
-body.no-conversations conversation-tabs-container {
+body:where(.no-conversations) conversation-tabs-container {
     display: none;
 }
 
@@ -306,13 +304,14 @@ body.no-conversations conversation-tabs-container {
    holds the selection, so <workspace-panel> is what is on screen instead of a
    conversation. The sidebar stays — it is what the selection was made in, and
    clicking a tab is the way back. */
-body.workspace-selected conversation-tabs-container {
+body:where(.workspace-selected) conversation-tabs-container {
     display: none;
 }
 
 /* Conversation Tab - isolated DOM for each conversation. The container stacks
    them all in one place and shows the active one; conversation-tab.js sets
-   `active` / `hidden` on itself. Its own UI is components/conversation-tab.css. */
+   `active` / `hidden` on itself. Its lazy-load overlay is
+   components/conversation-tab.css. */
 conversation-tab {
     display: none; /* Hidden by default */
     flex: 1;
@@ -321,14 +320,10 @@ conversation-tab {
     inset: 0;
 }
 
-conversation-tab.active {
+conversation-tab.is-active {
     display: flex; /* Show active tab */
     flex-direction: column;
     position: relative;
-}
-
-conversation-tab.hidden {
-    display: none; /* Explicitly hide inactive tabs */
 }
 
 /* Column viewport - the box that holds the column container and draws its
@@ -404,9 +399,10 @@ column-viewport.overflow-end {
    scroll container draws its bar at the border-box bottom regardless of padding).
    Mirrors .window-resize-strip, which solves the same overlap at the top edge.
    Windows-only: macOS uses auto-hiding overlay scrollbars and remote browsers
-   have a native frame. */
-:root[data-window-platform="windows"] .window-mode column-container {
-    /* stylelint-disable-next-line rem-over-px/rem-over-px, unit-disallowed-list */
+   have a native frame. The gate is a condition, not weight, so it sits in
+   :where(); nothing else sets this margin. */
+:where(:root[data-window-platform="windows"] .window-mode) column-container {
+    /* stylelint-disable-next-line rem-over-px/rem-over-px, unit-disallowed-list -- clears the native resize band, in screen pixels */
     margin-bottom: 6px;
 }
 
@@ -419,7 +415,7 @@ column-viewport.overflow-end {
    resize edge, and the gap would be a dead strip. The gate is a condition, not
    weight, so it sits in :where(); nothing else sets this margin. */
 :where(:root[data-window-platform="linux"][data-window-edge-resize] .window-mode) column-container {
-    /* stylelint-disable-next-line rem-over-px/rem-over-px, unit-disallowed-list */
+    /* stylelint-disable-next-line rem-over-px/rem-over-px, unit-disallowed-list -- clears the runtime's resize band, in screen pixels */
     margin-bottom: 8px;
 }
 
@@ -483,16 +479,8 @@ column-container > workspace-panel:nth-child(1):nth-last-child(2):has(+ properti
 }
 
 /* Selected item in inactive columns — muted/gray highlight (Finder-style) */
-column-container conversation-area:not(.active-column) .conversation-item.selected {
-    background: var(--overlay-light-5);
-}
-
-/* A group column is a lens on the column to its left, not a place to type, so
-   it has no composer — nor the suggested replies that write into one. That is
-   the only reason a column hides either. */
-conversation-area[data-hide-input] composer-box,
-conversation-area[data-hide-input] reply-suggestions {
-    display: none;
+column-container conversation-area:not(.active-column) .conversation-item.is-selected {
+    background: var(--wash-1);
 }
 
 /* The composer and the suggestion row above it are fixed furniture at the foot
@@ -513,8 +501,9 @@ column-container properties-panel {
    the rightmost column, honor that width instead of flex-growing — and let the
    user drag below the 30rem floor above (COL_MIN_WIDTH_REM in
    js/utils/column-resize.js still applies). The last panel keeps the flex:1
-   above so it always fills remaining space. */
-column-container properties-panel[style*="width"]:not(:last-child) {
+   above so it always fills remaining space. The condition is in :where(), so
+   the rule ties with that one and wins by coming after it. */
+column-container properties-panel:where([style*="width"]:not(:last-child)) {
     flex: 0 0 auto;
     min-width: 12.5rem;
 }
@@ -545,8 +534,7 @@ col-resize-handle::before {
     inset: 0 -1rem 0 0;
 }
 
-col-resize-handle.hovered,
-col-resize-handle.dragging {
+col-resize-handle:where(.hovered, .dragging) {
     background: var(--accent-blue);
 }
 
@@ -648,7 +636,7 @@ conversation-message-list-wrapper {
         background: var(--modal-scrim);
         opacity: 0;
         pointer-events: none;
-        transition: opacity 200ms ease;
+        transition: opacity var(--transition-slow);
     }
 
     /* Above everything the drawer is covering, and below the drawer itself. At
@@ -660,7 +648,7 @@ conversation-message-list-wrapper {
        tap. Raised only while the drawer is open: the rest of the time the scrim
        is inert and must not sit over the board at all. */
     body.sidebar-open .sidebar-backdrop {
-        z-index: calc(var(--z-dropdown) - 1);
+        z-index: var(--z-scrim);
         opacity: 1;
         pointer-events: auto;
     }
@@ -682,13 +670,17 @@ conversation-message-list-wrapper {
     }
 
     column-container conversation-area,
-    column-container conversation-area[style*="width"],
     column-container properties-panel,
-    column-container properties-panel[style*="width"]:not(:last-child),
-    column-container workspace-panel,
-    column-container workspace-panel[style*="width"] {
+    column-container workspace-panel {
         flex: 0 0 100%;
         min-width: 0;
         scroll-snap-align: start;
+    }
+
+    /* The explicit-width rule above out-weighs the plain selectors on flex
+       alone; nothing else it sets needs taking back. */
+    column-container conversation-area[style*="width"],
+    column-container workspace-panel[style*="width"] {
+        flex: 0 0 100%;
     }
 }

@@ -496,7 +496,7 @@ class PinboardPanel extends JugglerElement {
     toolbar.className = 'pinboard-toolbar';
 
     const identity = document.createElement('span');
-    identity.className = 'pinboard-toolbar__identity';
+    identity.className = 'pinboard-toolbar__identity caps-label';
     identity.textContent = t('Pinboard');
 
     const controls = document.createElement('div');
@@ -510,11 +510,11 @@ class PinboardPanel extends JugglerElement {
     // rather than asked a question that only ever has one answer this early.
     const popOut = document.createElement('button');
     popOut.type = 'button';
-    popOut.className = 'btn-ghost pinboard-toolbar__popout';
+    popOut.className = 'btn btn-xs btn-ghost pinboard-toolbar__popout';
     popOut.title = t('Open this board in its own window');
     popOut.setAttribute('aria-label', t('Pop out Pinboard'));
     // eslint-disable-next-line juggler/escape-html-interpolation -- POPOUT_ICON_PATH is this module's constant path data
-    popOut.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" aria-hidden="true"><path d="${POPOUT_ICON_PATH}"/></svg><span>${escapeHtml(t('Pop-out'))}</span>`;
+    popOut.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true"><path d="${POPOUT_ICON_PATH}"/></svg><span>${escapeHtml(t('Pop-out'))}</span>`;
     popOut.hidden = !canLinkBoards();
     this.on(popOut, 'click', () => { void this._popOut(); });
     controls.appendChild(popOut);
@@ -525,7 +525,7 @@ class PinboardPanel extends JugglerElement {
     close.type = 'button';
     // The app's close button, glyph and all: a surface that puts itself away
     // should not have a private way of saying so.
-    close.className = 'close-button';
+    close.className = 'btn btn-icon btn-icon-lg btn-ghost pinboard-toolbar__close';
     close.title = t('Close Pinboard');
     close.setAttribute('aria-label', t('Close Pinboard'));
     close.innerHTML = '<span class="icon-close"></span>';
@@ -581,11 +581,10 @@ class PinboardPanel extends JugglerElement {
     /** @type {HTMLElement[]} */
     const parts = [];
     if (conversationTitle) {
-      const conversation = document.createElement(linked ? 'button' : 'span');
-      conversation.className = 'app-header__board-conversation';
-      conversation.textContent = conversationTitle;
       if (linked) {
-        const button = /** @type {HTMLButtonElement} */ (conversation);
+        const button = document.createElement('button');
+        button.className = 'app-header__board-conversation';
+        button.textContent = conversationTitle;
         button.type = 'button';
         button.title = t('Show this conversation in the main window');
         button.setAttribute('aria-label', t('Show this conversation in the main window'));
@@ -602,11 +601,16 @@ class PinboardPanel extends JugglerElement {
           if (drag.dragged()) return;
           satelliteLink.selectConversation(boardConversationId());
         });
+        parts.push(button);
+      } else {
+        const name = document.createElement('span');
+        name.className = 'app-header__board-conversation';
+        name.textContent = conversationTitle;
+        parts.push(name);
       }
-      parts.push(conversation);
     }
     const kind = document.createElement('span');
-    kind.className = 'app-header__board-kind';
+    kind.className = 'app-header__board-kind caps-label';
     kind.textContent = t('Pinboard');
     parts.push(kind);
     slot.replaceChildren(...parts);

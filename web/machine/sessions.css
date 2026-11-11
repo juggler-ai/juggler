@@ -32,16 +32,16 @@ body {
 .ms-page {
     max-width: 48rem;
     margin: 0;
-    padding: var(--spacing-xl) var(--spacing-lg);
+    padding: var(--space-24) var(--space-16);
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-xl);
+    gap: var(--space-24);
 }
 
 .ms-column {
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-xl);
+    gap: var(--space-24);
     min-width: 0;
 }
 
@@ -67,7 +67,7 @@ body {
     align-self: stretch;
     display: flex;
     align-items: center;
-    padding-left: var(--spacing-lg);
+    padding-left: var(--space-16);
     border-left: 1px solid var(--border-subtle);
 }
 
@@ -76,7 +76,7 @@ body {
     min-width: 0;
     display: flex;
     align-items: center;
-    gap: var(--spacing-md);
+    gap: var(--space-12);
 }
 
 .ms-title {
@@ -84,7 +84,7 @@ body {
     min-width: 0;
     display: flex;
     align-items: center;
-    gap: var(--spacing-md);
+    gap: var(--space-12);
     line-height: var(--leading-tight);
 }
 
@@ -92,13 +92,6 @@ body {
     flex: none;
     font-size: var(--font-size-md);
     font-weight: var(--font-weight-medium);
-}
-
-.ms-title h1,
-.ms-subtitle {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 .ms-subtitle {
@@ -114,7 +107,7 @@ body {
     color: var(--text-tertiary);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-pill);
-    padding: 0.125rem var(--spacing-sm);
+    padding: var(--space-2) var(--space-8);
 }
 
 /* The server chooser (sessions-view.js): the button naming where the window
@@ -136,9 +129,6 @@ body {
 
 .ms-server-label {
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 .ms-server-switch .ms-icon {
@@ -157,8 +147,8 @@ body {
 .ms-chooser-section {
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-xs);
-    padding: var(--spacing-sm);
+    gap: var(--space-6);
+    padding: var(--space-8);
 }
 
 .ms-chooser-section + .ms-chooser-section {
@@ -170,8 +160,8 @@ body {
 }
 
 .ms-chooser-connect {
-    gap: var(--spacing-sm);
-    padding: var(--spacing-md);
+    gap: var(--space-8);
+    padding: var(--space-12);
     background: color-mix(in srgb, var(--bg-secondary) 96%, var(--text-primary));
 }
 
@@ -179,15 +169,11 @@ body {
     list-style: none;
     display: flex;
     flex-direction: column;
-    gap: 0.125rem;
+    gap: var(--space-2);
 }
 
 .ms-chooser-label {
-    padding: var(--spacing-xs) var(--spacing-sm) 0;
-    font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
+    padding: var(--space-6) var(--space-8) 0;
     color: var(--text-secondary);
 }
 
@@ -198,9 +184,9 @@ body {
 .ms-chooser-choice {
     display: flex;
     align-items: center;
-    gap: var(--spacing-md);
+    gap: var(--space-12);
     width: 100%;
-    padding: var(--spacing-sm);
+    padding: var(--space-8);
     border: 0;
     border-radius: var(--radius-md);
     background: transparent;
@@ -253,7 +239,7 @@ body {
 }
 
 .ms-chooser .ms-lan-note {
-    padding: var(--spacing-xs) var(--spacing-sm) var(--spacing-sm);
+    padding: var(--space-6) var(--space-8) var(--space-8);
 }
 
 /* What the firewall must let in for other computers to be found: a line,
@@ -261,11 +247,11 @@ body {
 .ms-found-firewall:not([hidden]) {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: var(--space-4);
 }
 
 .ms-chooser .ms-connect-error {
-    padding: 0 var(--spacing-sm);
+    padding: 0 var(--space-8);
 }
 
 /* A window on another computer's server: that server's page, framed, is the
@@ -300,12 +286,12 @@ body {
    resize edge, and the gap would be a dead strip. */
 :where(:root[data-window-edge-resize] .window-mode) .ms-frame {
     width: auto;
-    /* stylelint-disable-next-line rem-over-px/rem-over-px, unit-disallowed-list */
+    /* stylelint-disable-next-line rem-over-px/rem-over-px, unit-disallowed-list -- clears the runtime's resize band, in screen pixels */
     margin: 0 8px 8px;
 }
 
 .ms-frame-notice {
-    padding: var(--spacing-sm) var(--spacing-lg);
+    padding: var(--space-8) var(--space-16);
 }
 
 /* Sections */
@@ -313,7 +299,7 @@ body {
 .ms-section {
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-md);
+    gap: var(--space-12);
 }
 
 /* A section with nothing to show (Recent, with no recent projects): the rule
@@ -323,10 +309,6 @@ body {
 }
 
 .ms-section h2 {
-    font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
     color: var(--text-secondary);
 }
 
@@ -338,16 +320,13 @@ body {
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: var(--space-4);
     line-height: var(--leading-tight);
 }
 
 .ms-recent-name {
     flex: none;
     max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 /* A found server's address and version: an address reads from its start, so
@@ -356,70 +335,22 @@ body {
     font-family: var(--font-mono);
     font-size: var(--font-size-xs);
     color: var(--text-tertiary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 /* Until the first list arrives: the app's spinner (css/patterns/spinner.css). */
 .ms-sessions-loading {
     display: flex;
     justify-content: center;
-    padding: var(--spacing-xl) var(--spacing-lg);
+    padding: var(--space-24) var(--space-16);
     color: var(--text-secondary);
 }
 
 .ms-sessions-loading juggler-spinner {
-    --size: 2rem;
+    --spinner-size: 2rem;
 }
 
-.ms-button {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--spacing-xs);
-    padding: var(--spacing-xs) var(--spacing-md);
-    border-radius: var(--radius-md);
-    border: 1px solid var(--border-color);
-    background: var(--bg-raised);
-    color: var(--text-primary);
-    font: inherit;
-    font-size: var(--font-size-sm);
-    line-height: var(--leading-normal);
-    text-decoration: none;
-    cursor: pointer;
-    transition: background var(--transition-fast), border-color var(--transition-fast);
-}
-
-.ms-button:hover:not(:disabled) {
-    border-color: var(--border-floating);
-    background: color-mix(in srgb, var(--bg-raised) 85%, var(--text-primary));
-    text-decoration: none;
-}
-
-.ms-button:focus-visible {
-    outline: var(--focus-ring);
-    outline-offset: var(--focus-ring-offset);
-}
-
-.ms-button:disabled {
-    cursor: default;
-    opacity: 0.5;
-}
-
-.ms-button-primary {
-    background: var(--accent-blue);
-    border-color: var(--accent-blue);
-    color: var(--text-on-accent);
-}
-
-.ms-button-primary:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--accent-blue) 85%, var(--text-on-accent));
-    border-color: color-mix(in srgb, var(--accent-blue) 85%, var(--text-on-accent));
-}
-
-.ms-button-quiet {
-    background: transparent;
-}
+/* The page's buttons are the app's (patterns/buttons.css): btn btn-sm with
+   btn-neutral, btn-primary, or btn-secondary for the quiet one. */
 
 .ms-icon {
     display: inline-flex;
@@ -437,7 +368,7 @@ body {
 
 .ms-launch {
     display: flex;
-    gap: var(--spacing-sm);
+    gap: var(--space-8);
 }
 
 .ms-launch-input {
@@ -445,16 +376,16 @@ body {
     min-width: 0;
     font-family: var(--font-mono);
     font-size: var(--font-size-sm);
-    padding: var(--spacing-sm) var(--spacing-md);
+    padding: var(--space-8) var(--space-12);
     border-radius: var(--radius-md);
 }
 
-.ms-launch .ms-button {
-    padding-inline: var(--spacing-lg);
+.ms-launch .btn {
+    padding-inline: var(--space-16);
 }
 
 .ms-launch-error {
-    color: var(--error-color);
+    color: var(--danger);
     font-size: var(--font-size-sm);
 }
 
@@ -483,8 +414,8 @@ body {
     display: grid;
     grid-template-columns: minmax(0, 1fr) fit-content(40%);
     align-items: start;
-    gap: var(--spacing-md) var(--spacing-lg);
-    padding: var(--spacing-md) var(--spacing-lg);
+    gap: var(--space-12) var(--space-16);
+    padding: var(--space-12) var(--space-16);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
     background: var(--bg-secondary);
@@ -493,7 +424,7 @@ body {
 .ms-exposure-info {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: var(--space-4);
     min-width: 0;
     line-height: var(--leading-tight);
 }
@@ -506,7 +437,7 @@ body {
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    gap: var(--spacing-sm);
+    gap: var(--space-8);
 }
 
 .ms-exposure-controls .connectivity-launch {
@@ -523,8 +454,8 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: var(--spacing-md);
-    padding: var(--spacing-sm) var(--spacing-md);
+    gap: var(--space-12);
+    padding: var(--space-8) var(--space-12);
     border-radius: var(--radius-md);
     background: var(--notice-bg);
     color: var(--notice-text);
@@ -535,14 +466,14 @@ body {
    page's text and raised surface are near-white and dark grey in the dark
    theme, and neither reads on the yellow. An outline of the ink, and a tint of
    it on hover. */
-.ms-unreachable .ms-button {
+.ms-unreachable .btn {
     flex: none;
     border-color: color-mix(in srgb, var(--notice-text) 45%, transparent);
     background: transparent;
     color: inherit;
 }
 
-.ms-unreachable .ms-button:hover:not(:disabled) {
+.ms-unreachable .btn:hover:not(:disabled) {
     border-color: var(--notice-text);
     background: color-mix(in srgb, var(--notice-text) 12%, transparent);
 }
@@ -559,7 +490,7 @@ body {
     .ms-page:has(> .ms-side) {
         display: grid;
         grid-template: auto minmax(0, 1fr) / minmax(0, 1.25fr) minmax(0, 1fr);
-        gap: 0 var(--spacing-2xl);
+        gap: 0 var(--space-32);
         max-width: 100rem;
         height: 100%;
         padding-block: 0;
@@ -567,7 +498,7 @@ body {
 
     .ms-page:has(> .ms-side) > .ms-banner-slot {
         grid-area: 1 / 1 / 2 / -1;
-        margin-top: var(--spacing-lg);
+        margin-top: var(--space-16);
     }
 
     .ms-page:has(> .ms-side) > .ms-main {
@@ -581,7 +512,7 @@ body {
     /* The inline padding keeps a focus ring inside the scroller's clip. */
     .ms-page:has(> .ms-side) > .ms-column {
         overflow-y: auto;
-        padding: var(--spacing-xl) var(--spacing-xs);
+        padding: var(--space-24) var(--space-6);
     }
 }
 
@@ -610,7 +541,7 @@ body {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: var(--spacing-md);
+    gap: var(--space-12);
     color: var(--text-secondary);
 }
 
@@ -619,7 +550,7 @@ body {
 }
 
 .ms-launch-busy juggler-spinner {
-    --size: 2rem;
+    --spinner-size: 2rem;
 }
 
 /* A first run in a desktop window (sessions-view.js, layout): one column,
@@ -639,10 +570,10 @@ body {
 
     .ms-page.ms-welcoming {
         display: flex;
-        gap: var(--spacing-xl);
+        gap: var(--space-24);
         height: auto;
         max-width: 44rem;
-        padding-block: var(--spacing-xl);
+        padding-block: var(--space-24);
     }
 
     .ms-page.ms-welcoming > .ms-column {
@@ -655,8 +586,8 @@ body {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: var(--spacing-sm);
-    padding-block: var(--spacing-xl) var(--spacing-md);
+    gap: var(--space-8);
+    padding-block: var(--space-24) var(--space-12);
     text-align: center;
     color: var(--text-secondary);
 }
@@ -669,7 +600,7 @@ body {
 .ms-welcome-logo {
     height: 3rem;
     aspect-ratio: 79.433 / 31.038;
-    margin-bottom: var(--spacing-md);
+    margin-bottom: var(--space-12);
     background-color: var(--text-primary);
     mask-image: var(--logo-with-name-url);
     mask-size: contain;
@@ -681,21 +612,21 @@ body {
 .ms-welcome p {
     max-width: 34rem;
     font-size: var(--font-size-body-lg);
-    line-height: 1.6;
+    line-height: var(--leading-relaxed);
 }
 
 @media (width <= 36rem) {
     .ms-page {
-        padding: var(--spacing-lg) var(--spacing-md);
+        padding: var(--space-16) var(--space-12);
     }
 
     .ms-header-slot {
-        padding-left: var(--spacing-md);
+        padding-left: var(--space-12);
     }
 
     .ms-exposure-row {
         grid-template-columns: minmax(0, 1fr);
-        padding: var(--spacing-md);
+        padding: var(--space-12);
     }
 
     .ms-exposure-controls,

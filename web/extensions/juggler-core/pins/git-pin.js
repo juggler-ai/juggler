@@ -57,8 +57,8 @@ injectStylesOnce('git-pin-styles', `
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.375rem;
-  margin-bottom: 0.5rem;
+  gap: var(--space-6);
+  margin-bottom: var(--space-8);
   font-size: var(--font-size-sm);
 }
 
@@ -68,17 +68,7 @@ injectStylesOnce('git-pin-styles', `
   max-width: 100%;
 }
 
-.git-pin__scope-select,
-.git-pin__scope-input,
-.git-pin__scope-apply {
-  font: inherit;
-  color: var(--text-primary);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  padding: 0.125rem 0.375rem;
-}
-
+/* The select and the input are .field-input .field-input-xs. */
 .git-pin__scope-input {
   flex: 1 1 12rem;
   min-width: 8rem;
@@ -86,6 +76,12 @@ injectStylesOnce('git-pin-styles', `
 }
 
 .git-pin__scope-apply {
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-6);
   cursor: pointer;
 }
 `);
@@ -425,7 +421,7 @@ class GitPin extends PinboardItemType {
     // The scope control: the presets by name, and Custom… for an expression,
     // which is typed into a field that remembers what this pin was asked before.
     const bar = createElement('div', 'git-pin__scope-bar');
-    const select = /** @type {HTMLSelectElement} */ (createElement('select', 'git-pin__scope-select'));
+    const select = /** @type {HTMLSelectElement} */ (createElement('select', 'git-pin__scope-select field-input field-input-xs'));
     select.setAttribute('aria-label', t('Compare'));
     for (const preset of SCOPE_PRESETS) {
       const option = /** @type {HTMLOptionElement} */ (createElement('option', '', t(preset.label)));
@@ -439,7 +435,7 @@ class GitPin extends PinboardItemType {
     const listId = `git-pin-scopes-${Math.random().toString(36).slice(2, 8)}`;
     const recentList = createElement('datalist');
     recentList.id = listId;
-    const input = /** @type {HTMLInputElement} */ (createElement('input', 'git-pin__scope-input'));
+    const input = /** @type {HTMLInputElement} */ (createElement('input', 'git-pin__scope-input field-input field-input-xs'));
     input.type = 'text';
     input.spellcheck = false;
     // i18n-ignore: a git expression, shown as typed

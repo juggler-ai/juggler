@@ -956,7 +956,7 @@ export async function runTests(ctx) {
       },
       signal: abort.signal,
     });
-    const panel = /** @type {HTMLElement} */ (document.querySelector('.pp-overlay .pp-panel'));
+    const panel = /** @type {HTMLElement} */ (document.querySelector('.project-picker-overlay .project-picker-panel'));
     return { panel, input: panel?.querySelector('path-input'), answer, abort };
   }
 
@@ -966,18 +966,18 @@ export async function runTests(ctx) {
       assert(!!panel, 'the dialog opens');
       // "View" is the word that answers the question the label raises: a pin is
       // somewhere to watch a file, not a way to put one in front of the agent.
-      assert(panel.querySelector('.pp-title')?.textContent === 'Add a file to view',
+      assert(panel.querySelector('.project-picker-title')?.textContent === 'Add a file to view',
         'and says what it is asking for');
 
       const typed = `${base}_dialog.txt`;
       input.value = typed;
       input.dispatchEvent(new CustomEvent('path-change', { bubbles: true, detail: { value: typed } }));
-      /** @type {HTMLButtonElement} */ (panel.querySelector('.pp-btn-open')).click();
+      /** @type {HTMLButtonElement} */ (panel.querySelector('.project-picker-btn-open')).click();
 
       const config = await answer;
       assert(config?.path === typed,
         `the pin is stored against the path that was typed, got ${JSON.stringify(config)}`);
-      assert(!document.querySelector('.pp-overlay'), 'and the dialog is gone');
+      assert(!document.querySelector('.project-picker-overlay'), 'and the dialog is gone');
     } finally {
       abort.abort();
     }
@@ -990,7 +990,7 @@ export async function runTests(ctx) {
     const { panel, answer, abort } = openDialog();
     try {
       assert(!!panel.querySelector('path-input'), 'the field is always there');
-      assert(!panel.querySelector('.pp-btn-browse'),
+      assert(!panel.querySelector('.project-picker-btn-browse'),
         'a page with no native host must not offer a chooser it cannot open');
     } finally {
       abort.abort();
@@ -1001,9 +1001,9 @@ export async function runTests(ctx) {
   await test('cancelling the file dialog pins nothing', async () => {
     const { panel, answer, abort } = openDialog();
     try {
-      /** @type {HTMLButtonElement} */ (panel.querySelector('.pp-btn-cancel')).click();
+      /** @type {HTMLButtonElement} */ (panel.querySelector('.project-picker-btn-cancel')).click();
       assert(await answer === null, 'a cancelled dialog is not an error, it is no pin');
-      assert(!document.querySelector('.pp-overlay'), 'and it takes itself away');
+      assert(!document.querySelector('.project-picker-overlay'), 'and it takes itself away');
     } finally {
       abort.abort();
     }
@@ -1066,9 +1066,9 @@ export async function runTests(ctx) {
       // The dialog's own words. Its Cancel and Browse buttons are the picker's.
       const { panel, input, answer, abort } = openDialog();
       try {
-        shown['dialog title'] = String(panel.querySelector('.pp-title')?.textContent);
+        shown['dialog title'] = String(panel.querySelector('.project-picker-title')?.textContent);
         shown['dialog placeholder'] = String(input?.getAttribute('placeholder'));
-        shown['dialog confirm'] = String(panel.querySelector('.pp-btn-open')?.textContent).trim();
+        shown['dialog confirm'] = String(panel.querySelector('.project-picker-btn-open')?.textContent).trim();
       } finally {
         abort.abort();
         await answer;

@@ -140,7 +140,7 @@ class StrategySwitcher {
     }
 
     // Fallback: the active conversation tab's (root column's) selector.
-    const activeTab = document.querySelector('conversation-tab.active');
+    const activeTab = document.querySelector('conversation-tab.is-active');
     if (activeTab) {
       const selector = activeTab.querySelector('strategy-selector:not([hidden])');
       if (selector) {

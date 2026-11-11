@@ -96,7 +96,7 @@ export function presentWizard({ steps, start, dismissLabel = t('Close') }) {
       // parameter. A second caller wanting its own class should pass a literal
       // here too, not reintroduce the option.
       className: 'onboarding-wizard',
-      dismissSelectors: ['.wiz-backdrop', '.wiz-close'],
+      dismissSelectors: ['.onboarding-wizard-backdrop', '.onboarding-wizard-close'],
       onClose: () => resolve(finished ? outcome : undefined),
     });
 
@@ -128,7 +128,7 @@ export function presentWizard({ steps, start, dismissLabel = t('Close') }) {
     // below; re-binding per render is how a stale handler outlives its button.
     modal.root.addEventListener('click', (event) => {
       const target = /** @type {HTMLElement} */ (event.target);
-      if (target.closest('.wiz-back')) {
+      if (target.closest('.onboarding-wizard-back')) {
         ctx.back();
         return;
       }
@@ -191,7 +191,7 @@ export function presentWizard({ steps, start, dismissLabel = t('Close') }) {
       modal.root.innerHTML = shell(view, actions, dismissLabel, ctx.canGoBack && !view.hideBack);
       // Every screen is a fresh panel, but only the first is the wizard
       // opening: later ones swap in place rather than pop in again.
-      if (painted) modal.root.querySelector('.wiz-panel')?.classList.add('wiz-panel--settled');
+      if (painted) modal.root.querySelector('.onboarding-wizard-panel')?.classList.add('onboarding-wizard-panel--settled');
       painted = true;
       view.onMount?.(modal.root);
       focusPrimary(modal.root);
@@ -218,22 +218,22 @@ function shell(view, actions, dismissLabel, canGoBack) {
   const buttons = actions
     .map(
       (action, index) =>
-        `<button type="button" class="wiz-action${
+        `<button type="button" class="onboarding-wizard-action${
           action.kind === 'primary' ? ' btn-primary' : ''
         }" data-wiz-action="${index}">${escapeHtml(action.label)}</button>`
     )
     .join('');
   return `
-    <modal-backdrop class="wiz-backdrop"></modal-backdrop>
-    <modal-panel class="wiz-panel" role="dialog" aria-modal="true" aria-label="${escapeHtml(view.title)}">
-      <header class="wiz-header">
-        ${canGoBack ? `<button type="button" class="wiz-back" aria-label="${escapeHtml(t('Back'))}">${escapeHtml(t('← Back'))}</button>` : ''}
-        <h2 class="wiz-title">${escapeHtml(view.title)}</h2>
-        <button class="close-button wiz-close" title="${escapeHtml(t('Close (Esc)'))}" aria-label="${escapeHtml(dismissLabel)}"><span class="icon-close"></span></button>
+    <modal-backdrop class="onboarding-wizard-backdrop"></modal-backdrop>
+    <modal-panel class="onboarding-wizard-panel" role="dialog" aria-modal="true" aria-label="${escapeHtml(view.title)}">
+      <header class="onboarding-wizard-header">
+        ${canGoBack ? `<button type="button" class="onboarding-wizard-back" aria-label="${escapeHtml(t('Back'))}">${escapeHtml(t('← Back'))}</button>` : ''}
+        <h2 class="onboarding-wizard-title">${escapeHtml(view.title)}</h2>
+        <button class="btn btn-icon btn-icon-lg btn-ghost onboarding-wizard-close" title="${escapeHtml(t('Close (Esc)'))}" aria-label="${escapeHtml(dismissLabel)}"><span class="icon-close"></span></button>
       </header>
-      <div class="wiz-body">${view.body}</div>
-      ${buttons ? `<footer class="wiz-footer">${buttons}</footer>` : ''}
-      ${view.note ? `<p class="wiz-note">${escapeHtml(view.note)}</p>` : ''}
+      <div class="onboarding-wizard-body">${view.body}</div>
+      ${buttons ? `<footer class="onboarding-wizard-footer">${buttons}</footer>` : ''}
+      ${view.note ? `<p class="onboarding-wizard-note">${escapeHtml(view.note)}</p>` : ''}
     </modal-panel>
   `;
 }
@@ -244,6 +244,6 @@ function shell(view, actions, dismissLabel, canGoBack) {
  * @param {HTMLElement} root
  */
 function focusPrimary(root) {
-  const target = root.querySelector('.wiz-action.btn-primary') ?? root.querySelector('.wiz-action');
+  const target = root.querySelector('.onboarding-wizard-action.btn-primary') ?? root.querySelector('.onboarding-wizard-action');
   if (target instanceof HTMLElement) target.focus();
 }

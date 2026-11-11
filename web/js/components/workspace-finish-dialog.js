@@ -70,6 +70,28 @@ function text(value) {
 const FILES_SHOWN = 50;
 
 /**
+ * The message field for a prompt that takes several lines.
+ * @returns {HTMLTextAreaElement} An empty four-row textarea.
+ */
+function newTextarea() {
+  const field = document.createElement('textarea');
+  field.className = 'setup-field-input field-input field-input-sm';
+  field.rows = 4;
+  return field;
+}
+
+/**
+ * The message field for a one-line prompt.
+ * @returns {HTMLInputElement} An empty text input.
+ */
+function newInput() {
+  const field = document.createElement('input');
+  field.className = 'setup-field-input field-input field-input-sm';
+  field.type = 'text';
+  return field;
+}
+
+/**
  * What the ending is about to act on, file by file.
  *
  * A commit takes the whole tree — `git add -A` — and a message box over a count
@@ -185,7 +207,7 @@ export function openWorkspaceFinish(option, context = {}) {
     title.className = 'workspace-move-title';
     title.textContent = text(option?.label);
     header.appendChild(title);
-    const dismiss = setupButton('close-button workspace-move-close', '',
+    const dismiss = setupButton('btn btn-icon btn-icon-lg btn-ghost workspace-move-close', '',
       () => modal.close(undefined));
     dismiss.setAttribute('aria-label', t('Close'));
     dismiss.title = t('Close');
@@ -234,11 +256,8 @@ export function openWorkspaceFinish(option, context = {}) {
     row.appendChild(caption);
 
     const multiline = prompt.multiline === true;
-    const field = /** @type {any} */ (document.createElement(multiline ? 'textarea' : 'input'));
-    if (multiline) field.rows = 4;
-    else field.type = 'text';
+    const field = /** @type {any} */ (multiline ? newTextarea() : newInput());
     field.id = id;
-    field.className = 'setup-field-input';
     field.placeholder = text(prompt.placeholder);
     field.value = text(prompt.value);
     field.spellcheck = multiline;

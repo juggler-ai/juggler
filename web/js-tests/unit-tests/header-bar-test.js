@@ -299,9 +299,9 @@ export async function runTests() {
       // The runtime drags only from a press inside its target's client box,
       // which an inline span's is not, so a press on the path's text must land
       // on the chip itself.
-      const pathText = wide.el('#project-path-chip .ppd-path');
-      pathText.innerHTML = '<span class="ppd-dir">/a/parent/</span><span class="ppd-name">project</span>';
-      for (const part of ['.ppd-dir', '.ppd-name']) {
+      const pathText = wide.el('#project-path-chip .project-path-display__path');
+      pathText.innerHTML = '<span class="project-path-display__dir">/a/parent/</span><span class="project-path-display__name">project</span>';
+      for (const part of ['.project-path-display__dir', '.project-path-display__name']) {
         const r = wide.el(`#project-path-chip ${part}`).getBoundingClientRect();
         const hit = wide.doc.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
         assert(hit === wide.el('#project-path-chip'),
@@ -316,9 +316,9 @@ export async function runTests() {
       // The chip is the session switcher's button: the project's tile, its
       // name and the arrow it opens by. No house sits beside it.
       const path = wide.el('#project-path-chip');
-      assert(path.tagName === 'BUTTON' && path.classList.contains('ss-chip'),
+      assert(path.tagName === 'BUTTON' && path.classList.contains('session-switcher-chip'),
         `the project chip is the switcher's button (got <${path.tagName.toLowerCase()} class="${path.className}">)`);
-      assert(!!path.querySelector('.ss-chip-tile') && !!path.querySelector('.ppd-path') && !!path.querySelector('.ss-chip-caret'),
+      assert(!!path.querySelector('.session-switcher-chip-tile') && !!path.querySelector('.project-path-display__path') && !!path.querySelector('.session-switcher-chip-caret'),
         'the chip has its tile, its name and its arrow');
       assert(!wide.doc.querySelector('#project-home-button, #project-attention-pill'), 'the header has no house and no pill');
     } finally {
@@ -358,8 +358,8 @@ export async function runTests() {
       const f = await framedHeader(served, width);
       try {
         const cut = path.lastIndexOf('/') + 1;
-        f.el('.ss-chip-tile').textContent = 'PR';
-        f.el('.ppd-path').innerHTML = `<span class="ppd-dir">${path.slice(0, cut)}</span><span class="ppd-name">${path.slice(cut)}</span>`;
+        f.el('.session-switcher-chip-tile').textContent = 'PR';
+        f.el('.project-path-display__path').innerHTML = `<span class="project-path-display__dir">${path.slice(0, cut)}</span><span class="project-path-display__name">${path.slice(cut)}</span>`;
         return Object.fromEntries(/** @type {const} */ ([
           ['logo', '.logo'], ['network', '#network-button'], ['chip', '#project-path-chip'],
           ['opener', '#project-new-window-button'], ['actions', 'header-actions'],

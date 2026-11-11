@@ -31,31 +31,32 @@ model-chip {
 
 /* The model button's chrome everywhere except the composer, which has its own:
    there the button is one of the input controls and rides the ghost house style
-   (`composer-box .input-ctrl-btn`, utilities.css), while anywhere else — a
+   (.btn-ghost, patterns/buttons.css), while anywhere else — a
    Settings › Defaults row, a bare model-selector — it is an ordinary outlined
    control and must bring its own border, its own layout, and the gap between the
-   icon and the label that flex layout gives it. Selecting on the chip as well as
+   icon and the label that flex layout gives it — out-ranking the ghost chrome
+   the chip always carries, hover included. Selecting on the chip as well as
    its host covers the settings rows, which place a `<model-chip>` directly. */
 model-selector:not(composer-box *) .model-selector-button,
 model-chip:not(composer-box *) .model-selector-button {
     display: inline-flex;
     align-items: center;
-    gap: 0.375rem;
+    gap: var(--space-6);
     max-width: 100%;
     background: transparent;
     border: 0.0625rem solid var(--border-color);
     color: var(--text-primary);
     font-size: var(--font-size-base);
     cursor: pointer;
-    padding: 0.5rem 0.75rem;
+    padding: var(--space-8) var(--space-12);
     border-radius: var(--radius-lg);
     transition: background var(--transition-base), border-color var(--transition-base);
     white-space: nowrap;
     min-width: 8rem;
 }
 
-model-selector:not(composer-box *) .model-selector-button:hover,
-model-chip:not(composer-box *) .model-selector-button:hover {
+model-selector:not(composer-box *) .model-selector-button:hover:not(:disabled),
+model-chip:not(composer-box *) .model-selector-button:hover:not(:disabled) {
     background: var(--bg-raised);
     border-color: var(--text-tertiary);
 }
@@ -84,7 +85,7 @@ composer-box .model-selector-button {
    long id, which ellipsises with the full name kept in the title/popup. */
 composer-box .model-selector-button .model-name {
     flex: 0 1 auto;
-    max-width: var(--config-model-name-max);
+    max-width: var(--composer-model-name-max);
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -99,21 +100,21 @@ composer-box .model-selector-button .model-name {
 .model-selector-button .thinking-chip {
     display: inline-block;
     position: relative;
-    margin-left: 0.375rem;
-    padding: 0 0.3125rem;
+    margin-left: var(--space-6);
+    padding: 0 var(--space-4);
     border: 0.0625rem solid transparent;
     border-radius: var(--radius-lg);
     font-size: var(--font-size-2xs);
-    font-weight: 600;
-    line-height: 1.4;
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--leading-tight);
     text-transform: uppercase;
-    letter-spacing: 0.02rem;
+    letter-spacing: var(--tracking-caps);
     text-align: center;
     color: var(--text-secondary);
     background: var(--bg-tertiary);
     flex-shrink: 0;
     cursor: pointer;
-    transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+    transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
 
     /* Fixed slot so cycling off/low/med/high/max never resizes the button —
        this chip is the worst width-jitter offender during a model cycle. */
@@ -153,15 +154,15 @@ composer-box .model-selector-button .model-name {
    than a fixed slot: a tier name doesn't change as a cycle steps through models. */
 .model-selector-button .service-tier-chip {
     display: inline-block;
-    margin-left: 0.375rem;
-    padding: 0 0.3125rem;
+    margin-left: var(--space-6);
+    padding: 0 var(--space-4);
     border: 0.0625rem solid transparent;
     border-radius: var(--radius-lg);
     font-size: var(--font-size-2xs);
-    font-weight: 600;
-    line-height: 1.4;
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--leading-tight);
     text-transform: uppercase;
-    letter-spacing: 0.02rem;
+    letter-spacing: var(--tracking-caps);
     text-align: center;
     color: var(--text-secondary);
     background: var(--bg-tertiary);
@@ -180,7 +181,7 @@ composer-box .model-selector-button .model-name {
 model-tuning {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: var(--space-16);
 }
 
 model-tuning:empty {
@@ -190,7 +191,7 @@ model-tuning:empty {
 .model-thinking-label,
 .model-speed-label {
     color: var(--text-secondary);
-    margin-bottom: 0.5rem;
+    margin-bottom: var(--space-8);
 }
 
 /* The segments wrap: a model with five levels does not fit across a 17rem
@@ -200,23 +201,22 @@ model-tuning:empty {
 .tier-segmented {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.375rem 0.3125rem;
+    gap: var(--space-6) var(--space-4);
 }
 
 .thinking-seg,
 .tier-seg {
-    padding: 0.25rem 0.5rem;
+    padding: var(--space-4) var(--space-8);
     border: none;
     border-radius: var(--radius-lg);
     background: transparent;
     color: var(--text-tertiary);
     font-size: var(--font-size-2xs);
-    font-weight: 600;
-    line-height: 1.5;
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--leading-normal);
     text-transform: uppercase;
-    letter-spacing: 0.02rem;
-    cursor: pointer;
-    transition: background 0.12s ease, color 0.12s ease;
+    letter-spacing: var(--tracking-caps);
+    transition: background var(--transition-fast), color var(--transition-fast);
 }
 
 .thinking-seg:hover,
@@ -228,8 +228,8 @@ model-tuning:empty {
 /* The chosen value, in the one highlight the picker uses for all three of its
    variables — model, thinking and speed — on the theme's own accent rather than
    a colour of its own. */
-.thinking-seg.active,
-.tier-seg.active {
+.thinking-seg[aria-checked="true"],
+.tier-seg[aria-checked="true"] {
     background: var(--accent-blue);
     color: var(--text-on-accent);
 }
@@ -243,7 +243,7 @@ model-tuning:empty {
    panel — the popover opened there, invisible behind it. */
 .thinking-mini {
     min-width: auto;
-    padding: 0.625rem var(--popup-padding-inline);
+    padding: var(--space-10) var(--popup-padding-inline);
     z-index: var(--z-above-modal);
 }
 
@@ -278,14 +278,14 @@ model-tuning:empty {
    whole row is the click target), matching the button chip's look. */
 .recent-model-chip {
     display: inline-block;
-    margin-left: 0.375rem;
-    padding: 0 0.3125rem;
+    margin-left: var(--space-6);
+    padding: 0 var(--space-4);
     border-radius: var(--radius-lg);
     font-size: var(--font-size-2xs);
-    font-weight: 600;
-    line-height: 1.4;
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--leading-tight);
     text-transform: uppercase;
-    letter-spacing: 0.02rem;
+    letter-spacing: var(--tracking-caps);
     color: var(--text-secondary);
     background: var(--bg-tertiary);
 }
@@ -330,24 +330,24 @@ model-tuning:empty {
    The picker sets `padding: 0` and re-pays the family's inset per column, so the
    list can scroll the full height of the surface while its rows stay inside a
    gutter. It is the same inset, not a private one — three measures do all of it:
-     --picker-gutter — the TEXT LINE. Every label, name and row's text in the
+     --model-picker-gutter — the TEXT LINE. Every label, name and row's text in the
        left column starts this far in from the popup's edge: a menu's inset plus
        a menu row's padding, the same line a label sits on in any other menu.
-     --picker-row-pad — the inset INSIDE any filled row, and equally how far a
+     --model-picker-row-pad — the inset INSIDE any filled row, and equally how far a
        left-column row's fill extends PAST the text line (the two are the same
        measure, which is what keeps the text on the line). It is a menu row's
        inline padding, which clears the row's own --radius-menu-item corner.
-     --picker-list-inset — the list column's own horizontal padding: what holds
+     --model-picker-list-inset — the list column's own horizontal padding: what holds
        the rows' fill off the column divider on one side and off the scrollbar on
        the other. Wider than a menu's inset, because a row's fill flush against a
        scrollbar reads as running under it.
-     --picker-row-text — where text starts inside a list row, past the column the
+     --model-picker-row-text — where text starts inside a list row, past the column the
        ✓ tick occupies. Measured from the row's own edge, not the popup's. */
 .model-picker {
-    --picker-gutter: calc(var(--menu-padding) + var(--menu-item-padding-inline));
-    --picker-row-pad: var(--menu-item-padding-inline);
-    --picker-list-inset: 0.5rem;
-    --picker-row-text: 1.875rem;
+    --model-picker-gutter: calc(var(--menu-padding) + var(--menu-item-padding-inline));
+    --model-picker-row-pad: var(--menu-item-padding-inline);
+    --model-picker-list-inset: 0.5rem;
+    --model-picker-row-text: 1.875rem;
 
     width: 36rem;
     min-width: 36rem;
@@ -366,7 +366,7 @@ model-tuning:empty {
    row is elastic — Recent and the actions are `auto`, so a short popup steals
    height from the one section that can scroll. The outer container never
    scrolls; the positioning util caps its height and the columns overflow. */
-.model-picker.show {
+.model-picker.is-open {
     display: grid;
     grid-template-columns: 17rem 1fr;
     grid-template-rows: minmax(0, 1fr) auto auto;
@@ -379,7 +379,7 @@ model-tuning:empty {
    The column's own padding IS the text line: nothing inside adds an inset of its
    own, so the card's label, the model name, the dial headings and (further down)
    Recent and the actions all start on one line. Only the filled rows step
-   outside it, and only by --picker-row-pad. */
+   outside it, and only by --model-picker-row-pad. */
 .model-picker-detail {
     grid-column: 1;
     grid-row: 1;
@@ -387,25 +387,31 @@ model-tuning:empty {
     flex-direction: column;
     min-height: 0;
     overflow-y: auto;
-    padding: var(--popup-padding) var(--picker-gutter);
+    padding: var(--popup-padding) var(--model-picker-gutter);
 }
 
 /* Every boundary in the left column is a hairline, not just a gap: with spacing
    alone the card, the dials, Recent and the actions read as one undifferentiated
    run, and there was no telling where one ended and the next began. Inside the
-   detail column the rule goes on the SECOND child onwards, so the top carries no
-   stray line and an untunable model (`model-tuning:empty`, which is
-   `display: none`) draws neither rule nor gap. Recent and the actions are grid
-   siblings rather than children, so they carry their own. */
-.model-picker-detail > * + *,
+   detail column the rule goes on every child after the card — the dials and the
+   note — so the top carries no stray line and an untunable model
+   (`model-tuning:empty`, which is `display: none`) draws neither rule nor gap.
+   They are named rather than written `* + *`: an owl's subject is any element,
+   which reads to the layer-inversion check as one that could be a modal's
+   title. The note's scope is `:where()`, so its own rule and this one tie and
+   file order settles them, as it did for the owl. Recent and the actions are
+   grid siblings rather than children, so they carry their own. */
+.model-picker-detail > model-tuning,
+:where(.model-picker-detail) > .model-picker-note,
 .model-picker-recent,
 .model-picker-footer {
     border-top: 0.0625rem solid var(--border-divider);
 }
 
-.model-picker-detail > * + * {
-    margin-top: 0.875rem;
-    padding-top: 0.875rem;
+.model-picker-detail > model-tuning,
+:where(.model-picker-detail) > .model-picker-note {
+    margin-top: var(--space-14);
+    padding-top: var(--space-14);
 }
 
 /* Right column — takes the remaining width. The filter row is pinned and only
@@ -414,7 +420,7 @@ model-tuning:empty {
 
    Padded to the list inset rather than the gutter horizontally: here it is the
    ROWS that meet the column's edges, and their text carries its own
-   --picker-row-text inset on top. The inset is what holds their fill off the
+   --model-picker-row-text inset on top. The inset is what holds their fill off the
    divider on one side and, with the scroller's own padding below, off the
    scrollbar on the other. Vertically both columns take --popup-padding, so the
    filter field and the current-model card start on the same line. */
@@ -426,7 +432,7 @@ model-tuning:empty {
     min-width: 0;
     min-height: 0;
     border-left: 0.0625rem solid var(--border-divider);
-    padding: var(--popup-padding) var(--picker-list-inset);
+    padding: var(--popup-padding) var(--model-picker-list-inset);
 }
 
 /* The field spans the column's full width; the rows below reserve their own
@@ -434,15 +440,11 @@ model-tuning:empty {
    with the rows. */
 .model-picker-filter {
     flex: 0 0 auto;
-    padding: 0 0 0.625rem;
+    padding: 0 0 var(--space-10);
 }
 
 .model-picker-filter-input {
     width: 100%;
-    padding: 0.375rem 0.5rem;
-    color: var(--text-primary);
-    font-size: var(--font-size-base);
-    font-family: inherit;
 }
 
 /* The scroller. `scrollbar-gutter: stable` reserves the bar's width whether or
@@ -467,63 +469,31 @@ model-tuning:empty {
     scrollbar-gutter: stable;
     margin: 0;
     padding-block: 0;
-    padding-inline: 0 var(--picker-list-inset);
+    padding-inline: 0 var(--model-picker-list-inset);
     list-style: none;
 }
 
-/* One inset for every row in the list, whatever section it belongs to: the left
-   gutter is the ✓ tick's column, the right one holds the text off the row's own
-   edge. Stated here because the rows arrive wearing two different paddings —
-   the base `.menu-item` and the deeper indent `.menu-group` gives a nested one. */
-.model-picker-rows .menu-item:not(.menu-item-hint) {
-    padding: 0.4rem var(--picker-row-pad) 0.4rem var(--picker-row-text);
-}
-
-/* Provider section labels, lined up with the row text beneath them.
-
-   Carries no fill. The base `.menu-header` is a rounded bar in --bg-raised,
-   which is the exact colour AND the exact shape of `.menu-item:hover` — beside a
-   list of hoverable rows it reads as a row already under the pointer. A label
-   over a rule can't: nothing in this list is filled unless the pointer or the
-   selection is on it.
-
-   The rule goes ABOVE the label, not below it. A line under a title closes the
-   run of rows the title is introducing — it reads as the end of the section
-   above, and hangs the provider's name off the previous provider's list. Above
-   it, the line is where the section starts; the label then sits nearer its own
-   rows than the ones it has just been separated from, which is the whole of what
-   makes the grouping legible. The first header has nothing above it to be
-   divided from, so it carries no rule at all.
-
-   The label starts at the section's own left edge, NOT on the row text line.
-   Indenting it to --picker-row-text put it in the same column as the model names
-   underneath, which is precisely what made it read as one more row in the list;
-   pulled out to the edge it reads as the thing the rows hang off. The ✓ gutter
-   the rows reserve is theirs alone — a header has nothing to tick. */
-.model-picker-rows .menu-header,
-.model-picker-rows .menu-header:hover {
-    background: none;
-}
-
-.model-picker-rows .menu-header {
-    margin: 0 0 0.25rem;
-    padding: 0.875rem var(--picker-row-pad) 0.25rem 0;
-    border-radius: 0;
-    border-top: 0.0625rem solid var(--border-divider);
-    color: var(--text-tertiary);
-}
-
-.model-picker-rows .menu-header:first-child {
-    border-top: none;
-    padding-top: 0;
+/* One inset for every row in the list, whatever section it belongs to, set
+   through the menu's row hooks (they reach the nested `.menu-group` rows too):
+   the start gutter is the ✓ tick's column, the end one holds the text off the
+   row's own edge. Provider labels are `.menu-header-plain` and start at the
+   section's own left edge, NOT on the row text line: indented to
+   --model-picker-row-text they read as one more row in the list; at the edge they
+   read as the thing the rows hang off. The ✓ gutter is the rows' alone — a
+   header has nothing to tick. */
+.model-picker-rows {
+    --menu-item-pad-y: var(--space-6);
+    --menu-item-pad-start: var(--model-picker-row-text);
+    --menu-item-pad-end: var(--model-picker-row-pad);
+    --menu-header-pad-start: 0;
 }
 
 /* Provider section header: name on the left, tri-state list toggle on the right. */
-:where(.model-picker-rows) .menu-header.provider-menu-header {
+:where(.model-picker-rows) .provider-menu-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.5rem;
+    gap: var(--space-8);
 }
 
 /* Tri-state list toggle ("none" / "top" / "all") in a provider header bar. */
@@ -535,16 +505,15 @@ model-tuning:empty {
     color: var(--text-secondary);
     font: inherit;
     font-size: var(--font-size-xs);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     text-transform: uppercase;
-    letter-spacing: 0.03em;
+    letter-spacing: var(--tracking-caps);
     line-height: 1;
     min-width: 2.75rem;
     text-align: center;
-    padding: 0.2rem 0.45rem;
+    padding: var(--space-4) var(--space-8);
     border-radius: var(--radius-lg);
-    cursor: pointer;
-    transition: border-color 0.1s ease, color 0.1s ease, background-color 0.1s ease;
+    transition: border-color var(--transition-fast), color var(--transition-fast), background-color var(--transition-fast);
 }
 
 .provider-view-toggle:hover {
@@ -557,10 +526,14 @@ model-tuning:empty {
     background-color: var(--bg-primary);
 }
 
-/* A provider's recommended models. */
+/* A provider's recommended models, in accent text unless the row is filled
+   as the selection. */
 :where(.model-picker-rows) .menu-item.recommended {
-    color: var(--accent-text);
-    font-weight: 500;
+    font-weight: var(--font-weight-medium);
+}
+
+:where(.model-picker-rows) .menu-item.recommended:not(.menu-item-selected) {
+    color: var(--accent-blue-strong);
 }
 
 /* The muted suffix after a model's name: "hidden", or why its provider is
@@ -568,52 +541,33 @@ model-tuning:empty {
 .menu-item-note {
     color: var(--text-secondary);
     font-size: var(--font-size-sm);
-    margin-left: 0.35rem;
+    margin-left: var(--space-6);
 }
 
-/* The row states, shared by the list's rows and the left column's Recent rows —
-   the two live in different columns but are the same kind of thing, and the
-   keyboard cursor walks straight from one into the other.
-
-   The keyboard cursor is distinct from `.active`: `.active` is what is selected,
-   this is what Enter would select. */
-.model-picker-rows .menu-item.nav-active,
-.recent-model.nav-active {
+/* The keyboard cursor, shared by the list's rows and the left column's Recent
+   rows — the two live in different columns but are the same kind of thing, and
+   the keyboard cursor walks straight from one into the other. It is distinct
+   from `.menu-item-selected`: that is what is chosen, this is what Enter would
+   choose. On the selected row it cannot be a fill, so it becomes an inset ring
+   and both stay legible on the same item. */
+:where(.model-picker) .menu-item.is-cursor:not(.menu-item-selected) {
     background: var(--bg-raised);
 }
 
-/* The chosen model, in the same fill as an active thinking/speed segment: the
-   picker sets three values and all three say "chosen" the same way. Out-ranks
-   the base `.menu-item.active` (accent text, for menus at large) and the hover
-   and cursor washes, so the selection never dissolves under the pointer. */
-.model-picker-rows .menu-item.active,
-.recent-model.active {
-    background: var(--accent-blue);
-    color: var(--text-on-accent);
+:where(.model-picker) .menu-item-selected.is-cursor {
+    box-shadow: inset 0 0 0 0.125rem color-mix(in srgb, var(--text-on-accent) 65%, transparent);
 }
 
-.model-picker-rows .menu-item.active:hover,
-.recent-model.active:hover {
-    background: var(--accent-blue-light);
-}
-
-/* Secondary text and pills inside a filled row: the muted greys they carry
+/* Secondary text and pills inside the selected row: the muted greys they carry
    elsewhere are unreadable against the accent. */
-.model-picker .menu-item.active .menu-item-note,
-.model-picker .menu-item.active .recent-model-provider {
+:where(.model-picker) .menu-item-selected .menu-item-note,
+:where(.model-picker) .menu-item-selected .recent-model-provider {
     color: color-mix(in srgb, var(--text-on-accent) 75%, transparent);
 }
 
-.model-picker .menu-item.active .recent-model-chip {
+:where(.model-picker) .menu-item-selected .recent-model-chip {
     background: color-mix(in srgb, var(--text-on-accent) 22%, transparent);
     color: var(--text-on-accent);
-}
-
-/* The cursor cannot be a background on a filled row, so on the selected row it
-   becomes an inset ring — both states stay legible on the same item. */
-.model-picker-rows .menu-item.active.nav-active,
-.recent-model.active.nav-active {
-    box-shadow: inset 0 0 0 0.125rem color-mix(in srgb, var(--text-on-accent) 65%, transparent);
 }
 
 /* Recently-used models, pinned in the left column between the dials and the
@@ -628,8 +582,8 @@ model-tuning:empty {
 .model-picker-recent {
     grid-column: 1;
     grid-row: 2;
-    margin-inline: var(--picker-gutter);
-    padding-block: 0.875rem;
+    margin-inline: var(--model-picker-gutter);
+    padding-block: var(--space-14);
 }
 
 .model-picker-recent:empty {
@@ -658,9 +612,9 @@ model-tuning:empty {
 .model-picker .model-picker-footer {
     grid-column: 1;
     grid-row: 3;
-    margin-inline: var(--picker-gutter);
+    margin-inline: var(--model-picker-gutter);
     margin-bottom: var(--popup-padding);
-    padding: 0.75rem 0 0;
+    padding: var(--space-12) 0 0;
     list-style: none;
 }
 
@@ -668,13 +622,12 @@ model-tuning:empty {
    line, and both pull their fill out past it by one row pad on each side, so a
    hover is a band around the text rather than a box wrapped tight to it — and
    the label, the icon and everything above still start on the one line. The
-   pull-out and the padding are the same measure; see --picker-row-pad for why
-   that measure has a floor. */
+   pull-out is a menu row's own inline padding (--model-picker-row-pad); see it for
+   why that measure has a floor. */
 .model-picker-footer .menu-item,
 .recent-model {
-    margin-inline: calc(var(--picker-row-pad) * -1);
-    padding-inline: var(--picker-row-pad);
-    margin-bottom: 0.2rem;
+    margin-inline: calc(var(--model-picker-row-pad) * -1);
+    margin-bottom: var(--space-4);
 }
 
 /* Current-model card */
@@ -682,22 +635,22 @@ model-tuning:empty {
 .model-current-label {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--space-8);
     color: var(--text-secondary);
-    margin-bottom: 0.375rem;
+    margin-bottom: var(--space-6);
 }
 
 .model-current-name {
     font-size: var(--font-size-body-lg);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     color: var(--text-primary);
-    line-height: 1.3;
+    line-height: var(--leading-snug);
     overflow-wrap: anywhere;
-    margin-bottom: 0.125rem;
+    margin-bottom: var(--space-2);
 }
 
 .model-current-name--muted {
-    font-weight: 500;
+    font-weight: var(--font-weight-medium);
     color: var(--text-secondary);
 }
 
@@ -729,8 +682,8 @@ model-tuning:empty {
 .model-current-switch {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding-top: 0.375rem;
+    gap: var(--space-8);
+    padding-top: var(--space-6);
     font-size: var(--font-size-sm);
     color: var(--accent-orange);
 }
@@ -742,7 +695,7 @@ model-tuning:empty {
 }
 
 .model-provider-switch {
-    padding: 0.0625rem 0.5rem;
+    padding: 0.0625rem var(--space-8);
     font: inherit;
     color: var(--text-primary);
     background: var(--bg-raised);
@@ -759,7 +712,7 @@ model-tuning:empty {
    heading of their own — the card's own label already names what they describe.
    Present only when the provider reports usage, so the gap goes with them. */
 .model-current-usage {
-    margin-top: 0.625rem;
+    margin-top: var(--space-10);
 }
 
 /* The host's note, closing the left column under the dials. It sets no display
@@ -768,7 +721,7 @@ model-tuning:empty {
    empty dials don't. */
 .model-picker-note {
     font-size: var(--font-size-sm);
-    line-height: 1.4;
+    line-height: var(--leading-tight);
     color: var(--text-secondary);
 }
 
@@ -782,7 +735,7 @@ model-tuning:empty {
     flex-direction: column;
     align-items: stretch;
     gap: 0.0625rem;
-    padding-block: 0.3125rem;
+    padding-block: var(--space-4);
 }
 
 .recent-model-name {
@@ -798,7 +751,7 @@ model-tuning:empty {
 /* Usage meters, rendered by utils/usage-renderer.js for the info rail's usage
    card and the model picker's current-model card. */
 .usage-stat {
-    margin-bottom: 0.5rem;
+    margin-bottom: var(--space-8);
 }
 
 .usage-stat:last-child {
@@ -809,16 +762,13 @@ model-tuning:empty {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
-    gap: 0.5rem;
+    gap: var(--space-8);
     font-size: var(--font-size-sm);
-    margin-bottom: 0.1875rem;
+    margin-bottom: var(--space-2);
 }
 
 .usage-stat-name {
     color: var(--text-primary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 .usage-stat-pct {
@@ -847,7 +797,7 @@ model-tuning:empty {
     top: -0.125rem;
     bottom: -0.125rem;
     width: 0.0938rem;
-    margin-left: -0.0469rem;
+    margin-left: -0.0625rem;
     border-radius: var(--radius-pill);
     background: var(--text-primary);
     opacity: 0.55;
@@ -861,21 +811,21 @@ model-tuning:empty {
     height: 100%;
     border-radius: var(--radius-sm);
     background: var(--text-tertiary);
-    transition: width 200ms ease, background 200ms ease;
+    transition: width var(--transition-slow), background var(--transition-slow);
 }
 
 .usage-stat-fill.usage-medium {
-    background: var(--accent-yellow);
+    background: var(--warning);
 }
 
 .usage-stat-fill.usage-high {
-    background: var(--accent-red);
+    background: var(--danger);
 }
 
 .usage-stat-reset {
     font-size: var(--font-size-xs);
     color: var(--text-tertiary);
-    margin-top: 0.1875rem;
+    margin-top: var(--space-2);
 }
 
 /* Absolute value annotation under a meter (e.g. "$15.00 of $20.00 left"). */
@@ -883,14 +833,14 @@ model-tuning:empty {
     font-size: var(--font-size-xs);
     color: var(--text-secondary);
     font-variant-numeric: tabular-nums;
-    margin-top: 0.1875rem;
+    margin-top: var(--space-2);
 }
 
 /* A meterless balance row: the value sits where the percentage would, so the
    right-aligned amount reads as the headline figure. */
 .usage-stat-value .usage-stat-pct {
     color: var(--text-primary);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
 }
 
 /* ===================================================================
@@ -903,15 +853,19 @@ model-tuning:empty {
    on a real club throw. Used as the default loading indicator
    throughout the UI.
 
-   Sized via `--size` on the host. Coloured via `color` (the SVG fills
+   Sized via `--spinner-size` on the host. Coloured via `color` (the SVG fills
    from `currentColor`).
    ================================================================== */
 
 /* The empty-state nudge on the model chip: model-chip.js adds `.pulse` when
-   there is no model selected and the chip is configured to ask for one.
-   (@keyframes pulse is a base animation, shared with the tab bar.) */
+   there is no model selected and the chip is configured to ask for one. */
 .pulse {
-    animation: pulse 2s infinite;
+    animation: model-chip-pulse 2s infinite;
+}
+
+@keyframes model-chip-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
 }
 
 /* ==========================================================================
@@ -928,7 +882,7 @@ model-tuning:empty {
        here), so the sections and the injected grabber stack in the order they
        appear. Recent lands above the list, which is the order a phone wants
        them in anyway: the shortlist first, the whole catalogue after. */
-    .model-picker.popup-sheet.show {
+    .model-picker.popup-sheet.is-open {
         display: flex;
         flex-direction: column;
     }
@@ -975,7 +929,7 @@ model-tuning:empty {
     .model-picker.popup-sheet .model-picker-recent,
     .model-picker.popup-sheet .model-picker-footer {
         margin-inline: 0;
-        padding-inline: var(--picker-gutter);
+        padding-inline: var(--model-picker-gutter);
     }
 
     .model-picker.popup-sheet .model-picker-list {

@@ -32,16 +32,20 @@ export const COPY_ICON_HTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="
  * `data-copied-label`, set here in the user's language.
  * @param {string | (() => string)} text - Text to copy, or a getter resolved at
  *   click time (use a getter when the underlying value can change).
- * @param {string} [className] - CSS class(es) for the button's own look.
+ * @param {string} [className] - CSS class(es) for the button's own look. The
+ *   default is the properties panel's inline copy button, an icon button
+ *   revealed when its text is hovered; passing that class alone
+ *   (`properties-panel-inline-copy`) gets the same button.
  * @param {string} [label] - Override for the tooltip/aria-label (defaults to
  *   "Copy to clipboard"). Use this when a more specific copy action should be
  *   advertised, e.g. "Copy path to clipboard" for a file-path row.
  * @returns {HTMLButtonElement} The copy button element.
  */
-export function createCopyButton(text, className = 'properties-panel-inline-copy', label = t('Copy to clipboard')) {
+export function createCopyButton(text, className = 'btn btn-icon btn-neutral properties-panel-inline-copy', label = t('Copy to clipboard')) {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = className;
+  if (className === 'properties-panel-inline-copy') btn.classList.add('btn', 'btn-icon', 'btn-neutral');
   btn.classList.add('copy-button');
   btn.title = label;
   btn.setAttribute('aria-label', label);

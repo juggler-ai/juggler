@@ -60,7 +60,7 @@ class UpdateButton extends JugglerElement {
 
   connectedCallback() {
     this.innerHTML = `
-      <button type="button" class="update-btn" title="${escapeHtml(t('Update available'))}">
+      <button type="button" class="btn btn-sm btn-primary update-btn" title="${escapeHtml(t('Update available'))}">
         <span class="update-btn__label">${escapeHtml(t('Update'))}</span>
         <span class="update-btn__pct" aria-hidden="true"></span>
         <span class="update-btn__dot" aria-hidden="true"></span>

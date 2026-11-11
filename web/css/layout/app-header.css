@@ -27,15 +27,15 @@
         var(--app-header-pad-block)
         var(--app-header-pad-start);
     flex-shrink: 0;
-    gap: 1.5rem;
+    gap: var(--space-24);
 
     /* One look for every button in the bar (patterns/buttons.css): the
        project chip's corner, and a hover that fills in place, with no border
        and nothing standing out of the bar. Bare at rest; only a control that
        holds a value (the chip, the network count or host) wears a
-       fill, --overlay-light-5, and a hover inside it is a step darker. */
+       fill, --wash-1, and a hover inside it is a step darker. */
     --btn-ghost-radius: var(--radius-xl);
-    --btn-ghost-hover-bg: var(--overlay-light-8);
+    --btn-ghost-hover-bg: var(--wash-2);
     --btn-ghost-hover-border: transparent;
 
     /* Positioned and a stacking context of its own, so the pattern below can
@@ -71,23 +71,27 @@
    where the conversation sidebar collapses to an off-canvas drawer (its scrim
    is in layout/app-shell.css). Hidden everywhere else.
 
-   The `.app-header` prefix is load-bearing: the button also carries
-   `.btn-icon-header` (patterns/buttons.css), which sets `display: flex` at the same
-   specificity and loads AFTER this file — so a bare `.sidebar-toggle-button`
-   hide rule would lose the cascade and the burger would always show. The
-   descendant prefix raises specificity above the pattern. */
-.app-header .sidebar-toggle-button {
+   What hides is the wrapper, never the button: the button carries
+   `.btn-icon-header`, whose `display: flex` is the pattern's (a layer above
+   this one) to decide. */
+.header-sidebar-toggle {
     display: none;
+}
+
+.sidebar-toggle-button {
     flex-shrink: 0;
 }
 
 /* …and revealed again on a phone, where the sidebar collapses to a drawer.
    Gated on viewport width ONLY — it appears in any context (browser tab or
-   native window). Same specificity as the hide rule above and later in the
-   file, so it wins while the query is active. */
+   native window). Shown, the wrapper is `contents`, so the button is the
+   header's flex item and takes the order itself. */
 @media (width <= 36rem) {
-    .app-header .sidebar-toggle-button {
-        display: flex;
+    .header-sidebar-toggle {
+        display: contents;
+    }
+
+    .sidebar-toggle-button {
         order: -1;
     }
 }
@@ -95,7 +99,7 @@
 :where(.app-header) project-path-display {
     display: flex;
     align-items: center;
-    gap: 0.625rem;
+    gap: var(--space-10);
     flex: 0 1 auto;
     min-width: 0;
     max-width: 60%;
@@ -162,10 +166,10 @@
 
         /* The network button a little further off than the new-window button
            is from the chip: it is the least of the three. */
-        gap: 0.875rem;
+        gap: var(--space-14);
         min-width: calc(4.25rem + 0.625rem + 2rem + 0.875rem + 2rem);
         max-width: calc(100% - 3rem);
-        margin-inline: 1.5rem;
+        margin-inline: var(--space-24);
     }
 
     :where(.app-header--titled .app-header__centre) > project-path-display {
@@ -180,9 +184,9 @@
 }
 
 /* The chip: the window's project. It is the session switcher's button, which
-   wears the switcher's look — its type, spacing and tile are ss-chip's
+   wears the switcher's look — its type, spacing and tile are session-switcher-chip's
    (components/session-switcher.css); only its place in the header is here. */
-:where(.app-header) .ppd-chip {
+:where(.app-header) .project-path-display__chip {
     display: inline-flex;
     align-items: center;
     min-width: 0;
@@ -194,20 +198,17 @@
    It takes no pointer: the window's drag runtime takes a press as a drag only
    inside its target's client box (drag.ts, isDraggableEvent), and the inline
    spans of the path have none, so a press on the text lands on the chip. */
-:where(.app-header) .ppd-path {
+:where(.app-header) .project-path-display__path {
     pointer-events: none;
-    overflow: hidden;
     min-width: 0;
-    white-space: nowrap;
-    text-overflow: ellipsis;
 }
 
-:where(.app-header) .ppd-dir {
+:where(.app-header) .project-path-display__dir {
     color: var(--text-tertiary);
     font-weight: var(--font-weight-normal);
 }
 
-:where(.app-header) .ppd-name {
+:where(.app-header) .project-path-display__name {
     color: var(--text-primary);
     font-weight: var(--font-weight-medium);
 }
@@ -216,7 +217,7 @@
    desktop window it opens another window; in a browser tab, the server's page
    in a tab of its own (header-controls.js). Sized as header-actions' icon
    buttons are, so the bar has one icon size end to end. */
-:where(.app-header) .ppd-new-window-button {
+:where(.app-header) .project-path-display__new-window-button {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -226,14 +227,14 @@
     padding: 0;
 }
 
-:where(.app-header) .ppd-new-window-button svg {
+:where(.app-header) .project-path-display__new-window-button > :where(svg) {
     width: 1.25rem;
     height: 1.25rem;
     fill: var(--text-secondary);
     transition: fill var(--transition-base);
 }
 
-:where(.app-header) .ppd-new-window-button:hover svg {
+:where(.app-header) .project-path-display__new-window-button:where(:hover) :where(svg) {
     fill: var(--text-primary);
 }
 
@@ -243,9 +244,14 @@
 header-actions {
     display: flex;
     align-items: center;
-    gap: 0.125rem;
-    padding: 0.25rem 0.5rem;
+    gap: var(--space-2);
+    padding: var(--space-4) var(--space-8);
     flex-shrink: 0;
+
+    /* Its buttons are sized through the pattern's own hooks rather than over
+       its rules. */
+    --btn-icon-header-size: 2rem;
+    --btn-icon-header-glyph: 1.25rem;
 }
 
 /* The regular controls: a row of groups whose spacing grows with the header —
@@ -256,13 +262,13 @@ header-actions {
 .header-actions-controls {
     display: flex;
     align-items: center;
-    gap: clamp(1rem, 2cqi, 2.5rem);
+    gap: clamp(var(--space-16), 2cqi, var(--space-40));
 }
 
 .header-group {
     display: flex;
     align-items: center;
-    gap: 0.25rem;
+    gap: var(--space-4);
 }
 
 /* A group whose every button is hidden (the panel group, before there is a
@@ -272,16 +278,8 @@ header-actions {
 }
 
 header-actions .btn-icon-header {
-    width: 2rem;
-    height: 2rem;
     padding: 0;
     font-size: var(--font-size-md);
-}
-
-header-actions .btn-icon-header svg,
-header-actions .btn-icon-header::before {
-    width: 1.25rem;
-    height: 1.25rem;
 }
 
 /* Overflow: under 56.25rem of header (900px at 100%) the row runs short, so
@@ -308,7 +306,7 @@ header-actions .btn-icon-header::before {
 .header-zoom {
     display: flex;
     align-items: center;
-    gap: 0.25rem;
+    gap: var(--space-4);
 }
 
 /* A Windows or Linux desktop window has no menu bar, so there the "…" menu is
@@ -335,19 +333,13 @@ header-actions .btn-icon-header::before {
    hamburger rides the same size, and the logo grows with them, so the row
    stays in proportion at any zoom. */
 @media (hover: none) {
-    header-actions .btn-icon-header,
-    .app-header .sidebar-toggle-button {
-        width: 2.75rem;
-        height: 2.75rem;
+    header-actions,
+    .sidebar-toggle-button {
+        --btn-icon-header-size: 2.75rem;
     }
 
     .app-header__centre {
         --btn-icon-header-size: 2.75rem;
-    }
-
-    .app-header .sidebar-toggle-button svg {
-        width: 1.5rem;
-        height: 1.5rem;
     }
 
     /* .app-header prefix raises specificity above the .logo::before height in
@@ -359,8 +351,9 @@ header-actions .btn-icon-header::before {
 
     /* The help button opens Settings › Keyboard shortcuts — a reference surface
        with nothing to offer a device that has no keyboard. Drop it from the
-       touch header so it doesn't crowd the button row with a dead affordance. */
-    header-actions .help-button {
+       touch header so it doesn't crowd the button row with a dead affordance.
+       The wrapper it folds by is what hides, as on a narrow header. */
+    header-actions .header-foldable:has(> .help-button) {
         display: none;
     }
 }
@@ -399,7 +392,7 @@ header-actions .btn-icon-header::before {
        row. */
     .app-header {
         flex-wrap: wrap;
-        gap: 0 0.5rem;
+        gap: 0 var(--space-8);
 
         --app-header-pad-block: 0.5rem;
         --app-header-pad-inline: 0.75rem;
@@ -438,7 +431,7 @@ header-actions .btn-icon-header::before {
         flex-wrap: nowrap;
         justify-content: space-between;
         min-width: 0;
-        gap: 0.125rem;
+        gap: var(--space-2);
     }
 
     /* The groups dissolve: their buttons spread across the row as one set. */

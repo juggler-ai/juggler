@@ -5,57 +5,113 @@
  */
 
 /**
- * Shared button chrome.
+ * The app's one button.
  *
- * These are base styles, not utilities: a component that carries one of them
- * routinely overrides a declaration or two, and `utilities` is the last layer,
- * where nothing below can reach it. Filed in `patterns` so a component can
- * refine them by specificity, which is what the code has always assumed and
- * what layers would otherwise take away.
+ * A button is built from three independent choices, each a class:
  *
- * Size, padding and any extra affordance come from the element or a co-class;
- * these own only the chrome.
+ *   box    .btn                        (default: a dialog or panel action)
+ *          .btn .btn-sm / .btn-xs      (compact: rows, cards, inline actions)
+ *          .btn .btn-icon              (a square holding one glyph; with
+ *                                       .btn-icon-lg)
+ *   role   .btn-primary  .btn-neutral  .btn-secondary  .btn-danger  .btn-ghost
+ *   extra  .btn-danger-quiet           (turns red on hover: delete, remove)
+ *
+ * e.g. `btn btn-sm btn-neutral`, `btn btn-icon btn-secondary`,
+ * `btn btn-icon btn-icon-lg btn-danger-quiet`. A component keeps a class of
+ * its own only for what is genuinely its own — where the button sits, a
+ * reveal-on-hover opacity — and never re-states the box or the role.
+ *
+ * Filed in `patterns`, not `utilities`: a component may refine a button by
+ * specificity, and that is only possible from a layer at or above this one.
+ * Prefer the custom-property hooks over a competing declaration:
+ *
+ *   --btn-glyph        an svg's size inside any .btn (1rem; set it on the
+ *                      button itself)
+ *   --btn-icon-size    the side of a .btn-icon square
+ *   --btn-ghost-*      the ghost chrome (see Ghost below)
+ *   --btn-icon-header-size / --btn-icon-header-glyph   the header bar's squares
+ *
+ * Focus is the app-wide ring (base/elements.css ▸ :focus-visible); disabled is
+ * one treatment everywhere — the `button:disabled` rule in base/elements.css —
+ * and so is the pointer cursor (that rule's `button`, the UA's for a link).
+ * `.btn` sets neither, so neither can drift.
  */
 
 /* ==========================================================================
-   Button roles (.btn-primary, .btn-secondary, .btn-danger)
-   The fill a button wears for its role, over whatever size and shape its
-   component gives it: primary is blue, secondary is outlined, danger is red.
-   A component that paints its own buttons a neutral fill scopes that rule to
-   the buttons without a role (`:not(.btn-primary)`), so the two never compete.
+   Box (.btn, .btn-sm, .btn-xs)
+   The geometry and type of a text button. The transparent border reserves
+   its space so a role that draws one never shifts the layout.
    ========================================================================== */
 
-.btn-primary {
-    background: var(--accent-blue);
-    border-color: var(--accent-blue);
-    color: var(--text-on-accent);
+.btn {
+    --btn-glyph: 1rem;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-6);
+    padding: var(--space-10) var(--space-20);
+    border: 0.0625rem solid transparent;
+    border-radius: var(--radius-lg);
+    font-family: var(--font-ui);
+    font-size: var(--font-size-md);
+    font-weight: var(--font-weight-medium);
+    white-space: nowrap;
+    transition: background var(--transition-base), border-color var(--transition-base), color var(--transition-base), opacity var(--transition-base);
 }
 
-/* Hover states are held to one class (state in :where), so they never outrank
-   a component's own button rule from down here. */
-.btn-primary:where(:hover:not(:disabled)) {
-    background: var(--accent-blue-light);
+.btn > :where(svg) {
+    flex-shrink: 0;
+    width: var(--btn-glyph);
+    height: var(--btn-glyph);
 }
 
-.btn-secondary {
+/* A link dressed as a button keeps its label plain under the pointer, over
+   base/elements.css's underline (`a:hover`, which this ties and follows). */
+a.btn:where(:hover) {
+    text-decoration: none;
+}
+
+.btn-sm {
+    padding: var(--space-6) var(--space-12);
+    font-size: var(--font-size-base);
+}
+
+.btn-xs {
+    padding: var(--space-2) var(--space-8);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+}
+
+/* ==========================================================================
+   Icon buttons (.btn-icon, .btn-icon-lg)
+   A square holding one glyph (an svg, or an .icon-* span), centred on
+   geometry. Quiet unless given a role: no fill and no frame at rest, a wash
+   on hover. `.btn-icon btn-secondary` is the framed square, `.btn-primary`
+   the filled one.
+   ========================================================================== */
+
+.btn-icon {
+    flex-shrink: 0;
+    width: var(--btn-icon-size, 1.5rem);
+    height: var(--btn-icon-size, 1.5rem);
+    padding: 0;
+    border-radius: var(--radius-md);
     background: transparent;
-    border: 0.0625rem solid var(--border-color);
     color: var(--text-secondary);
 }
 
-.btn-secondary:where(:hover:not(:disabled)) {
-    background: var(--bg-raised);
+.btn-icon:where(:hover:not(:disabled)) {
+    background: var(--wash-2);
     color: var(--text-primary);
 }
 
-.btn-danger {
-    background: var(--accent-red);
-    border-color: var(--accent-red);
-    color: var(--text-on-accent);
+.btn-icon-sm {
+    --btn-icon-size: 1.25rem;
 }
 
-.btn-danger:where(:hover:not(:disabled)) {
-    background: var(--accent-red-soft);
+.btn-icon-lg {
+    --btn-icon-size: 1.75rem;
 }
 
 /* ==========================================================================
@@ -69,7 +125,6 @@
     width: var(--btn-icon-header-size, 2.5rem);
     height: var(--btn-icon-header-size, 2.5rem);
     border-radius: var(--radius-lg);
-    cursor: pointer;
     position: relative;
     transition: background var(--transition-base);
     display: flex;
@@ -88,7 +143,7 @@
 /* Icon styling for header buttons. A surface that sizes its buttons sets
    --btn-icon-header-size and --btn-icon-header-glyph rather than out-ranking
    these rules. */
-.btn-icon-header svg,
+.btn-icon-header :where(svg),
 .btn-icon-header::before {
     width: var(--btn-icon-header-glyph, 1.5rem);
     height: var(--btn-icon-header-glyph, 1.5rem);
@@ -96,87 +151,124 @@
     transition: fill var(--transition-base), background-color var(--transition-base), transform var(--transition-base);
 }
 
-.btn-icon-header svg {
-    display: block;
+/* No `display` here: the button is a flex box, so its glyph is a flex item
+   (blockified) already, and a surface that shows one of several glyphs hides
+   the others with `display: none` without having to out-rank this rule. */
+.btn-icon-header :where(svg) {
     fill: var(--text-secondary);
 }
 
-.btn-icon-header:hover svg {
+.btn-icon-header:where(:hover) :where(svg) {
     fill: var(--text-primary);
+}
+
+/* ==========================================================================
+   Roles (.btn-primary, .btn-neutral, .btn-secondary, .btn-danger)
+   The fill a button wears for what it does, over whatever box it has:
+   primary is blue, neutral a raised fill for an ordinary action beside it,
+   secondary outlined, danger red. Each sets the background, the border
+   colour and the text, so it reads the same with or without `.btn`.
+
+   Hover states are held to one class (state in :where), so they never
+   outrank a component's own refinement from down here.
+   ========================================================================== */
+
+.btn-primary {
+    background: var(--accent-blue);
+    border-color: var(--accent-blue);
+    color: var(--text-on-accent);
+}
+
+.btn-primary:where(:hover:not(:disabled)) {
+    background: var(--accent-blue-strong);
+    border-color: var(--accent-blue-strong);
+}
+
+.btn-neutral {
+    background: var(--bg-raised);
+    border: 0.0625rem solid var(--border-color);
+    color: var(--text-primary);
+}
+
+.btn-neutral:where(:hover:not(:disabled)) {
+    background: var(--bg-tertiary);
+}
+
+.btn-secondary {
+    background: transparent;
+    border: 0.0625rem solid var(--border-color);
+    color: var(--text-secondary);
+}
+
+.btn-secondary:where(:hover:not(:disabled)) {
+    background: var(--bg-raised);
+    border-color: var(--text-tertiary);
+    color: var(--text-primary);
+}
+
+.btn-danger {
+    background: var(--danger);
+    border-color: var(--danger);
+    color: var(--text-on-accent);
+}
+
+.btn-danger:where(:hover:not(:disabled)) {
+    background: var(--accent-red-strong);
+    border-color: var(--accent-red-strong);
+}
+
+/* Danger on hover: an action that destroys something but is not the point of
+   where it sits (remove a row, delete a queued message, stop a thread). It
+   wears its role — or the icon button's quiet chrome — at rest, and turns red
+   only under the pointer. Filed after the roles so it wins the hover. */
+.btn-danger-quiet:where(:hover:not(:disabled)) {
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
+    color: var(--danger);
 }
 
 /* ==========================================================================
    Ghost Buttons (.btn-ghost) — the house style
    Transparent at rest; on hover a subtle fill, a hairline border and
    primary-colour text/icon appear. (A press springs, as every button's does:
-   utils/press-feedback.js, never a rule here.) This is the shared chrome for the header-bar controls (.btn-ghost) and the panel/modal
-   close buttons (.close-button); the composer's own controls
-   (composer-box .input-ctrl-btn) take the same chrome from composer.css.
+   utils/press-feedback.js, never a rule here.) This is the shared chrome for
+   the header-bar controls, the composer's controls (composer-box
+   .input-ctrl-btn) and the panel/modal close buttons (`btn btn-icon
+   btn-icon-lg btn-ghost` holding an .icon-close span, which centres on
+   geometry rather than on font metrics).
    The transparent resting border reserves its space so nothing shifts on hover.
-   Placed after the size co-classes above so it wins by source order where a
-   header button carries both (e.g. .btn-ghost.btn-icon-header).
+   Placed after .btn-icon-header so it wins by source order where a header
+   button carries both (e.g. .btn-ghost.btn-icon-header).
 
    A surface with a look of its own sets these rather than out-ranking the
    rules: --btn-ghost-radius (the corner), --btn-ghost-bg (a resting fill, for
    a button that holds a value), and --btn-ghost-hover-bg /
    --btn-ghost-hover-border (the hover). The header bar sets all four
-   (layout/app-header.css).
+   (layout/app-header.css). Unset, the hover takes the theme's
+   --ghost-hover-bg / --ghost-hover-border.
    ========================================================================== */
-.btn-ghost,
-.close-button {
+.btn-ghost {
     border: 0.0625rem solid transparent;
     border-radius: var(--btn-ghost-radius, var(--radius-2xl));
     background: var(--btn-ghost-bg, transparent);
     color: var(--text-secondary);
-    cursor: pointer;
     transition: background var(--transition-base), border-color var(--transition-base), color var(--transition-base);
 }
 
-.btn-ghost:hover:not(:disabled),
-.btn-ghost:active:not(:disabled),
-.close-button:hover:not(:disabled) {
-    background: var(--btn-ghost-hover-bg, var(--overlay-dark-70));
-    border-color: var(--btn-ghost-hover-border, var(--overlay-light-30));
+/* The hover is held to one class (state in :where), so a component's own
+   refinement of a ghost button wins it from above. */
+.btn-ghost:where(:hover:not(:disabled), :active:not(:disabled)) {
+    background: var(--btn-ghost-hover-bg, var(--ghost-hover-bg));
+    border-color: var(--btn-ghost-hover-border, var(--ghost-hover-border));
     color: var(--text-primary);
     transform: none;
 }
 
-/* The close button's box, the one part of it that is not the ghost chrome
-   above: a fixed 2rem square that centres its ×. The × is an .icon-close
-   span, so it centres on geometry rather than on font metrics. Add
-   "close-button" to any button in a panel or modal and it gets both.
-   ========================================================================== */
-.close-button {
-    padding: 0;
-    width: 2rem;
-    height: 2rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-}
-
-/* Light theme keeps the shape; the hover fill flips to a near-white wash. The
-   resting reset matches the (0,3,0) specificity of the size co-classes'
-   light-theme fills so header buttons stay transparent at rest. */
-:root[data-theme="light"] .btn-ghost {
-    background: var(--btn-ghost-bg, transparent);
-    border-color: transparent;
-}
-
-:root[data-theme="light"] .btn-ghost:hover:not(:disabled),
-:root[data-theme="light"] .btn-ghost:active:not(:disabled),
-:root[data-theme="light"] .close-button:hover:not(:disabled) {
-    background: var(--btn-ghost-hover-bg, color-mix(in srgb, var(--bg-secondary) 95%, transparent));
-    border-color: var(--btn-ghost-hover-border, var(--text-tertiary));
-}
-
 /* ==========================================================================
-   Spin (control-spin)
+   Spin (btn-spin)
    One rotation, for any control that turns while it is working. Shared so a
    refresh in the settings panel and a refresh on the Pinboard turn alike.
    ========================================================================== */
 
-@keyframes control-spin {
+@keyframes btn-spin {
     to { transform: rotate(360deg); }
 }

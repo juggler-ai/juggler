@@ -94,16 +94,16 @@ function renderSelectedLabels(questions, answers) {
   });
   /** @type {Set<string>} */
   const selected = new Set();
-  for (const optionItem of wrapper.querySelectorAll('.option-item.selected')) {
+  for (const optionItem of wrapper.querySelectorAll('.option-item.is-selected')) {
     // A selected option must carry a ticked checkbox (not "[x]" text) and the
     // bare option label.
-    assert(optionItem.querySelector('.option-tick.checked') !== null,
+    assert(optionItem.querySelector('.option-tick.is-checked') !== null,
       'selected option must render a checked tick box');
     const label = optionItem.querySelector('.option-label');
     if (label) selected.add(label.textContent ?? '');
   }
   // An unselected option must show an unchecked tick (a tick box, no .checked).
-  for (const optionItem of wrapper.querySelectorAll('.option-item:not(.selected)')) {
+  for (const optionItem of wrapper.querySelectorAll('.option-item:not(.is-selected)')) {
     const tick = optionItem.querySelector('.option-tick');
     assert(tick !== null && !tick.classList.contains('checked'),
       'unselected option must render an unchecked tick box');
@@ -140,7 +140,7 @@ function renderCustomAnswer(questions, answers, header) {
       const row = blocks[i]?.querySelector('.option-item.custom-answer');
       if (!row) return null;
       // A custom-answer row must be ticked and carry the typed text.
-      assert(row.querySelector('.option-tick.checked') !== null, 'custom answer must render a checked tick');
+      assert(row.querySelector('.option-tick.is-checked') !== null, 'custom answer must render a checked tick');
       return row.querySelector('.option-label')?.textContent ?? null;
     }
   }
@@ -205,7 +205,7 @@ function buildForm(questions, toolUseId, thread = makeThread()) {
  * @returns {string[]} Sorted labels of the selected buttons in a form
  */
 function selectedLabels(form) {
-  return Array.from(form.querySelectorAll('.question-option-btn.selected'))
+  return Array.from(form.querySelectorAll('.question-option-btn.is-selected'))
     .map(b => b.querySelector('.option-btn-label')?.textContent ?? '')
     .sort();
 }
@@ -380,7 +380,7 @@ export async function runTests() {
     const form = buildForm(singleQuestions, toolUseId, thread);
     typeCustom(form, 'something else entirely');
     // The custom option selects itself; Submit becomes enabled with no preset picked.
-    assert(find(form, '.question-custom-option', HTMLElement).classList.contains('selected'),
+    assert(find(form, '.question-custom-option', HTMLElement).classList.contains('is-selected'),
       'custom option should be selected once typed into');
     assert(!find(form, '.multi-question-submit', window.HTMLButtonElement).disabled,
       'a typed custom answer should satisfy the question');
@@ -411,7 +411,7 @@ export async function runTests() {
     click(form, 'Beta');
     assert(find(form, '.question-custom-field', window.HTMLTextAreaElement).value === '',
       'custom field should clear when a preset is chosen');
-    assert(!find(form, '.question-custom-option', HTMLElement).classList.contains('selected'),
+    assert(!find(form, '.question-custom-option', HTMLElement).classList.contains('is-selected'),
       'custom option should deselect when a preset is chosen');
     find(form, '.multi-question-submit', window.HTMLButtonElement).click();
     assert(submitted(thread).Choice === 'Beta',
@@ -466,7 +466,7 @@ export async function runTests() {
     const form2 = buildForm(singleQuestions, toolUseId, thread);
     assert(find(form2, '.question-custom-field', window.HTMLTextAreaElement).value === 'keep me',
       'custom answer should be restored from the draft after a rebuild');
-    assert(find(form2, '.question-custom-option', HTMLElement).classList.contains('selected'),
+    assert(find(form2, '.question-custom-option', HTMLElement).classList.contains('is-selected'),
       'restored custom answer should show as selected');
   });
 

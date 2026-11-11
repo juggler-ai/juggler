@@ -57,7 +57,7 @@ import '../../js/components/conversation-tab.js';
 function panelShowing(tab, itemId) {
   return waitFor(() => {
     const panel = /** @type {any} */ (tab.querySelector('column-container > properties-panel'));
-    return panel?.getSelectedItemId() === itemId && panel.querySelector('.properties-panel-btn.danger')
+    return panel?.getSelectedItemId() === itemId && panel.querySelector('.properties-panel-delete-btn')
       ? panel
       : null;
   }, () => `the properties panel to show ${itemId}`);
@@ -149,7 +149,7 @@ async function clickDelete(tab, col) {
   const panel = tab.querySelector('column-container > properties-panel');
   assert(!!panel, 'selecting an item should have opened a properties panel');
   const deleteBtn = /** @type {HTMLElement|null} */ (
-    panel.querySelector('.properties-panel-btn.danger')
+    panel.querySelector('.properties-panel-delete-btn')
   );
   assert(!!deleteBtn, 'the properties panel should offer a Delete button');
   assert(/^\s*Delete\s*$/.test(deleteBtn.textContent || ''),
@@ -329,7 +329,7 @@ export async function runTests() {
       // anchor survives and stays selected. Nothing hands the selection over
       // here, and nothing needs to.
       const panel = tab.querySelector('column-container > properties-panel');
-      const upTo = Array.from(panel.querySelectorAll('.properties-panel-btn.danger'))
+      const upTo = Array.from(panel.querySelectorAll('.properties-panel-delete-btn'))
         .find((/** @type {any} */ b) => /Delete up to here/.test(b.textContent || ''));
       assert(!!upTo, 'the panel should offer "Delete up to here" for a mid-list item');
       const countBefore = root.items.length;

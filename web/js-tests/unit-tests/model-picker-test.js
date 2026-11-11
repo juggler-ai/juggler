@@ -394,10 +394,10 @@ export async function runTests(_ctx) {
     });
 
     await run('the bottom row is ticked only when nothing is selected', () => {
-      assert(makePicker().querySelector('.no-model').classList.contains('active'),
+      assert(makePicker().querySelector('.no-model').classList.contains('menu-item-selected'),
         'no config ⇒ the none row is the active one');
       const withModel = makePicker({ value: { provider: 'p', model: 'm' } });
-      assert(!withModel.querySelector('.no-model').classList.contains('active'),
+      assert(!withModel.querySelector('.no-model').classList.contains('menu-item-selected'),
         'a selected model must not leave the none row ticked as well');
     });
 
@@ -558,7 +558,7 @@ export async function runTests(_ctx) {
       const picker = makePicker({ value: { provider: 'p', model: 'm' }, connect: true });
       try {
         picker.value = { provider: 'p', model: 'other' };
-        const active = picker.querySelector('.menu-item.active[data-model]');
+        const active = picker.querySelector('.menu-item.menu-item-selected[data-model]');
         assert(active?.getAttribute('data-model') === 'other',
           `the tick must follow a real change — got "${active?.getAttribute('data-model')}"`);
         assert((picker.querySelector('.model-current-name')?.textContent || '') === 'Other',
@@ -729,7 +729,7 @@ export async function runTests(_ctx) {
       try {
         press('ArrowDown');
         press('ArrowDown');
-        const cursor = picker.querySelectorAll('.nav-active');
+        const cursor = picker.querySelectorAll('.is-cursor');
         assert(cursor.length === 1, `exactly one row carries the cursor, got ${cursor.length}`);
         assert(cursor[0].getAttribute('data-model') === 'other',
           `two steps lands on the second row, got "${cursor[0].getAttribute('data-model')}"`);
@@ -744,7 +744,7 @@ export async function runTests(_ctx) {
       const picker = makePicker({ connect: true });
       try {
         press('ArrowUp');
-        const cursor = picker.querySelector('.nav-active');
+        const cursor = picker.querySelector('.is-cursor');
         assert(!!cursor && cursor.classList.contains('no-model'),
           'the first ArrowUp lands on the last row, which is the none row');
       } finally {
@@ -1073,7 +1073,7 @@ export async function runTests(_ctx) {
         // The hidden model in use.
         picker.value = { provider: '4', model: '8' };
         picker.render();
-        see('hidden note', picker.querySelector('.menu-item-note:not(.unavailable .menu-item-note)')?.textContent);
+        see('hidden note', picker.querySelector('.menu-item-note:not(.menu-item-unavailable .menu-item-note)')?.textContent);
 
         // A provider switch that fails without saying why.
         picker.value = { provider: '4', model: '7' };

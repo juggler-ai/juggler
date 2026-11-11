@@ -239,19 +239,19 @@ export async function startSetupWizard({
    * @returns {string} The markup.
    */
   const choiceList = (routes) =>
-    `<div class="wiz-choices">${routes
+    `<div class="onboarding-wizard-choices">${routes
       .map(
         (route, index) =>
-          `<button type="button" class="wiz-choice" data-wiz-choice="${index}">
-             <span class="wiz-choice-title">${escapeHtml(t(route.title))}</span>
-             <span class="wiz-choice-detail">${escapeHtml(t(route.detail))}</span>
+          `<button type="button" class="onboarding-wizard-choice" data-wiz-choice="${index}">
+             <span class="onboarding-wizard-choice-title">${escapeHtml(t(route.title))}</span>
+             <span class="onboarding-wizard-choice-detail">${escapeHtml(t(route.detail))}</span>
            </button>`
       )
       .join('')}</div>`;
 
   /**
    * Wire a choice list's cards. They sit in the body rather than the footer, so
-   * they are not `wiz-action` buttons and the modal does not know about them.
+   * they are not `onboarding-wizard-action` buttons and the modal does not know about them.
    * @param {import('./step-modal.js').StepContext} ctx - Navigation.
    * @param {{step: string}[]} routes - The same list that was rendered.
    * @returns {(root: HTMLElement) => void} A mount handler for the step view.
@@ -292,7 +292,7 @@ export async function startSetupWizard({
       title: t('Sign in to Codex'),
       body: `
         ${para(t('The Codex CLI is installed but signed out. In a terminal:', slots))}
-        <code class="wiz-command">codex login</code>
+        <code class="onboarding-wizard-command">codex login</code>
         ${para(t('Codex is included in every ChatGPT plan, the free one included.', slots))}`,
       actions: [checkAgainAction(), { label: t('Use a different provider'), onSelect: (ctx) => ctx.go('askAccount') }],
       note: vainNote(),
@@ -302,7 +302,7 @@ export async function startSetupWizard({
       title: t('Claude Code needs its CLI'),
       body: `
         ${para(t('The Claude desktop app is installed. It has a Code tab of its own, but Juggler drives the {claude} command-line tool, which is a separate install:', slots))}
-        <code class="wiz-command">${claudeInstall}</code>
+        <code class="onboarding-wizard-command">${claudeInstall}</code>
         ${para(t('{paidPlan} — Pro, Max, Team or Enterprise. The free claude.ai plan does not include it, and no amount of installing will change that.', slots))}
         ${para(t('{setupGuide} covers the other install methods.', slots))}`,
       actions: [checkAgainAction(), { label: t('Use a different provider'), onSelect: (ctx) => ctx.go('askAccount') }],
@@ -345,7 +345,7 @@ export async function startSetupWizard({
       body: `
         ${para(t('Install the {chatgptApp}, sign in, and switch to {codex}. Juggler picks that login up on its own.', slots))}
         ${para(t('If you would rather work from a terminal, the {codexCLI} shares the same login:', slots))}
-        <code class="wiz-command">${codexInstall}</code>`,
+        <code class="onboarding-wizard-command">${codexInstall}</code>`,
       actions: [checkAgainAction()],
       note: vainNote(),
     }),
@@ -354,7 +354,7 @@ export async function startSetupWizard({
       title: t('Use your Claude plan'),
       body: `
         ${para(t('Juggler drives the {claude} command-line tool. Install it with:', slots))}
-        <code class="wiz-command">${claudeInstall}</code>
+        <code class="onboarding-wizard-command">${claudeInstall}</code>
         ${para(t('Then run {claude} once in a terminal to sign in. {setupGuide} has the other install methods.', slots))}
         ${para(t('This needs a paid plan — Pro, Max, Team or Enterprise. The free claude.ai plan does not include Claude Code.', slots))}`,
       actions: [checkAgainAction()],

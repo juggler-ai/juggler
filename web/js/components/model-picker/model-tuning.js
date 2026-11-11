@@ -190,7 +190,7 @@ class ModelTuning extends JugglerElement {
 
     const seg = (/** @type {string} */ level, /** @type {string} */ label) => {
       const isActive = level === active;
-      return `<button type="button" class="thinking-seg${isActive ? ' active' : ''}" data-thinking-level="${escapeHtml(level)}" role="radio" aria-checked="${isActive}">${escapeHtml(label)}</button>`;
+      return `<button type="button" class="thinking-seg" data-thinking-level="${escapeHtml(level)}" role="radio" aria-checked="${isActive}">${escapeHtml(label)}</button>`;
     };
 
     // Advertised order, shown verbatim (title-cased) — the provider owns the set.
@@ -198,7 +198,7 @@ class ModelTuning extends JugglerElement {
 
     return `
             <div class="model-thinking">
-                <div class="model-thinking-label">${escapeHtml(t('Thinking'))}</div>
+                <div class="model-thinking-label caps-label">${escapeHtml(t('Thinking'))}</div>
                 <div class="thinking-segmented" role="radiogroup" aria-label="${escapeHtml(t('Thinking level'))}">${segments.join('')}</div>
             </div>`;
   }
@@ -221,7 +221,7 @@ class ModelTuning extends JugglerElement {
     const seg = (/** @type {string} */ id, /** @type {string} */ label, /** @type {string} */ title) => {
       const isActive = id === active;
       const titleAttr = title ? ` title="${escapeHtml(title)}"` : '';
-      return `<button type="button" class="tier-seg${isActive ? ' active' : ''}" data-service-tier="${escapeHtml(id)}" role="radio" aria-checked="${isActive}"${titleAttr}>${escapeHtml(label)}</button>`;
+      return `<button type="button" class="tier-seg" data-service-tier="${escapeHtml(id)}" role="radio" aria-checked="${isActive}"${titleAttr}>${escapeHtml(label)}</button>`;
     };
 
     const segments = [
@@ -231,7 +231,7 @@ class ModelTuning extends JugglerElement {
 
     return `
             <div class="model-speed">
-                <div class="model-speed-label">${escapeHtml(t('Speed'))}</div>
+                <div class="model-speed-label caps-label">${escapeHtml(t('Speed'))}</div>
                 <div class="tier-segmented" role="radiogroup" aria-label="${escapeHtml(t('Serving speed'))}">${segments.join('')}</div>
             </div>`;
   }

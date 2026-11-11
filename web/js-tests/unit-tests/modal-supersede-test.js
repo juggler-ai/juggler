@@ -67,12 +67,12 @@ async function settles(promise, what) {
 
 /** @returns {HTMLElement|null} The dialog currently on screen, notices excluded */
 function openDialog() {
-  return /** @type {HTMLElement|null} */ (document.querySelector('modal-dialog.show:not(.is-notice)'));
+  return /** @type {HTMLElement|null} */ (document.querySelector('modal-dialog.is-open:not(.is-notice)'));
 }
 
 /** @returns {HTMLElement[]} Every notice currently on screen */
 function openNotices() {
-  return /** @type {HTMLElement[]} */ ([...document.querySelectorAll('modal-dialog.is-notice.show')]);
+  return /** @type {HTMLElement[]} */ ([...document.querySelectorAll('modal-dialog.is-notice.is-open')]);
 }
 
 /**
@@ -83,7 +83,7 @@ function openNotices() {
 function clickDialogButton(dialog, variant) {
   assert(!!dialog, `no dialog on screen to click its ${variant} button`);
   const button = /** @type {HTMLButtonElement|null} */ (
-    dialog?.querySelector(`.modal-footer .modal-button.btn-${variant}`));
+    dialog?.querySelector(`.modal-footer .btn-${variant}`));
   assert(!!button, `the dialog has no ${variant} button`);
   button?.click();
 }

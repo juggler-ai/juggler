@@ -214,7 +214,7 @@ class BinModal extends JugglerElement {
       const { short: dateShort, full: dateFull } = formatRelativeDateTime(row.lastModifiedAt);
       li.innerHTML = `
         <div class="bin-row-info">
-          <span class="bin-row-name"></span>
+          <span class="bin-row-name text-truncate"></span>
           <span class="bin-row-date"></span>
         </div>
         <div class="bin-row-actions">
@@ -314,7 +314,7 @@ class BinModal extends JugglerElement {
     if (this._emptyMenu || !button || button.disabled) return;
 
     const menu = document.createElement('nav');
-    menu.className = 'dropdown-menu bin-empty-menu show';
+    menu.className = 'dropdown-menu bin-empty-menu is-open';
     this._emptyMenu = menu;
     this._renderEmptyMenu();
     button.setAttribute('aria-expanded', 'true');
@@ -358,7 +358,7 @@ class BinModal extends JugglerElement {
     for (const days of EMPTY_CUTOFF_DAYS) {
       const matches = this._idsOlderThan(days).length;
       const row = document.createElement('li');
-      row.className = matches > 0 ? 'menu-item' : 'menu-item unavailable';
+      row.className = matches > 0 ? 'menu-item' : 'menu-item menu-item-unavailable';
       row.textContent = t('{days, plural, one {Older than # day} other {Older than # days}}', { days });
       if (matches > 0) {
         row.addEventListener('click', (e) => {
@@ -375,7 +375,7 @@ class BinModal extends JugglerElement {
     list.appendChild(divider);
 
     const everything = document.createElement('li');
-    everything.className = 'menu-item danger';
+    everything.className = 'menu-item menu-item-danger';
     everything.textContent = t('Everything');
     everything.addEventListener('click', (e) => {
       e.stopPropagation();

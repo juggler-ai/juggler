@@ -67,7 +67,7 @@ class RevealButton extends JugglerElement {
   _build() {
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = 'reveal-button';
+    button.className = 'btn btn-icon btn-secondary';
     button.innerHTML = REVEAL_ICON_HTML;
     button.addEventListener('click', (e) => this._onClick(e));
     this.appendChild(button);

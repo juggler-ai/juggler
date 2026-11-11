@@ -101,7 +101,7 @@ export async function showPresetBrowser(item, buttonElement, container) {
   await ensureUserPresetsLoaded();
 
   const dropdown = document.createElement('nav');
-  dropdown.className = 'dropdown-menu system-prompt-preset-dropdown show';
+  dropdown.className = 'dropdown-menu system-prompt-preset-dropdown is-open';
   renderPresetMenu(item, dropdown, container);
 
   // presentPopup owns body-append, dismissal wiring (outside-click via
@@ -188,7 +188,7 @@ function renderPresetMenu(item, dropdown, container) {
  * @returns {HTMLElement} The header row
  */
 function buildCategoryHeader(label) {
-  const header = createElement('li', 'sp-preset-category', label);
+  const header = createElement('li', 'sp-preset-category caps-label', label);
   header.setAttribute('role', 'none');
   return header;
 }
@@ -223,7 +223,7 @@ function buildPresetMenuItem(item, preset, defaultId, selectedId, dropdown, cont
   if (isSelected) icon.innerHTML = SP_ICON_CHECK;
   row.appendChild(icon);
 
-  const name = createElement('span', 'sp-preset-row-name', preset.name);
+  const name = createElement('span', 'sp-preset-row-name text-truncate', preset.name);
   name.setAttribute('role', 'menuitemradio');
   name.setAttribute('aria-checked', String(isSelected));
   if (isDefault) name.setAttribute('aria-label', t('{name} (default)', { name: preset.name }));
@@ -273,7 +273,7 @@ function buildActionItem(iconSvg, label, onClick) {
   icon.innerHTML = iconSvg;
   row.appendChild(icon);
 
-  row.appendChild(createElement('span', 'sp-preset-row-name', label));
+  row.appendChild(createElement('span', 'sp-preset-row-name text-truncate', label));
 
   row.addEventListener('click', onClick);
   return row;
@@ -416,7 +416,7 @@ async function reportPresetFailure(err, title, logPrefix) {
 function showManagePresets(item, container) {
   // A dialog, not a menu: each row holds Edit and Delete buttons.
   const surface = document.createElement('nav');
-  surface.className = 'dropdown-menu system-prompt-manage-dropdown show';
+  surface.className = 'dropdown-menu system-prompt-manage-dropdown is-open';
   surface.setAttribute('role', 'dialog');
   surface.setAttribute('aria-label', t('Manage presets'));
 
@@ -462,7 +462,7 @@ function buildManageRow(item, preset, container, rerender) {
 
   // Empty leading slot keeps names aligned with the preset-browser rows.
   row.appendChild(createElement('span', 'sp-preset-row-icon'));
-  row.appendChild(createElement('span', 'sp-preset-row-name', preset.name));
+  row.appendChild(createElement('span', 'sp-preset-row-name text-truncate', preset.name));
 
   const editBtn = document.createElement('button');
   editBtn.className = 'sp-preset-edit-btn';

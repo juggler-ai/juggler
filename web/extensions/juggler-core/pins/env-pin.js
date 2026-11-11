@@ -18,7 +18,7 @@ injectStylesOnce('env-pin-styles', `
 .env-pin {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: var(--space-12);
   height: 100%;
   overflow: auto;
 }
@@ -26,30 +26,30 @@ injectStylesOnce('env-pin-styles', `
 .env-pin__pending {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
+  gap: var(--space-8);
+  padding: var(--space-8) var(--space-12);
   border: 0.0625rem solid var(--accent-orange);
   border-radius: var(--radius-lg);
 }
 
 .env-pin__pending-list {
   margin: 0;
-  padding-left: 1.25rem;
+  padding-left: var(--space-20);
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
 }
 
 .env-pin__error {
-  color: var(--error-color, var(--text-secondary));
+  color: var(--danger, var(--text-secondary));
   font-size: var(--font-size-sm);
 }
 
 .env-pin__scope {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: var(--space-4);
 }
-.env-pin__scope-title { font-weight: 600; }
+.env-pin__scope-title { font-weight: var(--font-weight-semibold); }
 
 .env-pin__scope-path {
   color: var(--text-secondary);
@@ -60,7 +60,7 @@ injectStylesOnce('env-pin-styles', `
 .env-pin__row {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--space-8);
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
 }
@@ -81,9 +81,10 @@ injectStylesOnce('env-pin-styles', `
 
 .env-pin__add {
   display: flex;
-  gap: 0.25rem;
+  gap: var(--space-4);
 }
 
+/* Each input is a .field-input .field-input-sm, set in the rows' own type. */
 .env-pin__add input {
   min-width: 0;
   flex: 1 1 0;
@@ -304,11 +305,11 @@ class EnvPin extends PinboardItemType {
       }
 
       const form = /** @type {HTMLFormElement} */ (createElement('form', 'env-pin__add'));
-      const nameInput = /** @type {HTMLInputElement} */ (createElement('input', 'env-pin__add-name'));
+      const nameInput = /** @type {HTMLInputElement} */ (createElement('input', 'env-pin__add-name field-input field-input-sm'));
       nameInput.placeholder = t('NAME');
       nameInput.setAttribute('aria-label', t('Variable name'));
       nameInput.spellcheck = false;
-      const valueInput = /** @type {HTMLInputElement} */ (createElement('input', 'env-pin__add-value'));
+      const valueInput = /** @type {HTMLInputElement} */ (createElement('input', 'env-pin__add-value field-input field-input-sm'));
       valueInput.placeholder = t('value');
       valueInput.setAttribute('aria-label', t('Value'));
       valueInput.spellcheck = false;

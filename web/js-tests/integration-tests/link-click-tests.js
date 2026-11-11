@@ -70,7 +70,7 @@ const linkClickInUnselectedMessage = {
     const found = findLink(conversation);
     if (!found) return; // Non-UI mode — skip
     const { anchor, message } = found;
-    if (message.classList.contains('selected')) {
+    if (message.classList.contains('is-selected')) {
       throw new Error('Message was already selected — this test needs the first-click path');
     }
 
@@ -100,7 +100,7 @@ const linkClickInUnselectedMessage = {
         'A link click in an unselected message never reached the document — the link '
         + 'guard cannot run, so the anchor would navigate the window to its target');
     }
-    if (!message.classList.contains('selected')) {
+    if (!message.classList.contains('is-selected')) {
       throw new Error('Clicking the link should still select the message it lives in');
     }
   }

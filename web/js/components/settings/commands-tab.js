@@ -107,10 +107,10 @@ export class CommandsTab {
     root.innerHTML = `
       <aside class="command-page-sidebar">
         <div class="command-page-toolbar">
-          <input type="search" class="field-input command-page-filter" id="command-page-filter"
+          <input type="search" class="field-input field-input-sm command-page-filter" id="command-page-filter"
             placeholder="${escapeHtml(t('Filter commands'))}" aria-label="${escapeHtml(t('Filter commands'))}"
             autocorrect="off" autocapitalize="off" spellcheck="false" />
-          <button type="button" class="modal-button btn-primary command-page-new" data-action="new">${escapeHtml(t('New command…'))}</button>
+          <button type="button" class="btn btn-primary command-page-new" data-action="new">${escapeHtml(t('New command…'))}</button>
         </div>
         <nav class="command-page-list" id="command-page-list" aria-label="${escapeHtml(t('Slash commands'))}"></nav>
       </aside>
@@ -313,7 +313,7 @@ export class CommandsTab {
     const group = document.createElement('div');
     group.className = 'command-page-group';
     const h = document.createElement('h3');
-    h.className = 'command-page-group-title';
+    h.className = 'command-page-group-title caps-label';
     h.textContent = title;
     group.appendChild(h);
     if (rows.length === 0) {
@@ -340,14 +340,14 @@ export class CommandsTab {
   _row(key, name, text, broken) {
     const row = document.createElement('button');
     row.type = 'button';
-    row.className = 'command-page-row' + (broken ? ' is-broken' : '') + (key === this.selectedKey ? ' selected' : '');
+    row.className = 'command-page-row' + (broken ? ' is-broken' : '') + (key === this.selectedKey ? ' is-selected' : '');
     row.dataset.key = key;
     if (key === this.selectedKey) row.setAttribute('aria-current', 'true');
     const code = document.createElement('code');
     code.className = 'command-page-row-name';
     code.textContent = '/' + name;
     const desc = document.createElement('span');
-    desc.className = 'command-page-row-desc';
+    desc.className = 'command-page-row-desc text-truncate';
     desc.textContent = text;
     row.append(code, desc);
     return row;
@@ -461,7 +461,7 @@ export class CommandsTab {
     p.textContent = t('Type / in the message box to run any of these. Pick one to see what it does, or write your own: a saved prompt, run as /name.');
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'modal-button btn-primary';
+    btn.className = 'btn btn-primary';
     btn.dataset.action = 'new';
     btn.textContent = t('New command…');
     box.append(p, btn);

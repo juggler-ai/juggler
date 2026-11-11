@@ -49,7 +49,7 @@ export function renderTaskDeliveryControl(wrapper, { messageThread, taskId, labe
   const section = document.createElement('properties-panel-subsection');
 
   const labelEl = document.createElement('h4');
-  labelEl.className = 'properties-panel-subtitle';
+  labelEl.className = 'properties-panel-subtitle caps-label-lg';
   labelEl.textContent = t('Monitor');
   section.appendChild(labelEl);
 
@@ -69,12 +69,10 @@ export function renderTaskDeliveryControl(wrapper, { messageThread, taskId, labe
 
   const stopBtn = document.createElement('button');
   stopBtn.type = 'button';
-  stopBtn.className = 'properties-panel-btn danger';
+  stopBtn.className = 'btn btn-sm btn-secondary btn-danger-quiet';
   stopBtn.textContent = t('Stop monitor');
-  // Shrink to fit its label: `.properties-panel-btn` is `display:flex` and the
-  // subsection is a column flex container, so without this the button would
-  // stretch to the full panel width. Scoped inline so the global rule (relied
-  // on by other panels) is untouched.
+  // Shrink to fit its label: the subsection is a column flex container, so
+  // without this the button would stretch to the full panel width.
   stopBtn.style.alignSelf = 'flex-start';
   // Action site: the only place that mutates state. The paint() below never writes.
   stopBtn.addEventListener('click', (e) => {
@@ -90,7 +88,7 @@ export function renderTaskDeliveryControl(wrapper, { messageThread, taskId, labe
     const status = messageThread.getTaskDeliveryStatus(taskId);
     statusEl.textContent = t((status && STATUS_LABELS[status]) || ENDED_LABEL);
     // Toggle inline `display` rather than the `hidden` attribute: `[hidden]` is
-    // defeated by the more specific `.properties-panel-btn { display:flex }`
+    // defeated by the more specific `.btn { display: inline-flex }`
     // rule, so the button would never actually disappear. An inline value wins.
     stopBtn.style.display = status === 'active' ? '' : 'none';
   };

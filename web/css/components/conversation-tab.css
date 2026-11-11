@@ -4,10 +4,12 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
-/* <conversation-tab>'s own UI. How the tabs stack and which one shows is
-   layout, in layout/app-shell.css beside <conversation-tabs-container>.
+/* <conversation-tab>'s lazy-load overlay. The element itself — how the tabs
+   stack and which one shows — is layout, in layout/app-shell.css beside
+   <conversation-tabs-container>. The sidebar's row for a conversation is
+   `.conversation-bar-tab`, components/conversation-bar.css.
 
-   Lazy-load overlay, shown while the conversation's Yjs doc is hydrating
+   It is shown while the conversation's Yjs doc is hydrating
    (conversation-tab.js builds it over the whole tab). */
 conversation-tab .conversation-tab-loading-overlay {
     position: absolute;
@@ -16,21 +18,21 @@ conversation-tab .conversation-tab-loading-overlay {
     align-items: center;
     justify-content: center;
     background: var(--bg-primary);
-    z-index: 10;
+    z-index: var(--z-raised);
 }
 
 conversation-tab .conversation-tab-loading-content {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.75rem;
+    gap: var(--space-12);
     color: var(--text-tertiary);
 }
 
 /* Sized from its host, as every sized spinner is: patterns/spinner.css states
    the default weightlessly. */
 .conversation-tab-loading-content juggler-spinner {
-    --size: 5rem;
+    --spinner-size: 5rem;
 }
 
 conversation-tab .conversation-tab-loading-message {
@@ -42,7 +44,7 @@ conversation-tab .conversation-tab-loading-retry {
     color: var(--text-on-accent);
     border: none;
     border-radius: var(--radius-md);
-    padding: 0.35rem 0.9rem;
+    padding: var(--space-6) var(--space-14);
     cursor: pointer;
     font-size: var(--font-size-md);
 }

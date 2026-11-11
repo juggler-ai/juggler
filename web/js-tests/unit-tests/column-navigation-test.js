@@ -196,7 +196,7 @@ export async function runTests() {
     // From outside a field it is one step per press, not one from the command
     // table plus another from the tab's own arrow handler.
     registerConversationShortcuts(/** @type {any} */ (session));
-    const selectedNow = () => rootCol.querySelector('.selected')?.getAttribute('message-id') ?? null;
+    const selectedNow = () => rootCol.querySelector('.is-selected')?.getAttribute('message-id') ?? null;
     const textarea = /** @type {HTMLTextAreaElement|null} */ (tab.getComposer()?.querySelector('textarea'));
     assert(!!textarea, 'no composer textarea to type into');
     textarea.focus();
@@ -287,7 +287,7 @@ export async function runTests() {
       : realMatchMedia(q));
 
     try {
-      const selectedId = () => rootCol.querySelector('.selected')?.getAttribute('message-id') ?? null;
+      const selectedId = () => rootCol.querySelector('.is-selected')?.getAttribute('message-id') ?? null;
       const before = selectedId();
       const press = (/** @type {string} */ key) => {
         rootCol.querySelector('#message-list')?.dispatchEvent(

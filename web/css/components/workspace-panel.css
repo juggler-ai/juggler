@@ -40,16 +40,16 @@ workspace-panel {
     display: flex;
     flex: 1;
     flex-direction: column;
-    gap: 2rem;
+    gap: var(--space-32);
     min-width: 0;
     overflow-y: auto;
-    padding: 2rem 1.5rem;
+    padding: var(--space-32) var(--space-24);
 }
 
 .workspace-panel-head {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: var(--space-4);
 }
 
 /* What this is and what kind of one it is — "Workspace · Git Worktree" — above
@@ -64,9 +64,9 @@ workspace-panel {
 /* The name of this one, under the two lines that are about its kind. Everything
    from here down is about this workspace alone. */
 .workspace-panel-title {
-    margin: 0.4rem 0 0;
+    margin: var(--space-6) 0 0;
     font-size: var(--font-size-3xl);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     color: var(--text-primary);
     overflow-wrap: anywhere;
 }
@@ -75,7 +75,7 @@ workspace-panel {
    line it explains, and tight under it: the two belong together, and the gap
    before the name is what separates the kind from the instance. */
 .workspace-panel-kind-note {
-    margin: 0.15rem 0 0;
+    margin: var(--space-2) 0 0;
     font-size: var(--font-size-base);
     color: var(--text-tertiary);
     line-height: var(--leading-normal);
@@ -84,7 +84,7 @@ workspace-panel {
 .workspace-panel-section {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: var(--space-12);
 }
 
 .workspace-panel-heading {
@@ -95,7 +95,7 @@ workspace-panel {
 .workspace-panel-path-row {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--space-8);
 }
 
 /* Read-only, so it drops the shared path box's frame: a bordered field reads
@@ -130,7 +130,7 @@ workspace-panel {
 .workspace-panel-state-lines {
     display: flex;
     flex-direction: column;
-    gap: 0.35rem;
+    gap: var(--space-6);
     min-height: calc(2 * 0.875rem * var(--leading-normal) + 0.35rem);
 }
 
@@ -144,18 +144,18 @@ workspace-panel {
    a destructive ending cost something. Worn by the status line that accounts for
    the work, so the colour and the count are the same line. */
 .workspace-panel-dirty {
-    color: var(--accent-yellow);
+    color: var(--warning);
 }
 
 /* A workspace nobody could reach and one that answered must never read alike. */
 .workspace-panel-problem {
-    color: var(--accent-red);
+    color: var(--danger);
 }
 
 .workspace-panel-actions {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: var(--space-8);
 }
 
 /* Every one of these does something to the tree, so each says what it will do
@@ -164,16 +164,15 @@ workspace-panel {
 .workspace-panel-action {
     display: flex;
     flex-direction: column;
-    gap: 0.2rem;
+    gap: var(--space-4);
     width: 100%;
-    padding: 0.7rem 0.9rem;
+    padding: var(--space-12) var(--space-14);
     background: var(--bg-secondary);
     border: 0.0625rem solid var(--border-color);
     border-radius: var(--radius-xl);
     color: var(--text-primary);
     font: inherit;
     text-align: left;
-    cursor: pointer;
 }
 
 .workspace-panel-action:hover {
@@ -187,9 +186,9 @@ workspace-panel {
 .workspace-panel-action-name {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: var(--space-6);
     font-size: var(--font-size-body-lg);
-    font-weight: 500;
+    font-weight: var(--font-weight-medium);
 }
 
 .workspace-panel-action-note {
@@ -198,9 +197,9 @@ workspace-panel {
 }
 
 .workspace-panel-action.danger:hover {
-    border-color: var(--accent-red);
+    border-color: var(--danger);
 }
 
 .workspace-panel-action.danger .workspace-panel-action-name {
-    color: var(--accent-red);
+    color: var(--danger);
 }

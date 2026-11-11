@@ -150,7 +150,7 @@ export async function runTests() {
 
       // Tool-action controls: a busy tool with a result (Re-run, the deletes).
       const toolControls = panel._renderToolActionControls(tool);
-      assert(toolControls.querySelectorAll('.properties-panel-btn.danger').length === 3,
+      assert(toolControls.querySelectorAll('.properties-panel-delete-btn').length === 3,
         'the busy tool should draw all three delete buttons');
       collect('tool action controls', shownStrings(wrapped(toolControls)));
 

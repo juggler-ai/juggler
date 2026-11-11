@@ -429,8 +429,8 @@ class ReviewPanel {
     button.append(el('span', 'review-panel__code', file.code || ''));
     const cut = file.path.lastIndexOf('/');
     const address = el('span', 'review-panel__path');
-    address.append(el('span', 'review-panel__name', file.path.slice(cut + 1)));
-    if (cut > 0) address.append(el('span', 'review-panel__dir', file.path.slice(0, cut)));
+    address.append(el('span', 'review-panel__name text-truncate', file.path.slice(cut + 1)));
+    if (cut > 0) address.append(el('span', 'review-panel__dir text-truncate', file.path.slice(0, cut)));
     button.append(address);
     const added = file.added || 0;
     const removed = file.removed || 0;
@@ -805,7 +805,7 @@ class ReviewPanel {
     const label = el('label', 'review-panel__editor-label', this._editorLabel(anchor));
     /** @type {HTMLLabelElement} */ (label).htmlFor = id;
     const textarea = document.createElement('textarea');
-    textarea.className = 'review-panel__editor-text field-input';
+    textarea.className = 'review-panel__editor-text field-input field-input-sm';
     textarea.id = id;
     textarea.rows = 3;
     textarea.value = typeof anchor.body === 'string' ? anchor.body : '';

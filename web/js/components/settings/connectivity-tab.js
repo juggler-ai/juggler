@@ -124,7 +124,7 @@ function fieldRow(title, description, controls, warning) {
 function settingsButton(text, kind) {
   const b = document.createElement('button');
   b.type = 'button';
-  b.className = `settings-btn ${kind === 'stop' ? 'btn-danger' : 'btn-primary'} small`;
+  b.className = `btn btn-sm ${kind === 'stop' ? 'btn-danger' : 'btn-primary'}`;
   b.textContent = text;
   return b;
 }

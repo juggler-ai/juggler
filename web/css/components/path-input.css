@@ -1,0 +1,29 @@
+/*
+ *     ▄▄ ▄▄ ▄▄  ▄▄▄▄  ▄▄▄▄ ▄▄    ▄▄▄▄▄ ▄▄▄▄
+ *     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
+ *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
+ */
+
+/* <path-input> (path-input.js): a path field with completion, used by the
+   project picker, workspace setup and permission controls. */
+path-input {
+    display: block;
+    position: relative;
+}
+
+/* Completion dropdown. Presented on <body> by presentPopup (path-input.js
+ * `_openMenu`) so it escapes every ancestor `overflow` clipping context — the
+ * input may live deep inside a scrolling popup. At least as wide as the field:
+ * path-input.js sets --path-input-width from it. */
+.path-input-menu {
+    position: fixed;
+    z-index: var(--z-above-modal);
+    overflow-y: auto;
+    min-width: var(--path-input-width, 18rem);
+}
+
+path-input .path-input-field {
+    display: block;
+    width: 100%;
+    font-family: var(--font-mono);
+}

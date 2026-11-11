@@ -13,12 +13,12 @@
    ============================================================================ */
 
 .conversation-export-body {
-    gap: 1rem;
+    gap: var(--space-16);
 }
 
 .conversation-export-text {
     color: var(--text-secondary);
-    line-height: 1.45;
+    line-height: var(--leading-tight);
 }
 
 /* The two choices, set apart from the prose around them: a checkbox beside a
@@ -27,8 +27,8 @@
 .conversation-export-options {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
-    padding: 0.75rem 1rem;
+    gap: var(--space-12);
+    padding: var(--space-12) var(--space-16);
     border: 0.0625rem solid var(--border-divider);
     border-radius: var(--radius-md);
 }
@@ -36,7 +36,7 @@
 .conversation-export-option {
     display: flex;
     align-items: flex-start;
-    gap: 0.625rem;
+    gap: var(--space-10);
 }
 
 /* Nudged down to sit on the label's first line — with a translate rather than a
@@ -51,7 +51,7 @@
 .conversation-export-option-text {
     display: flex;
     flex-direction: column;
-    gap: 0.125rem;
+    gap: var(--space-2);
     cursor: pointer;
 }
 

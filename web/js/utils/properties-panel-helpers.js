@@ -103,7 +103,7 @@ export function addSubsection(wrapper, label, text, className = 'properties-pane
 export function labeledSubsection(label) {
   const section = document.createElement('properties-panel-subsection');
   const labelEl = document.createElement('h4');
-  labelEl.className = 'properties-panel-subtitle';
+  labelEl.className = 'properties-panel-subtitle caps-label-lg';
   labelEl.textContent = label;
   section.appendChild(labelEl);
   return section;
@@ -203,6 +203,9 @@ async function showPath(path) {
   }
 }
 
+/** A file-action icon button: the shared framed square, plus the row's hook. */
+const FILE_ACTION_CLASS = 'btn btn-icon btn-secondary properties-panel-filepath-btn';
+
 /**
  * The row of icon buttons that act on a file: open it, copy its path, reveal it
  * in the file manager, and — when `options.pin` names an absolute path — pin it
@@ -226,7 +229,7 @@ export function createFileActions(path, options = {}) {
   if (!options.directory) {
     const open = document.createElement('button');
     open.type = 'button';
-    open.className = 'properties-panel-filepath-btn';
+    open.className = FILE_ACTION_CLASS;
     open.title = t('Open file');
     open.setAttribute('aria-label', t('Open file'));
     open.innerHTML = OPEN_IN_NEW_SVG;
@@ -234,7 +237,7 @@ export function createFileActions(path, options = {}) {
     actions.appendChild(open);
   }
 
-  actions.appendChild(createCopyButton(path, 'properties-panel-filepath-btn', t('Copy path to clipboard')));
+  actions.appendChild(createCopyButton(path, FILE_ACTION_CLASS, t('Copy path to clipboard')));
 
   const reveal = document.createElement('reveal-button');
   reveal.setAttribute('path', path);
@@ -311,7 +314,7 @@ export async function pinFile(path) {
  *   buttons are styled differently from a file path row's.
  * @returns {HTMLElement|null} The button, or null to offer nothing.
  */
-function createPinButton(source, className = 'properties-panel-filepath-btn') {
+function createPinButton(source, className = FILE_ACTION_CLASS) {
   if (!source?.kind) return null;
   if (!pinboardView.canPin(source)) return null;
 
@@ -337,7 +340,7 @@ function createPinButton(source, className = 'properties-panel-filepath-btn') {
  */
 export function createPinControl(source) {
   if (!source) return null;
-  const button = createPinButton(source, 'properties-panel-btn');
+  const button = createPinButton(source, 'btn btn-sm btn-secondary');
   if (button) button.innerHTML = `${PIN_SVG} ${escapeHtml(t(PIN_LABEL))}`;
   return button;
 }
@@ -374,7 +377,7 @@ export function createShowPinControl(ref) {
   if (!ref?.pin || !ref.type) return null;
   const button = document.createElement('button');
   button.type = 'button';
-  button.className = 'properties-panel-btn';
+  button.className = 'btn btn-sm btn-secondary';
   button.innerHTML = `${PIN_SVG} ${escapeHtml(t(SHOW_PIN_LABEL))}`;
   button.addEventListener('click', () => { void showPin(ref); });
   return button;

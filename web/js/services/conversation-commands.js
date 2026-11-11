@@ -160,7 +160,7 @@ function revealAttentionOnScreen(session, id) {
   const selectApproval = !!root && hasPendingApprovalInTree(root.items);
   const reveal = () => {
     if (session.visibleConversationId !== id) return;
-    const tab = /** @type {any} */ ([...document.querySelectorAll('conversation-tab.active')]
+    const tab = /** @type {any} */ ([...document.querySelectorAll('conversation-tab.is-active')]
       .find((el) => /** @type {any} */ (el).getConversation?.()?.id === id));
     if (tab && typeof tab.revealAttention === 'function') tab.revealAttention(selectApproval);
   };

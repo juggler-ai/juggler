@@ -92,7 +92,7 @@ function updateSubmitState(submitBtn, questions, selections) {
  */
 function deselectAllOptions(btnGroup) {
   btnGroup.querySelectorAll('.question-option-btn').forEach(b => {
-    b.classList.remove('selected');
+    b.classList.remove('is-selected');
     b.classList.remove('primary');
     b.classList.add('secondary');
   });
@@ -158,7 +158,7 @@ function buildOptionButton(q, opt, btnGroup, clearCustomAnswer, form) {
 
   /** @param {boolean} on - Whether the option is picked */
   const setSelected = on => {
-    btn.classList.toggle('selected', on);
+    btn.classList.toggle('is-selected', on);
     btn.classList.toggle('primary', on);
     btn.classList.toggle('secondary', !on);
   };
@@ -218,10 +218,10 @@ function buildOptionButton(q, opt, btnGroup, clearCustomAnswer, form) {
 function buildCustomAnswerOption(q, optionLabels, btnGroup, form) {
   const { selections } = form;
   const customOption = document.createElement('label');
-  customOption.className = 'question-custom-option';
+  customOption.className = 'question-custom-option field-input';
 
   const customLabel = document.createElement('span');
-  customLabel.className = 'option-btn-label';
+  customLabel.className = 'option-btn-label caps-label';
   customLabel.textContent = t('Your own answer');
   customOption.appendChild(customLabel);
 
@@ -234,7 +234,7 @@ function buildCustomAnswerOption(q, optionLabels, btnGroup, form) {
   customOption.appendChild(customField);
 
   /** @param {boolean} on - Whether the typed answer counts as selected */
-  const setCustomSelected = on => { customOption.classList.toggle('selected', on); };
+  const setCustomSelected = on => { customOption.classList.toggle('is-selected', on); };
 
   // Grow the borderless textarea to fit its content (it has resize:none).
   const autoGrow = () => {

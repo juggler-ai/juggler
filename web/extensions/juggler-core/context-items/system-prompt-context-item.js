@@ -44,56 +44,44 @@ const SYSTEM_PROMPT_STYLES = `
 .system-prompt-ci-expanded {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: var(--space-12);
 }
 
 .system-prompt-preset-btn {
-  margin-top: 0.5rem;
-  padding: 0.375rem 0.75rem;
+  margin-top: var(--space-8);
+  padding: var(--space-6) var(--space-12);
   font-size: var(--font-size-sm);
   background-color: var(--accent-blue);
   color: var(--text-on-accent);
   border: none;
   border-radius: var(--radius-md);
   cursor: pointer;
-  transition: background-color 150ms ease;
+  transition: background-color var(--transition-base);
   align-self: flex-start;
 }
 
 .system-prompt-preset-btn:hover {
-  background-color: var(--accent-blue-light);
+  background-color: var(--accent-blue-strong);
 }
 
+/* A .field-input with an editor's size of its own. */
 .system-prompt-textarea {
+  --field-bg: var(--bg-secondary);
+  --field-pad-y: var(--space-16);
+  --field-pad-x: var(--space-16);
+
   width: 100%;
-  padding: 1rem;
   font-size: var(--font-size-base);
   font-family: var(--font-mono);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
   resize: vertical;
   min-height: 6rem;
-  line-height: 1.5;
-}
-
-.system-prompt-textarea:focus {
-  outline: none;
-  border-color: var(--field-focus-border);
-  box-shadow: var(--field-focus-halo);
-  background: var(--bg-raised);
-}
-
-.system-prompt-textarea::placeholder {
-  color: var(--text-tertiary);
-  opacity: 0.8;
+  line-height: var(--leading-normal);
 }
 
 .system-prompt-preview-sections {
   display: flex;
   flex-direction: column;
-  gap: 0.8rem;
+  gap: var(--space-12);
 }
 
 .system-prompt-section {
@@ -106,18 +94,14 @@ const SYSTEM_PROMPT_STYLES = `
 .system-prompt-section-header {
   display: flex;
   align-items: center;
-  padding: 0.375rem 0.625rem;
-  font-size: var(--font-size-xs);
-  font-weight: 600;
+  padding: var(--space-6) var(--space-10);
   color: var(--text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   background: var(--bg-primary);
   border-bottom: 1px solid var(--border-color);
 }
 
 .system-prompt-section-body {
-  padding: 0.625rem;
+  padding: var(--space-10);
   font-size: var(--font-size-sm);
   color: var(--text-secondary);
 }
@@ -136,7 +120,7 @@ const SYSTEM_PROMPT_STYLES = `
      tooltip is its description, and a full-width row would hang that tooltip
      off to the right of a short name, nowhere near the word it describes. */
   align-items: flex-start;
-  gap: 0.1rem;
+  gap: var(--space-2);
 }
 
 .system-prompt-tools > * {
@@ -145,11 +129,11 @@ const SYSTEM_PROMPT_STYLES = `
 
 .system-prompt-tools-count {
   color: var(--text-tertiary);
-  margin-bottom: 0.35rem;
+  margin-bottom: var(--space-6);
 }
 
 .system-prompt-tools-group {
-  margin-top: 0.5rem;
+  margin-top: var(--space-8);
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
   color: var(--text-tertiary);
@@ -160,7 +144,7 @@ const SYSTEM_PROMPT_STYLES = `
 }
 
 .system-prompt-tool {
-  padding: 0 0 0 0.75rem;
+  padding: 0 0 0 var(--space-12);
   border: none;
   background: none;
   font: inherit;
@@ -168,9 +152,6 @@ const SYSTEM_PROMPT_STYLES = `
   color: var(--text-secondary);
   text-align: left;
   cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .system-prompt-tool:hover,
@@ -187,9 +168,9 @@ const SYSTEM_PROMPT_STYLES = `
      that separates it from the offered tools spans it too. */
   align-items: flex-start;
   align-self: stretch;
-  gap: 0.1rem;
-  margin-top: 0.75rem;
-  padding-top: 0.5rem;
+  gap: var(--space-2);
+  margin-top: var(--space-12);
+  padding-top: var(--space-8);
   border-top: 1px solid var(--border-divider);
 }
 
@@ -205,22 +186,22 @@ const SYSTEM_PROMPT_STYLES = `
 }
 
 .system-prompt-tools-silent {
-  margin-top: 0.5rem;
+  margin-top: var(--space-8);
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
-  color: var(--accent-yellow);
+  color: var(--warning);
 }
 
 .system-prompt-tools-drift {
-  margin-bottom: 0.35rem;
-  color: var(--accent-yellow);
+  margin-bottom: var(--space-6);
+  color: var(--warning);
 }
 
 .system-prompt-tools-notice {
-  margin-bottom: 0.35rem;
-  line-height: 1.4;
+  margin-bottom: var(--space-6);
+  line-height: var(--leading-tight);
   white-space: normal;
-  color: var(--accent-yellow);
+  color: var(--warning);
 }
 
 /* Preset browser + manage-presets dropdowns -------------------------------
@@ -241,12 +222,8 @@ const SYSTEM_PROMPT_STYLES = `
 }
 
 .sp-preset-category {
-  padding: 0.5rem 0.625rem 0.25rem;
-  padding-left: calc(0.625rem + 1.125rem + 0.5rem);
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  padding: var(--space-8) var(--space-10) var(--space-4);
+  padding-left: calc(var(--space-10) + var(--space-16) + var(--space-8));
   color: var(--text-tertiary);
   cursor: default;
   -webkit-user-select: none;
@@ -254,18 +231,18 @@ const SYSTEM_PROMPT_STYLES = `
 }
 
 .sp-preset-category:first-child {
-  padding-top: 0.125rem;
+  padding-top: var(--space-2);
 }
 
 .sp-preset-row {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.4rem 0.625rem;
+  gap: var(--space-8);
+  padding: var(--space-6) var(--space-10);
   border-radius: var(--radius-popup-item);
   color: var(--text-primary);
   cursor: pointer;
-  transition: background 120ms ease;
+  transition: background var(--transition-fast);
 }
 
 .sp-preset-row:hover {
@@ -312,18 +289,15 @@ const SYSTEM_PROMPT_STYLES = `
   flex: 1;
   min-width: 0;
   font-size: var(--font-size-md);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .sp-preset-row.is-selected .sp-preset-row-name {
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .sp-preset-default-badge {
   font-size: var(--font-size-xs);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   color: var(--accent-blue);
   white-space: nowrap;
 }
@@ -331,7 +305,7 @@ const SYSTEM_PROMPT_STYLES = `
 .sp-preset-setdefault-btn,
 .sp-preset-delete-btn {
   font-size: var(--font-size-xs);
-  padding: 0.15rem 0.55rem;
+  padding: var(--space-2) var(--space-8);
   border: 0.0625rem solid var(--border-color);
   border-radius: var(--radius-pill);
   background: transparent;
@@ -339,7 +313,7 @@ const SYSTEM_PROMPT_STYLES = `
   cursor: pointer;
   white-space: nowrap;
   opacity: 0;
-  transition: opacity 120ms ease, color 120ms ease, border-color 120ms ease, background 120ms ease;
+  transition: opacity var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast);
 }
 
 .sp-preset-row:hover .sp-preset-setdefault-btn,
@@ -360,19 +334,19 @@ const SYSTEM_PROMPT_STYLES = `
 }
 
 .sp-preset-delete-btn:hover {
-  color: var(--error-color);
-  border-color: var(--error-color);
+  color: var(--danger);
+  border-color: var(--danger);
 }
 
 .sp-preset-separator {
   height: 0.0625rem;
   background: var(--border-divider, var(--border-color));
-  margin: 0.375rem 0.25rem;
+  margin: var(--space-6) var(--space-4);
 }
 
 .sp-preset-empty {
-  padding: 0.4rem 0.625rem;
-  padding-left: calc(0.625rem + 1.125rem + 0.5rem);
+  padding: var(--space-6) var(--space-10);
+  padding-left: calc(var(--space-10) + var(--space-16) + var(--space-8));
   color: var(--text-tertiary);
   font-size: var(--font-size-base);
   font-style: italic;
@@ -636,7 +610,7 @@ class SystemPromptContextItem extends ContextItem {
     const section = createElement('div', 'system-prompt-section');
     section.dataset.sectionId = 'identity';
 
-    const header = createElement('div', 'system-prompt-section-header');
+    const header = createElement('div', 'system-prompt-section-header caps-label');
     header.textContent = t('Identity');
     section.appendChild(header);
 
@@ -644,7 +618,7 @@ class SystemPromptContextItem extends ContextItem {
 
     // Editable textarea
     const textArea = document.createElement('textarea');
-    textArea.className = 'system-prompt-textarea';
+    textArea.className = 'system-prompt-textarea field-input';
     textArea.placeholder = t('Enter system prompt identity text...');
     textArea.rows = 6;
     textArea.value = this._getEffectiveText();
@@ -712,7 +686,7 @@ class SystemPromptContextItem extends ContextItem {
     const section = createElement('div', 'system-prompt-section');
     section.dataset.sectionId = sectionId;
 
-    const header = createElement('div', 'system-prompt-section-header');
+    const header = createElement('div', 'system-prompt-section-header caps-label');
     header.textContent = label;
     section.appendChild(header);
 
@@ -991,7 +965,7 @@ class SystemPromptContextItem extends ContextItem {
    * @returns {HTMLElement} The row element
    */
   _buildToolRow(toolName, label, description, server, note = '') {
-    const row = createElement('button', 'system-prompt-tool');
+    const row = createElement('button', 'system-prompt-tool text-truncate');
     /** @type {HTMLButtonElement} */ (row).type = 'button';
     row.textContent = label;
     const where = server ? t('Configure "{server}"', { server }) : t('Show where this tool is defined');

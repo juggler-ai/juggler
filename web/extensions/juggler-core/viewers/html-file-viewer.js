@@ -27,13 +27,13 @@ const STYLES = `
 .html-view-bar {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.375rem;
+  gap: var(--space-8);
+  margin-bottom: var(--space-6);
 }
 
 .html-view-toggle {
   font-size: var(--font-size-xs);
-  padding: 0.125rem 0.5rem;
+  padding: var(--space-2) var(--space-8);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   background: transparent;
@@ -44,7 +44,7 @@ const STYLES = `
 .html-view-note {
   font-size: var(--font-size-xs);
   color: var(--text-tertiary);
-  margin-bottom: 0.375rem;
+  margin-bottom: var(--space-6);
 }
 
 .html-view-frame {

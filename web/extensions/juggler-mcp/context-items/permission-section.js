@@ -72,12 +72,12 @@ export function renderMcpPermissionSection(messageThread) {
       text.className = 'pattern-text';
       text.textContent = mcpGrantLabel(String(r.value));
       const scopeBtn = document.createElement('button');
-      scopeBtn.className = 'permission-scope-btn rule-scope-btn';
+      scopeBtn.className = 'btn btn-xs btn-secondary permission-scope-btn rule-scope-btn';
       scopeBtn.dataset.ruleId = r.id;
       scopeBtn.dataset.scope = scope;
       scopeBtn.textContent = scope === 'session' ? t('All conversations') : t('This conversation');
       const del = document.createElement('button');
-      del.className = 'pattern-delete-btn icon-btn';
+      del.className = 'btn btn-icon btn-danger-quiet pattern-delete-btn';
       del.dataset.ruleId = r.id;
       del.title = t('Delete');
       const icon = document.createElement('span');

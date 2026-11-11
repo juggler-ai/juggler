@@ -100,22 +100,25 @@ export function renderLiveTaskOutput(wrapper, {
   // Hidden until a poll reports the task running, so a task that ended before
   // the panel opened never offers a Stop that would do nothing. Toggled through
   // inline `display` rather than the `hidden` attribute, which loses to
-  // `.properties-panel-btn { display: flex }` on specificity.
+  // `.btn { display: inline-flex }` on specificity.
   // Bound to a const so the null check below narrows inside the click handler.
   const stopTask = onStop;
-  const stopBtn = stopTask ? document.createElement('button') : null;
+  /** @type {HTMLButtonElement | null} */
+  let stopBtn = null;
   const stopError = stopTask ? document.createElement('div') : null;
-  if (stopTask && stopBtn && stopError) {
-    stopBtn.type = 'button';
-    stopBtn.className = 'properties-panel-btn danger live-task-output-stop';
-    stopBtn.textContent = stopLabel;
-    stopBtn.style.display = 'none';
+  if (stopTask && stopError) {
+    const button = document.createElement('button');
+    stopBtn = button;
+    button.type = 'button';
+    button.className = 'btn btn-sm btn-secondary btn-danger-quiet live-task-output-stop';
+    button.textContent = stopLabel;
+    button.style.display = 'none';
     stopError.className = 'properties-panel-text live-task-output-note';
     stopError.hidden = true;
     // The only state mutation in this module; every other path here reads.
-    stopBtn.addEventListener('click', (e) => {
+    button.addEventListener('click', (e) => {
       e.stopPropagation();
-      stopBtn.disabled = true;
+      button.disabled = true;
       stopError.hidden = true;
       void (async () => {
         try {
@@ -123,7 +126,7 @@ export function renderLiveTaskOutput(wrapper, {
         } catch (err) {
           stopError.hidden = false;
           stopError.textContent = t('Couldn\'t stop the task — {error}', { error: extractErrorMessage(err) });
-          stopBtn.disabled = false;
+          button.disabled = false;
           return;
         }
         // Repaint now rather than at the next interval, so the status line and
@@ -131,7 +134,7 @@ export function renderLiveTaskOutput(wrapper, {
         void tick();
       })();
     });
-    section.appendChild(stopBtn);
+    section.appendChild(button);
     section.appendChild(stopError);
   }
 

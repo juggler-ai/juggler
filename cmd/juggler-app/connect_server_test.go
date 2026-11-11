@@ -283,8 +283,8 @@ func TestUnreachableServerPagePostsToItsWindow(t *testing.T) {
 	for _, want := range []string{
 		retry,
 		`<form method="post" action="` + base + `/open-local">`,
-		`class="ms-button ms-button-primary">Try again</button>`,
-		`class="ms-button">Cancel</button>`,
+		`class="btn btn-sm btn-primary">Try again</button>`,
+		`class="btn btn-sm btn-neutral">Cancel</button>`,
 	} {
 		if !strings.Contains(doc, want) {
 			t.Errorf("page is missing %q:\n%s", want, doc)

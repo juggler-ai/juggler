@@ -41,11 +41,11 @@
 .popup-sheet.dropdown-menu,
 .popup-sheet.strategy-dropdown,
 .popup-sheet.permissions-popup,
-.popup-sheet.pp-panel,
+.popup-sheet.project-picker-panel,
 .popup-sheet.model-picker {
-    --sheet-top-gap: 3rem;
+    --popup-sheet-top-gap: 3rem;
 
-    max-height: min(85dvh, var(--visual-viewport-height, 100dvh) - var(--sheet-top-gap));
+    max-height: min(85dvh, var(--visual-viewport-height, 100dvh) - var(--popup-sheet-top-gap));
     overflow-y: auto;
 }
 
@@ -54,7 +54,7 @@
     .popup-sheet.dropdown-menu,
     .popup-sheet.strategy-dropdown,
     .popup-sheet.permissions-popup,
-    .popup-sheet.pp-panel,
+    .popup-sheet.project-picker-panel,
     .popup-sheet.model-picker {
         position: fixed;
         inset: auto 0 0;
@@ -66,7 +66,7 @@
         border-radius: var(--radius-2xl) var(--radius-2xl) 0 0;
         border-bottom: none;
         box-shadow: 0 -0.5rem 1.5rem color-mix(in srgb, var(--shadow-color) 45%, transparent);
-        z-index: calc(var(--z-modal) + 1);
+        z-index: var(--z-above-modal);
         animation: popup-sheet-up 200ms ease;
     }
 
@@ -78,13 +78,13 @@
            sheet's edge: exactly the inline padding the surface pays. Sheets that
            lay themselves out internally pay none, so they stay at zero —
            declared last for the picker, a .dropdown-menu that sets `padding: 0`. */
-        --sheet-bleed: 0rem;
+        --popup-sheet-bleed: 0rem;
 
-        transition: transform 200ms ease;
+        transition: transform var(--transition-slow);
     }
 
     .popup-sheet.dropdown-menu {
-        --sheet-bleed: var(--menu-padding);
+        --popup-sheet-bleed: var(--menu-padding);
     }
 
     /* The dropdowns that are panels rather than menus pad themselves with the
@@ -92,11 +92,11 @@
        that instead. */
     .popup-sheet.permissions-popup,
     .popup-sheet.schedule-send-menu {
-        --sheet-bleed: var(--popup-padding-inline);
+        --popup-sheet-bleed: var(--popup-padding-inline);
     }
 
     .popup-sheet.model-picker {
-        --sheet-bleed: 0rem;
+        --popup-sheet-bleed: 0rem;
     }
 
     /* Drag grabber — a real element (injected by presentPopup) so it can own
@@ -115,7 +115,7 @@
            it's a plain block — so the centred line is always centred on the
            whole popup, never on its first column.
 
-           `width: auto` plus a negative --sheet-bleed rather than `width: 100%`,
+           `width: auto` plus a negative --popup-sheet-bleed rather than `width: 100%`,
            because 100% is the CONTENT box: on a surface that pads itself the bar
            would stop short of the sheet's edges, and this is a touch target —
            the drag would die in the padding. The bleed is whatever inline
@@ -123,7 +123,7 @@
         grid-column: 1 / -1;
         align-self: stretch;
         width: auto;
-        margin-inline: calc(var(--sheet-bleed, 0rem) * -1);
+        margin-inline: calc(var(--popup-sheet-bleed, 0rem) * -1);
         height: 1.75rem;
         background: var(--bg-secondary);
         border-radius: var(--radius-2xl) var(--radius-2xl) 0 0;

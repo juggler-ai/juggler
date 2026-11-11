@@ -116,6 +116,7 @@ export function renderTransactionDetail(parent, blob, emptyMessage = t('No trans
  */
 function _buildMetadataBar(blob) {
   const bar = document.createElement('properties-panel-tx-metadata');
+  bar.className = 'properties-panel-tx-metadata';
   const add = (/** @type {string} */ text) => {
     const span = document.createElement('span');
     span.className = 'meta-item';
@@ -188,7 +189,7 @@ function _buildOutputSection(blob) {
 
   if (error) {
     const errEl = document.createElement('pre');
-    errEl.className = 'properties-panel-result error';
+    errEl.className = 'properties-panel-result is-error';
     errEl.textContent = error;
     section.appendChild(errEl);
   }
@@ -209,10 +210,10 @@ function _buildOutputSection(blob) {
  */
 function _buildOutputBlock(block) {
   const el = document.createElement('div');
-  el.className = 'tx-out-block';
+  el.className = 'transaction-out-block';
 
   const kind = document.createElement('div');
-  kind.className = 'tx-out-kind';
+  kind.className = 'transaction-out-kind';
   // A block's type and a tool's name are the provider's identifiers, shown as they are.
   kind.textContent = block.type === 'tool_use' && block.toolName
     ? `tool_use · ${block.toolName}` // i18n-ignore: provider block type and tool name
@@ -263,7 +264,7 @@ function _buildInputSection(blob, messageThread = null) {
   }
 
   const rows = document.createElement('div');
-  rows.className = 'tx-rows';
+  rows.className = 'transaction-rows';
 
   if (systemPrompt) {
     rows.appendChild(_row(
@@ -325,31 +326,31 @@ function _inputSummary(blob, parts) {
  */
 function _row(kind, label, value, { open = false, body = undefined } = {}) {
   const row = document.createElement('details');
-  row.className = 'tx-row';
+  row.className = 'transaction-row';
 
   const summary = document.createElement('summary');
-  summary.className = 'tx-row-summary';
+  summary.className = 'transaction-row-summary';
 
   const kindEl = document.createElement('span');
-  kindEl.className = 'tx-row-kind';
+  kindEl.className = 'transaction-row-kind';
   kindEl.textContent = kind;
   summary.appendChild(kindEl);
 
   const labelEl = document.createElement('span');
-  labelEl.className = 'tx-row-label';
+  labelEl.className = 'transaction-row-label text-truncate';
   labelEl.textContent = label;
   labelEl.title = label;
   summary.appendChild(labelEl);
 
   const sizeEl = document.createElement('span');
-  sizeEl.className = 'tx-row-size';
+  sizeEl.className = 'transaction-row-size';
   sizeEl.textContent = `~${formatTokens(estimateValueTokens(value))}`;
   sizeEl.title = t('Estimated tokens (~4 characters per token)');
   summary.appendChild(sizeEl);
 
   summary.appendChild(createCopyButton(
     () => (typeof value === 'string' ? value : JSON.stringify(value, null, 2)),
-    'properties-panel-header-icon-btn tx-row-copy',
+    'btn btn-icon btn-secondary transaction-row-copy',
     t('Copy this entry')
   ));
 
@@ -415,19 +416,19 @@ function _buildToolsRow(tools, blob, messageThread) {
  */
 function _buildToolList(groups, tools, blob, messageThread) {
   const body = document.createElement('div');
-  body.className = 'tx-row-body tx-tools';
+  body.className = 'transaction-row-body transaction-tools';
   body.appendChild(_buildToolsHeader(tools, blob, messageThread));
   for (const group of groups) {
     const heading = document.createElement('div');
-    heading.className = 'tx-tool-group';
+    heading.className = 'transaction-tool-group';
 
     const title = document.createElement('span');
-    title.className = 'tx-tool-group-title';
+    title.className = 'transaction-tool-group-title text-truncate';
     title.textContent = group.title;
     heading.appendChild(title);
 
     const count = document.createElement('span');
-    count.className = 'tx-tool-group-count';
+    count.className = 'transaction-tool-group-count';
     count.textContent = `${group.tools.length} · ~${formatTokens(group.tokens)}`;
     count.title = t('Tools in this group, and their estimated share of the request');
     heading.appendChild(count);
@@ -454,10 +455,10 @@ function _buildToolList(groups, tools, blob, messageThread) {
  */
 function _buildToolsHeader(tools, blob, messageThread) {
   const header = document.createElement('div');
-  header.className = 'tx-tools-header';
+  header.className = 'transaction-tools-header';
 
   const sent = document.createElement('div');
-  sent.className = 'tx-tools-sent';
+  sent.className = 'transaction-tools-sent';
   const time = blob?.timestamp ? formatDate(new Date(blob.timestamp), { timeStyle: 'medium' }) : '';
   const count = tools.length;
   sent.textContent = time
@@ -492,7 +493,7 @@ async function _appendToolDrift(header, tools, messageThread) {
     if (!changes) return;
 
     const line = document.createElement('div');
-    line.className = 'tx-tools-drift';
+    line.className = 'transaction-tools-drift';
     line.textContent = t('{changes} since this turn — the model has not been offered the current list yet.', {
       changes
     });
@@ -516,13 +517,13 @@ function _buildToolEntry(tool, server) {
   const parts = server === null ? null : parseMcpToolName(name);
 
   const entry = document.createElement('details');
-  entry.className = 'tx-tool';
+  entry.className = 'transaction-tool';
 
   const summary = document.createElement('summary');
-  summary.className = 'tx-tool-summary';
+  summary.className = 'transaction-tool-summary';
 
   const nameEl = document.createElement('span');
-  nameEl.className = 'tx-tool-name';
+  nameEl.className = 'transaction-tool-name text-truncate';
   // Inside an MCP group the server is already named by the heading, so the
   // prefix is noise; the full name stays in the tooltip for copying out.
   nameEl.textContent = parts ? parts.tool : name;
@@ -531,20 +532,20 @@ function _buildToolEntry(tool, server) {
 
   if (tool?.category) {
     const cat = document.createElement('span');
-    cat.className = `tx-tool-category tx-tool-category-${tool.category}`;
+    cat.className = 'transaction-tool-category';
     const category = String(tool.category);
     cat.textContent = CATEGORY_LABELS[category] ? t(CATEGORY_LABELS[category]) : category;
     summary.appendChild(cat);
   }
 
   const desc = document.createElement('span');
-  desc.className = 'tx-tool-desc';
+  desc.className = 'transaction-tool-desc text-truncate';
   desc.textContent = _firstLine(String(tool?.description || ''));
   desc.title = String(tool?.description || '');
   summary.appendChild(desc);
 
   const size = document.createElement('span');
-  size.className = 'tx-row-size';
+  size.className = 'transaction-row-size';
   size.textContent = `~${formatTokens(estimateValueTokens(tool))}`;
   size.title = t('Estimated tokens (~4 characters per token)');
   summary.appendChild(size);
@@ -610,7 +611,7 @@ function _firstLine(text) {
  */
 function _buildEntryBody(value) {
   const body = document.createElement('div');
-  body.className = 'tx-row-body';
+  body.className = 'transaction-row-body';
   _appendValue(body, value, 0);
   return body;
 }
@@ -647,9 +648,9 @@ function _appendValue(parent, value, depth) {
 
   for (const [key, v] of expanded) {
     const field = document.createElement('div');
-    field.className = 'tx-field';
+    field.className = 'transaction-field';
     const keyEl = document.createElement('div');
-    keyEl.className = 'tx-field-key';
+    keyEl.className = 'transaction-field-key';
     keyEl.textContent = key;
     field.appendChild(keyEl);
     _appendValue(field, v, depth + 1);
@@ -687,21 +688,21 @@ function _section(title, { summary = '', copyText = '', copyLabel = t('Copy to c
   const el = document.createElement('properties-panel-subsection');
 
   const head = document.createElement('div');
-  head.className = 'tx-section-head';
+  head.className = 'transaction-section-head';
 
   const h = document.createElement('h4');
-  h.className = 'properties-panel-subtitle';
+  h.className = 'properties-panel-subtitle caps-label-lg';
   h.textContent = title;
   head.appendChild(h);
 
   if (summary) {
     const summaryEl = document.createElement('span');
-    summaryEl.className = 'tx-section-summary';
+    summaryEl.className = 'transaction-section-summary';
     summaryEl.textContent = summary;
     head.appendChild(summaryEl);
   }
   if (copyText) {
-    head.appendChild(createCopyButton(copyText, 'properties-panel-header-icon-btn', copyLabel));
+    head.appendChild(createCopyButton(copyText, 'btn btn-icon btn-secondary', copyLabel));
   }
 
   el.appendChild(head);
@@ -714,7 +715,7 @@ function _section(title, { summary = '', copyText = '', copyLabel = t('Copy to c
  */
 function _textBlock(text) {
   const el = document.createElement('pre');
-  el.className = 'properties-panel-text tx-text';
+  el.className = 'properties-panel-text transaction-text';
   el.textContent = text;
   return el;
 }

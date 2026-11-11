@@ -115,7 +115,7 @@ export async function runTests(_ctx) {
       });
       try {
         assert(host.innerHTML.includes('usage-stat'), 'the retained meter must still be shown');
-        const note = host.querySelector('.info-card__usage-stale');
+        const note = host.querySelector('.usage-card__stale');
         assert(!!note, `a failed refresh behind retained meters must be marked, got ${host.innerHTML.replace(/\s+/g, ' ')}`);
         assert(isPseudoLocalized(note?.textContent || ''), `the mark must be in the UI language, got ${JSON.stringify(note?.textContent)}`);
         assert((note?.getAttribute('title') || '').includes('403'), 'the full error must be available as a tooltip');

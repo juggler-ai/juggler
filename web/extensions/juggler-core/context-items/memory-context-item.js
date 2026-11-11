@@ -550,7 +550,7 @@ class MemoryContextItem extends ContextItem {
     if (result.isError || result.cancelled) {
       const banner = createElement(
         'div',
-        `memory-action-banner ${result.cancelled ? 'cancelled' : 'error'}`,
+        `memory-action-banner ${result.cancelled ? 'is-cancelled' : 'is-error'}`,
         // An error is the model's English, shown as it was.
         result.cancelled ? t('Cancelled') : (fullResult?.error || result.content || t('Memory update failed'))
       );
@@ -679,16 +679,16 @@ const MEMORY_STYLES = `
 .memory-ci-expanded {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: var(--space-8);
 }
 
 .memory-panel-note {
-  font-size: var(--font-size-sm); line-height: 1.5;
+  font-size: var(--font-size-sm); line-height: var(--leading-normal);
   color: var(--text-tertiary, var(--text-secondary));
 }
 
 .memory-empty {
-  padding: 1rem; font-size: var(--font-size-base);
+  padding: var(--space-16); font-size: var(--font-size-base);
   color: var(--context-item-text-secondary, var(--text-secondary));
 }
 
@@ -696,14 +696,14 @@ const MEMORY_STYLES = `
 .memory-action {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.25rem 0;
+  gap: var(--space-8);
+  padding: var(--space-4) 0;
 }
 
 .memory-action-verb {
   align-self: flex-start;
-  font-size: var(--font-size-xs); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
-  padding: 0.125rem 0.5rem; border-radius: var(--radius-pill);
+  font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); letter-spacing: var(--tracking-caps); text-transform: uppercase;
+  padding: var(--space-2) var(--space-8); border-radius: var(--radius-pill);
   background: var(--bg-raised);
   color: var(--text-secondary);
 }
@@ -711,9 +711,9 @@ const MEMORY_STYLES = `
 .memory-action-verb--remove { color: var(--accent-red); }
 
 .memory-action-fact {
-  font-size: var(--font-size-md); line-height: 1.5;
+  font-size: var(--font-size-md); line-height: var(--leading-normal);
   color: var(--context-item-text, var(--text-primary));
-  padding: 0.5rem 0.75rem; border-radius: var(--radius-lg);
+  padding: var(--space-8) var(--space-12); border-radius: var(--radius-lg);
   background: var(--bg-secondary);
   border-left: 0.125rem solid var(--ci-family-memory);
   white-space: pre-wrap; overflow-wrap: anywhere;
@@ -730,13 +730,13 @@ const MEMORY_STYLES = `
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: var(--space-4);
 }
 
 .memory-action-removed li {
-  font-size: var(--font-size-base); line-height: 1.5;
+  font-size: var(--font-size-base); line-height: var(--leading-normal);
   color: var(--text-secondary);
-  padding: 0.375rem 0.625rem; border-radius: var(--radius-lg);
+  padding: var(--space-6) var(--space-10); border-radius: var(--radius-lg);
   background: var(--bg-secondary);
   text-decoration: line-through; text-decoration-color: var(--accent-red);
 }
@@ -748,17 +748,17 @@ const MEMORY_STYLES = `
 
 .memory-action-banner {
   font-size: var(--font-size-base);
-  line-height: 1.5;
-  padding: 0.5rem 0.75rem;
+  line-height: var(--leading-normal);
+  padding: var(--space-8) var(--space-12);
   border-radius: var(--radius-lg);
 }
 
-.memory-action-banner.error {
-  color: var(--accent-red);
-  background: rgb(from var(--accent-red) r g b / 10%);
+.memory-action-banner.is-error {
+  color: var(--danger);
+  background: rgb(from var(--danger) r g b / 10%);
 }
 
-.memory-action-banner.cancelled {
+.memory-action-banner.is-cancelled {
   color: var(--text-secondary);
   background: var(--bg-secondary);
 }
@@ -769,12 +769,12 @@ const MEMORY_STYLES = `
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.375rem;
+  gap: var(--space-6);
 }
 
 .memory-entry {
-  display: flex; align-items: baseline; gap: 0.5rem;
-  font-size: var(--font-size-base); line-height: 1.5;
+  display: flex; align-items: baseline; gap: var(--space-8);
+  font-size: var(--font-size-base); line-height: var(--leading-normal);
   color: var(--context-item-text, var(--text-primary));
 }
 
@@ -791,7 +791,7 @@ const MEMORY_STYLES = `
 .memory-delete {
   flex-shrink: 0;
   opacity: 0.5;
-  transition: opacity 0.15s;
+  transition: opacity var(--duration-base);
 }
 .memory-delete:hover { opacity: 1; }
 `;

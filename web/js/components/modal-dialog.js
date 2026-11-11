@@ -128,7 +128,7 @@ class ModalDialog extends JugglerElement {
     super.disconnectedCallback();
     // A dialog that leaves the document has answered its question (below), so
     // it must not come back showing the empty panel the next connect builds.
-    this.classList.remove('show', 'is-notice');
+    this.classList.remove('is-open', 'is-notice');
     this._runShowCleanups();
     this._releaseFocusTrap();
     if (this.handleKeydown) {
@@ -164,7 +164,7 @@ class ModalDialog extends JugglerElement {
           <div class="modal-message"></div>
           <input type="text" class="modal-input field-input hidden" autocorrect="off" autocapitalize="off" spellcheck="false" />
           <div class="modal-choice-options hidden"></div>
-          <input type="text" class="modal-custom-input hidden" placeholder="${escapeHtml(t('Enter your answer...'))}" autocorrect="off" autocapitalize="off" spellcheck="false" />
+          <input type="text" class="modal-custom-input field-input hidden" placeholder="${escapeHtml(t('Enter your answer...'))}" autocorrect="off" autocapitalize="off" spellcheck="false" />
         </div>
           <footer class="modal-footer">
             <!-- Buttons will be added dynamically -->
@@ -312,7 +312,7 @@ class ModalDialog extends JugglerElement {
     }
 
     // Show modal
-    this.classList.add('show');
+    this.classList.add('is-open');
     this._releaseFocusTrap();
     if (!isNotice) this._releaseTrap = trapFocus(this);
     if (this.handleKeydown) {
@@ -410,7 +410,7 @@ class ModalDialog extends JugglerElement {
 
     // Focus first button initially
     setTimeout(() => {
-      allButtons[0]?.classList.add('focused');
+      allButtons[0]?.classList.add('is-focused');
       allButtons[0]?.focus();
     }, 100);
 
@@ -423,15 +423,15 @@ class ModalDialog extends JugglerElement {
 
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        allButtons[focusedIndex]?.classList.remove('focused');
+        allButtons[focusedIndex]?.classList.remove('is-focused');
         focusedIndex = (focusedIndex + 1) % allButtons.length;
-        allButtons[focusedIndex]?.classList.add('focused');
+        allButtons[focusedIndex]?.classList.add('is-focused');
         allButtons[focusedIndex]?.focus();
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
-        allButtons[focusedIndex]?.classList.remove('focused');
+        allButtons[focusedIndex]?.classList.remove('is-focused');
         focusedIndex = (focusedIndex - 1 + allButtons.length) % allButtons.length;
-        allButtons[focusedIndex]?.classList.add('focused');
+        allButtons[focusedIndex]?.classList.add('is-focused');
         allButtons[focusedIndex]?.focus();
       } else if (e.key === 'Enter') {
         e.preventDefault();
@@ -455,9 +455,9 @@ class ModalDialog extends JugglerElement {
   createButton(text, variant, onClick) {
     // Spelled out whole rather than assembled, so the stylesheet checks can
     // see which classes a dialog button carries.
-    const className = variant === 'danger' ? 'modal-button btn-danger'
-      : variant === 'secondary' ? 'modal-button btn-secondary'
-        : 'modal-button btn-primary';
+    const className = variant === 'danger' ? 'btn btn-danger'
+      : variant === 'secondary' ? 'btn btn-secondary'
+        : 'btn btn-primary';
     return makeButton(text, className, onClick);
   }
 
@@ -466,7 +466,7 @@ class ModalDialog extends JugglerElement {
    */
   close(result) {
     fadeOutScrims(this);
-    this.classList.remove('show', 'is-notice');
+    this.classList.remove('is-open', 'is-notice');
     this._runShowCleanups();
     this._releaseFocusTrap();
     if (this.handleKeydown) {

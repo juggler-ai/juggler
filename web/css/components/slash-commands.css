@@ -9,13 +9,13 @@
 /* Provenance badge on a user command's slash-menu row. */
 
 .slash-command-scope-badge {
-    margin-left: 0.4rem;
-    padding: 0.05rem 0.35rem;
+    margin-left: var(--space-6);
+    padding: 0.0625rem var(--space-6);
     border-radius: var(--radius-xl);
     font-size: var(--font-size-xs);
-    line-height: 1.4;
+    line-height: var(--leading-tight);
     text-transform: uppercase;
-    letter-spacing: 0.03em;
+    letter-spacing: var(--tracking-caps);
     color: var(--text-secondary);
     background: var(--bg-tertiary);
     border: 1px solid var(--border-subtle);
@@ -43,7 +43,7 @@
 
 .slash-command-pinned {
     position: relative;
-    margin-bottom: 0.55rem;
+    margin-bottom: var(--space-8);
     color: var(--accent-blue);
 }
 
@@ -78,9 +78,6 @@
     flex: 1;
     min-width: 0;
     font-size: var(--font-size-base);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 /* ── Slash commands settings page ────────────────────────────────────────── */
@@ -108,33 +105,30 @@
 .command-page-toolbar {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
-    padding: 0.75rem;
+    gap: var(--space-8);
+    padding: var(--space-12);
     border-bottom: 0.0625rem solid var(--border-divider);
 }
 
 .command-page-filter {
     width: 100%;
-    padding: 0.35rem 0.55rem;
-    color: var(--text-primary);
     font-family: var(--font-sans);
-    font-size: var(--font-size-base);
 }
 
 .command-page-list {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    padding: 0.25rem 0 0.75rem;
+    padding: var(--space-4) 0 var(--space-12);
 }
 
 .command-page-group-title {
-    padding: 0.75rem 1rem 0.3rem;
+    padding: var(--space-12) var(--space-16) var(--space-4);
     color: var(--accent-blue);
 }
 
 .command-page-empty {
-    padding: 0.2rem 1rem 0.4rem;
+    padding: var(--space-4) var(--space-16) var(--space-6);
     font-size: var(--font-size-sm);
     font-style: italic;
     color: var(--text-tertiary);
@@ -148,16 +142,15 @@
 .command-page-row {
     display: flex;
     flex-direction: column;
-    gap: 0.1rem;
+    gap: var(--space-2);
     width: 100%;
-    padding: 0.4rem 1rem;
+    padding: var(--space-6) var(--space-16);
     border: none;
     background: transparent;
     color: var(--text-secondary);
     font-family: inherit;
     text-align: left;
-    cursor: pointer;
-    transition: color 0.15s, background 0.15s;
+    transition: color var(--duration-base), background var(--duration-base);
 }
 
 .command-page-row:hover {
@@ -165,7 +158,7 @@
     background: var(--bg-tertiary);
 }
 
-.command-page-row.selected {
+.command-page-row.is-selected {
     color: var(--text-primary);
     background: color-mix(in srgb, var(--accent-blue) 16%, transparent);
 }
@@ -179,16 +172,13 @@
 }
 
 .command-page-row-desc {
-    padding-left: 0.75rem;
+    padding-left: var(--space-12);
     font-size: var(--font-size-sm);
     color: var(--text-tertiary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 .command-page-row.is-broken .command-page-row-desc {
-    color: var(--accent-red);
+    color: var(--danger);
 }
 
 .command-page-detail {
@@ -205,12 +195,12 @@
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 0.75rem;
+    gap: var(--space-12);
     max-width: 40rem;
-    padding: 1.5rem 2rem;
+    padding: var(--space-24) var(--space-32);
     color: var(--text-secondary);
     font-size: var(--font-size-md);
-    line-height: 1.5;
+    line-height: var(--leading-normal);
 }
 
 .command-page-builtin h2 {
@@ -224,24 +214,24 @@
 
 .command-page-builtin-label {
     color: var(--text-primary);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
 }
 
 /* A link to the command's entry in the Extensions tab. The chrome comes from
    .btn-ghost; this owns the size, matching the catalog's own small buttons. */
 
 .command-page-show-extension {
-    padding: 0.25rem 0.75rem;
+    padding: var(--space-4) var(--space-12);
     font-size: var(--font-size-base);
-    font-weight: 500;
+    font-weight: var(--font-weight-medium);
 }
 
 .command-page-builtin-source {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0.6rem;
-    padding-top: 0.9rem;
+    gap: var(--space-10);
+    padding-top: var(--space-14);
     border-top: 0.0625rem solid var(--border-divider);
 }
 
@@ -261,7 +251,7 @@
 
     .command-page-intro,
     .command-page-builtin {
-        padding: 1rem;
+        padding: var(--space-16);
     }
 }
 
@@ -276,7 +266,7 @@
 }
 
 .command-editor-header {
-    padding: 1.1rem 2rem 0;
+    padding: var(--space-16) var(--space-32) 0;
 }
 
 .command-editor-header h2 {
@@ -288,18 +278,18 @@
     flex: 1;
     min-height: 0;
     max-width: 48rem;
-    padding: 1rem 2rem;
+    padding: var(--space-16) var(--space-32);
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 0.85rem;
+    gap: var(--space-14);
 }
 
 .command-editor-label,
 .command-editor-field {
     display: flex;
     flex-direction: column;
-    gap: 0.3rem;
+    gap: var(--space-4);
     font-size: var(--font-size-base);
     color: var(--text-secondary);
 }
@@ -310,7 +300,7 @@
 
 .command-editor-row {
     display: flex;
-    gap: 0.6rem;
+    gap: var(--space-10);
 }
 
 .command-editor-row > .command-editor-label {
@@ -334,16 +324,15 @@
 
 .command-editor-optional {
     color: var(--text-tertiary);
-    font-weight: normal;
+    font-weight: var(--font-weight-normal);
 }
 
+/* Every control is .field-input .field-input-sm. */
 .command-editor-input,
-.command-editor-textarea {
+.command-editor-textarea,
+.command-editor-select {
     width: 100%;
-    padding: 0.4rem 0.55rem;
-    color: var(--text-primary);
     font-family: var(--font-sans);
-    font-size: var(--font-size-md);
 }
 
 .command-editor-textarea {
@@ -351,31 +340,10 @@
     resize: vertical;
 }
 
-/* Native select, given the same treatment as the settings panel's: the platform
-   control's own chrome matches nothing else in the dialog. */
-
-.command-editor-select {
-    width: 100%;
-    padding: 0.4rem 1.8rem 0.4rem 0.55rem;
-    color: var(--text-primary);
-    font-family: var(--font-sans);
-    font-size: var(--font-size-md);
-    cursor: pointer;
-    appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960' width='16' height='16'%3E%3Cpath fill='%238b949e' d='M480-360 280-560h400L480-360Z'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 0.5rem center;
-}
-
-/* Not while focused: the focus border is the field's (.field-input). */
-.command-editor-select:hover:not(:focus) {
-    border-color: var(--text-secondary);
-}
-
 .command-editor-name-row {
     display: flex;
     align-items: center;
-    gap: 0.25rem;
+    gap: var(--space-4);
 }
 
 .command-editor-slash {
@@ -395,7 +363,7 @@
 
 .command-editor-field-error {
     font-size: var(--font-size-sm);
-    color: var(--accent-red);
+    color: var(--danger);
     min-height: 0.9rem;
 }
 
@@ -404,13 +372,13 @@
    under the template rather than a second editor. */
 
 .command-editor-preview {
-    padding: 0.5rem 0.6rem;
+    padding: var(--space-8) var(--space-10);
 }
 
 .command-editor-preview-head {
     display: flex;
     align-items: center;
-    gap: 0.6rem;
+    gap: var(--space-10);
 }
 
 .command-editor-preview-title {
@@ -426,9 +394,9 @@
 }
 
 .command-editor-preview-out {
-    margin: 0.4rem 0 0;
-    padding: 0.45rem 0.5rem;
-    background: var(--bg-code-dark);
+    margin: var(--space-6) 0 0;
+    padding: var(--space-8) var(--space-8);
+    background: var(--bg-code-deep);
     border-radius: var(--radius-lg);
     font-size: var(--font-size-base);
     white-space: pre-wrap;
@@ -445,8 +413,8 @@
 .command-editor-segmented {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.25rem;
-    padding: 0.2rem;
+    gap: var(--space-4);
+    padding: var(--space-4);
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
@@ -454,16 +422,15 @@
 }
 
 .command-editor-seg {
-    padding: 0.3rem 0.65rem;
+    padding: var(--space-4) var(--space-10);
     border: none;
     border-radius: var(--radius-lg);
     background: transparent;
     color: var(--text-secondary);
     font-family: inherit;
     font-size: var(--font-size-base);
-    line-height: 1.4;
-    cursor: pointer;
-    transition: background 0.12s ease, color 0.12s ease;
+    line-height: var(--leading-tight);
+    transition: background var(--transition-fast), color var(--transition-fast);
 }
 
 .command-editor-seg:hover {
@@ -471,7 +438,7 @@
     color: var(--text-primary);
 }
 
-.command-editor-seg.active {
+.command-editor-seg[aria-checked="true"] {
     background: var(--accent-blue);
     color: var(--text-on-accent);
 }
@@ -487,8 +454,8 @@
 .command-editor-subthread {
     display: flex;
     flex-direction: column;
-    gap: 0.6rem;
-    padding-left: 0.7rem;
+    gap: var(--space-10);
+    padding-left: var(--space-12);
     border-left: 0.125rem solid var(--border-subtle);
 }
 
@@ -500,17 +467,13 @@
     color: var(--text-primary);
 }
 
-.command-editor-subthread.hidden {
-    display: none;
-}
-
 .command-editor-footer {
     display: flex;
     flex-wrap: wrap;
     align-items: flex-end;
     justify-content: space-between;
-    gap: 0.75rem;
-    padding: 0.8rem 2rem;
+    gap: var(--space-12);
+    padding: var(--space-12) var(--space-32);
     border-top: 1px solid var(--border-divider);
 }
 
@@ -520,7 +483,7 @@
 .command-editor-target {
     display: flex;
     flex-direction: column;
-    gap: 0.35rem;
+    gap: var(--space-6);
     min-width: 0;
 }
 
@@ -528,16 +491,9 @@
     font-size: var(--font-size-sm);
     color: var(--text-tertiary);
     font-family: var(--font-mono);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 .command-editor-actions {
     display: flex;
-    gap: 0.5rem;
-}
-
-.command-editor-actions .hidden {
-    display: none;
+    gap: var(--space-8);
 }

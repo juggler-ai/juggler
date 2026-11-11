@@ -19,7 +19,7 @@
    Fullscreen takes the traffic lights away, leaving the gutter as a gap to the
    left of the logo, so the rule drops out and the header falls back to its
    ordinary padding. The flag is set by utils/window-fullscreen.js. */
-:root[data-window-platform="mac"]:not([data-window-fullscreen="1"]) .window-mode .app-header {
+:root[data-window-platform="mac"]:where(:not([data-window-fullscreen="1"])) .window-mode .app-header {
     --app-header-pad-start: var(--window-traffic-light-gutter);
 }
 
@@ -29,7 +29,7 @@
    nothing (session-popover.js). */
 :where(.window-mode) header-actions,
 :where(.window-mode) .network-button,
-:where(.window-mode) .ppd-new-window-button,
+:where(.window-mode) .project-path-display__new-window-button,
 :where(.window-mode) .sidebar-toggle-button {
     --wails-draggable: no-drag;
 }
@@ -64,7 +64,7 @@
     top: 0;
     left: 0;
     right: 0;
-    /* stylelint-disable-next-line rem-over-px/rem-over-px, unit-disallowed-list */
+    /* stylelint-disable-next-line rem-over-px/rem-over-px, unit-disallowed-list -- the native resize band is in screen pixels, which UI zoom does not scale */
     height: 6px;
     z-index: var(--z-modal);
 
@@ -89,7 +89,7 @@
     inset: 0;
     border: 1px solid var(--border-color);
     pointer-events: none;
-    z-index: calc(var(--z-above-modal) + 1);
+    z-index: var(--z-frame);
 }
 
 /* A frameless window (Windows + Linux) has no native resize border, so the
@@ -108,6 +108,7 @@
    `body *` rather than `*`: body must keep the inline cursor the runtime wrote
    on it, and an !important author rule would beat an inline style. */
 :root[data-resize-cursor] body * {
+    /* stylelint-disable-next-line declaration-no-important -- must beat every element's own cursor, at any specificity, while the pointer is on an edge */
     cursor: inherit !important;
 }
 
@@ -160,8 +161,8 @@ window-caption-controls {
    Adwaita convention. They sit within the header padding rather than flush. */
 :where(:root[data-window-platform="linux"] .window-mode) window-caption-controls {
     align-self: center;
-    gap: 0.25rem;
-    margin-left: 0.5rem; /* separate from the header actions to their left */
+    gap: var(--space-4);
+    margin-left: var(--space-8); /* separate from the header actions to their left */
 }
 
 .window-caption-btn {
@@ -188,25 +189,28 @@ window-caption-controls {
     border-radius: 50%;
 }
 
-.window-caption-btn svg {
+.window-caption-btn > :where(svg) {
     width: 0.625rem;
     height: 0.625rem;
 }
 
-.window-caption-btn:hover {
+/* The states weigh one class, like the button itself: file order puts them
+   over its rest look, and they never out-rank the `button` rules a component
+   files above this layer. */
+.window-caption-btn:where(:hover) {
     background: var(--bg-raised);
     color: var(--text-primary);
 }
 
-.window-caption-btn:active {
+.window-caption-btn:where(:active) {
     background: var(--border-color);
 }
 
-.window-caption-btn--close:hover {
+.window-caption-btn--close:where(:hover) {
     background: var(--window-close-hover-bg);
     color: var(--text-on-accent);
 }
 
-.window-caption-btn--close:active {
+.window-caption-btn--close:where(:active) {
     background: var(--window-close-active-bg);
 }

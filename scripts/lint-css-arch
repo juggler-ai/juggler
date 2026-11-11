@@ -4,8 +4,9 @@
  *
  * Eight checks, all but the last driven by web/css/manifest.json:
  *
- *   ownership       a selector lives in the file that owns its root, and no
- *                   name is claimed by two sheets
+ *   ownership       a selector lives in the file that owns its root, no name
+ *                   is claimed by two sheets, and a custom property or
+ *                   `@keyframes` a sheet defines is named for a group it owns
  *   dead-selector   a class in any production sheet (web/css's, an extension's,
  *                   the machine page's) is referenced by no JS, HTML or extension
  *   token-parity    every var() resolves; theme colour tokens exist in both themes;
@@ -14,8 +15,9 @@
  *   layer-order     a sheet's directory is its layer, and the list is in layer order
  *   asset-url       every relative url() resolves to a file that exists
  *   layer-inversion a rule is filed below a rule it overrides
- *   scale-literal   CSS injected from JS writes a font-size or radius out
- *                   instead of using a scale token
+ *   scale-literal   a sheet, or CSS injected from JS, writes out a size,
+ *                   radius, weight, line height, z-index, transition timing or
+ *                   spacing instead of using a scale token
  *
  * There is no allowlist. Every finding of the first seven checks fails the
  * run, and nothing can excuse one: a violation is fixed where it is.
@@ -84,7 +86,7 @@ const cssDir = path.join(repoRoot, 'web', 'css');
  * @typedef {object} ManifestSheet
  * @property {string} file - Its path under web/css/.
  * @property {string} layer - The layer it declares.
- * @property {string[]} [owns] - Root-name globs and `[attr]` scope claims it owns.
+ * @property {string[]} [owns] - Root-name globs, `[attr]` scope claims and `--` custom-name claims it owns.
  * @property {boolean} [enumerates] - It may file rules under any root, and owns none.
  */
 
@@ -228,7 +230,10 @@ function parseRules(src) {
       } else {
         stack.push(text);
         if (text && !inKeyframes) {
-          rules.push({ selector: text, line: preludeLine, at: stack.slice(0, -1), body: blockAt(clean, i) });
+          // A sheet's `@layer` block is its layer, which the manifest records
+          // and layer-order checks; it is no condition on the rule, so it is
+          // left out of the at-rules the rule sits inside.
+          rules.push({ selector: text, line: preludeLine, at: stack.slice(0, -1).filter((s) => !/^@layer\b/i.test(s)), body: blockAt(clean, i) });
         }
       }
       prelude = '';
@@ -954,7 +959,7 @@ function ownsSubject(sheet, selectorPart) {
   if (!subject) return false;
   const names = [subject.tag, subject.id, ...subject.classes].filter(Boolean);
   // `*` would own every name there is, so it says nothing about the subject.
-  const patterns = (sheet.owns || []).filter((p) => p !== '*' && !isScopeClaim(p));
+  const patterns = (sheet.owns || []).filter((p) => p !== '*' && !isScopeClaim(p) && !isNameClaim(p));
   return names.some((name) => patterns.some((pattern) => globToRegExp(pattern).test(name)));
 }
 
@@ -968,6 +973,76 @@ function ownsSubject(sheet, selectorPart) {
  */
 function isScopeClaim(pattern) {
   return pattern.startsWith('[');
+}
+
+/**
+ * An `owns` entry written as a custom property — `--settings-*` — claims
+ * custom-property and `@keyframes` names for a group whose prefix no class glob
+ * of the sheet states (`settings-panel` is settings' only class, and
+ * `settings-button` is the header's). It claims no class root.
+ * @param {string} pattern - An `owns` entry.
+ * @returns {boolean} True when the entry starts with `--`.
+ */
+function isNameClaim(pattern) {
+  return pattern.startsWith('--');
+}
+
+/**
+ * Does this sheet own a custom property or a `@keyframes` name? The name is
+ * read as a class would be — `--menu-gap` against `menu-*` — and a glob-free
+ * entry also covers its own sub-names, because the group's prefix is the name
+ * it owns: `btn` owns `--btn-glyph` and `@btn-spin`. A `--` entry (see
+ * isNameClaim) matches the name with its dashes.
+ * @param {ManifestSheet} sheet - The sheet.
+ * @param {string} name - A custom property (`--x`) or a keyframes name (`x`).
+ * @returns {boolean} True when one of the sheet's entries covers the name.
+ */
+function ownsCustomName(sheet, name) {
+  const bare = name.replace(/^--/, '');
+  return (sheet.owns || []).some((p) => {
+    if (p === '*' || isScopeClaim(p)) return false;
+    if (isNameClaim(p)) return globToRegExp(p).test(`--${bare}`);
+    return globToRegExp(p).test(bare) || (!p.includes('*') && bare.startsWith(`${p}-`));
+  });
+}
+
+/**
+ * The custom properties a rule declares itself — not those of a rule nested in it.
+ * @param {string} body - The text between a rule's braces, comments stripped.
+ * @returns {string[]} The custom property names, in order.
+ */
+function customPropertiesIn(body) {
+  const out = [];
+  let depth = 0;
+  let current = '';
+  const take = (text) => {
+    const m = /^\s*(--[\w-]+)\s*:/.exec(text);
+    if (m) out.push(m[1]);
+  };
+  for (const c of body) {
+    if (c === '{' || c === '(') depth++;
+    if (c === '}' || c === ')') {
+      depth--;
+      // A nested rule ends here: what follows starts a fresh declaration.
+      if (c === '}' && depth === 0) { current = ''; continue; }
+    }
+    if (depth > 0) continue;
+    if (c === ';') { take(current); current = ''; continue; }
+    current += c;
+  }
+  take(current);
+  return out;
+}
+
+/**
+ * Every `@keyframes` a stylesheet defines, with its line.
+ * @param {string} src - A stylesheet's text.
+ * @returns {{name: string, line: number}[]} The keyframes, in source order.
+ */
+function keyframesIn(src) {
+  const clean = stripComments(src);
+  return [...clean.matchAll(/@(?:-\w+-)?keyframes\s+([\w-]+)/g)]
+    .map((m) => ({ name: m[1], line: clean.slice(0, m.index).split('\n').length }));
 }
 
 /**
@@ -1024,6 +1099,9 @@ function ownsScope(sheet, selectorPart) {
  * across every surface it applies to, rather than the same declaration copied
  * into a dozen files where nobody can see it is one decision. It owns no root
  * of its own, so every root it names must still be owned by some sheet.
+ *
+ * Custom properties and `@keyframes` names are held to it too: see
+ * customNameFailures.
  * @param {Manifest} manifest - The parsed manifest.
  * @param {Sheet[]} sheets - The sheets to check.
  * @param {Map<string, string>} sources - Each sheet's text, by manifest path.
@@ -1032,6 +1110,7 @@ function ownsScope(sheet, selectorPart) {
 function checkOwnership(manifest, sheets, sources) {
   const failures = [];
   const owners = [];
+  const claims = [];
   const scopes = new Map();
   for (const sheet of sheets) {
     for (const pattern of sheet.owns || []) {
@@ -1043,6 +1122,8 @@ function checkOwnership(manifest, sheets, sources) {
         else scopes.set(attr, sheet.file);
       } else if (sheet.enumerates) {
         failures.push({ item: `${sheet.file}:${pattern}`, message: `${sheet.file} is marked enumerates, so it owns no root — "${pattern}" belongs to the sheet of its group` });
+      } else if (isNameClaim(pattern)) {
+        claims.push({ pattern, re: globToRegExp(pattern), file: sheet.file });
       } else {
         owners.push({ pattern, re: globToRegExp(pattern), file: sheet.file });
       }
@@ -1052,18 +1133,22 @@ function checkOwnership(manifest, sheets, sources) {
   // same name. A claim's own text stands in for the names it covers: `notice*`
   // takes `notice-message` and `notice-row*` alike. Without this the lookup
   // below takes whichever claim comes first, and two groups style one class.
-  for (let i = 0; i < owners.length; i++) {
-    for (let j = i + 1; j < owners.length; j++) {
-      const [a, b] = [owners[i], owners[j]];
-      if (a.file === b.file) continue;
-      const [wide, narrow] = a.re.test(b.pattern) ? [a, b] : b.re.test(a.pattern) ? [b, a] : [];
-      if (!wide || !narrow) continue;
-      failures.push({
-        item: `${narrow.file}:${narrow.pattern}`,
-        message: `${narrow.file} owns "${narrow.pattern}", which ${wide.file}'s "${wide.pattern}" also covers — a root has one owner`,
-      });
+  // The same holds between `--` claims.
+  for (const list of [owners, claims]) {
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        const [a, b] = [list[i], list[j]];
+        if (a.file === b.file) continue;
+        const [wide, narrow] = a.re.test(b.pattern) ? [a, b] : b.re.test(a.pattern) ? [b, a] : [];
+        if (!wide || !narrow) continue;
+        failures.push({
+          item: `${narrow.file}:${narrow.pattern}`,
+          message: `${narrow.file} owns "${narrow.pattern}", which ${wide.file}'s "${wide.pattern}" also covers — a root has one owner`,
+        });
+      }
     }
   }
+  failures.push(...customNameFailures(sheets, sources));
   for (const sheet of sheets) {
     for (const rule of parseRules(sources.get(sheet.file) || '')) {
       for (const part of selectorParts(rule.selector)) {
@@ -1087,6 +1172,50 @@ function checkOwnership(manifest, sheets, sources) {
     }
   }
   return dedupe(failures);
+}
+
+/**
+ * The ownership of the names a sheet defines rather than selects. A custom
+ * property it declares is its own (see ownsCustomName), another group's hook
+ * it sets — one some other sheet owns, `--btn-glyph` set from the header —
+ * or a token it overrides for a subtree; anything else is a name nobody owns,
+ * free to collide with the next group that picks it (`--size`, `--angle`).
+ * A `@keyframes` is always a definition, so it must be the sheet's own.
+ *
+ * `tokens/` defines the global vocabulary and owns nothing by prefix, and an
+ * `enumerates` sheet owns nothing at all, so neither is held to this.
+ * @param {Sheet[]} sheets - The sheets to check.
+ * @param {Map<string, string>} sources - Each sheet's text, by manifest path.
+ * @returns {Failure[]} Unowned custom properties and keyframes, one per sheet and name.
+ */
+function customNameFailures(sheets, sources) {
+  const failures = [];
+  const tokens = new Set();
+  for (const sheet of sheets.filter((s) => s.layer === 'tokens')) {
+    for (const rule of parseRules(sources.get(sheet.file) || '')) customPropertiesIn(rule.body).forEach((p) => tokens.add(p));
+  }
+  for (const sheet of sheets) {
+    if (sheet.layer === 'tokens' || sheet.enumerates) continue;
+    const src = sources.get(sheet.file) || '';
+    for (const rule of parseRules(src)) {
+      for (const name of customPropertiesIn(rule.body)) {
+        if (ownsCustomName(sheet, name) || tokens.has(name)) continue;
+        if (sheets.some((other) => other !== sheet && !other.enumerates && ownsCustomName(other, name))) continue;
+        failures.push({
+          item: `${sheet.file}:${name}`,
+          message: `${sheet.file}:${rule.line} — no sheet owns ${name}: prefix it with the group's name, or claim it in owns as "--…"`,
+        });
+      }
+    }
+    for (const { name, line } of keyframesIn(src)) {
+      if (ownsCustomName(sheet, name)) continue;
+      failures.push({
+        item: `${sheet.file}:@${name}`,
+        message: `${sheet.file}:${line} — @keyframes ${name} is not named for a group this sheet owns`,
+      });
+    }
+  }
+  return failures;
 }
 
 /**
@@ -1239,6 +1368,185 @@ function checkDeadSelectors(manifest, sheets, sources, corpus) {
     if (tokens.has(name)) continue;
     failures.push({ item: `@${name}`, message: `${file} — @keyframes ${name} is used by no animation` });
   }
+  return failures;
+}
+
+/**
+ * The CSS text each `injectStylesOnce(id, css)` call in one source passes:
+ * a string or template literal, or a `const` in the same file bound to one.
+ * A template's `${…}` becomes `_js-expr_`, which names no class. Anything
+ * else is not read here; lint-css-in-js already refuses it.
+ * @param {string} text - The source's text.
+ * @param {typeof import('espree')} espree - The parser.
+ * @returns {string[]} The CSS of each call.
+ */
+function injectedCss(text, espree) {
+  let ast = null;
+  for (const sourceType of ['module', 'script']) {
+    try {
+      ast = espree.parse(text, { ecmaVersion: 'latest', sourceType });
+      break;
+    } catch { /* try the other */ }
+  }
+  if (!ast) return [];
+  const literal = (node) => {
+    if (node?.type === 'Literal' && typeof node.value === 'string') return node.value;
+    if (node?.type === 'TemplateLiteral') return node.quasis.map((q) => q.value.cooked ?? q.value.raw).join('_js-expr_');
+    return null;
+  };
+  const consts = new Map();
+  const calls = [];
+  const visit = (node) => {
+    if (!node || typeof node.type !== 'string') return;
+    if (node.type === 'VariableDeclarator' && node.id.type === 'Identifier') {
+      const css = literal(node.init);
+      if (css !== null) consts.set(node.id.name, css);
+    }
+    if (node.type === 'CallExpression') {
+      const callee = node.callee.type === 'MemberExpression' ? node.callee.property : node.callee;
+      if (callee.type === 'Identifier' && callee.name === 'injectStylesOnce' && node.arguments[1]) calls.push(node.arguments[1]);
+    }
+    for (const [key, value] of Object.entries(node)) {
+      if (Array.isArray(value)) value.forEach(visit);
+      else if (value && typeof value === 'object' && key !== 'loc' && key !== 'range') visit(value);
+    }
+  };
+  visit(ast);
+  const out = [];
+  for (const arg of calls) {
+    const css = arg.type === 'Identifier' ? consts.get(arg.name) : literal(arg);
+    if (css !== null && css !== undefined) out.push(css);
+  }
+  return out;
+}
+
+/**
+ * What web/sdk and web/extensions production code does with classes: the ones
+ * each file puts on an element (read by the markup model, so a class is a
+ * class only where code sets one — `className`, `classList`, a `class=` in a
+ * template, a `createElement(tag, className)` — never a word in a message),
+ * and the ones the CSS it injects names in its selectors. Tests are skipped.
+ * @param {string} root - The repository root.
+ * @param {{classesByFile: () => Map<string, Set<string>>}} model - The markup model of that root.
+ * @param {typeof import('espree')} espree - The parser.
+ * @returns {{sets: Map<string, Set<string>>, styles: Map<string, Set<string>>}} Each file's classes, by repo-relative path.
+ */
+function extensionClassUse(root, model, espree) {
+  const inScope = (rel) => /^web\/(sdk|extensions)\//.test(rel) && !isTestSource(rel);
+  const sets = new Map();
+  for (const [file, classes] of model.classesByFile()) if (inScope(file) && classes.size) sets.set(file, classes);
+  const styles = new Map();
+  for (const dir of ['sdk', 'extensions']) {
+    for (const abs of walk(path.join(root, 'web', dir), (n) => n.endsWith('.js'))) {
+      const rel = relPath(root, abs);
+      if (!inScope(rel)) continue;
+      const names = new Set();
+      for (const css of injectedCss(fs.readFileSync(abs, 'utf8'), espree)) {
+        for (const name of selectorNames(css)) if (name.startsWith('.')) names.add(name.slice(1));
+      }
+      if (names.size) styles.set(rel, names);
+    }
+  }
+  return { sets, styles };
+}
+
+/**
+ * extension-styling: the host's styling API for extensions is manifest.json's
+ * `public` list, and nothing else. A class a web/css sheet styles may be set
+ * or styled by web/extensions code only when `public` covers it; web/sdk code
+ * may also use the `sdk` classes — host styling for the markup the SDK's own
+ * helpers build, which ships in step with it. Every other class an extension
+ * uses is its own, styled (if at all) by its own injected CSS: the host
+ * styles none of it, so the host can rename its classes without breaking an
+ * extension, and an extension's class can never pick up a host rule.
+ *
+ * `extensionDebt` lists, per file, the host-internal classes an in-tree
+ * extension still uses. It only shrinks: an entry must still be one, or it is
+ * reported for deletion. `public` entries carry a `why` and must cover a
+ * class the host styles; `sdk` entries must cover one SDK code sets.
+ * @param {Manifest & {public?: {pattern?: unknown, why?: unknown}[], sdk?: unknown[], extensionDebt?: {file?: unknown, classes?: unknown}[]}} manifest - The parsed manifest.
+ * @param {Sheet[]} sheets - The host sheets.
+ * @param {Map<string, string>} sources - Each sheet's text, by manifest path.
+ * @param {{sets: Map<string, Set<string>>, styles: Map<string, Set<string>>}} use - extensionClassUse.
+ * @returns {Failure[]} Each host-internal class used, and each stale or malformed list entry.
+ */
+function checkExtensionStyling(manifest, sheets, sources, use) {
+  const failures = [];
+  const hostStyled = new Map();
+  for (const sheet of sheets) {
+    for (const name of selectorNames(sources.get(sheet.file) || '')) {
+      if (name.startsWith('.') && !hostStyled.has(name.slice(1))) hostStyled.set(name.slice(1), sheet.file);
+    }
+  }
+  const styledMatch = (re) => [...hostStyled.keys()].some((cls) => re.test(cls));
+
+  const publicRes = [];
+  const seenPublic = new Set();
+  for (const entry of manifest.public || []) {
+    const pattern = typeof entry?.pattern === 'string' ? entry.pattern : null;
+    if (!pattern || typeof entry.why !== 'string' || !entry.why.trim() || seenPublic.has(pattern)) {
+      failures.push({ item: `public ${pattern ?? JSON.stringify(entry)}`, message: `manifest.json public: ${JSON.stringify(entry)} must be { "pattern": "<class or glob>", "why": "<what an extension uses it for>" }, listed once` });
+      continue;
+    }
+    seenPublic.add(pattern);
+    const re = globToRegExp(pattern);
+    if (!styledMatch(re)) {
+      failures.push({ item: `public ${pattern}`, message: `manifest.json public: "${pattern}" covers no class a web/css sheet styles — delete the entry` });
+      continue;
+    }
+    publicRes.push(re);
+  }
+  const isPublic = (cls) => publicRes.some((re) => re.test(cls));
+
+  const sdkSet = new Set();
+  for (const [file, classes] of [...use.sets, ...use.styles]) if (file.startsWith('web/sdk/')) for (const cls of classes) sdkSet.add(cls);
+  const sdkRes = [];
+  for (const pattern of manifest.sdk || []) {
+    if (typeof pattern !== 'string') {
+      failures.push({ item: `sdk ${JSON.stringify(pattern)}`, message: `manifest.json sdk: ${JSON.stringify(pattern)} is not a class or glob` });
+      continue;
+    }
+    const re = globToRegExp(pattern);
+    if (![...sdkSet].some((cls) => re.test(cls) && hostStyled.has(cls))) {
+      failures.push({ item: `sdk ${pattern}`, message: `manifest.json sdk: no web/sdk code uses a host-styled class matching "${pattern}" — delete the entry` });
+      continue;
+    }
+    sdkRes.push(re);
+  }
+
+  const debt = new Map();
+  for (const entry of manifest.extensionDebt || []) {
+    const file = typeof entry?.file === 'string' ? entry.file : null;
+    if (!file || !Array.isArray(entry.classes)) {
+      failures.push({ item: `extensionDebt ${JSON.stringify(entry)}`, message: `manifest.json extensionDebt: ${JSON.stringify(entry)} is not { "file": "<extension source>", "classes": [...] }` });
+      continue;
+    }
+    const used = new Set([...(use.sets.get(file) || []), ...(use.styles.get(file) || [])]);
+    for (const cls of entry.classes) {
+      if (!hostStyled.has(cls) || isPublic(cls) || !used.has(cls)) {
+        failures.push({ item: `extensionDebt ${file} .${cls}`, message: `manifest.json extensionDebt: ${file} no longer uses .${cls} as a host-internal class — delete it from the list` });
+        continue;
+      }
+      if (!debt.has(file)) debt.set(file, new Set());
+      debt.get(file).add(cls);
+    }
+  }
+
+  const report = (file, cls, verb) => {
+    if (!hostStyled.has(cls) || isPublic(cls)) return;
+    const sdk = file.startsWith('web/sdk/');
+    if (sdk && sdkRes.some((re) => re.test(cls))) return;
+    if (debt.get(file)?.has(cls)) return;
+    const allowed = sdk ? '"public" or "sdk"' : '"public"';
+    failures.push({
+      item: `${file} .${cls}`,
+      message: `${file} ${verb} .${cls}, which ${hostStyled.get(cls)} styles and manifest.json ${allowed} does not offer. ` +
+        'Use a public class (buttons, fields, menus, labels — README ▸ Extensions), or give the element a class of its own and style it in this extension\'s injected CSS ' +
+        `(moving the host rule there if only this code uses it); add .${cls} to "public", with its why, only if the host means to keep it for every extension.`,
+    });
+  };
+  for (const [file, classes] of use.sets) for (const cls of classes) report(file, cls, 'sets');
+  for (const [file, classes] of use.styles) for (const cls of classes) report(file, cls, 'styles');
   return failures;
 }
 
@@ -1418,6 +1726,86 @@ function checkLayerOrder(manifest, sheets, sources) {
   return failures;
 }
 
+
+/**
+ * Where the `{ … }` that opens at `open` closes, skipping strings.
+ * @param {string} text - Comment-free CSS.
+ * @param {number} open - The index of a `{`.
+ * @returns {number} The index of its `}`, or -1 when it never closes.
+ */
+function closingBrace(text, open) {
+  let depth = 0;
+  let quote = null;
+  for (let i = open; i < text.length; i++) {
+    const c = text[i];
+    if (quote) {
+      if (c === '\\') i++;
+      else if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'") quote = c;
+    else if (c === '{') depth++;
+    else if (c === '}' && --depth === 0) return i;
+  }
+  return -1;
+}
+
+/**
+ * layer-order, the wrap: the layers are cascade layers. Every sheet's content
+ * is exactly one `@layer <its layer> { … }` block (comments may sit outside
+ * it), so no sheet ships unlayered — unlayered CSS beats every layer. The
+ * first sheet declares the order, `@layer <manifest layers>;`, ahead of its
+ * block, and is the only one that does; every document that links the sheets
+ * links it before any other stylesheet, so the order is declared before a
+ * layer first appears whatever subset of the sheets a page links.
+ * @param {Manifest} manifest - The parsed manifest, for its layer list.
+ * @param {Sheet[]} sheets - The sheets, in manifest order.
+ * @param {Map<string, string>} sources - Each sheet's text, by manifest path.
+ * @param {Map<string, string>} documents - Each document's HTML, by repo path.
+ * @returns {Failure[]} Unwrapped or mis-wrapped sheets, a missing, wrong or stray order statement, and documents that link another sheet first.
+ */
+function checkLayerWrap(manifest, sheets, sources, documents) {
+  const failures = [];
+  const order = `@layer ${manifest.layers.join(', ')};`;
+  sheets.forEach((sheet, index) => {
+    let text = stripComments(sources.get(sheet.file) || '').trim();
+    const statement = /^@layer\s+[\w-]+(?:\s*,\s*[\w-]+)+\s*;/.exec(text);
+    if (statement) text = text.slice(statement[0].length).trim();
+    const normalised = statement ? statement[0].replace(/\s+/g, ' ').replace(/ ,/g, ',').replace(/ ;$/, ';') : null;
+    if (index === 0 && normalised !== order) {
+      failures.push({
+        item: `${sheet.file}:order-statement`,
+        message: `${sheet.file} is the first sheet every document links, so it opens with \`${order}\` (manifest.json's layers), ahead of its @layer block`,
+      });
+    } else if (index > 0 && statement) {
+      failures.push({
+        item: `${sheet.file}:order-statement`,
+        message: `${sheet.file} declares the layer order — only ${sheets[0].file}, the first sheet linked, does`,
+      });
+    }
+    const opening = new RegExp(`^@layer\\s+${sheet.layer}\\s*\\{`).exec(text);
+    const close = opening ? closingBrace(text, opening[0].length - 1) : -1;
+    if (close < 0 || text.slice(close + 1).trim()) {
+      failures.push({
+        item: `${sheet.file}:wrap`,
+        message: `${sheet.file} must be one \`@layer ${sheet.layer} { … }\` block holding all of its rules — nothing outside it but comments`,
+      });
+    }
+  });
+
+  const first = sheets.length ? sheets[0].file : null;
+  for (const [rel, html] of documents) {
+    // The first manifest sheet linked, or the template that links them.
+    const at = /<link[^>]*rel=["']stylesheet["'][^>]*href=["'][^"']*\/css\/([^"']+)["']|\{\{\s*template\s+"window-shell-head"/.exec(html);
+    if (!at || at[1] === undefined || at[1] === first) continue;
+    failures.push({
+      item: `${rel}:first-link`,
+      message: `${rel} links css/${at[1]} before ${first}, which declares the layer order — link that first (or include the window-shell-head template first)`,
+    });
+  }
+  return failures;
+}
+
 /**
  * asset-url: every relative url() resolves to a file that exists.
  *
@@ -1458,11 +1846,136 @@ function checkAssetUrls(sheets, sources) {
   return dedupe(failures);
 }
 
-/** A font-size that is not a scale literal. Kept in step with unit:type-scale. */
-const FONT_SIZE_OK = /^(var\(--font-size-[\w-]+\)|[\d.]+em|inherit|unset)$/;
+/** A CSS-wide keyword, which says nothing about the scale. */
+const WIDE_KEYWORD = /^(inherit|initial|unset|revert|revert-layer)$/;
 
-/** One component of a radius that is not a scale literal. Kept in step with unit:type-scale. */
-const RADIUS_PART_OK = /^(0|0px|50%|inherit|unset|var\(--[\w-]*radius[\w-]*(,.*)?\))$/;
+/** A font-size that is not a scale literal: a token, or relative to the parent. */
+const FONT_SIZE_OK = /^(var\(--font-size-[\w-]+\)|[\d.]+em)$/;
+
+/** One component of a radius that is not a scale literal: a token, or geometric. */
+const RADIUS_PART_OK = /^(0|0px|50%|var\(--[\w-]*radius[\w-]*(,.*)?\))$/;
+
+/**
+ * One component of a padding, margin or gap that is not a scale literal: any
+ * custom property (a scale token or a component's named knob), a length
+ * relative to the text or the box (`em`, `%`, `ch`, viewport units), a
+ * hairline (one border width, which is what a `0.0625rem` nudge always is), a
+ * `px` length (which stylelint admits only under a disable that says why it
+ * must not scale with the zoom), or no length at all.
+ */
+const SPACING_PART_OK = /^(0|auto|-?0\.0625rem|-?[\d.]+(px|em|%|ch|lh|vw|vh|dvh|svh|lvh)|var\(.*\)|env\(.*\))$/;
+
+/**
+ * A value with every var() — name, fallback and all — blanked out, so what is
+ * left is only what was written literally.
+ * @param {string} value - A declaration's value.
+ * @returns {string} The value without its var()s.
+ */
+function withoutVars(value) {
+  let out = '';
+  for (let i = 0; i < value.length; i++) {
+    if (!/^var\(/i.test(value.slice(i, i + 4))) { out += value[i]; continue; }
+    let depth = 0;
+    for (; i < value.length; i++) {
+      if (value[i] === '(') depth++;
+      else if (value[i] === ')' && --depth === 0) break;
+    }
+    out += 'var()';
+  }
+  return out;
+}
+
+/**
+ * One spacing component, judged: a math function passes when the only lengths
+ * it writes out are relative or hairline, since its tokens are var()s.
+ * @param {string} part - One whitespace-separated component of the value.
+ * @returns {boolean} Whether it is on the scale.
+ */
+function spacingPartOk(part) {
+  if (SPACING_PART_OK.test(part)) return true;
+  if (!/^-?(calc|min|max|clamp)\(/.test(part)) return false;
+  return [...withoutVars(part).matchAll(/(?<![\w.-])-?[\d.]+rem\b/g)].every((m) => /^-?0\.0625rem$/.test(m[0]));
+}
+
+/**
+ * The families of properties every app stylesheet and every injected style
+ * says through a token rather than a literal, with what may stand in a
+ * token's place and where the tokens are. CSS-wide keywords pass everywhere.
+ *
+ * - font-size: a `--font-size-*` step, or `em` (relative to the parent).
+ * - radius: a `--radius-*` step, or a geometric `0` / `50%`.
+ * - font-weight: a `--font-weight-*` role. The roles shift per theme, so a
+ *   literal weight is the one weight in the app that does not.
+ * - line-height: a `--leading-*` step; a length a component names (a row
+ *   height it centres text in); or `0` / `1` / `normal` — no line box, no
+ *   leading, or the font's own.
+ * - z-index: a `--z-*` rung, or a single digit — order within a stacking
+ *   context the component makes for itself, which the global ramp has no say in.
+ * - timing: no duration or `cubic-bezier()` written into a transition, and no
+ *   `cubic-bezier()` into an animation. An animation's own period, and the
+ *   timing of each step inside its `@keyframes`, are its choreography, not
+ *   scale steps, and stay as written.
+ * - spacing: padding, margin and gap, see SPACING_PART_OK.
+ */
+const SCALE_FAMILIES = [
+  {
+    property: /^font-size$/,
+    ok: (value) => FONT_SIZE_OK.test(value),
+    use: 'a --font-size-* token',
+  },
+  {
+    property: /^border(-[a-z]+)*-radius$/,
+    ok: (value) => valueComponents(value).every((part) => RADIUS_PART_OK.test(part)),
+    use: 'a --radius-* token',
+  },
+  {
+    property: /^font-weight$/,
+    ok: (value) => /^var\(--font-weight-[\w-]+\)$/.test(value),
+    use: 'a --font-weight-* role',
+  },
+  {
+    property: /^line-height$/,
+    ok: (value) => /^(var\(.*\)|0|1|normal)$/.test(value),
+    use: 'a --leading-* token',
+  },
+  {
+    property: /^z-index$/,
+    ok: (value) => /^(var\(--z-[\w-]+\)|-?\d|auto)$/.test(value),
+    use: 'a --z-* rung (a single digit orders within a component\'s own stacking context)',
+  },
+  {
+    property: /^(transition(-duration|-timing-function)?|animation(-timing-function)?)$/,
+    ok: (value, property) => {
+      const literal = withoutVars(value);
+      if (/cubic-bezier\(/i.test(literal)) return false;
+      if (property.startsWith('animation')) return true;
+      return [...literal.matchAll(/(?<![\w.-])[\d.]+m?s\b/g)].every((m) => parseFloat(m[0]) === 0);
+    },
+    use: 'a --duration-* / --ease-* token (or --transition-*)',
+  },
+  {
+    property: /^((padding|margin)(-(top|right|bottom|left|block|inline)(-(start|end))?)?|(row-|column-)?gap)$/,
+    ok: (value) => valueComponents(value).every(spacingPartOk),
+    use: 'a --space-* token',
+  },
+];
+
+/** Any property a family governs, as it appears in source. */
+const SCALE_PROPERTY = /(?:^|[\s;{"'`])((?:font-size|font-weight|line-height|z-index|border(?:-[a-z]+)*-radius|transition(?:-duration|-timing-function)?|animation(?:-timing-function)?|(?:padding|margin)(?:-[a-z]+)*|(?:row-|column-)?gap))\s*:\s*/g;
+
+/**
+ * Whether a declaration is off the scale, and if so the finding's wording.
+ * @param {string} property - The property.
+ * @param {string} raw - Its value as written, `!important` and all.
+ * @returns {string|null} What to use instead, or null when it is on the scale.
+ */
+function scaleProblem(property, raw) {
+  const family = SCALE_FAMILIES.find((f) => f.property.test(property));
+  if (!family) return null;
+  const value = raw.trim().replace(/\s*!important$/, '').trim();
+  if (!value || value.includes('${') || WIDE_KEYWORD.test(value)) return null;
+  return family.ok(value, property) ? null : family.use;
+}
 
 /**
  * Split a value on top-level whitespace, keeping a var() and its fallback whole.
@@ -1488,45 +2001,74 @@ function valueComponents(value) {
 }
 
 /**
- * scale-literal: a font-size or radius written out in the CSS that the JS
- * injects (extension and SDK style strings) instead of a scale token.
+ * scale-literal: a value written out where the scale has a token for it — a
+ * font size, radius, weight, line height, z-index, transition timing or
+ * spacing (SCALE_FAMILIES says which values stand in for a token).
  *
- * The sheets under web/css are held to the scale by the browser test
- * unit:type-scale, which reads them as the page parsed them. Injected styles
- * are only in a page once something has used them, so they are read from
- * source here.
+ * Every production stylesheet is read — web/css's but its tokens and vendor
+ * theme, an extension's, the machine page's and the window shell's — and so is
+ * the CSS the JavaScript injects, which is only in a page once something has
+ * used it. A sheet is read whole, so a value spanning lines is judged whole; a
+ * JS file a line at a time, where a value ends at the quote that closes it.
  * @param {string} [root] - The repository root.
- * @returns {Failure[]} Each line of a production JS or extension CSS file that writes a literal font-size or radius.
+ * @returns {Failure[]} Each declaration that writes a literal the scale has a token for.
  */
 function checkScaleLiterals(root = repoRoot) {
-  // Tests and third-party code are not the app's styling; everything else is.
-  const vendor = path.join(root, 'web', 'js', 'vendor') + path.sep;
-  const files = [
-    ...walk(path.join(root, 'web', 'js'), (n) => n.endsWith('.js')),
-    ...walk(path.join(root, 'web', 'sdk'), (n) => n.endsWith('.js')),
-    ...walk(path.join(root, 'web', 'extensions'), (n) => n.endsWith('.js') || n.endsWith('.css')),
-  ].filter((file) => !file.startsWith(vendor) && !isTestSource(relPath(root, file)));
+  // Tests, third-party code and the token sheets (which are where the
+  // literals are meant to be) are not checked; everything else is.
+  const skipped = [['web', 'js', 'vendor'], ['web', 'css', 'tokens'], ['web', 'css', 'vendor']]
+    .map((parts) => path.join(root, ...parts) + path.sep);
+  const keep = (file) => !skipped.some((dir) => file.startsWith(dir)) && !isTestSource(relPath(root, file));
+  const sheets = walk(path.join(root, 'web'), (n) => n.endsWith('.css')).filter(keep);
+  const scripts = ['js', 'sdk', 'extensions', 'machine']
+    .flatMap((dir) => walk(path.join(root, 'web', dir), (n) => n.endsWith('.js')))
+    .filter(keep);
+
   const failures = [];
-  for (const file of files) {
+  const report = (rel, line, property, value, use) => failures.push({
+    item: `${rel}:${line}`,
+    message: `${rel}:${line} writes ${property}: ${value.trim()} — use ${use} from tokens/scale.css`,
+  });
+
+  for (const file of sheets) {
     const rel = relPath(root, file);
-    const lines = fs.readFileSync(file, 'utf8').split('\n');
-    lines.forEach((text, index) => {
-      for (const match of text.matchAll(/(?:^|[\s;{"'`])(font-size|border(?:-[a-z]+)*-radius)\s*:\s*([^;}\n"'`]+)/g)) {
-        const [, property, raw] = match;
-        const value = raw.trim().replace(/\s*!important$/, '');
-        if (value.includes('${')) continue;
-        const ok = property === 'font-size'
-          ? FONT_SIZE_OK.test(value)
-          : valueComponents(value).every((part) => RADIUS_PART_OK.test(part));
-        if (ok) continue;
-        failures.push({
-          item: `${rel}:${index + 1}`,
-          message: `${rel}:${index + 1} writes ${property}: ${value} — use a --font-size-* / --radius-* token from tokens/scale.css`,
-        });
-      }
-    });
+    const clean = stripComments(fs.readFileSync(file, 'utf8'));
+    // Inside @keyframes, a step's timing is the animation's choreography.
+    const keyframes = [...clean.matchAll(/@(-\w+-)?keyframes\b[^{]*\{/g)]
+      .map((m) => [m.index, m.index + m[0].length + blockAt(clean, m.index + m[0].length - 1).length]);
+    for (const match of clean.matchAll(SCALE_PROPERTY)) {
+      const start = match.index + match[0].length;
+      if (keyframes.some(([from, to]) => start > from && start < to)) continue;
+      const end = clean.slice(start).search(/[;}]/);
+      const raw = clean.slice(start, end < 0 ? undefined : start + end);
+      const use = scaleProblem(match[1], raw);
+      if (use) report(rel, clean.slice(0, start).split('\n').length, match[1], raw.replace(/\s+/g, ' '), use);
+    }
   }
-  return failures;
+
+  // A script's CSS is in its string and template literals, and nowhere else:
+  // not its comments, and not its object literals (`{ gap: 8 }`).
+  const { espree } = loadParser();
+  for (const file of scripts) {
+    const rel = relPath(root, file);
+    let tokens;
+    try {
+      tokens = espree.tokenize(fs.readFileSync(file, 'utf8'), { ecmaVersion: 'latest', sourceType: 'module', loc: true });
+    } catch {
+      continue; // A file that does not parse is lint-js's finding, not this one's.
+    }
+    for (const token of tokens) {
+      if (token.type !== 'String' && token.type !== 'Template') continue;
+      token.value.split('\n').forEach((text, index) => {
+        for (const match of text.matchAll(SCALE_PROPERTY)) {
+          const raw = /^[^;}\n"'`]*/.exec(text.slice(match.index + match[0].length))[0];
+          const use = scaleProblem(match[1], raw);
+          if (use) report(rel, token.loc.start.line + index, match[1], raw, use);
+        }
+      });
+    }
+  }
+  return dedupe(failures);
 }
 
 /**
@@ -1976,7 +2518,8 @@ function main() {
     }
   }
 
-  const inversions = checkLayerInversion(manifest, sheets, sources, loadMarkupModel());
+  const model = loadMarkupModel();
+  const inversions = checkLayerInversion(manifest, sheets, sources, model);
 
   // `--inversions <lower> <higher>` shows the findings behind one count,
   // which is what you read while fixing a file pair.
@@ -1997,7 +2540,13 @@ function main() {
       corpus,
     ),
     'token-parity': checkTokenParity(manifest, sheets, sources, corpus),
+    'extension-styling': checkExtensionStyling(manifest, sheets, sources, extensionClassUse(repoRoot, model, loadParser().espree)),
     'link-parity': checkLinkParity(manifest),
+    // checkLayerWrap joins this once the sheets are wrapped (README ▸ Layers),
+    // given the documents that link the sheets: web/index.html,
+    // web/js-tests/headless-test.html, web/shell/window-shell.html,
+    // web/machine/index.html and web/shell/stand-in.html (a page including the
+    // window-shell-head template links whatever window-shell.html links first).
     'layer-order': checkLayerOrder(manifest, sheets, sources),
     'asset-url': checkAssetUrls(sheets, sources),
     'scale-literal': checkScaleLiterals(),
@@ -2034,12 +2583,15 @@ module.exports = {
   canMeet,
   checkAssetUrls,
   checkDeadSelectors,
+  checkExtensionStyling,
   checkLayerInversion,
   checkLayerOrder,
+  checkLayerWrap,
   checkLinkParity,
   checkOwnership,
   checkScaleLiterals,
   checkTokenParity,
+  extensionClassUse,
   productionCorpus,
   reportInversionRatchet,
   cssDir,

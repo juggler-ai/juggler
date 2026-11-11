@@ -171,15 +171,14 @@ export async function runTests(_ctx) {
   await run('standard is active when no tier is chosen', () => {
     const root = speedControlOf({ tiers: [FAST] });
     const segs = [...root.querySelectorAll('.tier-seg')];
-    assert(segs[0].classList.contains('active'), 'absent tier ⇒ Standard is the active segment');
-    assert(segs[0].getAttribute('aria-checked') === 'true', 'the active segment reports aria-checked');
-    assert(!segs[1].classList.contains('active'), 'the paid tier must not look selected by default');
+    assert(segs[0].getAttribute('aria-checked') === 'true', 'absent tier ⇒ Standard is the checked segment');
+    assert(segs[1].getAttribute('aria-checked') === 'false', 'the paid tier must not look selected by default');
   });
 
   await run('a stale tier the model no longer advertises falls back to Standard', () => {
     const root = speedControlOf({ tiers: [FAST], serviceTier: 'flex' });
     const segs = [...root.querySelectorAll('.tier-seg')];
-    assert(segs[0].classList.contains('active'),
+    assert(segs[0].getAttribute('aria-checked') === 'true',
       'an unadvertised stored tier means standard serving, not a phantom selection');
   });
 

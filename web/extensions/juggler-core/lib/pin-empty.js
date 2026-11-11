@@ -30,7 +30,7 @@ injectStylesOnce('pin-empty-styles', `
   align-items: center;
   justify-content: center;
   min-height: 4rem;
-  padding: 1rem;
+  padding: var(--space-16);
   color: var(--text-secondary);
   text-align: center;
   text-wrap: balance;

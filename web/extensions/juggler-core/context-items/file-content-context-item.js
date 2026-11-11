@@ -213,7 +213,7 @@ class FileContentContextItem extends ContextItem {
     }
 
     const overlay = document.createElement('div');
-    overlay.className = 'pp-overlay';
+    overlay.className = 'project-picker-overlay';
     document.body.appendChild(overlay);
 
     const { element, promise, cancel } = buildPickerPanel({
@@ -857,19 +857,19 @@ class FileContentContextItem extends ContextItem {
 
 const FILE_CONTENT_STYLES = `
 .file-content-seeded-note {
-  display: flex; flex-direction: column; gap: 0.5rem;
-  padding: 0 0 0.5rem;
-  font-size: var(--font-size-sm); line-height: 1.5;
+  display: flex; flex-direction: column; gap: var(--space-8);
+  padding: 0 0 var(--space-8);
+  font-size: var(--font-size-sm); line-height: var(--leading-normal);
   color: var(--text-tertiary, var(--text-secondary));
 }
 
 .file-content-seeded-actions {
-  display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+  display: flex; align-items: center; gap: var(--space-8); flex-wrap: wrap;
 }
 .file-content-seeded-changed { color: var(--text-secondary); }
 
 .file-content-seeded-update {
-  padding: 0.125rem 0.625rem; border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-10); border-radius: var(--radius-md);
   font-size: var(--font-size-sm); cursor: pointer;
   border: 1px solid var(--border-color);
   background: var(--bg-raised);
@@ -878,14 +878,14 @@ const FILE_CONTENT_STYLES = `
 .file-content-seeded-update:hover:not(:disabled) { background: color-mix(in srgb, var(--bg-raised), var(--text-primary) 10%); }
 
 .file-content-seeded-update:disabled {
-  opacity: 0.5;
+  opacity: var(--disabled-opacity);
   cursor: default;
 }
 
 .file-content-snapshot {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: var(--space-8);
 }
 
 .file-content-snapshot-note {

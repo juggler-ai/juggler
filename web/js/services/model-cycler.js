@@ -57,7 +57,7 @@ export function getModelSelector() {
     if (owned) return owned;
   }
 
-  const activeTab = document.querySelector('conversation-tab.active');
+  const activeTab = document.querySelector('conversation-tab.is-active');
   if (activeTab) {
     const selector = activeTab.querySelector('model-selector');
     if (selector) return selector;

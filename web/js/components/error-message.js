@@ -162,7 +162,7 @@ class ErrorMessage extends BaseMessage {
       if (isSetup) {
         const modelBtn = document.createElement('button');
         modelBtn.type = 'button';
-        modelBtn.className = 'message-action-btn error-model-btn';
+        modelBtn.className = 'btn btn-sm btn-secondary message-action-btn error-model-btn';
         modelBtn.title = t('Pick a model from another provider');
         modelBtn.innerHTML = `${SWAP_SVG}${escapeHtml(t('Choose another model'))}`;
         modelBtn.addEventListener('click', (event) => {
@@ -178,7 +178,7 @@ class ErrorMessage extends BaseMessage {
       if (offersSettings) {
         const settingsBtn = document.createElement('button');
         settingsBtn.type = 'button';
-        settingsBtn.className = 'message-action-btn error-settings-btn';
+        settingsBtn.className = 'btn btn-sm btn-secondary message-action-btn error-settings-btn';
         settingsBtn.title = t('Open provider settings');
         settingsBtn.innerHTML = `${SETTINGS_SVG}${escapeHtml(t('Provider settings'))}`;
         settingsBtn.addEventListener('click', (event) => {
@@ -194,7 +194,7 @@ class ErrorMessage extends BaseMessage {
         const time = formatResetTime(resetAt);
         const autoBtn = document.createElement('button');
         autoBtn.type = 'button';
-        autoBtn.className = 'message-action-btn error-autocontinue-btn';
+        autoBtn.className = 'btn btn-sm btn-secondary message-action-btn error-autocontinue-btn';
         autoBtn.title = t('Send “continue” when the usage limit resets');
         autoBtn.innerHTML = `${CLOCK_SVG}${escapeHtml(t('Auto-continue at {time}', { time }))}`;
         autoBtn.addEventListener('click', (event) => {
@@ -208,7 +208,7 @@ class ErrorMessage extends BaseMessage {
       if (this.isFinalItem) {
         const retryBtn = document.createElement('button');
         retryBtn.type = 'button';
-        retryBtn.className = 'message-action-btn error-retry-btn';
+        retryBtn.className = 'btn btn-sm btn-secondary btn-danger-quiet message-action-btn error-retry-btn';
         retryBtn.title = t('Delete this error and continue the conversation');
         // A circular arrow, distinct from the footer's Continue "play" glyph so
         // the affordance reads as "try that turn again".

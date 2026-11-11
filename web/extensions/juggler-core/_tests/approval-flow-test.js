@@ -988,7 +988,7 @@ export async function runTests(_ctx) {
     await el._runRevise(0, 'nope');
     assert(button.disabled === true, 'invalid revise must disable the button');
     assert(!notice.hidden && notice.classList.contains('error'), 'invalid revise shows a red notice');
-    assert(row.classList.contains('revise-invalid'), 'row is flagged revise-invalid');
+    assert(row.querySelector('.pattern-edit-input')?.getAttribute('aria-invalid') === 'true', 'the input is flagged aria-invalid');
 
     // Valid + broad → button enabled, amber caution notice, grant updated.
     next = { valid: true, notice: 'Very broad — approves many commands', patterns: ['*'], rules: [{ kind: 'glob', value: '*' }] };

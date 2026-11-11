@@ -15,8 +15,8 @@ conversation-bar {
        The circle is the conversation panel's item circle exactly — its glyph
        size plus its padding on both sides — so a tab and an item row show the
        same badge at the same size. */
-    --tab-status-column: var(--message-icon-row-height);
-    --tab-status-gap: 0.6rem;
+    --conversation-bar-tab-status-column: var(--message-icon-row-height);
+    --conversation-bar-tab-status-gap: 0.6rem;
 
     position: relative;
     display: flex;
@@ -72,7 +72,7 @@ conversation-bar .conversation-bar {
    the list scrolls only once it has genuinely filled that room (see the info-rail
    flex below, which sizes to its cards rather than to the leftovers). */
 conversation-bar .conversation-tabs-viewport {
-    --tab-list-fade: 2.5rem;
+    --conversation-bar-tab-list-fade: 2.5rem;
 
     display: flex;
     flex-direction: column;
@@ -94,7 +94,7 @@ conversation-bar .conversation-tabs-viewport {
 conversation-bar .conversation-tabs-viewport.overflow-end {
     mask-image: linear-gradient(
         to bottom,
-        var(--mask-opaque) calc(100% - var(--tab-list-fade)),
+        var(--mask-opaque) calc(100% - var(--conversation-bar-tab-list-fade)),
         transparent 100%
     );
 }
@@ -103,14 +103,14 @@ conversation-bar .conversation-tabs {
     display: flex;
     flex-direction: column;
     align-items: stretch;
-    gap: 0.375rem;
+    gap: var(--space-6);
     margin: 0;
 
     /* Extra bottom padding so the last row's rename editor (input + auto-name
        button + shadow, ~3rem below the row) stays inside the scroll container. */
-    padding: 0.5rem 0.5rem 3.25rem;
-    margin-right: 0.4rem;
-    margin-left: 0.4rem;
+    padding: var(--space-8) var(--space-8) var(--space-48);
+    margin-right: var(--space-6);
+    margin-left: var(--space-6);
     list-style: none;
     overflow: auto;
 
@@ -139,7 +139,7 @@ conversation-bar .conversation-box {
        falls back to the colour it is mixing into, which makes it a no-op — a box
        with no hue is drawn exactly as it would be without one.
 
-       The whole fill is one property, --workspace-box-paint, because two things
+       The whole fill is one property, --conversation-bar-workspace-box-paint, because two things
        paint it: the box, and the backing behind its name, which stands across
        the edge and has to hide it. Hover and selection change the overlay in it,
        never the surface, so both move together.
@@ -148,13 +148,13 @@ conversation-bar .conversation-box {
        of their own (the light theme's are the translucent badge presets), and a
        mix keeps a share of it, so the fill would be a glaze over the strip — and
        so would everything mixed from it: a tab's alert tint, the name's backing. */
-    --workspace-box-surface: rgb(from color-mix(in srgb,
+    --conversation-bar-workspace-box-surface: rgb(from color-mix(in srgb,
         var(--workspace-tint, var(--workspace-box-bg)) var(--workspace-tint-fill),
         var(--workspace-box-bg)) r g b / 100%);
-    --workspace-box-overlay: transparent;
-    --workspace-box-paint: linear-gradient(var(--workspace-box-overlay), var(--workspace-box-overlay)),
-        var(--workspace-box-surface);
-    --workspace-box-edge: color-mix(in srgb,
+    --conversation-bar-workspace-box-overlay: transparent;
+    --conversation-bar-workspace-box-paint: linear-gradient(var(--conversation-bar-workspace-box-overlay), var(--conversation-bar-workspace-box-overlay)),
+        var(--conversation-bar-workspace-box-surface);
+    --conversation-bar-workspace-box-edge: color-mix(in srgb,
         var(--workspace-tint, var(--workspace-box-border)) var(--workspace-tint-edge),
         var(--workspace-box-border));
 
@@ -162,13 +162,13 @@ conversation-bar .conversation-box {
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
-    gap: 0.375rem;
+    gap: var(--space-6);
     width: 100%;
 
     /* Room at the top for the lower half of the name standing on the edge. */
-    padding: 0.875rem 0.5rem 0.5rem;
-    background: var(--workspace-box-paint);
-    border: 0.0625rem solid var(--workspace-box-edge);
+    padding: var(--space-14) var(--space-8) var(--space-8);
+    background: var(--conversation-bar-workspace-box-paint);
+    border: 0.0625rem solid var(--conversation-bar-workspace-box-edge);
     border-radius: var(--radius-2xl);
 }
 
@@ -184,8 +184,8 @@ conversation-bar .conversation-box {
    rule that loses that fight is a rule that stops working the day the sheets are
    wrapped in layers. */
 conversation-bar .conversation-tabs > .conversation-box {
-    margin-top: 1rem;
-    margin-bottom: 0.5rem;
+    margin-top: var(--space-16);
+    margin-bottom: var(--space-8);
 }
 
 /* The box's name stands on its top edge, the way a fieldset's legend does: no
@@ -203,7 +203,7 @@ conversation-bar .conversation-tabs > .conversation-box {
 conversation-bar .conversation-box-top {
     /* Renaming the place is done on the box's own paint, edged in its hue rather
        than in the strip's blue: the name being typed is the one the chip wears. */
-    --inline-rename-surface: var(--workspace-box-surface);
+    --inline-rename-surface: var(--conversation-bar-workspace-box-surface);
     --inline-rename-accent: var(--workspace-tint, var(--accent-blue));
 
     position: absolute;
@@ -247,10 +247,10 @@ conversation-bar .conversation-box-add {
     width: 1.25rem;
     height: 1.25rem;
     padding: 0;
-    background: var(--workspace-box-paint);
+    background: var(--conversation-bar-workspace-box-paint);
     border: none;
     border-radius: 50%;
-    box-shadow: inset 0 0 0 0.0625rem var(--workspace-box-edge);
+    box-shadow: inset 0 0 0 0.0625rem var(--conversation-bar-workspace-box-edge);
     color: var(--text-tertiary);
     transform: translateY(-50%);
     cursor: pointer;
@@ -261,7 +261,7 @@ conversation-bar .conversation-box-add > svg {
     display: block;
     width: 100%;
     height: 100%;
-    padding: 0.1875rem;
+    padding: var(--space-2);
 }
 
 conversation-bar .conversation-box-add:hover {
@@ -272,18 +272,18 @@ conversation-bar .conversation-box-add:hover {
    hover lays down. Nothing inside it takes a surface of its own: a lit, rounded
    panel around the title is a tab shape, and there are real tabs directly
    below it to be confused with. */
-conversation-bar .conversation-box:not(.active):hover {
-    --workspace-box-overlay: var(--overlay-light-5);
+conversation-bar .conversation-box:not([aria-current="true"]):hover {
+    --conversation-bar-workspace-box-overlay: var(--wash-1);
 }
 
 /* A box is chosen the way a conversation-panel item is chosen: a neutral
    overlay, never a hue. The hue is the workspace's own, and its name chip
    comes up to full strength. */
-conversation-bar .conversation-box.active {
-    --workspace-box-overlay: var(--item-selected-bg);
+conversation-bar .conversation-box[aria-current="true"] {
+    --conversation-bar-workspace-box-overlay: var(--item-selected-bg);
 }
 
-conversation-bar.tab-list-ring:focus-within .conversation-box.active {
+conversation-bar.tab-list-ring:focus-within .conversation-box[aria-current="true"] {
     outline: var(--focus-ring);
     outline-offset: var(--focus-ring-offset);
 }
@@ -296,7 +296,7 @@ conversation-bar .conversation-box-title {
     display: flex;
     align-items: center;
     min-width: 0;
-    background: var(--workspace-box-paint);
+    background: var(--conversation-bar-workspace-box-paint);
     border-radius: var(--radius-md);
 }
 
@@ -306,26 +306,23 @@ conversation-bar .conversation-box-title {
    top-heavy padding drops the sidebar's monospace capitals below the middle,
    so the chip splits the same height evenly. */
 conversation-bar .conversation-box-label {
-    --preset-badge-bg: var(--workspace-tint);
+    --color-preset-badge-bg: var(--workspace-tint);
 
-    padding-block: 0.1875rem;
+    padding-block: var(--space-2);
     display: inline-flex;
     align-items: center;
-    gap: 0.3rem;
+    gap: var(--space-4);
     min-width: 0;
     max-width: 100%;
     opacity: 0.8;
 }
 
-conversation-bar .conversation-box.active .conversation-box-label {
+conversation-bar .conversation-box[aria-current="true"] .conversation-box-label {
     opacity: 1;
 }
 
 conversation-bar .conversation-box-label-text {
     min-width: 0;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
 }
 
 /* Uncommitted work: the one piece of state worth a mark rather than a word,
@@ -336,7 +333,7 @@ conversation-bar .conversation-box-header.is-dirty .conversation-box-label::afte
     flex-shrink: 0;
     width: 0.375rem;
     height: 0.375rem;
-    margin-top: -0.125rem;
+    margin-top: calc(-1 * var(--space-2));
     background: currentcolor;
     border-radius: 50%;
 }
@@ -345,7 +342,7 @@ conversation-bar .conversation-box-tabs {
     display: flex;
     flex-direction: column;
     align-items: stretch;
-    gap: 0.375rem;
+    gap: var(--space-6);
     margin: 0;
     padding: 0;
     list-style: none;
@@ -354,7 +351,7 @@ conversation-bar .conversation-box-tabs {
 /* The last row of the list, shown only while there is nothing above it.
    Centred: it stands in for the box's contents rather than starting a list. */
 conversation-bar .conversation-box-empty {
-    padding: 0.125rem 0.4rem 0.25rem;
+    padding: var(--space-2) var(--space-6) var(--space-4);
     text-align: center;
     font-size: var(--font-size-sm);
     color: var(--text-tertiary);
@@ -365,8 +362,8 @@ conversation-bar .conversation-box-empty {
    otherwise the band around one short line of text looks draggable and is not.
    A box with tabs in it leaves the cursor to them: they are what a press there
    is about. */
-conversation-bar .conversation-box:not(:has(.conversation-tab)),
-conversation-bar .conversation-box:not(:has(.conversation-tab)) .conversation-box-empty {
+conversation-bar .conversation-box:not(:has(.conversation-bar-tab)),
+conversation-bar .conversation-box:not(:has(.conversation-bar-tab)) .conversation-box-empty {
     cursor: pointer;
 }
 
@@ -377,7 +374,7 @@ conversation-bar .conversation-box-new {
     display: flex;
     flex-shrink: 0;
     width: 100%;
-    margin-top: 1.125rem;
+    margin-top: var(--space-16);
 }
 
 /* The two rows that make something — "New conversation" at the head of the
@@ -392,10 +389,10 @@ conversation-bar .conversation-box-new-button {
     flex: 1;
     align-items: center;
     justify-content: flex-start;
-    gap: 0.2rem;
+    gap: var(--space-4);
     min-width: 0;
     text-align: left;
-    padding: 0.25rem 0.4rem;
+    padding: var(--space-4) var(--space-6);
     font-size: var(--font-size-base);
     color: var(--text-tertiary);
     background: none;
@@ -413,8 +410,8 @@ conversation-bar .conversation-box-new-button svg {
     box-sizing: content-box;
     width: 1rem;
     height: 1rem;
-    padding: calc((var(--tab-status-column) - 1rem) / 2);
-    margin-right: calc(var(--tab-status-gap) - 0.2rem);
+    padding: calc((var(--conversation-bar-tab-status-column) - var(--space-16)) / 2);
+    margin-right: calc(var(--conversation-bar-tab-status-gap) - var(--space-4));
 }
 
 /* One line, as a tab's name is: a narrow strip first swaps the words for their
@@ -423,9 +420,6 @@ conversation-bar .conversation-box-new-button svg {
    broke words mid-way at the narrowest widths. */
 conversation-bar .conversation-box-new-label {
     min-width: 0;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
 }
 
 conversation-bar .conversation-box-new-label-short {
@@ -462,10 +456,10 @@ conversation-bar .conversation-box-new-label-short {
 conversation-bar .conversation-add:hover,
 conversation-bar .conversation-box-new-button:hover {
     color: var(--text-primary);
-    background-image: linear-gradient(var(--overlay-light-5), var(--overlay-light-5));
+    background-image: linear-gradient(var(--wash-1), var(--wash-1));
 }
 
-conversation-bar .conversation-tab,
+conversation-bar .conversation-bar-tab,
 conversation-bar .conversation-add-item {
     display: flex;
     flex-shrink: 0;
@@ -473,27 +467,27 @@ conversation-bar .conversation-add-item {
 }
 
 /* A tab is a row, not a card: no edge of its own (a transparent one holds the
-   layout), and its fill is whatever it lies on — --tab-surface, the page for a
+   layout), and its fill is whatever it lies on — --conversation-bar-tab-surface, the page for a
    tab in the open strip and the box's surface for one in a box. The open
    strip's tabs still paint theirs, the page colour, so the line pattern behind
    the sidebar shows in the gaps between them and not under their names.
 
    Hover and selection are overlays laid on that surface, as a conversation
    panel item's are, so they read the same on the page and in any box. */
-conversation-bar .conversation-tab {
-    --tab-surface: var(--bg-primary);
+conversation-bar .conversation-bar-tab {
+    --conversation-bar-tab-surface: var(--bg-primary);
 
     /* The rename editor (patterns/inline-rename.css) is the row taking the
        keyboard, so it wears the row's own surface — the page, or its box's. */
-    --inline-rename-surface: var(--tab-surface);
+    --inline-rename-surface: var(--conversation-bar-tab-surface);
 
     position: relative;
-    background-color: var(--tab-surface);
+    background-color: var(--conversation-bar-tab-surface);
     border: 0.0625rem solid transparent;
     border-radius: var(--radius-xl);
-    padding: 0.5rem 0.75rem;
+    padding: var(--space-8) var(--space-12);
     align-items: center;
-    gap: 0.2rem;
+    gap: var(--space-4);
     transition: background var(--transition-base), color var(--transition-base);
 
     /* A click anywhere on the row switches to the tab, so the whole row wears
@@ -504,18 +498,18 @@ conversation-bar .conversation-tab {
 /* The rename editor laid over the row is for typing, not pressing: the hand
    would otherwise inherit into it, and `auto` gives back the I-beam over the
    field and the arrow round it. */
-conversation-bar .conversation-tab .inline-rename {
+conversation-bar .conversation-bar-tab .inline-rename {
     cursor: auto;
 }
 
-conversation-bar .conversation-box .conversation-tab {
-    --tab-surface: var(--workspace-box-surface);
+conversation-bar .conversation-box .conversation-bar-tab {
+    --conversation-bar-tab-surface: var(--conversation-bar-workspace-box-surface);
 
     background-color: transparent;
 }
 
-conversation-bar .conversation-tab.has-close {
-    padding: 0.25rem 0.4rem;
+conversation-bar .conversation-bar-tab.has-close {
+    padding: var(--space-4) var(--space-6);
 }
 
 /* The status circle: the shared badge circle (patterns/item-badge.css), the
@@ -533,13 +527,13 @@ conversation-bar .conversation-tab.has-close {
    Running pulses with the badge pulse, as a busy item circle does. The one
    status mark outside the circle is the scheduled-send clock after the name
    (below), so a timer never hides what the circle says. */
-conversation-bar .conversation-tab-status {
-    width: var(--tab-status-column);
-    height: var(--tab-status-column);
-    margin-right: calc(var(--tab-status-gap) - 0.2rem);
+conversation-bar .conversation-bar-tab-status {
+    width: var(--conversation-bar-tab-status-column);
+    height: var(--conversation-bar-tab-status-column);
+    margin-right: calc(var(--conversation-bar-tab-status-gap) - var(--space-4));
 }
 
-conversation-bar .conversation-tab-glyph {
+conversation-bar .conversation-bar-tab-glyph {
     display: none;
     width: var(--message-icon-size);
     height: var(--message-icon-size);
@@ -547,15 +541,15 @@ conversation-bar .conversation-tab-glyph {
 
 /* Shown as a flex box, which lays its svg out as a block without the svg
    being told to. */
-conversation-bar .conversation-tab-glyph svg {
+conversation-bar .conversation-bar-tab-glyph svg {
     width: 100%;
     height: 100%;
 }
 
-conversation-bar .conversation-tab-status:not([data-glyph]) .conversation-tab-glyph-assistant,
-conversation-bar .conversation-tab-status[data-glyph="assistant"] .conversation-tab-glyph-assistant,
-conversation-bar .conversation-tab-status[data-glyph="question"] .conversation-tab-glyph-question,
-conversation-bar .conversation-tab-status[data-glyph="alert"] .conversation-tab-glyph-alert {
+conversation-bar .conversation-bar-tab-status:not([data-glyph]) .conversation-bar-tab-glyph-assistant,
+conversation-bar .conversation-bar-tab-status[data-glyph="assistant"] .conversation-bar-tab-glyph-assistant,
+conversation-bar .conversation-bar-tab-status[data-glyph="question"] .conversation-bar-tab-glyph-question,
+conversation-bar .conversation-bar-tab-status[data-glyph="alert"] .conversation-bar-tab-glyph-alert {
     display: flex;
 }
 
@@ -564,32 +558,32 @@ conversation-bar .conversation-tab-status[data-glyph="alert"] .conversation-tab-
    the timer is set so a pending send is hard to miss in a strip of tabs. It
    never shrinks — the name ellipsises first. Reduced motion keeps the clock and
    drops the flash. */
-conversation-bar .conversation-tab-schedule {
+conversation-bar .conversation-bar-tab-schedule {
     display: none;
     flex: 0 0 auto;
     width: var(--message-icon-size);
     height: var(--message-icon-size);
-    margin-left: 0.3rem;
+    margin-left: var(--space-4);
     color: var(--accent-blue);
 }
 
-conversation-bar .conversation-tab.has-scheduled-send .conversation-tab-schedule {
+conversation-bar .conversation-bar-tab.has-scheduled-send .conversation-bar-tab-schedule {
     display: flex;
-    animation: tab-schedule-flash 1.2s ease-in-out infinite;
+    animation: conversation-bar-tab-schedule-flash 1.2s ease-in-out infinite;
 }
 
-@keyframes tab-schedule-flash {
+@keyframes conversation-bar-tab-schedule-flash {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.2; }
 }
 
-conversation-bar .conversation-tab.is-running .conversation-tab-status {
+conversation-bar .conversation-bar-tab.is-running .conversation-bar-tab-status {
     animation: var(--item-badge-pulse);
 }
 
 /* A tab can't be binned mid-loop, so its bin is out of reach while it runs —
    hidden in place, so the name beside it keeps its width. */
-conversation-bar .conversation-tab.is-running .conversation-tab-bin {
+conversation-bar .conversation-bar-tab.is-running .conversation-bar-tab-bin {
     visibility: hidden;
 }
 
@@ -603,45 +597,45 @@ conversation-bar .conversation-tab.is-running .conversation-tab-bin {
    Mixed into the surface the tab lies on rather than laid over it at 22% alpha,
    so the tint is the same colour on the page and in any box, and the hover
    overlay still lands on top of it. */
-conversation-bar .conversation-tab:not(.active).needs-attention {
-    background-color: color-mix(in srgb, var(--tab-awaiting) 22%, var(--tab-surface));
+conversation-bar .conversation-bar-tab:not([aria-current="true"]).needs-attention {
+    background-color: color-mix(in srgb, var(--tab-awaiting) 22%, var(--conversation-bar-tab-surface));
 }
 
 /* Snap the awaiting colour hard on/off (no fade) ~200ms per state, three times,
    then fall back to the underlying state (fill-mode none). */
-conversation-bar .conversation-tab:not(.active).attention-flash {
-    animation: tab-attention-flash 0.4s step-end 3;
+conversation-bar .conversation-bar-tab:not([aria-current="true"]).attention-flash {
+    animation: conversation-bar-tab-attention-flash 0.4s step-end 3;
 }
 
 /* The dark half of the flash is the surface the tab lies on — the colour it
    would be with nothing wrong — so the flash reads as the alert colour arriving
    and leaving. */
-@keyframes tab-attention-flash {
+@keyframes conversation-bar-tab-attention-flash {
     0% { background-color: var(--tab-awaiting); }
-    50% { background-color: var(--tab-surface); }
+    50% { background-color: var(--conversation-bar-tab-surface); }
     100% { background-color: var(--tab-awaiting); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    conversation-bar .conversation-tab.is-running .conversation-tab-status { animation: none; }
-    conversation-bar .conversation-tab.attention-flash { animation: none; }
-    conversation-bar .conversation-tab.has-scheduled-send .conversation-tab-schedule { animation: none; }
+    conversation-bar .conversation-bar-tab.is-running .conversation-bar-tab-status { animation: none; }
+    conversation-bar .conversation-bar-tab.attention-flash { animation: none; }
+    conversation-bar .conversation-bar-tab.has-scheduled-send .conversation-bar-tab-schedule { animation: none; }
 }
 
 /* Hover is a step toward selected, in the same neutral, not a colour of its own. */
-conversation-bar .conversation-tab:hover {
-    background-image: linear-gradient(var(--overlay-light-5), var(--overlay-light-5));
+conversation-bar .conversation-bar-tab:hover {
+    background-image: linear-gradient(var(--wash-1), var(--wash-1));
 }
 
 /* Chosen the way a conversation-panel item is chosen — a neutral wash, never a
    hue — in the stronger measure a strip read at a glance needs, with the name
    set heavier. The text keeps the theme's colour. */
-conversation-bar .conversation-tab.active {
+conversation-bar .conversation-bar-tab[aria-current="true"] {
     background-image: linear-gradient(var(--item-selected-strong-bg), var(--item-selected-strong-bg));
 }
 
-conversation-bar .conversation-tab.active .conversation-tab-name {
-    font-weight: 600;
+conversation-bar .conversation-bar-tab[aria-current="true"] .conversation-bar-tab-name {
+    font-weight: var(--font-weight-semibold);
 }
 
 conversation-bar:focus {
@@ -650,7 +644,7 @@ conversation-bar:focus {
 
 /* Rung only when ← brought the keyboard here (tab-list-ring): a click on the
    bar's background already shows where the keys went. */
-conversation-bar.tab-list-ring:focus-within .conversation-tab.active {
+conversation-bar.tab-list-ring:focus-within .conversation-bar-tab[aria-current="true"] {
     outline: var(--focus-ring);
     outline-offset: var(--focus-ring-offset);
 }
@@ -678,7 +672,7 @@ conversation-bar.tab-list-ring:focus-within .conversation-tab.active {
 }
 
 .recent-tabs-row--selected .recent-tabs-name {
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
 }
 
 .recent-tabs-status {
@@ -696,17 +690,11 @@ conversation-bar.tab-list-ring:focus-within .conversation-tab.active {
 .recent-tabs-name {
     flex: 1 1 auto;
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 .recent-tabs-place {
     flex: 0 1 auto;
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
     color: var(--text-tertiary);
     font-size: var(--font-size-sm);
 }
@@ -719,7 +707,7 @@ conversation-bar.tab-list-ring:focus-within .conversation-tab.active {
    (.drag-source) that the siblings shift around. z-index sits at --z-dropdown:
    above sidebar chrome, below modals (you can't reorder tabs with one open).
 
-   Written against the classes rather than against .conversation-tab, because a
+   Written against the classes rather than against .conversation-bar-tab, because a
    whole workspace box is dragged by the same gesture through the same utility:
    scoping the detachment to tabs left a box drag cloning a box that stayed
    where it was and never came off the page. Only the dragged element carries
@@ -746,7 +734,7 @@ conversation-bar .drag-source {
    it slides past, with a lighter version of the drag ghost's shadow, so the eye
    follows the tab that moved rather than the one that made way. Only while the
    glide runs. */
-conversation-bar .conversation-tab.keyboard-moving {
+conversation-bar .conversation-bar-tab.keyboard-moving {
     z-index: 1;
     box-shadow: 0 0.125rem 0.5rem var(--overlay-dark-25);
 }
@@ -757,7 +745,7 @@ conversation-bar .conversation-tab.keyboard-moving {
    workspace box is one of them — the boxes, and an empty box's "No
    conversations" line, which is a slot a tab can land in front of and so moves
    like one. */
-conversation-bar .conversation-tabs.is-dragging .conversation-tab:not(.drag-source),
+conversation-bar .conversation-tabs.is-dragging .conversation-bar-tab:not(.drag-source),
 conversation-bar .conversation-tabs.is-dragging .conversation-box:not(.drag-source),
 conversation-bar .conversation-tabs.is-dragging .conversation-box-empty {
     transition: transform var(--transition-base);
@@ -811,7 +799,7 @@ conversation-bar .conversation-box-new.stands-aside {
     }
 }
 
-conversation-bar .conversation-tab-button {
+conversation-bar .conversation-bar-tab-button {
     display: flex;
     align-items: center;
     justify-content: flex-start;
@@ -834,7 +822,7 @@ conversation-bar .conversation-add-labelled {
 }
 
 conversation-bar .conversation-add-labelled:hover {
-    color: var(--accent-green-bright);
+    color: var(--accent-green-strong);
 }
 
 /* As wide as the words and no wider, so a click past the end of a short name
@@ -843,7 +831,7 @@ conversation-bar .conversation-add-labelled:hover {
    would otherwise be a few pixels of the row that rename, and the only way to
    fix it would be one nobody could see. The floor is still well short of the
    row, which leaves the blank stretch beyond it a click on the row. */
-conversation-bar .conversation-tab-name {
+conversation-bar .conversation-bar-tab-name {
     flex: 0 1 auto;
     min-width: 3rem;
     overflow: hidden;
@@ -857,7 +845,7 @@ conversation-bar .conversation-tab-name {
    gradient painted through the letters (background-clip: text), twice the width
    of the words so it can travel from wholly before them to wholly after.
    Reduced motion keeps the words and drops the sweep. */
-conversation-bar .conversation-tab-name.is-auto-naming {
+conversation-bar .conversation-bar-tab-name.is-auto-naming {
     font-style: italic;
     color: transparent;
     background-image: linear-gradient(
@@ -870,16 +858,16 @@ conversation-bar .conversation-tab-name.is-auto-naming {
     );
     background-size: 200% 100%;
     background-clip: text;
-    animation: tab-auto-naming-shimmer 1.6s linear infinite;
+    animation: conversation-bar-tab-auto-naming-shimmer 1.6s linear infinite;
 }
 
-@keyframes tab-auto-naming-shimmer {
+@keyframes conversation-bar-tab-auto-naming-shimmer {
     from { background-position: 100% 0; }
     to { background-position: -100% 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    conversation-bar .conversation-tab-name.is-auto-naming {
+    conversation-bar .conversation-bar-tab-name.is-auto-naming {
         animation: none;
         color: var(--text-secondary);
         background-image: none;
@@ -904,7 +892,7 @@ conversation-bar > col-resize-handle.dragging {
     background: var(--accent-blue);
 }
 
-conversation-bar .conversation-tab-bin {
+conversation-bar .conversation-bar-tab-bin {
     background: none;
     border: none;
     color: inherit;
@@ -922,7 +910,7 @@ conversation-bar .conversation-tab-bin {
     border-radius: 50%;
 }
 
-conversation-bar .conversation-tab-bin svg {
+conversation-bar .conversation-bar-tab-bin svg {
     width: 1rem;
     height: 1rem;
 }
@@ -930,18 +918,18 @@ conversation-bar .conversation-tab-bin svg {
 /* Hover-only on devices that support hover. Touch devices keep the
    button visible so users can reach it without a hover target. */
 @media (hover: hover) {
-    conversation-bar .conversation-tab:hover .conversation-tab-bin {
+    conversation-bar .conversation-bar-tab:hover .conversation-bar-tab-bin {
         opacity: 0.8;
     }
 }
 
 @media (hover: none) {
-    conversation-bar .conversation-tab-bin {
+    conversation-bar .conversation-bar-tab-bin {
         opacity: 0.7;
     }
 }
 
-conversation-bar .conversation-tab-bin:hover {
+conversation-bar .conversation-bar-tab-bin:hover {
     opacity: 1;
     background: var(--overlay-dark-15);
 }
@@ -953,12 +941,12 @@ conversation-bar .conversation-tab-bin:hover {
    than with the shared editor — and why it is written as a descendant of the
    bar, which keeps it clear of the disabled-button rule in base/ without a
    fight over specificity. */
-conversation-bar .conversation-tab-auto-name {
+conversation-bar .conversation-bar-tab-auto-name {
     align-self: flex-start;
-    padding: 0.125rem 0.5rem;
+    padding: var(--space-2) var(--space-8);
     font-family: var(--font-ui);
     font-size: var(--font-size-sm);
-    line-height: 1.4;
+    line-height: var(--leading-tight);
     color: var(--text-secondary);
     background: transparent;
     border: 0.0625rem solid var(--border-color);
@@ -967,9 +955,9 @@ conversation-bar .conversation-tab-auto-name {
     transition: background var(--transition-base), color var(--transition-base);
 }
 
-conversation-bar .conversation-tab-auto-name:hover {
+conversation-bar .conversation-bar-tab-auto-name:hover {
     color: var(--text-primary);
-    background: var(--overlay-light-5);
+    background: var(--wash-1);
 }
 
 /* The rename editor a tab or a box opens is the shared one
@@ -989,8 +977,8 @@ conversation-bar .conversation-bar-footer {
     display: flex;
     flex-direction: column;
     flex: 0 0 auto;
-    margin-inline: 0.4rem;
-    padding-top: 0.25rem;
+    margin-inline: var(--space-6);
+    padding-top: var(--space-4);
     border-top: 0.0625rem solid var(--border-divider);
 }
 
@@ -1000,9 +988,9 @@ conversation-bar .conversation-bar-footer {
 conversation-bar .conversation-bin-button {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    margin: 0 0 0.25rem;
-    padding: 0.25rem 1rem;
+    gap: var(--space-8);
+    margin: 0 0 var(--space-4);
+    padding: var(--space-4) var(--space-16);
     font-size: var(--font-size-base);
     flex-shrink: 0;
 }
@@ -1031,14 +1019,14 @@ conversation-bar .conversation-bin-size {
 conversation-bar .conversation-bin-count {
     flex-shrink: 0;
     min-width: 1.25rem;
-    padding: 0.0625rem 0.375rem;
+    padding: 0.0625rem var(--space-6);
     border-radius: var(--radius-2xl);
     background: var(--bg-raised);
     color: var(--text-secondary);
     font-size: var(--font-size-xs);
     font-variant-numeric: tabular-nums;
     text-align: center;
-    line-height: 1.1;
+    line-height: var(--leading-snug);
 }
 
 /* Transient Undo button, docked directly above the Bin entry for a few seconds
@@ -1056,24 +1044,24 @@ conversation-bar .conversation-bin-undo {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 0.375rem;
-    margin: 0 0 0.25rem;
-    padding: 0.3125rem 1rem;
+    gap: var(--space-6);
+    margin: 0 0 var(--space-4);
+    padding: var(--space-4) var(--space-16);
     border: 0.0625rem solid var(--accent-blue);
     border-radius: var(--radius-2xl);
     background: color-mix(in srgb, var(--accent-blue) 15%, transparent);
     color: var(--accent-blue);
     font-family: var(--font-ui);
     font-size: var(--font-size-base);
-    font-weight: 500;
+    font-weight: var(--font-weight-medium);
     cursor: pointer;
     flex-shrink: 0;
 
     /* Rise, then pulse. Split across two animations so the flash owns the fill
        and the rise owns the movement — reduced motion keeps only the flash. */
     animation:
-        bin-undo-in 260ms cubic-bezier(0.2, 0.8, 0.3, 1.15),
-        bin-undo-flash 480ms ease-in-out 2;
+        conversation-bar-bin-undo-in 260ms var(--ease-spring),
+        conversation-bar-bin-undo-flash 480ms ease-in-out 2;
 }
 
 conversation-bar .conversation-bin-undo:hover {
@@ -1088,7 +1076,7 @@ conversation-bar .conversation-bin-undo svg {
 
 /* The arrival: rises from the Bin below and settles. Movement only — the fill
    belongs to the flash below, so the two never fight over `background`. */
-@keyframes bin-undo-in {
+@keyframes conversation-bar-bin-undo-in {
     from {
         opacity: 0;
         transform: translateY(0.75rem) scale(0.94);
@@ -1103,7 +1091,7 @@ conversation-bar .conversation-bin-undo svg {
 /* The flash: fill and border brighten and a soft halo swells, then both fall
    back to the resting tint. Two passes of this is the whole attention budget —
    after that the button just sits there being a button. */
-@keyframes bin-undo-flash {
+@keyframes conversation-bar-bin-undo-flash {
     0%,
     100% {
         background: color-mix(in srgb, var(--accent-blue) 15%, transparent);
@@ -1113,7 +1101,7 @@ conversation-bar .conversation-bin-undo svg {
 
     50% {
         background: color-mix(in srgb, var(--accent-blue) 45%, transparent);
-        border-color: var(--accent-blue-light);
+        border-color: var(--accent-blue-strong);
         box-shadow: 0 0 0.5rem 0.0625rem color-mix(in srgb, var(--accent-blue) 40%, transparent);
     }
 }
@@ -1122,7 +1110,7 @@ conversation-bar .conversation-bin-undo svg {
    still flashes where it is, nothing travels. */
 @media (prefers-reduced-motion: reduce) {
     conversation-bar .conversation-bin-undo {
-        animation: bin-undo-flash 480ms ease-in-out 2;
+        animation: conversation-bar-bin-undo-flash 480ms ease-in-out 2;
     }
 }
 
@@ -1140,44 +1128,33 @@ conversation-bar info-cards-button {
 
     /* The glyph sits 0.25rem inside the 1.5rem button box, so nudging the box in
        by 0.15rem lines the icon up with the 0.4rem-inset card text below it. */
-    margin-left: 0.15rem;
+    margin-left: var(--space-2);
     flex-shrink: 0;
 }
 
+/* The button is `btn btn-icon` (patterns/buttons.css); its own part is resting
+   dimmer than an ordinary icon button and holding the hover look while its
+   menu is open. */
 conversation-bar .info-cards-button {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.5rem;
-    height: 1.5rem;
-    padding: 0;
-    background: transparent;
-    border: none;
-    border-radius: var(--radius-md);
-    color: var(--text-secondary);
-    cursor: pointer;
     opacity: 0.7;
-    transition: opacity var(--transition-base), background var(--transition-base), color var(--transition-base);
 }
 
-conversation-bar .info-cards-button svg {
-    width: 1rem;
-    height: 1rem;
+conversation-bar .info-cards-button:hover {
+    opacity: 1;
 }
 
-conversation-bar .info-cards-button:hover,
 conversation-bar .info-cards-button[aria-expanded="true"] {
     opacity: 1;
-    background: var(--bg-raised);
+    background: var(--wash-2);
     color: var(--text-primary);
 }
 
 /* The show/hide tick gutter inside the info-cards menu. The menu is a standard
-   `.dropdown-menu` (heading → `.category-header`, rows → `.menu-item`, shown rows
-   → `.menu-item.active`) hosted on <body>, so these rules are UNSCOPED — a
+   `.dropdown-menu` (heading → `.menu-header-plain`, rows → `.menu-item`
+   checkboxes) hosted on <body>, so these rules are UNSCOPED — a
    `conversation-bar` prefix would never match the relocated surface. A
    fixed-width gutter keeps unticked rows aligned with ticked ones; the glyph is
-   the shared material check, greened by `.menu-item.active` on shown rows. */
+   the shared material check, greened with its row by `aria-checked="true"`. */
 .info-cards-menu__check {
     display: inline-flex;
     align-items: center;
@@ -1211,20 +1188,20 @@ conversation-bar .info-cards-button[aria-expanded="true"] {
    .app-main sets a monospace font-family that the sidebar inherits, so the
    host forces the card text (title, body, keycap) back to the UI sans font.
    ---------------------------------------------------------------------------- */
-conversation-bar info-rail {
+conversation-bar .info-rail {
     /* Depth of the fade over a clipped card's cut edge. The rail keeps at least
        twice this much of the card visible (MIN_CLIPPED_REVEAL_REM in info-rail.js),
        so the fade never covers the whole of what it is signing. */
-    --info-card-fade: 1.5rem;
+    --conversation-bar-info-card-fade: 1.5rem;
 
     display: flex;
     flex-direction: column;
     justify-content: flex-end;
-    gap: 0.5rem;
+    gap: var(--space-8);
     overflow: hidden;
     box-sizing: border-box;
-    margin: 0 0.4rem;
-    padding: 0.5rem 0 0.85rem;
+    margin: 0 var(--space-6);
+    padding: var(--space-8) 0 var(--space-14);
     font-family: var(--font-ui);
 
     /* Sized by its content, so the rail asks for exactly the cards it is showing
@@ -1252,13 +1229,13 @@ conversation-bar info-rail:has(info-cards-button[hidden]) {
    — a card carrying on out of view, rather than one that failed to draw. Applied
    only when something is actually cut, so a card that fits keeps its full contrast. */
 conversation-bar info-rail[data-clipped] {
-    mask-image: linear-gradient(to bottom, transparent 0, var(--mask-opaque) var(--info-card-fade));
+    mask-image: linear-gradient(to bottom, transparent 0, var(--mask-opaque) var(--conversation-bar-info-card-fade));
 }
 
 conversation-bar .info-card {
     display: flex;
     flex-direction: column;
-    padding: 0.5rem 0.4rem;
+    padding: var(--space-8) var(--space-6);
 }
 
 /* Zone adjacent cards with a hairline divider (never above the first card). The
@@ -1272,15 +1249,15 @@ conversation-bar .info-card + .info-card {
 conversation-bar .info-card__content {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: var(--space-4);
 }
 
 conversation-bar .info-card__header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.5rem;
-    margin-bottom: 0.3125rem;
+    gap: var(--space-8);
+    margin-bottom: var(--space-4);
 }
 
 conversation-bar .info-card__eyebrow {
@@ -1315,134 +1292,8 @@ conversation-bar .info-card__close:hover {
 conversation-bar .info-card__body {
     margin: 0;
     font-size: var(--font-size-sm);
-    line-height: 1.45;
+    line-height: var(--leading-tight);
     color: var(--text-secondary);
-}
-
-/* Active provider and optional plan above the shared usage meter rows. */
-conversation-bar .info-card__usage-sub {
-    font-size: var(--font-size-xs);
-    line-height: 1.35;
-    color: var(--text-secondary);
-}
-
-/* Under meters kept from an earlier fetch after a later one failed. */
-conversation-bar .info-card__usage-stale {
-    padding-top: 0.375rem;
-    font-size: var(--font-size-xs);
-    line-height: 1.35;
-    color: var(--text-tertiary);
-}
-
-/* Git-status per-repo rows: a subtle name badge + the monospaced counts. The
-   whole row is set in the mono face so path labels and counts share the tabular
-   look of the working tree they describe. */
-conversation-bar .info-card__git-line {
-    display: flex;
-    align-items: baseline;
-    gap: 0.4rem;
-    font-family: var(--font-mono);
-    font-size: var(--font-size-sm);
-    line-height: 1.5;
-}
-
-/* Quiet chip: a barely-there fill and hairline so the repo name reads as a tag
-   without competing with the counts — deliberately softer than the keycap. */
-conversation-bar .info-card__git-repo {
-    flex-shrink: 0;
-    padding: 0.0625rem 0.3125rem;
-    border-radius: var(--radius-md);
-    background: color-mix(in srgb, var(--text-primary) 8%, transparent);
-    border: 1px solid color-mix(in srgb, var(--text-primary) 12%, transparent);
-    color: var(--text-primary);
-    font-family: var(--font-mono);
-    font-size: var(--font-size-xs);
-    font-weight: 600;
-    white-space: nowrap;
-}
-
-conversation-bar .info-card__git-counts {
-    color: var(--text-secondary);
-    font-family: var(--font-mono);
-    font-size: var(--font-size-sm);
-}
-
-/* The card's whole content is a button that opens the Git pin. It must not look
-   like one: the card is ambient, and a control drawn as a control would pull
-   more attention than the counts it wraps. So it is a bare region that reveals
-   itself on hover and focus. */
-conversation-bar .info-card__git-launch {
-    display: block;
-    width: 100%;
-    margin: -0.25rem;
-    padding: 0.25rem;
-    border: none;
-    border-radius: var(--radius-md);
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    text-align: left;
-    cursor: pointer;
-}
-
-conversation-bar .info-card__git-launch:hover {
-    background: color-mix(in srgb, var(--text-primary) 6%, transparent);
-}
-
-/* Counts say what has changed; this says that something can be done about it. */
-conversation-bar .info-card__git-review {
-    margin-top: 0.125rem;
-    color: var(--accent-blue);
-    font-size: var(--font-size-sm);
-}
-
-/* Progress card (juggler-core cards/task-progress-card.js): one line per list in
-   flight — name, a thin strip, the count. A row is a button that opens the list's
-   pin when there is one, and like the Git launcher it stays a bare region that
-   shows itself only on hover. */
-conversation-bar .info-card__task-row {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    width: calc(100% + 0.5rem);
-    margin-inline: -0.25rem;
-    padding: 0.125rem 0.25rem;
-    border: none;
-    border-radius: var(--radius-md);
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    font-size: var(--font-size-sm);
-    line-height: 1.5;
-    text-align: left;
-}
-
-conversation-bar button.info-card__task-row {
-    cursor: pointer;
-}
-
-conversation-bar button.info-card__task-row:hover {
-    background: color-mix(in srgb, var(--text-primary) 6%, transparent);
-}
-
-conversation-bar .info-card__task-name {
-    flex: 0 0 auto;
-    min-width: 2.75rem;
-    color: var(--text-primary);
-}
-
-/* The strip is the plan/todo pins' bar (juggler-core lib/task-lists.js), which
-   owns its segments and colours; the row only sizes it and lifts its track off
-   the flat panel. */
-conversation-bar .info-card__task-row .task-progress {
-    flex: 1 1 auto;
-    background: var(--bg-raised);
-}
-
-conversation-bar .info-card__task-count {
-    flex: 0 0 auto;
-    color: var(--text-secondary);
-    font-variant-numeric: tabular-nums;
 }
 
 /* The one-time "spread the word" card (components/word-of-mouth.js): small,
@@ -1455,13 +1306,13 @@ conversation-bar .info-card .word-of-mouth__signature {
 conversation-bar .info-card .word-of-mouth__actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.5rem;
-    margin-top: 0.375rem;
+    gap: var(--space-8);
+    margin-top: var(--space-6);
 }
 
 conversation-bar .info-card .word-of-mouth__copy,
 conversation-bar .info-card .word-of-mouth__dismiss {
-    padding: 0.1875rem 0.5rem;
+    padding: var(--space-2) var(--space-8);
     border: 0.0625rem solid var(--border-color);
     border-radius: var(--radius-md);
     background: transparent;
@@ -1478,15 +1329,14 @@ conversation-bar .info-card .word-of-mouth__dismiss:hover {
 }
 
 conversation-bar .info-card .word-of-mouth__fallback {
-    margin: 0.375rem 0 0;
+    margin: var(--space-6) 0 0;
     font-size: var(--font-size-xs);
     color: var(--text-secondary);
 }
 
 conversation-bar .info-card .word-of-mouth__link {
-    box-sizing: border-box;
     width: 100%;
-    margin-top: 0.25rem;
+    margin-top: var(--space-4);
     font-family: var(--font-mono);
     font-size: var(--font-size-sm);
 }
@@ -1506,8 +1356,8 @@ bin-modal .modal-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.5rem;
-    padding: 1.25rem 1.5rem;
+    gap: var(--space-8);
+    padding: var(--space-20) var(--space-24);
     border-bottom: 0.0625rem solid var(--border-divider);
 }
 
@@ -1524,7 +1374,7 @@ bin-modal .bin-close {
     font-size: var(--font-size-2xl);
     line-height: 1;
     cursor: pointer;
-    padding: 0.25rem 0.5rem;
+    padding: var(--space-4) var(--space-8);
     border-radius: var(--radius-md);
     opacity: 0.7;
 }
@@ -1537,23 +1387,23 @@ bin-modal .bin-close:hover {
 bin-modal .bin-body {
     max-height: 60vh;
     overflow: auto;
-    padding: 1rem 1.5rem;
+    padding: var(--space-16) var(--space-24);
 }
 
 bin-modal .bin-empty {
-    padding: 1rem;
+    padding: var(--space-16);
     color: var(--text-secondary);
     text-align: center;
 }
 
 bin-modal .bin-size-notice {
-    padding: 0.5rem 0.75rem;
-    margin-bottom: 0.5rem;
+    padding: var(--space-8) var(--space-12);
+    margin-bottom: var(--space-8);
     border-radius: var(--radius-lg);
     background: var(--bg-raised);
     color: var(--text-secondary);
     font-size: var(--font-size-base);
-    line-height: 1.4;
+    line-height: var(--leading-tight);
 }
 
 bin-modal .bin-list {
@@ -1562,15 +1412,15 @@ bin-modal .bin-list {
     margin: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: var(--space-4);
 }
 
 bin-modal .bin-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.75rem;
-    padding: 0.5rem 0.75rem;
+    gap: var(--space-12);
+    padding: var(--space-8) var(--space-12);
 }
 
 bin-modal .bin-row-info {
@@ -1578,14 +1428,11 @@ bin-modal .bin-row-info {
     flex-direction: column;
     min-width: 0;
     flex: 1;
-    gap: 0.2rem;
+    gap: var(--space-4);
 }
 
 bin-modal .bin-row-name {
-    font-weight: 500;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    font-weight: var(--font-weight-medium);
 }
 
 bin-modal .bin-row-date {
@@ -1595,7 +1442,7 @@ bin-modal .bin-row-date {
 
 bin-modal .bin-row-actions {
     display: flex;
-    gap: 0.375rem;
+    gap: var(--space-6);
     flex-shrink: 0;
 }
 
@@ -1603,7 +1450,7 @@ bin-modal .bin-action {
     background: transparent;
     border: 0.0625rem solid var(--border-color);
     border-radius: var(--radius-md);
-    padding: 0.25rem 0.625rem;
+    padding: var(--space-4) var(--space-10);
     cursor: pointer;
     color: inherit;
     font-size: var(--font-size-base);
@@ -1617,8 +1464,8 @@ bin-modal .bin-restore:hover {
 }
 
 bin-modal .bin-delete:hover {
-    background: var(--accent-red);
-    border-color: var(--accent-red);
+    background: var(--danger);
+    border-color: var(--danger);
     color: var(--text-on-accent);
 }
 
@@ -1626,14 +1473,14 @@ bin-modal .bin-delete:hover {
 bin-modal .bin-header-actions {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--space-8);
 }
 
 bin-modal .bin-empty-now {
     background: transparent;
     border: 0.0625rem solid var(--border-color);
     border-radius: var(--radius-md);
-    padding: 0.25rem 0.625rem;
+    padding: var(--space-4) var(--space-10);
     cursor: pointer;
     color: inherit;
     font-size: var(--font-size-base);
@@ -1641,13 +1488,13 @@ bin-modal .bin-empty-now {
 }
 
 bin-modal .bin-empty-now:disabled {
-    opacity: 0.4;
+    opacity: var(--disabled-opacity);
     cursor: default;
 }
 
 bin-modal .bin-empty-now:not(:disabled):hover {
-    background: var(--accent-red);
-    border-color: var(--accent-red);
+    background: var(--danger);
+    border-color: var(--danger);
     color: var(--text-on-accent);
 }
 
@@ -1665,7 +1512,7 @@ bin-modal .bin-empty-now:not(:disabled):hover {
 }
 
 conversation-bar .conversation-bar-empty {
-    padding: 0.75rem 1rem;
+    padding: var(--space-12) var(--space-16);
     color: var(--text-secondary);
     font-style: italic;
 }
@@ -1696,7 +1543,7 @@ conversation-bar .conversation-bar-empty {
            reliably hit. */
         max-width: calc(100% - 3.5rem);
         transform: translateX(-100%);
-        transition: transform 200ms ease;
+        transition: transform var(--transition-slow);
 
         /* Horizontal drags are the swipe-to-dismiss gesture
            (ui-event-manager.js `_setupSidebarSwipe`), vertical ones stay the

@@ -88,7 +88,7 @@ export function openWorkspaceMove(conversation, workspaceId) {
       block.dataset.workspaceId = id;
 
       const says = document.createElement('div');
-      says.className = 'workspace-move-now-lead';
+      says.className = 'workspace-move-now-lead caps-label';
       says.textContent = lead;
       block.appendChild(says);
 
@@ -173,7 +173,7 @@ export function openWorkspaceMove(conversation, workspaceId) {
       title.className = 'workspace-move-title';
       title.textContent = t('Move this conversation');
       header.appendChild(title);
-      const close = setupButton('close-button workspace-move-close', '', () => modal.close(undefined));
+      const close = setupButton('btn btn-icon btn-icon-lg btn-ghost workspace-move-close', '', () => modal.close(undefined));
       close.setAttribute('aria-label', t('Close'));
       close.title = t('Close');
       const cross = document.createElement('span');

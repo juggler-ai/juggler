@@ -116,7 +116,7 @@ export async function runTests(_ctx) {
 
       mount = mountBar(session);
       const tabOf = (/** @type {string} */ id) =>
-        mount.bar.querySelector(`li.conversation-tab[data-conversation-id="${id}"]`);
+        mount.bar.querySelector(`li.conversation-bar-tab[data-conversation-id="${id}"]`);
       assert(!!tabOf(doomedId), 'the conversation to be binned has no tab to begin with');
 
       realApi = refreshInsideBin(session);

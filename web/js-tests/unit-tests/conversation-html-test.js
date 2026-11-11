@@ -354,7 +354,7 @@ export async function runTests() {
       bar.render();
 
       const tab = /** @type {Element|null} */ (
-        bar.querySelector(`.conversation-tab[data-conversation-id="${conversation.id}"]`));
+        bar.querySelector(`.conversation-bar-tab[data-conversation-id="${conversation.id}"]`));
       assert(!!tab, 'the strip draws a tab for the conversation');
       const labels = resolveMenu(/** @type {Element} */ (tab))?.items.map((item) => item.label) || [];
       const at = labels.indexOf('Export as HTML…');

@@ -41,7 +41,7 @@ function mountHost() {
   const host = document.createElement('section');
   host.style.cssText = 'position:absolute;left:-9999px;top:-9999px;';
   host.innerHTML = '<button class="trigger">open</button>'
-    + '<nav class="menu dropdown-menu show"><menu><li>item</li></menu></nav>';
+    + '<nav class="menu dropdown-menu is-open"><menu><li>item</li></menu></nav>';
   document.body.appendChild(host);
   return host;
 }
@@ -57,7 +57,7 @@ function mountScrollingMenu() {
   document.body.appendChild(button);
 
   const menu = document.createElement('nav');
-  menu.className = 'dropdown-menu show';
+  menu.className = 'dropdown-menu is-open';
   menu.style.cssText = 'display:flex;flex-direction:column;width:12rem;padding:0;';
   const list = document.createElement('div');
   list.style.cssText = 'flex:1 1 auto;min-height:0;overflow-y:auto;';
@@ -233,7 +233,7 @@ export async function runTests() {
         document.documentElement.style.setProperty('--visual-viewport-height', `${visible}px`);
         const anchor = document.createElement('button');
         const surface = document.createElement('nav');
-        surface.className = 'dropdown-menu permissions-popup show';
+        surface.className = 'dropdown-menu permissions-popup is-open';
         // Content that cannot shrink, as rows of text cannot: the permissions
         // popup is a flex column, which would squeeze an empty block to nothing.
         surface.innerHTML = '<div style="height:200rem;flex-shrink:0"></div>';
@@ -288,7 +288,7 @@ export async function runTests() {
       const button = document.createElement('button');
       button.style.cssText = 'position:fixed;left:40px;bottom:10px;width:80px;height:20px;';
       const menu = document.createElement('nav');
-      menu.className = 'dropdown-menu show';
+      menu.className = 'dropdown-menu is-open';
       menu.style.cssText = 'animation:none;transform:scale(0.5);width:12rem;height:300px;padding:0;';
       document.body.append(button, menu);
       try {

@@ -132,7 +132,7 @@ export class ProxySettings {
     const urlInput = document.createElement('input');
     urlInput.type = 'text';
     urlInput.id = 'proxy-url';
-    urlInput.className = 'proxy-url-input field-input';
+    urlInput.className = 'proxy-url-input field-input field-input-sm';
     urlInput.placeholder = t('http://host:port or socks5://host:port');
     urlInput.autocomplete = 'off';
     urlInput.spellcheck = false;

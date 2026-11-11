@@ -191,7 +191,7 @@ export function renderError(host, container, message) {
 
   const body = document.createElement('properties-panel-body');
   const errorText = itemContentText(message) || message.get('message') || '';
-  body.appendChild(panelHelpers.createCopyableText(errorText, 'properties-panel-result error'));
+  body.appendChild(panelHelpers.createCopyableText(errorText, 'properties-panel-result is-error'));
   wrapper.appendChild(body);
   container.appendChild(wrapper);
 }
@@ -380,7 +380,7 @@ function renderMessageAttachments(host, wrapper, message) {
     caption.className = 'properties-panel-attachment-caption';
 
     const name = document.createElement('span');
-    name.className = 'properties-panel-attachment-name';
+    name.className = 'properties-panel-attachment-name text-truncate';
     name.textContent = ref.filename || ref.id || t('attachment');
     name.title = name.textContent;
     caption.appendChild(name);
@@ -581,10 +581,10 @@ export function renderToolAction(host, container, toolAction) {
         // human-readable content string written for the LLM. Either is the
         // model's English, shown as it was; only the fallback word is UI.
         const errText = res.fullResult?.error || res.content || t('Error');
-        resultSection.appendChild(panelHelpers.createCopyableText(errText, 'properties-panel-result error'));
+        resultSection.appendChild(panelHelpers.createCopyableText(errText, 'properties-panel-result is-error'));
       } else if (res.cancelled) {
         const div = document.createElement('div');
-        div.className = 'properties-panel-result cancelled';
+        div.className = 'properties-panel-result is-cancelled';
         div.textContent = t('Cancelled');
         resultSection.appendChild(div);
       } else {
@@ -599,7 +599,7 @@ export function renderToolAction(host, container, toolAction) {
         const resultText = res.content || res.output || (hasTextField ? '' : JSON.stringify(res, null, 2));
         if (resultText === '') {
           const empty = document.createElement('div');
-          empty.className = 'properties-panel-result empty';
+          empty.className = 'properties-panel-result is-empty';
           empty.textContent = t('No output');
           resultSection.appendChild(empty);
         } else {

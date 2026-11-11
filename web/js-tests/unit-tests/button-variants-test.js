@@ -29,7 +29,7 @@ const RETIRED = [
   '.modal-button.primary', '.modal-button.secondary', '.modal-button.danger',
   '.about-button.primary', '.update-notice__button.primary',
   '.settings-btn.primary', '.settings-btn.danger',
-  '.np-action--primary', '.wiz-action--primary', '.skills-btn.install.primary'
+  '.np-action--primary', '.onboarding-wizard-action--primary', '.skills-btn.install.primary'
 ];
 
 /**

@@ -14,8 +14,8 @@
     flex: 1;
     min-height: 0;
     overflow: hidden auto;
-    padding: 1rem 1rem 0;
-    margin-right: 0.75rem; /* Space for scrollbar + gap before resize handle */
+    padding: var(--space-16) var(--space-16) 0;
+    margin-right: var(--space-12); /* Space for scrollbar + gap before resize handle */
 
     /* column-reverse makes the scroller bottom-anchored: the flex-start edge is
        the bottom, so new content appended at the visual end keeps the bottom
@@ -77,7 +77,7 @@ conversation-empty-hint {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 0 1rem;
+    padding: 0 var(--space-16);
     pointer-events: none;
     color: var(--text-tertiary);
     font-size: var(--font-size-md);
@@ -100,20 +100,20 @@ conversation-empty-hint.no-room {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.75rem;
+    gap: var(--space-12);
     flex-shrink: 0;
     max-width: 100%;
 }
 
 .empty-hint-lead {
     margin: 0;
-    padding: 1rem 0;
+    padding: var(--space-16) 0;
 }
 
 .empty-hint-keys {
     display: grid;
     grid-template-columns: max-content max-content;
-    gap: 0.375rem 0.75rem;
+    gap: var(--space-6) var(--space-12);
     align-items: center;
     text-align: left;
 }
@@ -127,7 +127,7 @@ conversation-empty-hint.no-room {
 .empty-hint-key {
     justify-self: end;
     min-width: 2rem;
-    padding: 0.125rem 0.5rem;
+    padding: var(--space-2) var(--space-8);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
     background: var(--bg-primary);
@@ -162,17 +162,17 @@ conversation-empty-hint.no-room {
 .empty-hint-tips {
     display: flex;
     flex-direction: column;
-    gap: 0.375rem;
+    gap: var(--space-6);
     width: 31rem;
     max-width: 100%;
-    padding-top: 0.25rem;
+    padding-top: var(--space-4);
 }
 
 .empty-hint-tips__badge {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 0.5rem;
+    gap: var(--space-8);
 }
 
 .empty-hint-tips__badge::before,
@@ -191,7 +191,7 @@ conversation-empty-hint.no-room {
 .empty-hint-tips__row {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--space-8);
 }
 
 /* The window the tips slide through. The incoming tip is in flow and sets the
@@ -210,19 +210,13 @@ conversation-empty-hint.no-room-for-tips .empty-hint-tips {
     display: none;
 }
 
-/* Switched off in Settings › Defaults: the element's own display:flex would
-   otherwise beat the `hidden` attribute. */
-.empty-hint-tips[hidden] {
-    display: none;
-}
-
 .empty-hint-tips__tip {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: var(--space-4);
     min-height: 6.5rem;
     font-size: var(--font-size-sm);
-    line-height: 1.45;
+    line-height: var(--leading-tight);
 }
 
 .empty-hint-tips__tip--leaving {
@@ -232,15 +226,15 @@ conversation-empty-hint.no-room-for-tips .empty-hint-tips {
 
 .empty-hint-tips__title {
     color: var(--text-secondary);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
 }
 
 /* The same keycap as the rows above, inline so the title wraps around it. */
 .empty-hint-tips__key {
     display: inline-block;
     min-width: 0;
-    margin-right: 0.5rem;
-    font-weight: normal;
+    margin-right: var(--space-8);
+    font-weight: var(--font-weight-normal);
 }
 
 /* Chrome (resting transparency, hover fill, press dip) is the header bar's
@@ -265,16 +259,12 @@ conversation-empty-hint.no-room-for-tips .empty-hint-tips {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0.5rem 0.75rem;
-    padding: 0.5rem 0.75rem;
+    gap: var(--space-8) var(--space-12);
+    padding: var(--space-8) var(--space-12);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
     font-size: var(--font-size-sm);
     pointer-events: auto;
-}
-
-.juggler-nudge[hidden] {
-    display: none;
 }
 
 .juggler-nudge--compact {
@@ -286,18 +276,18 @@ conversation-empty-hint.no-room-for-tips .empty-hint-tips {
     flex: 1 1 16rem;
     min-width: 0;
     color: var(--text-secondary);
-    line-height: 1.45;
+    line-height: var(--leading-tight);
 }
 
 .juggler-nudge__title {
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
 }
 
 .juggler-nudge__actions {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--space-8);
     margin-left: auto;
 }
 
@@ -330,36 +320,21 @@ conversation-empty-hint.no-room-for-tips .empty-hint-nudge {
     right: 1.25rem;
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: var(--space-4);
     z-index: 2;
     pointer-events: none;
 }
 
+/* The buttons are `btn btn-icon btn-icon-lg btn-neutral` (patterns/buttons.css),
+   filled so the transcript does not show through; their own part is staying
+   faint until the pointer reaches one. */
 .scroll-control-btn {
     pointer-events: auto;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.75rem;
-    height: 1.75rem;
-    padding: 0;
-    border: 0.0625rem solid var(--border-color);
-    border-radius: var(--radius-lg);
-    background: var(--bg-secondary);
-    color: var(--text-secondary);
-    cursor: pointer;
     opacity: 0.55;
-    transition: opacity 0.2s, color 0.2s, border-color 0.2s;
 }
 
 .scroll-control-btn:hover {
     opacity: 1;
-    color: var(--accent-blue);
-    border-color: var(--accent-blue);
-}
-
-.scroll-control-btn.hidden {
-    display: none;
 }
 
 
@@ -372,8 +347,8 @@ conversation-empty-hint.no-room-for-tips .empty-hint-nudge {
 conversation-footer {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
-    padding: 0.75rem 0.5rem;
+    gap: var(--space-8);
+    padding: var(--space-12) var(--space-8);
     min-width: 0;
     overflow: clip visible;
     container: conversation-footer / inline-size;
@@ -382,7 +357,7 @@ conversation-footer {
 footer-processing {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: var(--space-12);
 }
 
 footer-processing[data-message-id] {
@@ -405,7 +380,7 @@ footer-processing > .message-action-btn {
 
 /* Pause pending: the current step is finishing before the worker rests. A
    transient active appearance, cleared the moment the conversation reaches idle. */
-.footer-pause-btn.active {
+.footer-pause-btn.is-pending {
     border-color: var(--accent-blue);
     color: var(--accent-blue);
 }
@@ -417,11 +392,11 @@ footer-processing > .message-action-btn {
     display: none;
 }
 
-.footer-pause-btn.pending .footer-pause-icon {
+.footer-pause-btn.is-pending .footer-pause-icon {
     display: none;
 }
 
-.footer-pause-btn.pending .footer-pause-spinner {
+.footer-pause-btn.is-pending .footer-pause-spinner {
     display: inline-block;
 }
 
@@ -431,7 +406,7 @@ footer-processing > .message-action-btn {
 .footer-paused {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: var(--space-12);
 }
 
 .footer-paused-label {
@@ -445,8 +420,8 @@ footer-processing > .message-action-btn {
 .footer-undo-offer {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    padding: 0.5rem 0.75rem;
+    gap: var(--space-12);
+    padding: var(--space-8) var(--space-12);
     border: 1px solid var(--accent-blue);
     border-radius: var(--radius-lg);
     background-color: color-mix(in srgb, var(--accent-blue) 8%, transparent);
@@ -464,14 +439,14 @@ footer-processing > .message-action-btn {
 footer-idle {
     display: flex; /* Visible by default */
     flex-direction: column;
-    gap: 0.5rem;
+    gap: var(--space-8);
 }
 
 /* Each row spans the footer width so its groups can left/right-align. */
 .footer-idle-row {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.75rem;
+    gap: var(--space-12);
 }
 
 /* Main row: Add Context Item on the left, Continue group pushed right. */
@@ -481,7 +456,7 @@ footer-idle {
 
 .footer-idle-left {
     display: flex;
-    gap: 0.75rem;
+    gap: var(--space-12);
 }
 
 /* Wraps by whole buttons, right-aligned, so a narrow column moves Continue to
@@ -491,7 +466,7 @@ footer-idle {
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-end;
-    gap: 0.75rem;
+    gap: var(--space-12);
     margin-left: auto; /* right-align even when the left group is empty */
 }
 
@@ -521,11 +496,11 @@ conversation-footer .duplicate-to-tab-label {
    Square, since they carry no label to pad. */
 .footer-history {
     display: flex;
-    gap: 0.25rem;
+    gap: var(--space-4);
 }
 
 .footer-history-btn {
-    padding-inline: 0.375rem;
+    padding-inline: var(--space-6);
 }
 
 /* Readings row: the token meter and the thread's last-updated time. Neither is
@@ -534,7 +509,7 @@ conversation-footer .duplicate-to-tab-label {
     display: flex;
     flex-wrap: wrap; /* a narrow column drops the time to its own line */
     align-items: center;
-    gap: 0.75rem;
+    gap: var(--space-12);
 }
 
 /* Left-align the count to match the button rows below (override the
@@ -549,7 +524,7 @@ conversation-footer token-display {
 .footer-activity {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--space-8);
     margin-left: auto;
 }
 
@@ -580,7 +555,7 @@ conversation-footer token-display {
     color: var(--text-tertiary);
     font-size: var(--font-size-base);
     font-style: italic;
-    padding-left: 2.25rem; /* Align with text after spinner */
+    padding-left: var(--space-32); /* Align with text after spinner */
     white-space: pre-wrap;
     overflow-wrap: break-word;
 }
@@ -596,7 +571,7 @@ conversation-footer token-display {
 user-message article.user {
     background: var(--bubble-user-bg);
     color: var(--bubble-user-text);
-    padding: 0.75rem 1rem;
+    padding: var(--space-12) var(--space-16);
     border-radius: var(--radius-bubble);
     font-size: var(--font-size-md);
     overflow-wrap: break-word;
@@ -610,9 +585,9 @@ user-message article.user {
    mode, the bubble and the selection highlight composite to nearly the same pale
    grey and the bubble disappears into the selection. Layering keeps the bubble a
    step darker than the gutter highlight regardless of theme or backdrop. */
-user-message.conversation-item.selected article.user {
+user-message.conversation-item.is-selected article.user {
     background:
-        linear-gradient(var(--overlay-light-10), var(--overlay-light-10)),
+        linear-gradient(var(--wash-3), var(--wash-3)),
         var(--bubble-user-bg);
 }
 
@@ -655,10 +630,10 @@ user-message .user-message-text.plain {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 0.25rem;
+    gap: var(--space-4);
     width: 100%;
-    margin-top: 0.25rem;
-    padding: 0.15rem 0.25rem;
+    margin-top: var(--space-4);
+    padding: var(--space-2) var(--space-4);
     background: transparent;
     border: none;
     border-radius: var(--radius-lg);
@@ -666,14 +641,13 @@ user-message .user-message-text.plain {
     font-family: inherit;
     font-size: var(--font-size-sm);
     line-height: 1;
-    cursor: pointer;
     opacity: 0.7;
-    transition: opacity 120ms ease, background 120ms ease;
+    transition: opacity var(--transition-fast), background var(--transition-fast);
 }
 
 .collapsible-toggle:hover {
     opacity: 1;
-    background: var(--overlay-light-10);
+    background: var(--wash-3);
 }
 
 .collapsible-toggle svg {
@@ -685,8 +659,8 @@ user-message .user-message-text.plain {
 user-message .user-message-attachments {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.5rem;
-    margin-top: 0.5rem;
+    gap: var(--space-8);
+    margin-top: var(--space-8);
 }
 
 /* Image-only message: grid is the first child, so drop the top gap. */
@@ -716,32 +690,15 @@ assistant-message article.assistant {
 }
 
 /* Hover-reveal copy-to-clipboard button in the upper-right of user and
-   assistant messages. Absolutely positioned so it never disrupts layout;
-   hidden until the message (or the button itself) is hovered. */
+   assistant messages (`btn btn-icon btn-neutral`). Absolutely positioned so it
+   never disrupts layout; hidden until the message (or the button itself) is
+   hovered. */
 .message-copy-button {
     position: absolute;
     top: 0.25rem;
     right: 0.25rem;
-    width: 1.5rem;
-    height: 1.5rem;
-    padding: 0.25rem;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
-    color: var(--text-secondary);
-    cursor: pointer;
     opacity: 0;
-    transition: opacity var(--transition-base), background var(--transition-base), color var(--transition-base);
-    display: flex;
-    align-items: center;
-    justify-content: center;
     z-index: 2;
-}
-
-.message-copy-button svg {
-    width: 0.875rem;
-    height: 0.875rem;
-    display: block;
 }
 
 /* Hovering the message reveals the button only translucently, so it doesn't
@@ -755,11 +712,6 @@ assistant-message article.assistant:hover .message-copy-button {
 .message-copy-button:hover,
 .message-copy-button.copied {
     opacity: 1;
-}
-
-.message-copy-button:hover {
-    background: var(--bg-raised);
-    color: var(--text-primary);
 }
 
 /* Assistant messages have no bubble and span the column's full text width, so
@@ -807,10 +759,10 @@ thinking-message article.thinking-inline .markdown :is(strong, b) {
    usually something the user wants to act on, so it reads as a distinct block
    rather than one more dim log line, and carries its own Retry action. */
 error-message article.error {
-    background: color-mix(in srgb, var(--accent-red) 10%, transparent);
-    border: 0.0625rem solid color-mix(in srgb, var(--accent-red) 35%, transparent);
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
+    border: 0.0625rem solid color-mix(in srgb, var(--danger) 35%, transparent);
     border-radius: var(--radius-xl);
-    padding: 0.85rem 0.95rem;
+    padding: var(--space-14) var(--space-16);
     font-size: var(--font-size-md);
     overflow-wrap: break-word;
 
@@ -822,8 +774,8 @@ error-message article.error {
 /* Plain-English lead above the provider's own error text, which keeps its own
    styling below so the diagnostic detail stays as readable as ever. */
 .error-message-lead {
-    margin-bottom: 0.35rem;
-    font-weight: 500;
+    margin-bottom: var(--space-6);
+    font-weight: var(--font-weight-medium);
     color: var(--text-primary);
 }
 
@@ -831,15 +783,9 @@ error-message article.error {
    authentication failure adds a Provider settings action ahead of it. */
 .error-message-actions {
     display: flex;
-    gap: 0.5rem;
+    gap: var(--space-8);
     justify-content: flex-end;
-    margin-top: 0.75rem;
-}
-
-/* Retry reuses .message-action-btn but themes its hover red to match the error. */
-.error-retry-btn:hover:not(:disabled) {
-    border-color: var(--accent-red);
-    color: var(--accent-red);
+    margin-top: var(--space-12);
 }
 
 /* A notice takes no card and no extra room: the amber triangle, a "Warning"
@@ -856,7 +802,7 @@ notice-message article.notice-message-row {
    under the line, left-aligned with its text. */
 .notice-message-actions {
     display: flex;
-    padding-top: 0.375rem;
+    padding-top: var(--space-6);
 }
 
 /* All message components need display: block for proper backgrounds and selection */
@@ -878,7 +824,7 @@ tool-action-message {
 .message-with-icon {
     display: flex;
     align-items: flex-start;
-    gap: 1rem;
+    gap: var(--space-16);
 }
 
 /* The circle itself, its colour presets and its pulse are the shared badge
@@ -934,7 +880,7 @@ tool-group-message article[data-processing="true"] .message-icon-box {
 
 /* Error messages use red color for visibility */
 article.error .message-text {
-    color: var(--accent-red);
+    color: var(--danger);
 }
 
 /* Content box for icon messages - pure layout container, never clips children */
@@ -974,7 +920,7 @@ assistant-message article.assistant .message-content-box,
 thinking-message article.thinking .message-content-box {
     background: transparent;
     border: none;
-    padding: 0.4rem 0;
+    padding: var(--space-6) 0;
 }
 
 /* Workspace banner: the tree a bound conversation works in, stated once above
@@ -986,9 +932,9 @@ thinking-message article.thinking .message-content-box {
     display: flex;
     align-items: baseline;
     flex-wrap: wrap;
-    gap: 0 0.375rem;
-    margin-bottom: 0.75rem;
-    padding-bottom: 0.5rem;
+    gap: 0 var(--space-6);
+    margin-bottom: var(--space-12);
+    padding-bottom: var(--space-8);
     border-bottom: 1px dashed var(--border-divider);
     font-size: var(--font-size-xs);
     color: var(--text-secondary);
@@ -1001,19 +947,19 @@ thinking-message article.thinking .message-content-box {
    ============================================================================ */
 
 .pending-messages {
-    margin-top: 0.5rem;
-    padding: 0.5rem 0 0.25rem;
+    margin-top: var(--space-8);
+    padding: var(--space-8) 0 var(--space-4);
     border-top: 1px dashed var(--border-divider);
     opacity: 0.72;
 }
 
 .pending-messages-label {
     color: var(--text-secondary);
-    margin-bottom: 0.25rem;
+    margin-bottom: var(--space-4);
 }
 
 /* Selected queued bubble regains full emphasis so the selection ring reads. */
-.pending-messages .queued-message.selected {
+.pending-messages .queued-message.is-selected {
     opacity: 1;
 }
 
@@ -1021,7 +967,7 @@ thinking-message article.thinking .message-content-box {
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 0.375rem;
+    gap: var(--space-6);
 }
 
 .pending-messages .queued-message article.user {
@@ -1034,71 +980,25 @@ thinking-message article.thinking .message-content-box {
     color: var(--text-secondary);
 }
 
-.pending-messages .queued-message-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.75rem;
-    height: 1.75rem;
-    flex-shrink: 0;
-    background: transparent;
-    border: none;
-    border-radius: var(--radius-md);
-    padding: 0;
-    color: var(--text-tertiary);
-    cursor: pointer;
-    opacity: 0.9;
-    transition: background 0.15s ease, color 0.15s ease, opacity 0.15s ease;
-}
-
-.pending-messages .queued-message-btn:hover,
-.pending-messages .queued-message-btn:focus-visible {
-    color: var(--text-primary);
-    opacity: 1;
-}
-
-.pending-messages .queued-message-delete-btn:hover,
-.pending-messages .queued-message-delete-btn:focus-visible {
-    color: var(--accent-red);
-    background: color-mix(in srgb, var(--accent-red) 12%, transparent);
-    opacity: 1;
-}
-
 /* Terminal "Result" block synthesized at the end of an open thread column's
    transcript (from the thread's `result` field). Distinct from the parent
    tile and from any message bubble. */
 .thread-result-final .thread-result-label {
     color: var(--text-secondary);
-    margin-bottom: 0.25rem;
+    margin-bottom: var(--space-4);
 }
 
 .thread-result-final .thread-result-header {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
-    gap: 0.5rem;
+    gap: var(--space-8);
 }
 
 .thread-result-final .thread-result-header-actions {
     display: flex;
-    gap: 0.375rem;
+    gap: var(--space-6);
     flex-shrink: 0;
-}
-
-.thread-result-final .thread-result-resummarise-btn {
-    background: transparent;
-    color: var(--text-secondary);
-    border: 0.0625rem solid var(--border-color);
-    padding: 0.125rem 0.5rem;
-    border-radius: var(--radius-md);
-    font-size: var(--font-size-xs);
-    cursor: pointer;
-    transition: border-color 0.2s, color 0.2s;
-}
-
-.thread-result-final .thread-result-resummarise-btn:hover {
-    border-color: var(--accent-blue);
-    color: var(--accent-blue);
 }
 
 .thread-result-final .thread-result-body {
@@ -1127,7 +1027,7 @@ thread-message {
 thread-message .thread-item {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: var(--space-4);
 }
 
 /* The goal is the caller's own description of the task, so it carries the
@@ -1140,16 +1040,11 @@ thread-message .thread-goal {
 }
 
 /* Stop affordance on a running tile: sits at the right end of the status
-   message row, red hover like the column header's Cancel. Only rendered while
+   message row (btn-danger-quiet gives it the red hover). Only rendered while
    the thread is not yet closed. */
 thread-message .thread-stop-btn {
     margin-left: auto;
     flex-shrink: 0;
-}
-
-thread-message .thread-stop-btn:hover {
-    border-color: var(--accent-red);
-    color: var(--accent-red);
 }
 
 thread-message .thread-summary {
@@ -1167,7 +1062,7 @@ thread-message .thread-summary.not-summarised {
    tile under the summary. Quiet by design: it is a fact about the tile, read
    once and then only when someone wonders what delegating costs. */
 thread-message .thread-cost {
-    margin-top: 0.25rem;
+    margin-top: var(--space-4);
     font-size: var(--font-size-xs);
     color: var(--text-secondary);
 }
@@ -1191,14 +1086,14 @@ tool-group-message .thread-summary {
 .thread-summary.thread-status {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: var(--space-4);
     color: var(--text-secondary);
 }
 
 .thread-summary.thread-status .thread-status-message {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: var(--space-6);
     font-style: italic;
 }
 
@@ -1215,13 +1110,13 @@ tool-group-message .thread-summary {
 .thread-summary.thread-status[data-kind="paused"] {
     background: color-mix(in srgb, var(--tab-awaiting) 85%, transparent);
     border-radius: var(--radius-lg);
-    padding: 0.5rem 0.625rem;
+    padding: var(--space-8) var(--space-10);
     animation: tab-awaiting-pulse 1.4s ease-in-out infinite;
 }
 
 .thread-summary.thread-status[data-kind="paused"] .thread-status-message {
     font-style: normal;
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1231,14 +1126,14 @@ tool-group-message .thread-summary {
 /* Thread column header - shown above thread conversation columns.
    Uses properties-panel-section/header for consistent styling with properties panel. */
 .thread-column-header {
-    padding: 1rem;
+    padding: var(--space-16);
     background: var(--bg-secondary);
     flex-shrink: 0;
 }
 
 .thread-column-header properties-panel-section {
     overflow: visible;
-    gap: 1rem;
+    gap: var(--space-16);
 }
 
 .thread-column-header .thread-column-goal {
@@ -1248,68 +1143,26 @@ tool-group-message .thread-summary {
     font-size: var(--font-size-md);
 }
 
-thread-column-actions {
+.thread-column-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.25rem;
-    margin-bottom: 1rem;
-}
-
-.thread-action-btn {
-    background: transparent;
-    color: var(--text-secondary);
-    border: 0.0625rem solid var(--border-color);
-    padding: 0.1875rem 0.5rem;
-    border-radius: var(--radius-md);
-    font-size: var(--font-size-sm);
-    cursor: pointer;
-    transition: border-color 0.2s, color 0.2s;
-}
-
-.thread-action-btn:hover {
-    border-color: var(--accent-blue);
-    color: var(--accent-blue);
+    gap: var(--space-4);
+    margin-bottom: var(--space-16);
 }
 
 .thread-column .conversation-message-list {
-    padding-top: 1rem;
+    padding-top: var(--space-16);
     scroll-padding-top: 1rem;
 }
 
-/* Message action buttons (rollback, branch) */
+/* Message action buttons (the footer's, an error's, a notice's): the shared
+   .btn btn-sm btn-secondary, with glyphs that take the label's colour.
 
-.message-action-btn {
-    background: transparent;
-    color: var(--text-secondary);
-    border: 0.0625rem solid var(--border-color);
-    padding: 0.25rem 0.625rem;
-    border-radius: var(--radius-lg);
-    font-size: var(--font-size-base);
-    cursor: pointer;
-    transition: border-color 0.2s, color 0.2s;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-}
-
-.message-action-btn:hover:not(:disabled) {
-    border-color: var(--accent-blue);
-    color: var(--accent-blue);
-}
-
-.message-action-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-/* The button's OWN icon, which is always a direct child. A descendant selector
+   The button's OWN icon, which is always a direct child. A descendant selector
    here also lands on the three club <svg>s inside a <juggler-spinner> in the
    button (the footer Pause button holds one), where it ties with the spinner's
-   own club rule on specificity and wins on source order — sizing every club to
-   the full 1rem of the spinner, so they pile up in the centre and spill out of
-   the button. The child combinator cannot reach them. */
+   own club rule on specificity and wins on source order. The child combinator
+   cannot reach them. */
 .message-action-btn > svg {
-    width: 1rem;
-    height: 1rem;
     fill: currentcolor;
 }

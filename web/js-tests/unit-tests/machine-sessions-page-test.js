@@ -128,10 +128,10 @@ function withExposure(api) {
  */
 function typePath(root, key, path) {
   clickRow(actionRow(root, key));
-  const field = /** @type {HTMLInputElement|null} */ (actionRow(root, key).querySelector('.ss-field input'));
+  const field = /** @type {HTMLInputElement|null} */ (actionRow(root, key).querySelector('.session-switcher-field input'));
   assert(!!field, `${key} shows no path field`);
   /** @type {HTMLInputElement} */ (field).value = path;
-  /** @type {HTMLButtonElement} */ (actionRow(root, key).querySelector('.ss-field [data-field-go]')).click();
+  /** @type {HTMLButtonElement} */ (actionRow(root, key).querySelector('.session-switcher-field [data-field-go]')).click();
 }
 
 /**
@@ -198,7 +198,7 @@ async function openChooser(m) {
  * @returns {HTMLElement} The session's row.
  */
 function row(root, id) {
-  const el = /** @type {HTMLElement|null} */ (root.querySelector(`.ss-row[data-key="s:${id}"]`));
+  const el = /** @type {HTMLElement|null} */ (root.querySelector(`.session-switcher-row[data-key="s:${id}"]`));
   assert(!!el, `no row for session ${id}`);
   return /** @type {HTMLElement} */ (el);
 }
@@ -209,7 +209,7 @@ function row(root, id) {
  * @returns {HTMLElement} The recent project's row.
  */
 function recentRow(root, path) {
-  const el = /** @type {HTMLElement|null} */ (root.querySelector(`.ss-row[data-key="r:${path}"]`));
+  const el = /** @type {HTMLElement|null} */ (root.querySelector(`.session-switcher-row[data-key="r:${path}"]`));
   assert(!!el, `no row for recent project ${path}`);
   return /** @type {HTMLElement} */ (el);
 }
@@ -220,7 +220,7 @@ function recentRow(root, path) {
  * @returns {HTMLElement} The action's row.
  */
 function actionRow(root, key) {
-  const el = /** @type {HTMLElement|null} */ (root.querySelector(`.ss-row[data-key="${key}"]`));
+  const el = /** @type {HTMLElement|null} */ (root.querySelector(`.session-switcher-row[data-key="${key}"]`));
   assert(!!el, `no ${key} row`);
   return /** @type {HTMLElement} */ (el);
 }
@@ -231,7 +231,7 @@ function actionRow(root, key) {
  * @param {MouseEventInit} [mods]
  */
 function clickRow(el, mods = {}) {
-  const target = el.querySelector('.ss-name, .ss-action-name') || el;
+  const target = el.querySelector('.session-switcher-name, .session-switcher-action-name') || el;
   target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ...mods }));
 }
 
@@ -241,7 +241,7 @@ function clickRow(el, mods = {}) {
  * @returns {string[]} The keys of the rows that start with it, in order.
  */
 function keys(root, prefix = '') {
-  return [...root.querySelectorAll('.ss-row')].map((r) => /** @type {HTMLElement} */ (r).dataset.key || '').filter((k) => k.startsWith(prefix));
+  return [...root.querySelectorAll('.session-switcher-row')].map((r) => /** @type {HTMLElement} */ (r).dataset.key || '').filter((k) => k.startsWith(prefix));
 }
 
 /**
@@ -249,7 +249,7 @@ function keys(root, prefix = '') {
  * @returns {string[]} The parts of its status line.
  */
 function parts(r) {
-  return [...(r.querySelector('.ss-sub')?.children || [])].map((c) => c.textContent || '');
+  return [...(r.querySelector('.session-switcher-sub')?.children || [])].map((c) => c.textContent || '');
 }
 
 /**
@@ -288,10 +288,10 @@ export async function runTests() {
       const listed = keys(m.root, 's:').sort();
       assert(JSON.stringify(listed) === '["s:aaa","s:bbb","s:ccc","s:ddd"]', `session rows ${JSON.stringify(listed)}, want all 4`);
       const alpha = row(m.root, 'aaa');
-      assert(alpha.querySelector('.ss-name')?.textContent === 'alpha', `alpha is named ${JSON.stringify(alpha.querySelector('.ss-name')?.textContent)}`);
+      assert(alpha.querySelector('.session-switcher-name')?.textContent === 'alpha', `alpha is named ${JSON.stringify(alpha.querySelector('.session-switcher-name')?.textContent)}`);
       assert(JSON.stringify(parts(alpha)) === '["idle"]', `alpha says ${JSON.stringify(parts(alpha))}`);
       assert(parts(row(m.root, 'bbb')).includes('working'), `a busy session is not shown working: ${JSON.stringify(parts(row(m.root, 'bbb')))}`);
-      const gamma = row(m.root, 'ccc').querySelector('.ss-sub')?.textContent || '';
+      const gamma = row(m.root, 'ccc').querySelector('.session-switcher-sub')?.textContent || '';
       assert(/restarting/.test(gamma) && /restarted 2 times/.test(gamma),
         `a restarting session should say it restarts and how often it has: ${gamma}`);
       assert(parts(row(m.root, 'ddd'))[0] === 'session child crashed 6 times in a row',
@@ -325,29 +325,29 @@ export async function runTests() {
        * @param {string} id
        * @returns {string[]} The marks on its tile.
        */
-      const marks = (id) => [...row(m.root, id).querySelectorAll('.ss-tile-wrap .ss-badge')].map((b) => `${b.className.replace('ss-badge ', '')}:${b.textContent}`);
+      const marks = (id) => [...row(m.root, id).querySelectorAll('.session-switcher-tile-wrap .session-switcher-badge')].map((b) => `${b.className.replace('session-switcher-badge ', '')}:${b.textContent}`);
       const want = {
-        w: ['ss-badge-waiting:2', 'ss-badge-working:'],
-        f: ['ss-badge-failed:!'],
+        w: ['session-switcher-badge-waiting:2', 'session-switcher-badge-working:'],
+        f: ['session-switcher-badge-failed:!'],
         i: [],
-        b: ['ss-badge-working:'],
+        b: ['session-switcher-badge-working:'],
         s: [], r: [],
-        e: ['ss-badge-failed:!'],
+        e: ['session-switcher-badge-failed:!'],
       };
       for (const [id, expected] of Object.entries(want)) {
         assert(JSON.stringify(marks(id)) === JSON.stringify(expected), `${id}: marks ${JSON.stringify(marks(id))}, want ${JSON.stringify(expected)}`);
       }
       for (const id of ['s', 'r']) {
-        assert(!!row(m.root, id).querySelector('.ss-tile-wrap juggler-spinner'), `${id}: no spinner on a session in its lifecycle`);
+        assert(!!row(m.root, id).querySelector('.session-switcher-tile-wrap juggler-spinner'), `${id}: no spinner on a session in its lifecycle`);
       }
       for (const id of ['w', 'f', 'i', 'b', 'e']) {
         assert(!row(m.root, id).querySelector('juggler-spinner'), `${id}: a spinner on a settled session`);
       }
 
-      const tile = /** @type {HTMLElement} */ (row(m.root, 'w').querySelector('.ss-tile'));
+      const tile = /** @type {HTMLElement} */ (row(m.root, 'w').querySelector('.session-switcher-tile'));
       assert(tile.textContent === 'WH', `tile initials ${JSON.stringify(tile.textContent)}, want WH`);
-      assert(tile.style.getPropertyValue('--ss-tint') === workspaceTint('/p/waits-here-0123abcd/'),
-        `tile tint ${tile.style.getPropertyValue('--ss-tint')}, want the link's workspace tint`);
+      assert(tile.style.getPropertyValue('--session-switcher-tint') === workspaceTint('/p/waits-here-0123abcd/'),
+        `tile tint ${tile.style.getPropertyValue('--session-switcher-tint')}, want the link's workspace tint`);
 
       /** @type {Record<string, string[]>} */
       const lines = {
@@ -367,7 +367,7 @@ export async function runTests() {
     await underPseudoLocale('machine-sessions-attention', async () => {
       const p = await mount(stubApi(attentive));
       try {
-        const line = row(p.root, 'w').querySelector('.ss-sub')?.textContent || '';
+        const line = row(p.root, 'w').querySelector('.session-switcher-sub')?.textContent || '';
         assert(isPseudoLocalized(line), `the status line was not translated: ${JSON.stringify(line)}`);
       } finally {
         p.dispose();
@@ -382,18 +382,18 @@ export async function runTests() {
     api.recents = async () => ({ paths: ['/work/left-waiting', '/work/quiet'], links: {}, waiting: { '/work/left-waiting': 2 } });
     const m = await mount(api);
     try {
-      const line = recentRow(m.root, '/work/left-waiting').querySelector('.ss-sub');
+      const line = recentRow(m.root, '/work/left-waiting').querySelector('.session-switcher-sub');
       assert(line?.textContent === '? 2 conversations were waiting on you when it closed', `waiting line ${JSON.stringify(line?.textContent)}`);
-      assert(!!line?.classList.contains('ss-tone-waiting'), 'the waiting line is not in the yellow of waiting');
-      const quiet = recentRow(m.root, '/work/quiet').querySelector('.ss-sub');
-      assert(quiet?.textContent === '/work/quiet' && !quiet.classList.contains('ss-tone-waiting'), `a project with nothing waiting says ${JSON.stringify(quiet?.textContent)}`);
+      assert(!!line?.classList.contains('session-switcher-tone-waiting'), 'the waiting line is not in the yellow of waiting');
+      const quiet = recentRow(m.root, '/work/quiet').querySelector('.session-switcher-sub');
+      assert(quiet?.textContent === '/work/quiet' && !quiet.classList.contains('session-switcher-tone-waiting'), `a project with nothing waiting says ${JSON.stringify(quiet?.textContent)}`);
     } finally {
       m.dispose();
     }
     await underPseudoLocale('machine-sessions-recent-waiting', async () => {
       const p = await mount(api);
       try {
-        const text = p.root.querySelector('.ss-sub.ss-tone-waiting')?.textContent || '';
+        const text = p.root.querySelector('.session-switcher-sub.session-switcher-tone-waiting')?.textContent || '';
         assert(isPseudoLocalized(text), `the waiting line was not translated: ${JSON.stringify(text)}`);
       } finally {
         p.dispose();
@@ -507,7 +507,7 @@ export async function runTests() {
       const loading = /** @type {HTMLElement|null} */ (root.querySelector('.ms-sessions-loading'));
       assert(!!loading?.querySelector('juggler-spinner'), `no spinner while the list loads: ${root.innerHTML}`);
       assert(loading?.getAttribute('aria-busy') === 'true', 'the list does not say it is loading');
-      assert(!root.querySelector('.ss-row'), 'offered rows before it knew what there is');
+      assert(!root.querySelector('.session-switcher-row'), 'offered rows before it knew what there is');
       assert(asked === 1, `the page asked for the list ${asked} times as it mounted, want 1`);
       /** @type {() => void} */ (/** @type {unknown} */ (release))();
       await waitFor(() => keys(root, 's:').length === 4, { description: 'the first list' });
@@ -524,7 +524,7 @@ export async function runTests() {
     const m = await mount(down);
     try {
       assert(!!m.root.querySelector('.ms-unreachable'), 'no word that the server is unreachable');
-      assert(!!m.root.querySelector('.ms-sessions-loading juggler-spinner') && !m.root.querySelector('.ss-row'),
+      assert(!!m.root.querySelector('.ms-sessions-loading juggler-spinner') && !m.root.querySelector('.session-switcher-row'),
         'an unanswered list was shown as empty');
     } finally {
       m.dispose();
@@ -562,7 +562,7 @@ export async function runTests() {
       assert(JSON.stringify(nav.tabs) === '["/p/alpha-0123abcd/"]' && nav.went.length === 0,
         `a ⌘-click opened ${JSON.stringify(nav.tabs)} in a tab and went to ${JSON.stringify(nav.went)}`);
 
-      /** @type {HTMLButtonElement} */ (row(m.root, 'bbb').querySelector('.ss-stop')).click();
+      /** @type {HTMLButtonElement} */ (row(m.root, 'bbb').querySelector('.session-switcher-stop')).click();
       await nextTask();
       clickRow(row(m.root, 'ccc'));
       await nextTask();
@@ -579,7 +579,7 @@ export async function runTests() {
     const m = await mount(stubApi(sessions), { host, navigate: nav.navigate, openTab: nav.openTab });
     try {
       clickRow(row(m.root, 'aaa'));
-      /** @type {HTMLButtonElement} */ (row(m.root, 'aaa').querySelector('.ss-stop')).click();
+      /** @type {HTMLButtonElement} */ (row(m.root, 'aaa').querySelector('.session-switcher-stop')).click();
       await nextTask();
       assert(JSON.stringify(host.attached) === '["aaa"]', `attached ${JSON.stringify(host.attached)}`);
       assert(JSON.stringify(host.attachedLinks) === '["/p/alpha-0123abcd/"]', `attached at ${JSON.stringify(host.attachedLinks)}`);
@@ -613,7 +613,7 @@ export async function runTests() {
     const nav = stubNavigate();
     const m = await mount(stubApi(sessions, ['/work/zeta']), { navigate: nav.navigate, openTab: nav.openTab });
     try {
-      const input = /** @type {HTMLInputElement|null} */ (m.root.querySelector('.ss-input'));
+      const input = /** @type {HTMLInputElement|null} */ (m.root.querySelector('.session-switcher-input'));
       assert(!!input && input.checkVisibility(), 'the page has no filter shown');
       /** @type {HTMLInputElement} */ (input).value = 'alph';
       input?.dispatchEvent(new Event('input'));
@@ -624,7 +624,7 @@ export async function runTests() {
       assert(JSON.stringify(nav.tabs) === '["/p/alpha-0123abcd/"]', `⌘↵ opened ${JSON.stringify(nav.tabs)}`);
       /** @type {HTMLInputElement} */ (input).value = 'nothing-like-it';
       input?.dispatchEvent(new Event('input'));
-      assert((m.root.querySelector('.ss-empty')?.textContent || '').includes('nothing-like-it'), 'a filter that matches nothing does not say so');
+      assert((m.root.querySelector('.session-switcher-empty')?.textContent || '').includes('nothing-like-it'), 'a filter that matches nothing does not say so');
     } finally {
       m.dispose();
     }
@@ -646,7 +646,7 @@ export async function runTests() {
       document.body.dispatchEvent(e);
       return e;
     };
-    const lit = () => /** @type {HTMLElement|null} */ (m.root.querySelector('.ss-row[aria-selected="true"]'))?.dataset.key;
+    const lit = () => /** @type {HTMLElement|null} */ (m.root.querySelector('.session-switcher-row[aria-selected="true"]'))?.dataset.key;
     try {
       /** @type {HTMLElement|null} */ (document.activeElement)?.blur?.();
       assert(lit() === 's:aaa', `the page opened with ${lit()} lit`);
@@ -682,24 +682,24 @@ export async function runTests() {
     const api = stubApi(sessions);
     const m = await mount(api);
     try {
-      /** @type {HTMLButtonElement} */ (row(m.root, 'bbb').querySelector('.ss-stop')).click();
+      /** @type {HTMLButtonElement} */ (row(m.root, 'bbb').querySelector('.session-switcher-stop')).click();
       await nextTask();
-      const ask = row(m.root, 'bbb').querySelector('.ss-confirm');
+      const ask = row(m.root, 'bbb').querySelector('.session-switcher-confirm');
       assert(!!ask && (ask.textContent || '').includes('A turn is running'), `asked ${JSON.stringify(ask?.textContent)}`);
       assert(!api.calls.some((c) => c[0] === 'stop'), 'stopped a busy session before the user said yes');
       /** @type {HTMLButtonElement} */ (row(m.root, 'bbb').querySelector('[data-confirm="no"]')).click();
       await nextTask();
-      assert(!row(m.root, 'bbb').querySelector('.ss-confirm'), 'Keep left the question up');
+      assert(!row(m.root, 'bbb').querySelector('.session-switcher-confirm'), 'Keep left the question up');
       assert(!api.calls.some((c) => c[0] === 'stop'), 'stopped a busy session the user kept');
 
-      /** @type {HTMLButtonElement} */ (row(m.root, 'bbb').querySelector('.ss-stop')).click();
+      /** @type {HTMLButtonElement} */ (row(m.root, 'bbb').querySelector('.session-switcher-stop')).click();
       await nextTask();
       /** @type {HTMLButtonElement} */ (row(m.root, 'bbb').querySelector('[data-confirm="yes"]')).click();
       await waitFor(() => api.calls.some((c) => c[0] === 'stop' && c[1] === 'bbb'), { description: 'the stop asked for' });
       assert(api.calls.some((c) => c[0] === 'stop' && c[1] === 'bbb'), 'did not stop after a yes');
 
-      /** @type {HTMLButtonElement} */ (row(m.root, 'aaa').querySelector('.ss-stop')).click();
-      assert(!row(m.root, 'aaa').querySelector('.ss-confirm'), 'asked before stopping an idle session');
+      /** @type {HTMLButtonElement} */ (row(m.root, 'aaa').querySelector('.session-switcher-stop')).click();
+      assert(!row(m.root, 'aaa').querySelector('.session-switcher-confirm'), 'asked before stopping an idle session');
       await waitFor(() => api.calls.some((c) => c[0] === 'stop' && c[1] === 'aaa'), { description: 'the stop asked for' });
       assert(api.calls.some((c) => c[0] === 'stop' && c[1] === 'aaa'), 'did not stop an idle session');
     } finally {
@@ -716,8 +716,8 @@ export async function runTests() {
       await waitFor(() => api.calls.some((c) => c[0] === 'open' && c[1] === '/work/delta'), { description: 'the retry asked for' });
       assert(api.calls.some((c) => c[0] === 'open' && c[1] === '/work/delta'), 'a click did not retry the project');
       // The row says Starting… while the retry runs, and has its × back after.
-      await waitFor(() => !!row(m.root, 'ddd').querySelector('.ss-stop'), { description: 'the retry settled' });
-      /** @type {HTMLButtonElement} */ (row(m.root, 'ddd').querySelector('.ss-stop')).click();
+      await waitFor(() => !!row(m.root, 'ddd').querySelector('.session-switcher-stop'), { description: 'the retry settled' });
+      /** @type {HTMLButtonElement} */ (row(m.root, 'ddd').querySelector('.session-switcher-stop')).click();
       await waitFor(() => api.calls.some((c) => c[0] === 'stop' && c[1] === 'ddd'), { description: 'the dismiss asked for' });
       assert(api.calls.some((c) => c[0] === 'stop' && c[1] === 'ddd'), '× did not dismiss the session');
     } finally {
@@ -737,7 +737,7 @@ export async function runTests() {
       assert(api.calls.some((c) => c[0] === 'open' && c[1] === '~/code/new-thing'), `opened ${JSON.stringify(api.calls)}`);
       assert(JSON.stringify(nav.went) === '["/p/new1-0123abcd/"]', `the tab went to ${JSON.stringify(nav.went)}`);
 
-      const input = /** @type {HTMLInputElement} */ (m.root.querySelector('.ss-input'));
+      const input = /** @type {HTMLInputElement} */ (m.root.querySelector('.session-switcher-input'));
       input.value = '~/code/other';
       input.dispatchEvent(new Event('input'));
       clickRow(actionRow(m.root, 'act:path'));
@@ -807,8 +807,8 @@ export async function runTests() {
       assert(!m.root.querySelector('.ms-welcome h2'), 'the welcome has a heading under the wordmark');
       assert(!m.root.querySelector('.ms-welcome button'), 'the welcome has buttons of its own');
       assert(JSON.stringify(keys(m.root)) === '["act:open","act:new"]', `a first run offers ${JSON.stringify(keys(m.root))}`);
-      assert(shown('.ss-row[data-key="act:open"]'), 'Open folder… is not shown');
-      assert(!shown('.ss-input'), 'a first run shows a filter with nothing to filter');
+      assert(shown('.session-switcher-row[data-key="act:open"]'), 'Open folder… is not shown');
+      assert(!shown('.session-switcher-input'), 'a first run shows a filter with nothing to filter');
       assert(shown('.ms-exposure'), 'the machine\'s ways in are not shown');
       assert(shown('.ms-drop-hint'), 'the window does not say a folder can be dropped on it');
 
@@ -833,10 +833,10 @@ export async function runTests() {
       assert(!shown('.ms-drop-hint'), 'a browser tab offers to take a dropped folder');
       assert(shown('.ms-intro') && (m.root.querySelector('.ms-intro')?.textContent || '').includes('studio'),
         `no introduction naming the machine: ${JSON.stringify(m.root.querySelector('.ms-intro')?.textContent)}`);
-      assert(shown('.ss-row[data-key="act:open"]') && shown('.ss-row[data-key="act:new"]'), 'the ways of opening a folder are not shown');
-      assert(!shown('.ss-input'), 'a first run shows a filter with nothing to filter');
+      assert(shown('.session-switcher-row[data-key="act:open"]') && shown('.session-switcher-row[data-key="act:new"]'), 'the ways of opening a folder are not shown');
+      assert(!shown('.session-switcher-input'), 'a first run shows a filter with nothing to filter');
       clickRow(actionRow(m.root, 'act:open'));
-      assert(shown('.ss-row[data-key="act:open"] .ss-field input'), 'Open folder… gives no path field');
+      assert(shown('.session-switcher-row[data-key="act:open"] .session-switcher-field input'), 'Open folder… gives no path field');
     } finally {
       m.dispose();
     }
@@ -850,8 +850,8 @@ export async function runTests() {
       try {
         const shown = (/** @type {string} */ sel) => !!m.root.querySelector(sel)?.checkVisibility();
         assert(!shown('.ms-welcome') && !shown('.ms-intro'), 'a returning user is welcomed');
-        assert(shown('.ss-input'), 'no filter over the recent projects');
-        const headings = [...m.root.querySelectorAll('.ss-heading')].map((h) => h.textContent || '');
+        assert(shown('.session-switcher-input'), 'no filter over the recent projects');
+        const headings = [...m.root.querySelectorAll('.session-switcher-heading')].map((h) => h.textContent || '');
         assert(JSON.stringify(headings) === '["Recent"]', `the page reads ${JSON.stringify(headings)}`);
         assert(JSON.stringify(keys(m.root)) === '["r:/work/zeta","act:open","act:new"]', `the rows are ${JSON.stringify(keys(m.root))}`);
       } finally {
@@ -947,7 +947,7 @@ export async function runTests() {
     const api = stubApi(sessions.slice(0, 1), ['/work/zeta', '/work/eta'], { '/work/zeta': '/p/zeta-0123abcd/' });
     const m = await mount(api);
     try {
-      const rows = () => [...m.root.querySelectorAll('.ss-row')];
+      const rows = () => [...m.root.querySelectorAll('.session-switcher-row')];
       const before = rows();
       assert(before.length === 5, `${before.length} rows, want 5`);
       await m.page.refresh();
@@ -1002,7 +1002,7 @@ export async function runTests() {
         doc.adoptedStyleSheets = sheets;
         doc.documentElement.dataset.theme = theme;
         doc.body.innerHTML = '<div class="ms-unreachable"><span>This page belongs to a Juggler server that has since restarted.</span>'
-          + '<button class="ms-button ms-button-quiet">Reload</button></div>';
+          + '<button class="btn btn-sm btn-secondary">Reload</button></div>';
         const notice = rgba(win.getComputedStyle(/** @type {Element} */ (doc.querySelector('.ms-unreachable'))).backgroundColor);
         const style = win.getComputedStyle(/** @type {Element} */ (doc.querySelector('button')));
         const own = rgba(style.backgroundColor);
@@ -1073,7 +1073,7 @@ export async function runTests() {
     try {
       clickRow(actionRow(m.root, 'act:new'));
       await waitFor(() => host.attached.length > 0, { description: 'the picked folder shown in the window' });
-      assert(!m.root.querySelector('.ss-field'), 'a desktop window asks for a typed path');
+      assert(!m.root.querySelector('.session-switcher-field'), 'a desktop window asks for a typed path');
       assert(api.calls.some((c) => c[0] === 'open' && c[1] === '/picked/fresh'), `calls ${JSON.stringify(api.calls)}`);
       assert(host.attached.length === 1 && host.attached[0] === 'new1', `attached ${JSON.stringify(host.attached)}`);
       assert(nav.went.length === 0, `a desktop window went to ${JSON.stringify(nav.went)}`);
@@ -1435,7 +1435,7 @@ export async function runTests() {
     try {
       clickRow(actionRow(m.root, 'act:open'));
       await waitFor(() => host.attached.length > 0, { description: 'the picked folder shown in the window' });
-      assert(!m.root.querySelector('.ss-field'), 'a desktop window asks for a typed path');
+      assert(!m.root.querySelector('.session-switcher-field'), 'a desktop window asks for a typed path');
       assert(api.calls.some((c) => c[0] === 'open' && c[1] === '/picked/folder'), `opened ${JSON.stringify(api.calls)}`);
       assert(host.attached[0] === 'new1', `attached ${JSON.stringify(host.attached)}`);
     } finally {
@@ -1444,7 +1444,7 @@ export async function runTests() {
     const plain = await mount(stubApi([]));
     try {
       clickRow(actionRow(plain.root, 'act:open'));
-      assert(!!plain.root.querySelector('.ss-row[data-key="act:open"] .ss-field input'), 'a browser tab offers no path field');
+      assert(!!plain.root.querySelector('.session-switcher-row[data-key="act:open"] .session-switcher-field input'), 'a browser tab offers no path field');
     } finally {
       plain.dispose();
     }
@@ -1764,7 +1764,7 @@ export async function runTests() {
       assert(JSON.stringify(src.searchParams.getAll('nativeCtl')) === JSON.stringify([framed.frameCtl]),
         `the frame is handed ${JSON.stringify(src.searchParams.getAll('nativeCtl'))}`);
       assert(!!frames[0].title, 'the frame has no title');
-      assert(!m.root.querySelector('.ss, .ms-switcher, .ms-sessions-loading, .ms-exposure, .ms-side'),
+      assert(!m.root.querySelector('.session-switcher, .ms-switcher, .ms-sessions-loading, .ms-exposure, .ms-side'),
         `the body shows this computer's page too: ${m.root.innerHTML}`);
       await m.page.refresh();
       assert(!api.calls.some((c) => ['list', 'recents', 'getLAN', 'getTunnel', 'getStatus'].includes(c[0])),
@@ -1959,7 +1959,7 @@ export async function runTests() {
     const m = await mount(stubApi([]));
     try {
       window.dispatchEvent(new CustomEvent('juggler:open-project'));
-      const input = m.root.querySelector('.ss-row[data-key="act:open"] .ss-field input');
+      const input = m.root.querySelector('.session-switcher-row[data-key="act:open"] .session-switcher-field input');
       assert(!!input && document.activeElement === input, `focus is on ${document.activeElement?.tagName}.${document.activeElement?.className}`);
     } finally {
       m.dispose();
@@ -2036,11 +2036,11 @@ export async function runTests() {
       const main = m.root.querySelector(':scope > .ms-main');
       const side = m.root.querySelector(':scope > .ms-side');
       assert(!!main && !!side, 'the page is not split into the sessions\' column and the ways in');
-      const sw = main?.querySelector(':scope > .ms-switcher > .ss.ss--page');
+      const sw = main?.querySelector(':scope > .ms-switcher > .session-switcher.session-switcher--page');
       assert(!!sw, 'the main column holds no switcher in page mode');
-      assert(!!sw?.querySelector('.ss-row[data-key="s:aaa"]') && !!sw?.querySelector('.ss-row[data-key="r:/work/epsilon"]'),
+      assert(!!sw?.querySelector('.session-switcher-row[data-key="s:aaa"]') && !!sw?.querySelector('.session-switcher-row[data-key="r:/work/epsilon"]'),
         'the switcher does not list the sessions and the recent projects');
-      assert(!!side?.querySelector('.ms-exposure') && !side?.querySelector('.ss'), 'the ways in are not in a column of their own');
+      assert(!!side?.querySelector('.ms-exposure') && !side?.querySelector('.session-switcher'), 'the ways in are not in a column of their own');
     } finally {
       m.dispose();
     }
@@ -2098,7 +2098,7 @@ export async function runTests() {
     const m = await mount(api, { host: remoteHost });
     try {
       clickRow(actionRow(m.root, 'act:open'));
-      assert(!!m.root.querySelector('.ss-row[data-key="act:open"] .ss-field input'), 'Open folder… offers this machine\'s folders');
+      assert(!!m.root.querySelector('.session-switcher-row[data-key="act:open"] .session-switcher-field input'), 'Open folder… offers this machine\'s folders');
       assert(!m.root.querySelector('form.ms-connect') && !m.header.querySelector('.ms-server-switch'),
         'a window on a server by URL offers to switch to another server');
       window.dispatchEvent(new CustomEvent('juggler:folder-dropped', { detail: { path: '/dropped/here' } }));
@@ -2436,7 +2436,7 @@ export async function runTests() {
     const m = await mount(stubApi(sessions));
     const mod = isMac() ? { metaKey: true } : { ctrlKey: true };
     try {
-      const input = m.root.querySelector('.ss-input');
+      const input = m.root.querySelector('.session-switcher-input');
       /** @type {HTMLElement|null} */ (document.activeElement)?.blur?.();
       const shifted = new KeyboardEvent('keydown', { key: 'k', shiftKey: true, bubbles: true, cancelable: true, ...mod });
       document.body.dispatchEvent(shifted);

@@ -36,11 +36,11 @@ export function renderWriteFilePermissionSection(messageThread) {
   function render() {
     const allowed = isFileEditingAllowed(messageThread);
     section.innerHTML = `
-      <button class="permission-btn input-ctrl-btn write-file-btn ${allowed ? 'allowed' : 'ask'}"
+      <button class="permission-btn input-ctrl-btn permission-toggle-btn write-file-btn ${allowed ? 'allowed' : 'ask'}"
               role="switch" aria-checked="${allowed ? 'true' : 'false'}"
               title="${escapeHtml(t('Toggle file write permission for this conversation. Writes outside the project and allowed paths always prompt.'))}" data-shortcut-id="toggle-file-editing">
-        <span class="write-file-icon">${allowed ? TICK_SVG : LOCK_SVG}</span>
-        <span class="write-file-label">${escapeHtml(allowed ? t('File editing allowed in allowed paths') : t('File edits prompt for confirmation'))}</span>
+        <span class="permission-toggle-icon">${allowed ? TICK_SVG : LOCK_SVG}</span>
+        <span>${escapeHtml(allowed ? t('File editing allowed in allowed paths') : t('File edits prompt for confirmation'))}</span>
       </button>
     `;
     const btn = section.querySelector('.write-file-btn');

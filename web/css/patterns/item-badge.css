@@ -50,7 +50,7 @@
     justify-content: center;
     border-radius: 50%;
     color: var(--text-on-accent);
-    background: var(--preset-badge-bg, var(--preset-bg));
+    background: var(--color-preset-badge-bg, var(--color-preset-bg));
 }
 
 /* The lozenge. */
@@ -58,168 +58,168 @@
 .item-lozenge {
     display: inline-block;
     font-size: var(--font-size-xs);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     line-height: 1;
     text-transform: uppercase;
-    letter-spacing: 0.0625rem;
+    letter-spacing: var(--tracking-caps);
     color: var(--text-on-accent);
-    background: var(--preset-badge-bg, var(--preset-bg, var(--bg-primary)));
-    padding: 0.25rem 0.5rem 0.125rem;
+    background: var(--color-preset-badge-bg, var(--color-preset-bg, var(--bg-primary)));
+    padding: var(--space-4) var(--space-8) var(--space-2);
     border-radius: var(--radius-md);
 }
 
-/* Color presets - unified utility classes that set --preset-bg and --preset-badge-bg */
+/* Color presets - unified utility classes that set --color-preset-bg and --color-preset-badge-bg */
 .color-slate {
-    --preset-bg: var(--ci-preset-slate);
-    --preset-badge-bg: var(--ci-preset-badge-slate, var(--ci-preset-slate));
+    --color-preset-bg: var(--ci-preset-slate);
+    --color-preset-badge-bg: var(--ci-preset-badge-slate, var(--ci-preset-slate));
 }
 
 .color-blue {
-    --preset-bg: var(--ci-preset-blue);
-    --preset-badge-bg: var(--ci-preset-badge-blue, var(--ci-preset-blue));
+    --color-preset-bg: var(--ci-preset-blue);
+    --color-preset-badge-bg: var(--ci-preset-badge-blue, var(--ci-preset-blue));
 }
 
 .color-indigo {
-    --preset-bg: var(--ci-preset-indigo);
-    --preset-badge-bg: var(--ci-preset-badge-indigo, var(--ci-preset-indigo));
+    --color-preset-bg: var(--ci-preset-indigo);
+    --color-preset-badge-bg: var(--ci-preset-badge-indigo, var(--ci-preset-indigo));
 }
 
 .color-purple {
-    --preset-bg: var(--ci-preset-purple);
-    --preset-badge-bg: var(--ci-preset-badge-purple, var(--ci-preset-purple));
+    --color-preset-bg: var(--ci-preset-purple);
+    --color-preset-badge-bg: var(--ci-preset-badge-purple, var(--ci-preset-purple));
 }
 
 .color-magenta {
-    --preset-bg: var(--ci-preset-magenta);
-    --preset-badge-bg: var(--ci-preset-badge-magenta, var(--ci-preset-magenta));
+    --color-preset-bg: var(--ci-preset-magenta);
+    --color-preset-badge-bg: var(--ci-preset-badge-magenta, var(--ci-preset-magenta));
 }
 
 .color-pink {
-    --preset-bg: var(--ci-preset-pink);
-    --preset-badge-bg: var(--ci-preset-badge-pink, var(--ci-preset-pink));
+    --color-preset-bg: var(--ci-preset-pink);
+    --color-preset-badge-bg: var(--ci-preset-badge-pink, var(--ci-preset-pink));
 }
 
 .color-red {
-    --preset-bg: var(--ci-preset-red);
-    --preset-badge-bg: var(--ci-preset-badge-red, var(--ci-preset-red));
+    --color-preset-bg: var(--ci-preset-red);
+    --color-preset-badge-bg: var(--ci-preset-badge-red, var(--ci-preset-red));
 }
 
 .color-orange {
-    --preset-bg: var(--ci-preset-orange);
-    --preset-badge-bg: var(--ci-preset-badge-orange, var(--ci-preset-orange));
+    --color-preset-bg: var(--ci-preset-orange);
+    --color-preset-badge-bg: var(--ci-preset-badge-orange, var(--ci-preset-orange));
 }
 
 .color-amber {
-    --preset-bg: var(--ci-preset-amber);
-    --preset-badge-bg: var(--ci-preset-badge-amber, var(--ci-preset-amber));
+    --color-preset-bg: var(--ci-preset-amber);
+    --color-preset-badge-bg: var(--ci-preset-badge-amber, var(--ci-preset-amber));
 }
 
 .color-yellow {
-    --preset-bg: var(--ci-preset-yellow);
-    --preset-badge-bg: var(--ci-preset-badge-yellow, var(--ci-preset-yellow));
+    --color-preset-bg: var(--ci-preset-yellow);
+    --color-preset-badge-bg: var(--ci-preset-badge-yellow, var(--ci-preset-yellow));
 }
 
 .color-lime {
-    --preset-bg: var(--ci-preset-lime);
-    --preset-badge-bg: var(--ci-preset-badge-lime, var(--ci-preset-lime));
+    --color-preset-bg: var(--ci-preset-lime);
+    --color-preset-badge-bg: var(--ci-preset-badge-lime, var(--ci-preset-lime));
 }
 
 .color-green {
-    --preset-bg: var(--ci-preset-green);
-    --preset-badge-bg: var(--ci-preset-badge-green, var(--ci-preset-green));
+    --color-preset-bg: var(--ci-preset-green);
+    --color-preset-badge-bg: var(--ci-preset-badge-green, var(--ci-preset-green));
 }
 
 .color-emerald {
-    --preset-bg: var(--ci-preset-emerald);
-    --preset-badge-bg: var(--ci-preset-badge-emerald, var(--ci-preset-emerald));
+    --color-preset-bg: var(--ci-preset-emerald);
+    --color-preset-badge-bg: var(--ci-preset-badge-emerald, var(--ci-preset-emerald));
 }
 
 .color-teal {
-    --preset-bg: var(--ci-preset-teal);
-    --preset-badge-bg: var(--ci-preset-badge-teal, var(--ci-preset-teal));
+    --color-preset-bg: var(--ci-preset-teal);
+    --color-preset-badge-bg: var(--ci-preset-badge-teal, var(--ci-preset-teal));
 }
 
 .color-cyan {
-    --preset-bg: var(--ci-preset-cyan);
-    --preset-badge-bg: var(--ci-preset-badge-cyan, var(--ci-preset-cyan));
+    --color-preset-bg: var(--ci-preset-cyan);
+    --color-preset-badge-bg: var(--ci-preset-badge-cyan, var(--ci-preset-cyan));
 }
 
 .color-sky {
-    --preset-bg: var(--ci-preset-sky);
-    --preset-badge-bg: var(--ci-preset-badge-sky, var(--ci-preset-sky));
+    --color-preset-bg: var(--ci-preset-sky);
+    --color-preset-badge-bg: var(--ci-preset-badge-sky, var(--ci-preset-sky));
 }
 
 .color-brown {
-    --preset-bg: var(--ci-preset-brown);
-    --preset-badge-bg: var(--ci-preset-badge-brown, var(--ci-preset-brown));
+    --color-preset-bg: var(--ci-preset-brown);
+    --color-preset-badge-bg: var(--ci-preset-badge-brown, var(--ci-preset-brown));
 }
 
 .color-stone {
-    --preset-bg: var(--ci-preset-stone);
-    --preset-badge-bg: var(--ci-preset-badge-stone, var(--ci-preset-stone));
+    --color-preset-bg: var(--ci-preset-stone);
+    --color-preset-badge-bg: var(--ci-preset-badge-stone, var(--ci-preset-stone));
 }
 
 .color-zinc {
-    --preset-bg: var(--ci-preset-zinc);
-    --preset-badge-bg: var(--ci-preset-badge-zinc, var(--ci-preset-zinc));
+    --color-preset-bg: var(--ci-preset-zinc);
+    --color-preset-badge-bg: var(--ci-preset-badge-zinc, var(--ci-preset-zinc));
 }
 
 .color-crimson {
-    --preset-bg: var(--ci-preset-crimson);
-    --preset-badge-bg: var(--ci-preset-badge-crimson, var(--ci-preset-crimson));
+    --color-preset-bg: var(--ci-preset-crimson);
+    --color-preset-badge-bg: var(--ci-preset-badge-crimson, var(--ci-preset-crimson));
 }
 
 /* Semantic family classes — the labels context-item plugins return from
    getBadgeOptions(). They resolve through the --ci-family-* tokens so the
    family→hue mapping lives here, not hard-coded in each tool. */
 .color-read {
-    --preset-bg: var(--ci-family-read);
-    --preset-badge-bg: var(--ci-family-badge-read, var(--ci-family-read));
+    --color-preset-bg: var(--ci-family-read);
+    --color-preset-badge-bg: var(--ci-family-badge-read, var(--ci-family-read));
 }
 
 .color-search {
-    --preset-bg: var(--ci-family-search);
-    --preset-badge-bg: var(--ci-family-badge-search, var(--ci-family-search));
+    --color-preset-bg: var(--ci-family-search);
+    --color-preset-badge-bg: var(--ci-family-badge-search, var(--ci-family-search));
 }
 
 .color-web {
-    --preset-bg: var(--ci-family-web);
-    --preset-badge-bg: var(--ci-family-badge-web, var(--ci-family-web));
+    --color-preset-bg: var(--ci-family-web);
+    --color-preset-badge-bg: var(--ci-family-badge-web, var(--ci-family-web));
 }
 
 .color-edit {
-    --preset-bg: var(--ci-family-edit);
-    --preset-badge-bg: var(--ci-family-badge-edit, var(--ci-family-edit));
+    --color-preset-bg: var(--ci-family-edit);
+    --color-preset-badge-bg: var(--ci-family-badge-edit, var(--ci-family-edit));
 }
 
 .color-memory {
-    --preset-bg: var(--ci-family-memory);
-    --preset-badge-bg: var(--ci-family-badge-memory, var(--ci-family-memory));
+    --color-preset-bg: var(--ci-family-memory);
+    --color-preset-badge-bg: var(--ci-family-badge-memory, var(--ci-family-memory));
 }
 
 .color-execute {
-    --preset-bg: var(--ci-family-execute);
-    --preset-badge-bg: var(--ci-family-badge-execute, var(--ci-family-execute));
+    --color-preset-bg: var(--ci-family-execute);
+    --color-preset-badge-bg: var(--ci-family-badge-execute, var(--ci-family-execute));
 }
 
 .color-plan {
-    --preset-bg: var(--ci-family-plan);
-    --preset-badge-bg: var(--ci-family-badge-plan, var(--ci-family-plan));
+    --color-preset-bg: var(--ci-family-plan);
+    --color-preset-badge-bg: var(--ci-family-badge-plan, var(--ci-family-plan));
 }
 
 .color-meta {
-    --preset-bg: var(--ci-family-meta);
-    --preset-badge-bg: var(--ci-family-badge-meta, var(--ci-family-meta));
+    --color-preset-bg: var(--ci-family-meta);
+    --color-preset-badge-bg: var(--ci-family-badge-meta, var(--ci-family-meta));
 }
 
 .color-ask {
-    --preset-bg: var(--ci-family-ask);
-    --preset-badge-bg: var(--ci-family-badge-ask, var(--ci-family-ask));
+    --color-preset-bg: var(--ci-family-ask);
+    --color-preset-badge-bg: var(--ci-family-badge-ask, var(--ci-family-ask));
 }
 
 .color-thread {
-    --preset-bg: var(--ci-family-thread);
-    --preset-badge-bg: var(--ci-family-badge-thread, var(--ci-family-thread));
+    --color-preset-bg: var(--ci-family-thread);
+    --color-preset-badge-bg: var(--ci-family-badge-thread, var(--ci-family-thread));
 }
 
 /* A coloured icon box is filled from its preset, an accent fill, so its glyph
@@ -228,12 +228,12 @@
    icon with currentcolor. */
 .message-icon-box:where([class*="color-"]) {
     color: var(--text-on-accent);
-    background: var(--preset-badge-bg, var(--preset-bg));
+    background: var(--color-preset-badge-bg, var(--color-preset-bg));
 }
 
 /* The busy pulse, which --item-badge-pulse names. Here rather than with the
    element defaults because nothing but a badge circle wears it. */
-@keyframes icon-pulse {
+@keyframes message-icon-box-pulse {
     0%, 100% {
         opacity: 1;
         transform: scale(1);

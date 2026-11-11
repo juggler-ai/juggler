@@ -199,7 +199,7 @@ export function neutralizeStrayOverlays() {
       const m = /** @type {any} */ (modal);
       if (typeof m.close === 'function') m.close(null);
     } catch (_) { /* ignore — fall through to removal */ }
-    modal.classList.remove('show');
+    modal.classList.remove('is-open');
     modal.remove();
   });
 

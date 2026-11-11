@@ -242,10 +242,10 @@ export async function runTests(_ctx) {
   // or a number. So the catalogue is written onto the controls in place.
   await run('a catalogue republished elsewhere lands on the controls in place', async () => {
     await withTab({}, async (host) => {
-      const details = host.querySelector('details.model-visibility');
+      const details = host.querySelector('details.settings-model-visibility');
       assert(details, 'the model list exists');
       details.open = true;
-      const filter = host.querySelector('.model-visibility-filter');
+      const filter = host.querySelector('.settings-model-visibility-filter');
       filter.value = 'model';
 
       // Another window hid one model and overrode the other's context window.
@@ -256,7 +256,7 @@ export async function runTests(_ctx) {
       wsService._emit('providers-update', [next]);
       await settle();
 
-      const box = host.querySelector('[data-model="plain-model"] .model-visibility-check');
+      const box = host.querySelector('[data-model="plain-model"] .settings-model-visibility-check');
       assert(box && box.checked === false, 'the hidden model unticked');
       const row = host.querySelector('[data-model="plain-model"]');
       assert(row.classList.contains('is-hidden'), 'and reads as hidden');
@@ -271,7 +271,7 @@ export async function runTests(_ctx) {
 
   await run('a republished catalogue does not take a number out from under the user', async () => {
     await withTab({}, async (host) => {
-      host.querySelector('details.model-visibility').open = true;
+      host.querySelector('details.settings-model-visibility').open = true;
       const field = limitInput(host, 'plain-model', 'contextWindow');
       field.focus();
       assert(document.activeElement === field, 'the field took focus (the case needs it to)');
@@ -452,7 +452,7 @@ export async function runTests(_ctx) {
       input.dispatchEvent(new Event('change'));
       await settle();
       assert(input.value === '', `field reverted to blank; got ${JSON.stringify(input.value)}`);
-      const status = host.querySelector('.model-visibility-status');
+      const status = host.querySelector('.settings-model-visibility-status');
       assert(status && (status.textContent || '').length > 0, 'a failure message is shown');
     });
   });
@@ -462,7 +462,7 @@ export async function runTests(_ctx) {
   // field to be found by hand.
   await run('revealModel opens the model list and focuses that model\'s window field', async () => {
     await withTab({ provider: catalogueOnly() }, async (host, _backend, tab) => {
-      const details = host.querySelector('details.model-visibility');
+      const details = host.querySelector('details.settings-model-visibility');
       assert(details && !details.open, 'the model list starts collapsed (the case needs it to)');
       const revealed = await tab.revealModel(PROVIDER, 'measured-model');
       assert(revealed === true, `revealModel returned ${revealed}, want true`);
@@ -476,7 +476,7 @@ export async function runTests(_ctx) {
 
   await run('a limit field does not toggle the model visibility checkbox', async () => {
     await withTab({}, async (host) => {
-      const box = host.querySelector('[data-model="plain-model"] .model-visibility-check');
+      const box = host.querySelector('[data-model="plain-model"] .settings-model-visibility-check');
       assert(box && box.checked, 'the model starts visible');
       const input = limitInput(host, 'plain-model', 'contextWindow');
       // A <label> forwards a click anywhere inside it to its control, so a row
@@ -495,16 +495,16 @@ export async function runTests(_ctx) {
   // page.
   await run('a list holding an assumed window starts open', async () => {
     await withTab({}, async (host) => {
-      const details = host.querySelector('details.model-visibility');
+      const details = host.querySelector('details.settings-model-visibility');
       assert(details && details.open, 'a list with a guessed window starts collapsed');
     });
   });
 
   await run('a list with no assumed window starts closed', async () => {
     await withTab({ provider: catalogueOnly() }, async (host) => {
-      const details = host.querySelector('details.model-visibility');
+      const details = host.querySelector('details.settings-model-visibility');
       assert(details && !details.open, 'a list with nothing assumed starts open');
-      const count = /** @type {HTMLElement|null} */ (host.querySelector('.model-visibility-assumed'));
+      const count = /** @type {HTMLElement|null} */ (host.querySelector('.settings-model-visibility-assumed'));
       assert(!count || count.hidden, 'an assumed count shows with nothing assumed');
     });
   });
@@ -514,19 +514,19 @@ export async function runTests(_ctx) {
     provider.modelsWithContext[3].providerContextWindow = 8192;
     provider.modelsWithContext[3].contextWindow = 262144;
     await withTab({ provider }, async (host) => {
-      const details = host.querySelector('details.model-visibility');
+      const details = host.querySelector('details.settings-model-visibility');
       assert(details && !details.open, 'a guess the user already corrected opened the list');
     });
   });
 
   await run('the summary says what the list holds and counts the guesses', async () => {
     await withTab({}, async (host) => {
-      const summary = host.querySelector('.model-visibility-summary');
+      const summary = host.querySelector('.settings-model-visibility-summary');
       const text = summary?.textContent || '';
       assert(/Models and token limits/.test(text), `the summary does not say what is inside; got ${JSON.stringify(text)}`);
-      const count = summary?.querySelector('.model-visibility-count')?.textContent;
+      const count = summary?.querySelector('.settings-model-visibility-count')?.textContent;
       assert(count === '4', `the summary lost the model count; got ${JSON.stringify(count)}`);
-      const assumed = summary?.querySelector('.model-visibility-assumed');
+      const assumed = summary?.querySelector('.settings-model-visibility-assumed');
       assert(assumed && /1 assumed/.test(assumed.textContent || ''),
         `the summary should count the guessed window; got ${JSON.stringify(assumed?.textContent)}`);
     });
@@ -536,7 +536,7 @@ export async function runTests(_ctx) {
   // line under the list.
   await run('the list has column headers', async () => {
     await withTab({}, async (host) => {
-      const header = host.querySelector('.model-visibility-list .model-visibility-header');
+      const header = host.querySelector('.settings-model-visibility-list .settings-model-visibility-header');
       assert(header, 'no header row in the model list');
       const labels = Array.from(header.children).map((el) => (el.textContent || '').trim());
       assert(JSON.stringify(labels) === JSON.stringify(['Model', 'Context window', 'Max output']),
@@ -552,7 +552,7 @@ export async function runTests(_ctx) {
       for (const id of ['plain-model', 'measured-model', 'fixed-model']) {
         assert(!host.querySelector(`[data-model="${id}"] .model-window-assumed`), `${id} is marked assumed`);
       }
-      const box = host.querySelector('[data-model="guessed-model"] .model-visibility-check');
+      const box = host.querySelector('[data-model="guessed-model"] .settings-model-visibility-check');
       // Lanes share one window's focus, so a sibling lane's focus() can take it
       // from the field before this lane looks. Focus is kept lane-local and a
       // sibling's steal is taken on every run (isolateFocus).
@@ -593,7 +593,7 @@ export async function runTests(_ctx) {
       await el.open();
       const card = el.querySelector(`.provider-field[data-provider="${PROVIDER}"]`);
       assert(card, 'the provider card was not drawn');
-      const details = card.querySelector('details.model-visibility');
+      const details = card.querySelector('details.settings-model-visibility');
       assert(details, 'the card has no model list');
       details.open = true;
 
@@ -603,7 +603,7 @@ export async function runTests(_ctx) {
       const offset = details.getBoundingClientRect().left - info.getBoundingClientRect().left;
       assert(Math.abs(offset) < 2, `the model list starts ${offset}px from the card's left edge, want 0`);
 
-      const name = card.querySelector(`[data-model="${LONG_ID}"] .model-visibility-name`);
+      const name = card.querySelector(`[data-model="${LONG_ID}"] .settings-model-visibility-name`);
       assert(name, 'the long-named model has no row');
       assert(name.textContent === LONG_ID, `the name reads ${JSON.stringify(name.textContent)}`);
       // Zero is also what a narrow card did to the name: the fixed-width limit

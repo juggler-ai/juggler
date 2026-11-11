@@ -215,11 +215,11 @@ export function statusParts(s) {
  * @returns {HTMLElement} Its span.
  */
 function statusSpan(p) {
-  if (p.tone === 'waiting') return el('span', 'ss-tone-waiting', p.text);
-  if (p.tone === 'failed') return el('span', 'ss-tone-failed', p.text);
-  if (p.tone === 'working') return el('span', 'ss-tone-working', p.text);
-  if (p.only === 'desk') return el('span', 'ss-desk-only', p.text);
-  if (p.only === 'touch') return el('span', 'ss-touch-only', p.text);
+  if (p.tone === 'waiting') return el('span', 'session-switcher-tone-waiting', p.text);
+  if (p.tone === 'failed') return el('span', 'session-switcher-tone-failed', p.text);
+  if (p.tone === 'working') return el('span', 'session-switcher-tone-working', p.text);
+  if (p.only === 'desk') return el('span', 'session-switcher-desk-only', p.text);
+  if (p.only === 'touch') return el('span', 'session-switcher-touch-only', p.text);
   return el('span', '', p.text);
 }
 
@@ -243,7 +243,7 @@ function icon(name) {
   const path = document.createElementNS(ns, 'path');
   path.setAttribute('d', ICON_PATHS[name]);
   svg.append(path);
-  const span = el('span', 'ss-icon', [], { 'aria-hidden': 'true' });
+  const span = el('span', 'session-switcher-icon', [], { 'aria-hidden': 'true' });
   span.append(svg);
   return span;
 }
@@ -275,9 +275,9 @@ function el(tag, className, content = [], attrs = {}) {
  * @returns {HTMLElement} The tile in its wrap, which carries the marks.
  */
 function tile(name, hueKey, dim = false) {
-  const face = el('span', dim ? 'ss-tile ss-tile-dim' : 'ss-tile', initials(name));
-  face.style.setProperty('--ss-tint', workspaceTint(hueKey));
-  const wrap = el('span', 'ss-tile-wrap', [], { 'aria-hidden': 'true' });
+  const face = el('span', dim ? 'session-switcher-tile session-switcher-tile-dim' : 'session-switcher-tile', initials(name));
+  face.style.setProperty('--session-switcher-tint', workspaceTint(hueKey));
+  const wrap = el('span', 'session-switcher-tile-wrap', [], { 'aria-hidden': 'true' });
   wrap.append(face);
   return wrap;
 }
@@ -330,7 +330,7 @@ export class SessionSwitcher {
     this._gesture = false;
     this._shown = '';
 
-    this.input = /** @type {HTMLInputElement} */ (el('input', 'ss-input', [], {
+    this.input = /** @type {HTMLInputElement} */ (el('input', 'session-switcher-input', [], {
       type: 'text',
       spellcheck: 'false',
       autocomplete: 'off',
@@ -340,22 +340,24 @@ export class SessionSwitcher {
       placeholder: mode === 'popover' ? t('Switch to a session or project…') : t('Find a session or project…'),
       'aria-label': t('Find a session or project'),
     }));
-    this._search = el('div', 'ss-search');
+    this._search = el('div', 'session-switcher-search');
+    // On the page the row draws the field's box; in the popover it is a header.
+    if (mode !== 'popover') this._search.classList.add('field-input');
     this._search.append(icon('search'), this.input);
-    this._list = el('div', 'ss-list', [], { role: 'listbox', 'aria-label': t('Sessions') });
-    this._foot = el('div', 'ss-foot');
+    this._list = el('div', 'session-switcher-list', [], { role: 'listbox', 'aria-label': t('Sessions') });
+    this._foot = el('div', 'session-switcher-foot');
     /** The switcher's element. */
-    this.el = el('div', mode === 'popover' ? 'ss ss--popover' : 'ss ss--page');
+    this.el = el('div', mode === 'popover' ? 'session-switcher session-switcher--popover' : 'session-switcher session-switcher--page');
     if (mode === 'popover') {
-      const bar = el('div', 'ss-sheetbar');
-      const title = el('span', 'ss-sheet-title', t('Switch to'));
-      const cancel = el('button', 'ss-sheet-cancel', t('Cancel'), { type: 'button' });
+      const bar = el('div', 'session-switcher-sheetbar');
+      const title = el('span', 'session-switcher-sheet-title', t('Switch to'));
+      const cancel = el('button', 'session-switcher-sheet-cancel', t('Cancel'), { type: 'button' });
       cancel.addEventListener('click', () => this._actions.close?.());
       bar.append(title, cancel);
       this.el.append(bar);
     }
     this.el.append(this._search, this._list, this._foot);
-    this._list.id = `ss-list-${mode}`;
+    this._list.id = `session-switcher-list-${mode}`;
     this.input.setAttribute('aria-controls', this._list.id);
 
     this._onInput = () => {
@@ -373,7 +375,7 @@ export class SessionSwitcher {
     // pointer that has moved counts: the mousemove a browser sends when the
     // list scrolls or opens under a still pointer would take the row the
     // keys or the default chose. On the page the lit row is the keys' alone
-    // and the pointer only shows where a click would land (.ss-row:hover).
+    // and the pointer only shows where a click would land (.session-switcher-row:hover).
     /** @type {{x: number, y: number}|null} */
     this._pointer = null;
     this._onMouseMove = (/** @type {MouseEvent} */ e) => {
@@ -381,7 +383,7 @@ export class SessionSwitcher {
       const was = this._pointer;
       this._pointer = { x: e.screenX, y: e.screenY };
       if (!was || (was.x === e.screenX && was.y === e.screenY)) return;
-      const row = /** @type {HTMLElement|null} */ ((/** @type {Element} */ (e.target)).closest('.ss-row'));
+      const row = /** @type {HTMLElement|null} */ ((/** @type {Element} */ (e.target)).closest('.session-switcher-row'));
       const i = row ? Number(row.dataset.index) : -1;
       if (i >= 0 && i !== this._sel) this.select(i, false);
     };
@@ -435,7 +437,7 @@ export class SessionSwitcher {
    */
   setGesture(on) {
     this._gesture = on;
-    this.el.classList.toggle('ss--gesture', on);
+    this.el.classList.toggle('session-switcher--gesture', on);
     this._paintFoot();
   }
 
@@ -477,7 +479,7 @@ export class SessionSwitcher {
    */
   select(i, scroll = true) {
     this._sel = Math.max(0, Math.min(i, this._items.length - 1));
-    for (const row of /** @type {NodeListOf<HTMLElement>} */ (this._list.querySelectorAll('.ss-row'))) {
+    for (const row of /** @type {NodeListOf<HTMLElement>} */ (this._list.querySelectorAll('.session-switcher-row'))) {
       const on = Number(row.dataset.index) === this._sel;
       row.setAttribute('aria-selected', String(on));
       if (on) {
@@ -545,14 +547,14 @@ export class SessionSwitcher {
       if (heading !== section) {
         if (heading === 'action') {
           if (this._query.trim() && !matched) {
-            const empty = el('div', 'ss-empty', t('No session matches “{query}”.', { query: this._query.trim() }));
+            const empty = el('div', 'session-switcher-empty', t('No session matches “{query}”.', { query: this._query.trim() }));
             frag.append(empty);
           } else if (i > 0) {
-            const rule = el('div', 'ss-rule', [], { role: 'presentation' });
+            const rule = el('div', 'session-switcher-rule', [], { role: 'presentation' });
             frag.append(rule);
           }
         } else {
-          const title = el('div', 'ss-heading', heading === 'open' ? t('Open', undefined, { context: 'sessions running now' }) : t('Recent'), { role: 'presentation' });
+          const title = el('div', 'session-switcher-heading caps-label', heading === 'open' ? t('Open', undefined, { context: 'sessions running now' }) : t('Recent'), { role: 'presentation' });
           frag.append(title);
         }
         section = heading;
@@ -561,11 +563,11 @@ export class SessionSwitcher {
         : it.kind === 'recent' ? this._recentRow(it, now) : this._actionRow(it);
       row.dataset.index = String(i);
       row.dataset.key = it.key;
-      row.id = `ss-${this._mode}-row-${i}`;
+      row.id = `session-switcher-${this._mode}-row-${i}`;
       frag.append(row);
     });
     this._list.replaceChildren(frag);
-    const field = /** @type {HTMLInputElement|null} */ (this._list.querySelector('.ss-field input'));
+    const field = /** @type {HTMLInputElement|null} */ (this._list.querySelector('.session-switcher-field input'));
     field?.focus();
   }
 
@@ -580,12 +582,12 @@ export class SessionSwitcher {
    * @private
    */
   _row(wrap, top, sub, end, action = false) {
-    const main = el('div', 'ss-main');
+    const main = el('div', 'session-switcher-main');
     main.append(top);
     if (sub) main.append(sub);
-    const tail = el('div', 'ss-end');
+    const tail = el('div', 'session-switcher-end');
     for (const part of end) if (part) tail.append(part);
-    const row = el('div', action ? 'ss-row ss-row-action' : 'ss-row', [], { role: 'option' });
+    const row = el('div', action ? 'session-switcher-row session-switcher-row-action' : 'session-switcher-row', [], { role: 'option' });
     row.append(wrap, main, tail);
     return row;
   }
@@ -604,31 +606,31 @@ export class SessionSwitcher {
     const name = baseName(s.project);
     const wrap = tile(name, s.link || s.project);
     if (pending || inLifecycle(s)) {
-      const spinner = el('juggler-spinner', 'ss-tile-spinner');
+      const spinner = el('juggler-spinner', 'session-switcher-tile-spinner');
       wrap.append(spinner);
     } else {
       const c = attentionCounts(s);
       if (c.waiting) {
-        const badge = el('span', 'ss-badge ss-badge-waiting', String(c.waiting));
+        const badge = el('span', 'session-switcher-badge session-switcher-badge-waiting', String(c.waiting));
         wrap.append(badge);
       } else if (c.failed || s.state === 'error') {
-        const badge = el('span', 'ss-badge ss-badge-failed', '!');
+        const badge = el('span', 'session-switcher-badge session-switcher-badge-failed', '!');
         wrap.append(badge);
       }
       if (c.working && s.state === 'running') {
-        const dot = el('span', 'ss-badge ss-badge-working');
+        const dot = el('span', 'session-switcher-badge session-switcher-badge-working');
         wrap.append(dot);
       }
     }
-    const top = el('div', 'ss-top');
-    const label = el('span', 'ss-name', name);
-    const where = el('span', 'ss-top-path ss-path', s.project, { title: s.project });
+    const top = el('div', 'session-switcher-top');
+    const label = el('span', 'session-switcher-name text-truncate', name);
+    const where = el('span', 'session-switcher-top-path text-truncate session-switcher-path', s.project, { title: s.project });
     top.append(label, where);
     if (it.here) {
-      const here = el('span', 'ss-tag ss-tag-here', t('this window'));
+      const here = el('span', 'session-switcher-tag session-switcher-tag-here', t('this window'));
       top.append(here);
     } else if (it.elsewhere) {
-      const other = el('span', 'ss-tag ss-tag-other', [icon('window'), t('other window')], { title: t('Open in another window') });
+      const other = el('span', 'session-switcher-tag session-switcher-tag-other', [icon('window'), t('other window')], { title: t('Open in another window') });
       top.append(other);
     }
     /** @type {HTMLElement} */
@@ -636,13 +638,13 @@ export class SessionSwitcher {
     if (this._confirmKey === it.key) {
       sub = this._confirmLine(it);
     } else if (pending) {
-      sub = el('div', 'ss-sub', pending === 'starting' ? t('Starting…') : t('Stopping…'));
+      sub = el('div', 'session-switcher-sub text-truncate', pending === 'starting' ? t('Starting…') : t('Stopping…'));
     } else {
-      sub = el('div', 'ss-sub');
+      sub = el('div', 'session-switcher-sub text-truncate');
       // The middle dots between the parts are the stylesheet's.
       for (const p of statusParts(s)) sub.append(statusSpan(p));
     }
-    const meta = el('span', 'ss-meta');
+    const meta = el('span', 'session-switcher-meta');
     // Stopping is the page's to offer, as a button that says so: a × reads as
     // hiding the row, not ending the session. The popover is for switching, so
     // a stray click there never ends one (⌘⌫ still does, said in its footer).
@@ -650,7 +652,7 @@ export class SessionSwitcher {
     let stop = null;
     if (this._mode === 'page' && s.state !== 'stopping' && !pending) {
       const failed = s.state === 'error';
-      stop = el('button', 'ss-mini ss-stop', failed ? t('Dismiss') : t('Stop'), {
+      stop = el('button', 'session-switcher-mini session-switcher-stop', failed ? t('Dismiss') : t('Stop'), {
         type: 'button',
         tabindex: '-1',
         'aria-label': failed ? t('Dismiss {name}', { name }) : t('Stop {name}', { name }),
@@ -668,10 +670,10 @@ export class SessionSwitcher {
    */
   _confirmLine(it) {
     const text = it.here ? t('Stop this window’s session? A turn is running.') : t('A turn is running. Stop it anyway?');
-    const line = el('div', 'ss-confirm');
-    const ask = el('span', 'ss-confirm-text', text);
-    const yes = el('button', 'ss-mini ss-mini-danger', t('Stop'), { type: 'button', 'data-confirm': 'yes' });
-    const no = el('button', 'ss-mini', t('Keep'), { type: 'button', 'data-confirm': 'no' });
+    const line = el('div', 'session-switcher-confirm');
+    const ask = el('span', 'session-switcher-confirm-text text-truncate', text);
+    const yes = el('button', 'session-switcher-mini session-switcher-mini-danger', t('Stop'), { type: 'button', 'data-confirm': 'yes' });
+    const no = el('button', 'session-switcher-mini', t('Keep'), { type: 'button', 'data-confirm': 'no' });
     line.append(ask, yes, no);
     return line;
   }
@@ -689,26 +691,26 @@ export class SessionSwitcher {
     const pending = this._pending.get(it.key);
     const wrap = tile(name, it.link || it.path, true);
     if (pending) {
-      const spinner = el('juggler-spinner', 'ss-tile-spinner');
+      const spinner = el('juggler-spinner', 'session-switcher-tile-spinner');
       wrap.append(spinner);
     } else if (it.waiting) {
-      const badge = el('span', 'ss-badge ss-badge-waiting', String(it.waiting));
+      const badge = el('span', 'session-switcher-badge session-switcher-badge-waiting', String(it.waiting));
       wrap.append(badge);
     }
     /** @type {HTMLElement} */
     let sub;
     if (pending) {
-      sub = el('div', 'ss-sub', t('Starting…'));
+      sub = el('div', 'session-switcher-sub text-truncate', t('Starting…'));
     } else if (it.waiting) {
-      sub = el('div', 'ss-sub ss-tone-waiting', t('{count, plural, one {? # conversation was waiting on you when it closed} other {? # conversations were waiting on you when it closed}}', { count: it.waiting }), { title: it.path });
+      sub = el('div', 'session-switcher-sub text-truncate session-switcher-tone-waiting', t('{count, plural, one {? # conversation was waiting on you when it closed} other {? # conversations were waiting on you when it closed}}', { count: it.waiting }), { title: it.path });
     } else {
-      sub = el('div', 'ss-sub ss-path', it.path);
+      sub = el('div', 'session-switcher-sub text-truncate session-switcher-path', it.path);
     }
-    const top = el('div', 'ss-top');
-    const label = el('span', 'ss-name', name);
+    const top = el('div', 'session-switcher-top');
+    const label = el('span', 'session-switcher-name text-truncate', name);
     top.append(label);
     const at = Date.parse(it.used);
-    const age = Number.isNaN(at) ? null : el('span', 'ss-meta', relative(at - now));
+    const age = Number.isNaN(at) ? null : el('span', 'session-switcher-meta', relative(at - now));
     return this._row(wrap, top, sub, [age]);
   }
 
@@ -722,14 +724,14 @@ export class SessionSwitcher {
   _actionRow(it) {
     const text = it.action === 'open' ? t('Open folder…')
       : it.action === 'new' ? t('New folder…') : t('Open {path}', { path: it.path || '' });
-    const top = el('div', 'ss-top');
-    const label = el('span', 'ss-action-name', text);
+    const top = el('div', 'session-switcher-top');
+    const label = el('span', 'session-switcher-action-name text-truncate', text);
     top.append(label);
-    const face = el('span', 'ss-tile ss-tile-action', [icon(it.action === 'new' ? 'newFolder' : 'folder')]);
-    const wrap = el('span', 'ss-tile-wrap', [], { 'aria-hidden': 'true' });
+    const face = el('span', 'session-switcher-tile session-switcher-tile-action', [icon(it.action === 'new' ? 'newFolder' : 'folder')]);
+    const wrap = el('span', 'session-switcher-tile-wrap', [], { 'aria-hidden': 'true' });
     wrap.append(face);
     const field = this._fieldKey === it.key ? this._pathField(it) : null;
-    const hint = it.action === 'open' && this._canPickFolder ? el('kbd', 'ss-meta', chord('o')) : null;
+    const hint = it.action === 'open' && this._canPickFolder ? el('kbd', 'session-switcher-meta', chord('o')) : null;
     return this._row(wrap, top, field, [hint], true);
   }
 
@@ -741,7 +743,7 @@ export class SessionSwitcher {
    */
   _pathField(it) {
     const create = it.action === 'new';
-    const field = /** @type {HTMLInputElement} */ (el('input', 'ss-field-input', [], {
+    const field = /** @type {HTMLInputElement} */ (el('input', 'session-switcher-field-input field-input field-input-sm', [], {
       type: 'text',
       spellcheck: 'false',
       autocomplete: 'off',
@@ -762,9 +764,9 @@ export class SessionSwitcher {
         if (e.key === 'ArrowDown') this.select(this._sel + 1);
       }
     });
-    const go = el('button', 'ss-mini', create ? t('Create') : t('Open'), { type: 'button', 'data-field-go': '1' });
+    const go = el('button', 'session-switcher-mini', create ? t('Create') : t('Open'), { type: 'button', 'data-field-go': '1' });
     go.addEventListener('click', () => { void this._openPath(field.value, create); });
-    const box = el('div', 'ss-field');
+    const box = el('div', 'session-switcher-field');
     box.append(field, go);
     return box;
   }
@@ -852,7 +854,7 @@ export class SessionSwitcher {
    */
   _click(e) {
     const target = /** @type {Element} */ (e.target);
-    const row = /** @type {HTMLElement|null} */ (target.closest('.ss-row'));
+    const row = /** @type {HTMLElement|null} */ (target.closest('.session-switcher-row'));
     if (!row) return;
     const it = this._items[Number(row.dataset.index)];
     if (!it) return;
@@ -865,11 +867,11 @@ export class SessionSwitcher {
       }
       return;
     }
-    if (target.closest('.ss-stop') && it.kind === 'session') {
+    if (target.closest('.session-switcher-stop') && it.kind === 'session') {
       this._remove(it);
       return;
     }
-    if (target.closest('.ss-field')) return;
+    if (target.closest('.session-switcher-field')) return;
     this.select(Number(row.dataset.index), false);
     this._pick(it, { newWindow: commandHeld(e) });
   }

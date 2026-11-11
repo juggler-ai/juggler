@@ -110,7 +110,7 @@ export async function runTests() {
 
     const stayingTab = bar._tabElements.get('conv_staying');
     assert(!!stayingTab, 'the already-loaded conversation never got a host');
-    assert(stayingTab.classList.contains('active'), 'the visible conversation was not activated');
+    assert(stayingTab.classList.contains('is-active'), 'the visible conversation was not activated');
 
     // --- 1: selecting a host-less mapped conversation builds its host -------
     // The stub is in the map (so the bar renders a row for it) but
@@ -124,7 +124,7 @@ export async function runTests() {
     assert(!!restoredTab, 'selecting a restored conversation built no panel host — blank page');
     assert(restoredTab.parentElement === tabsContainer,
       'the host was built but never parented into the tabs container');
-    assert(restoredTab.classList.contains('active'), 'the newly-built host was not activated');
+    assert(restoredTab.classList.contains('is-active'), 'the newly-built host was not activated');
     assert(restoredTab.getConversation() === restored, 'the host was not bound to its conversation');
     assert(bar.getTabElement('conv_restored') === restoredTab, 'the bar does not answer for the host it built');
     passed++;
@@ -132,7 +132,7 @@ export async function runTests() {
     // --- 2: it shows the loading overlay, and the old tab is parked ---------
     assert(!!restoredTab.querySelector('.conversation-tab-loading-overlay'),
       'a still-loading conversation rendered an empty panel instead of the spinner');
-    assert(!stayingTab.classList.contains('active') && stayingTab.classList.contains('hidden'),
+    assert(!stayingTab.classList.contains('is-active') && stayingTab.classList.contains('hidden'),
       'the previously-visible tab was not parked by the switch');
     passed++;
 

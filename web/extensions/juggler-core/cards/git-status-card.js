@@ -29,11 +29,73 @@
 
 import InfoCardType from 'juggler/info-card-type';
 import { translator } from 'juggler/i18n';
+import { injectStylesOnce } from 'juggler/ui';
 import gitStatusCache from '../../../js/services/git-status-cache.js';
 import pinboardView from '../../../js/services/pinboard-view.js';
 import { countsPhrase, repoLabel } from '../lib/git-status.js';
 
 const t = translator('@juggler/core');
+
+// Per-repo rows: a quiet name badge and the counts, the whole row in the mono
+// face so path labels and counts share the tabular look of the working tree
+// they describe. The badge is a barely-there fill and hairline, so the name
+// reads as a tag without competing with the counts. The card's whole content is
+// a button that opens the Git pin, and must not look like one: the card is
+// ambient, so it is a bare region that reveals itself on hover. The review cue
+// says that something can be done about the counts.
+injectStylesOnce('git-status-card-styles', `
+.git-status-card__line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-6);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  line-height: var(--leading-normal);
+}
+
+.git-status-card__repo {
+  flex-shrink: 0;
+  padding: 0.0625rem var(--space-4);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text-primary) 12%, transparent);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+}
+
+.git-status-card__counts {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+.git-status-card__launch {
+  display: block;
+  width: 100%;
+  margin: calc(-1 * var(--space-4));
+  padding: var(--space-4);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.git-status-card__launch:hover {
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+}
+
+.git-status-card__review {
+  margin-top: var(--space-2);
+  color: var(--accent-blue);
+  font-size: var(--font-size-sm);
+}
+`);
 
 /**
  * Make a body-styled line element. Used for the whole-card status messages
@@ -58,15 +120,15 @@ function line(text) {
  */
 function repoLine(name, counts) {
   const row = document.createElement('div');
-  row.className = 'info-card__git-line';
+  row.className = 'git-status-card__line';
   if (name) {
     const badge = document.createElement('span');
-    badge.className = 'info-card__git-repo';
+    badge.className = 'git-status-card__repo';
     badge.textContent = name;
     row.appendChild(badge);
   }
   const countsEl = document.createElement('span');
-  countsEl.className = 'info-card__git-counts';
+  countsEl.className = 'git-status-card__counts';
   countsEl.textContent = counts;
   row.appendChild(countsEl);
   return row;
@@ -84,9 +146,9 @@ function repoLine(name, counts) {
 function inTree(workspace, nodes) {
   if (!workspace) return nodes;
   const row = document.createElement('div');
-  row.className = 'info-card__git-line';
+  row.className = 'git-status-card__line';
   const badge = document.createElement('span');
-  badge.className = 'info-card__git-repo';
+  badge.className = 'git-status-card__repo';
   badge.textContent = workspace;
   badge.title = t('Workspace: {workspace}', { workspace });
   row.appendChild(badge);
@@ -119,13 +181,13 @@ function withLauncher(nodes, review = false) {
   if (!pinboardView.canPin(GIT_SOURCE)) return nodes;
   const button = document.createElement('button');
   button.type = 'button';
-  button.className = 'info-card__git-launch';
+  button.className = 'git-status-card__launch';
   button.setAttribute('aria-label', review ? t('Review changes in the Pinboard') : t('Open Git status in the Pinboard'));
   button.title = review ? t('Review changes') : t('Open in the Pinboard');
   button.append(...nodes);
   if (review) {
     const cue = document.createElement('div');
-    cue.className = 'info-card__git-review';
+    cue.className = 'git-status-card__review';
     cue.textContent = t('Review changes →');
     button.appendChild(cue);
   }

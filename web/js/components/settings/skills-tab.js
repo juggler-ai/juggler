@@ -114,8 +114,8 @@ export class SkillsTab {
     root.innerHTML = `
       <div class="skills-header">
         <div class="skills-modeswitch" role="tablist">
-          <button class="skills-mode active" data-mode="discover" role="tab">${escapeHtml(t('Discover'))}</button>
-          <button class="skills-mode" data-mode="manage" role="tab">${escapeHtml(t('Installed'))}</button>
+          <button class="skills-mode" data-mode="discover" role="tab" aria-selected="true">${escapeHtml(t('Discover'))}</button>
+          <button class="skills-mode" data-mode="manage" role="tab" aria-selected="false">${escapeHtml(t('Installed'))}</button>
         </div>
         <button class="btn-ghost skills-refresh" data-action="refresh" title="${escapeHtml(t('Refresh'))}" aria-label="${escapeHtml(t('Refresh'))}">${REFRESH_SVG}</button>
       </div>
@@ -256,7 +256,7 @@ export class SkillsTab {
     const root = this.root;
     if (root) {
       root.querySelectorAll('.skills-mode').forEach((b) => {
-        b.classList.toggle('active', /** @type {HTMLElement} */ (b).dataset.mode === mode);
+        b.setAttribute('aria-selected', String(/** @type {HTMLElement} */ (b).dataset.mode === mode));
       });
     }
     this._closePreview();
@@ -277,7 +277,7 @@ export class SkillsTab {
       return;
     }
     if (this.loading) {
-      body.innerHTML = `<div class="skills-loading"><juggler-spinner style="--size: 1.75rem"></juggler-spinner></div>`;
+      body.innerHTML = `<div class="skills-loading"><juggler-spinner style="--spinner-size: 1.75rem"></juggler-spinner></div>`;
       return;
     }
     body.innerHTML = this.mode === 'manage' ? this._manageHtml() : this._discoverHtml();
@@ -316,12 +316,12 @@ export class SkillsTab {
     // all equally). The remove × is a SIBLING of the [data-source-chip] button,
     // not a child: _onClick tests [data-source-chip] first with closest(), so a
     // nested × would select the source instead of removing it.
-    const allChip = `<button class="skills-chip ${this.activeSource === 'all' ? 'active' : ''}" data-source-chip="all">${escapeHtml(t('All'))}</button>`;
+    const allChip = `<button class="skills-chip ${this.activeSource === 'all' ? 'is-active' : ''}" data-source-chip="all">${escapeHtml(t('All'))}</button>`;
     const sourceChips =
       allChip +
       sources
         .map((s) => {
-          const chip = `<button class="skills-chip ${this.activeSource === s.id ? 'active' : ''}" data-source-chip="${escapeHtml(s.id)}">${escapeHtml(s.label)}</button>`;
+          const chip = `<button class="skills-chip ${this.activeSource === s.id ? 'is-active' : ''}" data-source-chip="${escapeHtml(s.id)}">${escapeHtml(s.label)}</button>`;
           return `<span class="skills-chip-wrap">${chip}<button class="skills-chip-remove" data-remove-source="${escapeHtml(s.id)}" title="${escapeHtml(t('Remove this source'))}" aria-label="${escapeHtml(t('Remove source {label}', { label: s.label }))}">&times;</button></span>`;
         })
         .join('');
@@ -329,7 +329,7 @@ export class SkillsTab {
     const catChips = categories
       .map(
         (c) =>
-          `<button class="skills-chip ${this.activeCategories.has(c) ? 'active' : ''} ${DEPRECATED_CATEGORIES.has(c) ? 'dim' : ''}" data-cat-chip="${escapeHtml(c)}">${escapeHtml(c)}</button>`
+          `<button class="skills-chip ${this.activeCategories.has(c) ? 'is-active' : ''} ${DEPRECATED_CATEGORIES.has(c) ? 'dim' : ''}" data-cat-chip="${escapeHtml(c)}">${escapeHtml(c)}</button>`
       )
       .join('');
 
@@ -343,8 +343,8 @@ export class SkillsTab {
 
     return `
       <div class="skills-toolbar">
-        <input type="text" id="skills-search" class="skills-search" placeholder="${escapeHtml(t('Search skills…  ( / )'))}" value="${escapeHtml(this.query)}" />
-        <button class="skills-btn" data-action="add-source" aria-haspopup="menu" aria-expanded="false" title="${escapeHtml(t('Add a GitHub repository (owner/repo) as a skills source'))}">${escapeHtml(t('Add source'))} ${DROPDOWN_ARROW_SVG}</button>
+        <input type="text" id="skills-search" class="skills-search field-input" placeholder="${escapeHtml(t('Search skills…  ( / )'))}" value="${escapeHtml(this.query)}" />
+        <button class="btn btn-sm btn-neutral" data-action="add-source" aria-haspopup="menu" aria-expanded="false" title="${escapeHtml(t('Add a GitHub repository (owner/repo) as a skills source'))}">${escapeHtml(t('Add source'))} ${DROPDOWN_ARROW_SVG}</button>
       </div>
       <div class="skills-chiprow">${sourceChips}</div>
       ${catChips ? `<div class="skills-chiprow skills-catrow">${catChips}</div>` : ''}
@@ -372,11 +372,11 @@ export class SkillsTab {
 
     let installBtn;
     if (e.installed && !e.installed.upToDate) {
-      installBtn = `<button class="skills-btn install update" data-install="${escapeHtml(e.id)}">${escapeHtml(t('Update'))}</button>`;
+      installBtn = `<button class="btn btn-sm btn-primary" data-install="${escapeHtml(e.id)}">${escapeHtml(t('Update'))}</button>`;
     } else if (e.installed) {
       installBtn = `<span class="skills-installed">${CHECK_SVG} ${escapeHtml(t('Installed'))}</span>`;
     } else {
-      installBtn = `<button class="skills-btn install" data-install="${escapeHtml(e.id)}">${escapeHtml(t('Install'))}</button>`;
+      installBtn = `<button class="btn btn-sm btn-primary" data-install="${escapeHtml(e.id)}">${escapeHtml(t('Install'))}</button>`;
     }
 
     return `
@@ -388,7 +388,7 @@ export class SkillsTab {
         <div class="skills-card-meta">${escapeHtml(meta)}</div>
         <div class="skills-card-desc">${escapeHtml(e.description || t('No description.'))}</div>
         <div class="skills-card-actions">
-          <button class="skills-btn" data-preview="${escapeHtml(e.id)}" title="${escapeHtml(t('View this skill\'s SKILL.md and files before installing'))}">${escapeHtml(t('Details'))}</button>
+          <button class="btn btn-sm btn-neutral" data-preview="${escapeHtml(e.id)}" title="${escapeHtml(t('View this skill\'s SKILL.md and files before installing'))}">${escapeHtml(t('Details'))}</button>
           ${installBtn}
         </div>
       </div>
@@ -430,8 +430,8 @@ export class SkillsTab {
               ${pathRow}
             </div>
             <div class="skills-manage-actions">
-              <button class="skills-btn" data-preview-installed="${ref}" title="${escapeHtml(t('View this skill\'s SKILL.md and files'))}">${escapeHtml(t('Details'))}</button>
-              <button class="skills-btn danger" data-uninstall="${ref}">${escapeHtml(t('Uninstall'))}</button>
+              <button class="btn btn-sm btn-neutral" data-preview-installed="${ref}" title="${escapeHtml(t('View this skill\'s SKILL.md and files'))}">${escapeHtml(t('Details'))}</button>
+              <button class="btn btn-sm btn-neutral btn-danger-quiet" data-uninstall="${ref}">${escapeHtml(t('Uninstall'))}</button>
             </div>
           </div>
         `;
@@ -664,12 +664,12 @@ export class SkillsTab {
         <modal-backdrop class="skills-scope-backdrop"></modal-backdrop>
         <modal-panel class="skills-scope-panel">
           <header class="skills-scope-dialog-header">
-            <h2 class="skills-scope-dialog-title">${escapeHtml(t('Install “{name}”', { name: entry.name || t('skill') }))}</h2>
+            <h2 class="skills-scope-dialog-title text-truncate">${escapeHtml(t('Install “{name}”', { name: entry.name || t('skill') }))}</h2>
           </header>
           <p class="skills-scope-dialog-sub">${escapeHtml(t('Choose where to install this skill:'))}</p>
           <div class="skills-scope-actions">${optionsHTML}</div>
           <div class="skills-scope-dialog-footer">
-            <button class="skills-btn" data-scope-cancel>${escapeHtml(t('Cancel'))}</button>
+            <button class="btn btn-sm btn-neutral" data-scope-cancel>${escapeHtml(t('Cancel'))}</button>
           </div>
         </modal-panel>
       `;
@@ -758,7 +758,7 @@ export class SkillsTab {
     const title = escapeHtml(entry.name || t('Skill'));
     drawer.innerHTML = this._previewShell(
       title,
-      `<div class="skills-loading"><juggler-spinner style="--size:1.5rem"></juggler-spinner></div>`,
+      `<div class="skills-loading"><juggler-spinner style="--spinner-size:1.5rem"></juggler-spinner></div>`,
       ''
     );
     let detail;
@@ -817,7 +817,7 @@ export class SkillsTab {
 
     const fileList = detail.files.length
       ? `<div class="skills-section surface-card skills-files">
-           <div class="skills-section-title">${escapeHtml(t('Files ({count})', { count: detail.files.length }))}</div>
+           <div class="skills-section-title caps-label">${escapeHtml(t('Files ({count})', { count: detail.files.length }))}</div>
            <div class="skills-files-list">
              ${detail.files
                 .map(
@@ -858,8 +858,8 @@ export class SkillsTab {
       ${slugNote}
     `;
     const footer = `
-      <a class="skills-btn" href="${escapeHtml(entry.sourceUrl)}" target="_blank" rel="noopener noreferrer">${GITHUB_ICON_SVG} ${escapeHtml(t('View on GitHub'))}</a>
-      <button class="skills-btn install btn-primary" data-drawer-install>${escapeHtml(entry.installed ? t('Reinstall') : t('Install'))}</button>
+      <a class="btn btn-neutral" href="${escapeHtml(entry.sourceUrl)}" target="_blank" rel="noopener noreferrer">${GITHUB_ICON_SVG} ${escapeHtml(t('View on GitHub'))}</a>
+      <button class="btn btn-primary" data-drawer-install>${escapeHtml(entry.installed ? t('Reinstall') : t('Install'))}</button>
     `;
     return this._previewShell(escapeHtml(entry.name || t('(unnamed)')), body, footer);
   }
@@ -902,7 +902,7 @@ export class SkillsTab {
     const present = new Set((this.catalog?.sources || []).map((s) => s.id));
 
     const surface = document.createElement('nav');
-    surface.className = 'dropdown-menu skills-add-source-menu show';
+    surface.className = 'dropdown-menu skills-add-source-menu is-open';
     const menu = document.createElement('menu');
 
     /** @type {(() => void)|null} */
@@ -931,7 +931,7 @@ export class SkillsTab {
       menu.appendChild(divider);
 
       const header = document.createElement('li');
-      header.className = 'menu-header';
+      header.className = 'menu-header caps-label';
       header.textContent = t('Suggested sources');
       menu.appendChild(header);
 
@@ -941,7 +941,7 @@ export class SkillsTab {
         if (added) {
           // Already configured: shown for context, greyed, not pickable. Restore
           // by seed id keeps the curated label/trust (not a raw custom repo).
-          item.className = 'menu-item unavailable';
+          item.className = 'menu-item menu-item-unavailable';
           item.setAttribute('aria-disabled', 'true');
           item.textContent = t('{label} — added', { label: s.label });
         } else {

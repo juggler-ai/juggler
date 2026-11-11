@@ -654,7 +654,7 @@ const queuedItemPropertiesPanelTest = {
     };
     const removeBtn = await waitFor(() => {
       const panel = panelOf();
-      const btn = panel ? panel.querySelector('.properties-panel-btn.danger') : null;
+      const btn = panel ? panel.querySelector('.properties-panel-delete-btn') : null;
       return showsQueued(panel) ? btn : null;
     }, {
       timeoutMs: 3000,

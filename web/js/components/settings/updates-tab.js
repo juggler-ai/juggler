@@ -87,7 +87,7 @@ export class UpdatesTab {
 
     // ── Update mode radios ──────────────────────────────────────────────
     const modeHeading = document.createElement('div');
-    modeHeading.className = 'settings-section-heading';
+    modeHeading.className = 'settings-section-heading caps-label-lg';
     modeHeading.textContent = t('When updates are available');
     container.appendChild(modeHeading);
 
@@ -145,7 +145,7 @@ export class UpdatesTab {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.id = 'updates-check-btn';
-    btn.className = 'settings-btn btn-primary small';
+    btn.className = 'btn btn-sm btn-primary';
     btn.textContent = t('Check for updates');
     btn.addEventListener('click', () => void this._checkNow());
     actionCtrl.appendChild(btn);

@@ -448,7 +448,7 @@ export function renderAttachmentChips(composer) {
     chip.appendChild(thumb);
 
     const name = document.createElement('span');
-    name.className = 'attachment-name';
+    name.className = 'attachment-name text-truncate';
     name.textContent = ref.filename || t('image');
     chip.appendChild(name);
 
@@ -473,7 +473,7 @@ export function renderAttachmentChips(composer) {
     chip.appendChild(icon);
 
     const name = document.createElement('span');
-    name.className = 'attachment-name';
+    name.className = 'attachment-name text-truncate';
     name.textContent = entry.filename || t('text file');
     chip.appendChild(name);
 

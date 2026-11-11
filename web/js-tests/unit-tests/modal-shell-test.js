@@ -30,7 +30,7 @@ import '../../js/components/bin-modal.js';
  * @type {Array<{tag: string, open: (el: HTMLElement) => void}>}
  */
 const HOSTS = [
-  { tag: 'modal-dialog', open: el => el.classList.add('show') },
+  { tag: 'modal-dialog', open: el => el.classList.add('is-open') },
   { tag: 'about-modal', open: el => { el.replaceChildren(Object.assign(document.createElement('div'), { className: 'about-backdrop' })); } },
   { tag: 'update-notice', open: el => { el.replaceChildren(Object.assign(document.createElement('div'), { className: 'update-notice__backdrop' })); } },
   { tag: 'bin-modal', open: el => el.classList.add('is-open') }

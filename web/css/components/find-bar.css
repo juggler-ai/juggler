@@ -24,8 +24,8 @@
    that panel's getFindTarget(), always a positioned box — and pinned top-right
    above that panel's scroller. Sits at --z-controls: above the content and the
    scroll-controls (z-index 2) it overlaps, but below dropdowns and modals.
-   Visual language mirrors .scroll-control-btn — same surface, border, radius
-   tokens — so it reads as part of the same control family in both themes.
+   Its surface and border are the scroll controls' (messages.css), so it reads
+   as part of the same control family in both themes.
 
    The max-width matters on the narrow panels: properties and the pinboard are
    resized to whatever the user can spare, and a bar wider than its panel would
@@ -38,9 +38,9 @@
     z-index: var(--z-controls);
     display: flex;
     align-items: center;
-    gap: 0.25rem;
+    gap: var(--space-4);
     max-width: calc(100% - 2rem);
-    padding: 0.25rem;
+    padding: var(--space-4);
     border: 0.0625rem solid var(--border-color);
     border-radius: var(--radius-xl);
     background: var(--bg-secondary);
@@ -51,15 +51,11 @@
 .find-bar__input {
     flex: 0 1 11rem;
     min-width: 3rem;
-    padding: 0.25rem 0.5rem;
-    color: var(--text-primary);
-    font: inherit;
-    font-size: var(--font-size-base);
 }
 
 .find-bar__counter {
     min-width: 4.25rem;
-    padding: 0 0.25rem;
+    padding: 0 var(--space-4);
     color: var(--text-secondary);
     font-size: var(--font-size-sm);
     text-align: right;
@@ -67,40 +63,19 @@
     font-variant-numeric: tabular-nums;
 }
 
-.find-bar__counter--empty {
+.find-bar__counter.is-empty {
     color: var(--notice-bg);
 }
 
+/* The buttons are `btn btn-icon` (patterns/buttons.css). Some hold a text
+   glyph ("Aa", "W", ✕) rather than an svg, set at the bar's small size. */
 .find-bar__btn {
-    display: flex;
-    flex: 0 0 auto;
-    align-items: center;
-    justify-content: center;
-    width: 1.5rem;
-    height: 1.5rem;
-    padding: 0;
-    border: 0.0625rem solid transparent;
-    border-radius: var(--radius-lg);
-    background: transparent;
-    color: var(--text-secondary);
-    cursor: pointer;
     font-size: var(--font-size-sm);
     line-height: 1;
-    transition: color 0.2s, background-color 0.2s, border-color 0.2s;
-}
-
-.find-bar__btn svg {
-    width: 1rem;
-    height: 1rem;
-}
-
-.find-bar__btn:hover {
-    color: var(--accent-blue);
-    background: var(--bg-tertiary);
 }
 
 .find-bar__toggle {
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
 }
 
 .find-bar__toggle.is-active {

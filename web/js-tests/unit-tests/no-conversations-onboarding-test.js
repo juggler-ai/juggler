@@ -169,7 +169,7 @@ export async function runTests() {
     // across every width the panel can be dragged through, and measured
     // against the words' own width, so the switch can neither come too late
     // (full words cut off) nor much too early (short words with room to spare).
-    const tab = /** @type {HTMLElement|null} */ (bar.querySelector('.conversation-tab'));
+    const tab = /** @type {HTMLElement|null} */ (bar.querySelector('.conversation-bar-tab'));
     const newWs = /** @type {HTMLElement|null} */ (bar.querySelector('.conversation-box-new-button'));
     assert(!!tab && !!newWs, 'no rendered tab and "New workspace or group" button to measure against');
     const tabHeight = /** @type {HTMLElement} */ (tab).getBoundingClientRect().height;

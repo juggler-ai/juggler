@@ -54,7 +54,7 @@ pinboard-shell {
     transition: opacity var(--pinboard-slide) ease, visibility 0s linear var(--pinboard-slide);
 }
 
-pinboard-shell.open .pinboard-scrim {
+pinboard-shell.is-open .pinboard-scrim {
     opacity: 1;
     visibility: visible;
     pointer-events: auto;
@@ -94,7 +94,7 @@ pinboard-shell.open .pinboard-scrim {
     transition: transform var(--pinboard-slide) ease, visibility 0s linear var(--pinboard-slide);
 }
 
-pinboard-shell.open .pinboard-panel {
+pinboard-shell.is-open .pinboard-panel {
     transform: translateX(0);
     visibility: visible;
     transition: transform var(--pinboard-slide) ease, visibility 0s;
@@ -131,8 +131,8 @@ pinboard-shell.open .pinboard-panel {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: var(--spacing-sm);
-    padding: var(--spacing-sm) var(--spacing-md);
+    gap: var(--space-8);
+    padding: var(--space-8) var(--space-12);
     border-bottom: 0.0625rem solid var(--border-divider);
     font-family: var(--font-ui);
 }
@@ -144,27 +144,14 @@ pinboard-shell.open .pinboard-panel {
 .pinboard-toolbar__controls {
     display: flex;
     align-items: center;
-    gap: var(--spacing-xs);
+    gap: var(--space-6);
 }
 
-/* Icon and word together: the glyph is what the eye finds beside the close
-   button, and the word is what stops it being guessed at. The chrome is
-   .btn-ghost's; this owns only the size and the pairing. */
+/* Icon and word together (`btn btn-xs btn-ghost`): the glyph is what the eye
+   finds beside the close button, and the word is what stops it being guessed
+   at. It keeps its width however crowded the toolbar gets. */
 .pinboard-toolbar__popout {
     flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.375rem;
-    padding: 0.25rem 0.75rem;
-    font-family: inherit;
-    font-size: var(--font-size-xs);
-    line-height: 1.5;
-}
-
-.pinboard-toolbar__popout svg {
-    width: 0.875rem;
-    height: 0.875rem;
-    fill: currentcolor;
 }
 
 /* Band 2: the tab strip. Tabs wrap onto as many rows as they need — the board
@@ -174,8 +161,8 @@ pinboard-shell.open .pinboard-panel {
 pinboard-tabbar {
     display: flex;
     align-items: flex-start;
-    gap: var(--spacing-xs);
-    padding: var(--spacing-xs) var(--spacing-sm);
+    gap: var(--space-6);
+    padding: var(--space-6) var(--space-8);
     border-bottom: 0.0625rem solid var(--border-divider);
     font-family: var(--font-ui);
 }
@@ -185,7 +172,7 @@ pinboard-tabbar {
     flex: 1 1 auto;
     flex-wrap: wrap;
     align-items: center;
-    gap: var(--spacing-xs);
+    gap: var(--space-6);
     min-width: 0;
 }
 
@@ -204,7 +191,6 @@ pinboard-tabbar {
     border-radius: 50%;
     background: var(--accent-green);
     color: var(--bg-primary);
-    cursor: pointer;
     transition: background var(--transition-base), transform var(--transition-base);
 }
 
@@ -215,7 +201,7 @@ pinboard-tabbar {
 }
 
 .pinboard-tabbar__add:hover {
-    background: var(--accent-green-bright);
+    background: var(--accent-green-strong);
 }
 
 /* Pills, on the pattern of the conversation sidebar's tabs — the board's tabs
@@ -242,7 +228,7 @@ pinboard-tabbar {
    read as more conversation tabs; the hue is the whole of the difference.
    Darkened by the same mix the conversation tabs use, for the same reason —
    white text on the raw accent clears nothing in either theme. */
-.pinboard-tab.active {
+.pinboard-tab.is-selected {
     background: color-mix(in srgb, var(--accent-purple) 70%, var(--bg-raised));
     border-color: color-mix(in srgb, var(--accent-purple) 70%, var(--bg-raised));
     color: var(--text-on-accent);
@@ -303,7 +289,7 @@ pinboard-tabbar {
    size of the target and the gap before it. */
 .pinboard-tab > .drag-grip {
     width: 1rem;
-    margin-left: 0.25rem;
+    margin-left: var(--space-4);
     font-size: var(--font-size-sm);
 }
 
@@ -318,30 +304,23 @@ pinboard-tabbar {
 .pinboard-tab__button {
     display: flex;
     align-items: center;
-    gap: var(--spacing-xs);
+    gap: var(--space-6);
     min-width: 0;
-    padding: 0.375rem 0.625rem;
+    padding: var(--space-6) var(--space-10);
     border: 0;
     border-radius: inherit;
     background: transparent;
     color: inherit;
     font-family: inherit;
     font-size: var(--font-size-base);
-    line-height: 1.2;
-    cursor: pointer;
-}
-
-.pinboard-tab__label {
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
+    line-height: var(--leading-snug);
 }
 
 .pinboard-tab__badge {
     flex-shrink: 0;
-    padding: 0 0.25rem;
+    padding: 0 var(--space-4);
     border-radius: var(--radius-sm);
-    background: var(--overlay-light-8);
+    background: var(--wash-2);
     font-size: var(--font-size-2xs);
 }
 
@@ -353,7 +332,7 @@ pinboard-tabbar {
     justify-content: center;
     width: 1.25rem;
     height: 1.25rem;
-    margin-right: 0.375rem;
+    margin-right: var(--space-6);
     padding: 0;
     border: 0;
     border-radius: 50%;
@@ -361,7 +340,6 @@ pinboard-tabbar {
     color: inherit;
     line-height: 1;
     opacity: 0;
-    cursor: pointer;
     transition: opacity var(--transition-base), background var(--transition-base);
 }
 
@@ -372,11 +350,11 @@ pinboard-tabbar {
 
 .pinboard-tab__remove:hover {
     opacity: 1;
-    background: var(--overlay-light-10);
+    background: var(--wash-3);
     color: var(--text-primary);
 }
 
-.pinboard-tab.active .pinboard-tab__remove:hover {
+.pinboard-tab.is-selected .pinboard-tab__remove:hover {
     background: color-mix(in srgb, var(--text-on-accent) 15%, transparent);
 }
 
@@ -409,8 +387,8 @@ pinboard-content:focus {
 .pinboard-item-toolbar {
     display: flex;
     align-items: center;
-    gap: var(--spacing-sm);
-    padding: var(--spacing-sm) var(--spacing-md);
+    gap: var(--space-8);
+    padding: var(--space-8) var(--space-12);
     border-bottom: 0.0625rem solid var(--border-divider);
 }
 
@@ -418,13 +396,6 @@ pinboard-content:focus {
 .pinboard-item-toolbar__text {
     flex: 1 1 auto;
     min-width: 0;
-}
-
-.pinboard-item-toolbar__title,
-.pinboard-item-toolbar__subtitle {
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
 }
 
 .pinboard-item-toolbar__title {
@@ -447,9 +418,6 @@ pinboard-content:focus {
 .pinboard-item-toolbar__dir {
     flex: 0 1 auto;
     min-width: 0;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
     color: var(--text-tertiary);
 }
 
@@ -467,7 +435,7 @@ pinboard-content:focus {
     display: flex;
     flex: 0 0 auto;
     align-items: center;
-    gap: var(--spacing-xs);
+    gap: var(--space-6);
 }
 
 /* One height for both, set here rather than left to each one's padding: they
@@ -479,7 +447,7 @@ pinboard-content:focus {
     align-items: center;
     justify-content: center;
     height: 1.75rem;
-    padding: 0 var(--spacing-md);
+    padding: 0 var(--space-12);
     font-family: var(--font-ui);
     font-size: var(--font-size-sm);
     line-height: 1;
@@ -500,12 +468,12 @@ pinboard-content:focus {
 }
 
 .pinboard-item-toolbar__action--icon.is-spinning svg {
-    animation: control-spin 0.8s linear infinite;
+    animation: btn-spin 0.8s linear infinite;
     transform-origin: center;
 }
 
 .pinboard-item-toolbar__action:disabled {
-    opacity: 0.5;
+    opacity: var(--disabled-opacity);
     cursor: default;
 }
 
@@ -518,7 +486,7 @@ pinboard-content:focus {
 .pinboard-content__body {
     flex: 1 1 auto;
     min-height: 0;
-    padding: var(--spacing-md);
+    padding: var(--space-12);
     overflow: auto;
 }
 
@@ -537,9 +505,9 @@ pinboard-content:focus {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: var(--spacing-md);
+    gap: var(--space-12);
     height: 100%;
-    padding: var(--spacing-xl);
+    padding: var(--space-24);
     color: var(--text-secondary);
     text-align: center;
 }
@@ -568,14 +536,13 @@ pinboard-content:focus {
 }
 
 .pinboard-empty__add {
-    padding: var(--spacing-xs) var(--spacing-lg);
+    padding: var(--space-6) var(--space-16);
     border: 0.0625rem solid var(--border-color);
     border-radius: var(--radius-2xl);
     background: var(--bg-raised);
     color: var(--text-primary);
     font-family: inherit;
     font-size: var(--font-size-base);
-    cursor: pointer;
     transition: background var(--transition-base), border-color var(--transition-base);
 }
 
@@ -587,7 +554,7 @@ pinboard-content:focus {
 /* What the last edit had to say for itself, and nothing at all when it went
    through. */
 .pinboard-panel__status {
-    padding: var(--spacing-sm) var(--spacing-md);
+    padding: var(--space-8) var(--space-12);
     border-top: 0.0625rem solid var(--border-divider);
     color: var(--text-secondary);
     font-family: var(--font-ui);
@@ -596,16 +563,13 @@ pinboard-content:focus {
 
 .pinboard-add-picker__filter {
     width: 100%;
-    margin-bottom: var(--spacing-xs);
-    padding: var(--spacing-xs) var(--spacing-sm);
-    color: var(--text-primary);
+    margin-bottom: var(--space-6);
     font-family: var(--font-ui);
-    font-size: var(--font-size-base);
 }
 
 .pinboard-add-picker__note {
     margin-left: auto;
-    padding-left: var(--spacing-md);
+    padding-left: var(--space-12);
     color: var(--text-tertiary);
     font-size: var(--font-size-sm);
 }
@@ -678,7 +642,7 @@ pinboard-content:focus {
 [data-view="pinboard"] .app-header__board-title {
     display: flex;
     align-items: baseline;
-    gap: var(--spacing-lg);
+    gap: var(--space-16);
     flex: 1 1 auto;
     min-width: 0;
     margin-right: auto;
@@ -698,7 +662,7 @@ pinboard-content:focus {
     overflow: hidden;
     color: var(--text-primary);
     font-size: var(--font-size-base);
-    font-weight: 500;
+    font-weight: var(--font-weight-medium);
     text-overflow: ellipsis;
 }
 

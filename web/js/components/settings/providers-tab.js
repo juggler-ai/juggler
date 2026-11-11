@@ -209,14 +209,14 @@ export class ProvidersTab {
     await this._fieldsRendered;
     await this._endpointsRefreshed;
     const card = this._cardFor(providerName);
-    const details = /** @type {HTMLDetailsElement|null} */ (card?.querySelector('details.model-visibility') ?? null);
-    const row = Array.from(details ? details.querySelectorAll('.model-visibility-row') : [])
+    const details = /** @type {HTMLDetailsElement|null} */ (card?.querySelector('details.settings-model-visibility') ?? null);
+    const row = Array.from(details ? details.querySelectorAll('.settings-model-visibility-row') : [])
       .find((el) => /** @type {HTMLElement} */ (el).dataset.model === modelId);
     const field = /** @type {HTMLInputElement|null} */ (row?.querySelector('[data-limit="contextWindow"]') ?? null);
     if (!details || !row || !field) return false;
     details.open = true;
     // A filter left over from an earlier visit could be hiding the row.
-    const filter = /** @type {HTMLInputElement|null} */ (details.querySelector('.model-visibility-filter'));
+    const filter = /** @type {HTMLInputElement|null} */ (details.querySelector('.settings-model-visibility-filter'));
     if (filter && filter.value) {
       filter.value = '';
       filter.dispatchEvent(new Event('input'));
@@ -260,7 +260,7 @@ export class ProvidersTab {
     this.endpointCards.clear();
 
     const heading = document.createElement('div');
-    heading.className = 'settings-section-heading';
+    heading.className = 'settings-section-heading caps-label-lg';
     heading.textContent = t('Your own endpoints');
     root.appendChild(heading);
 
@@ -312,7 +312,7 @@ export class ProvidersTab {
     }
     const add = document.createElement('button');
     add.type = 'button';
-    add.className = 'settings-btn small custom-endpoint-add-open';
+    add.className = 'btn btn-sm btn-secondary custom-endpoint-add-open';
     add.textContent = t('Add endpoint');
     add.addEventListener('click', () => {
       this.addingEndpoint = true;
@@ -482,7 +482,7 @@ export class ProvidersTab {
       if (provider.available) {
         const signOutBtn = document.createElement('button');
         signOutBtn.type = 'button';
-        signOutBtn.className = 'settings-btn btn-danger small';
+        signOutBtn.className = 'btn btn-sm btn-danger';
         signOutBtn.textContent = t('Sign out');
         signOutBtn.title = t('Sign out of the GitHub login stored by Juggler');
         signOutBtn.addEventListener('click', () => this._copilotSignOut(provider, signOutBtn));
@@ -490,7 +490,7 @@ export class ProvidersTab {
       } else {
         const signInBtn = document.createElement('button');
         signInBtn.type = 'button';
-        signInBtn.className = 'settings-btn btn-primary small';
+        signInBtn.className = 'btn btn-sm btn-primary';
         signInBtn.textContent = t('Sign in with GitHub');
         signInBtn.addEventListener('click', () => this._copilotSignIn(provider, signInBtn));
         buttonGroup.appendChild(signInBtn);
@@ -529,7 +529,7 @@ export class ProvidersTab {
     const toggle = document.createElement('input');
     toggle.type = 'checkbox';
     toggle.id = `${provider.name}-toggle`;
-    toggle.className = 'provider-toggle';
+    toggle.className = 'provider-toggle u-visually-hidden';
     toggle.checked = checked;
 
     const toggleLabel = document.createElement('label');
@@ -559,7 +559,7 @@ export class ProvidersTab {
   _buildOAuthRefreshButton(provider, subject = 'sign-in') {
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'settings-btn icon';
+    btn.className = 'btn btn-icon btn-icon-lg btn-secondary settings-recheck-btn';
     const name = provider.displayName;
     btn.title = subject === 'status' ? t('Re-check status') : t('Re-check sign-in');
     btn.setAttribute('aria-label', subject === 'status'
@@ -674,7 +674,7 @@ export class ProvidersTab {
     const input = document.createElement('input');
     input.type = 'text';
     input.id = inputId;
-    input.className = 'settings-input small field-input';
+    input.className = 'settings-input small field-input field-input-sm';
     input.value = 'github.com';
     input.placeholder = t('{host} or your-tenant.ghe.com', { host: 'github.com' });
     input.autocapitalize = 'off';
@@ -984,7 +984,7 @@ export class ProvidersTab {
 
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = 'settings-btn btn-primary small';
+    button.className = 'btn btn-sm btn-primary';
     button.textContent = t('Switch to {name}', { name: target.displayName });
     notice.appendChild(button);
 
@@ -1095,14 +1095,14 @@ export class ProvidersTab {
     const saveButton = document.createElement('button');
     saveButton.type = 'button';
     saveButton.id = saveButtonId;
-    saveButton.className = 'settings-btn btn-primary small';
+    saveButton.className = 'btn btn-sm btn-primary';
     saveButton.textContent = t('Save');
     saveButton.hidden = true;
 
     const deleteButton = document.createElement('button');
     deleteButton.type = 'button';
     deleteButton.id = deleteButtonId;
-    deleteButton.className = 'settings-btn btn-danger small';
+    deleteButton.className = 'btn btn-sm btn-danger';
     deleteButton.textContent = t('Delete');
     deleteButton.hidden = true;
 
@@ -1192,26 +1192,26 @@ export class ProvidersTab {
     const assumed = new Set(models.filter(isAssumedWindow).map(m => m.id));
 
     const details = document.createElement('details');
-    details.className = 'model-visibility';
+    details.className = 'settings-model-visibility';
     details.open = assumed.size > 0;
 
     const summary = document.createElement('summary');
-    summary.className = 'model-visibility-summary';
+    summary.className = 'settings-model-visibility-summary';
     details.appendChild(summary);
 
     const summaryLabel = document.createElement('span');
-    summaryLabel.className = 'model-visibility-label';
+    summaryLabel.className = 'settings-model-visibility-label';
     summaryLabel.textContent = t('Models and token limits');
     summary.appendChild(summaryLabel);
 
     // The count carries the state, so it's the part that stays legible when the
     // label dims — hence its own element rather than one string.
     const summaryCount = document.createElement('span');
-    summaryCount.className = 'model-visibility-count';
+    summaryCount.className = 'settings-model-visibility-count';
     summary.appendChild(summaryCount);
 
     const summaryAssumed = document.createElement('span');
-    summaryAssumed.className = 'model-visibility-assumed';
+    summaryAssumed.className = 'settings-model-visibility-assumed';
     summary.appendChild(summaryAssumed);
 
     const updateSummary = () => {
@@ -1226,12 +1226,12 @@ export class ProvidersTab {
     updateSummary();
 
     const status = document.createElement('div');
-    status.className = 'model-visibility-status';
+    status.className = 'settings-model-visibility-status';
     status.hidden = true;
 
     const filter = document.createElement('input');
     filter.type = 'text';
-    filter.className = 'settings-value-input model-visibility-filter field-input';
+    filter.className = 'settings-value-input settings-model-visibility-filter field-input field-input-sm';
     filter.placeholder = t('Filter models');
     filter.autocomplete = 'off';
     filter.setAttribute('autocorrect', 'off');
@@ -1240,25 +1240,25 @@ export class ProvidersTab {
     filter.spellcheck = false;
 
     const list = document.createElement('div');
-    list.className = 'model-visibility-list surface-well';
+    list.className = 'settings-model-visibility-list surface-well';
 
     // Column headings, inside the scroller and pinned to its top, so they stay
     // over the numbers they name however far the list is scrolled.
     const header = document.createElement('div');
-    header.className = 'model-visibility-header';
+    header.className = 'settings-model-visibility-header';
     const nameHeading = document.createElement('span');
     nameHeading.textContent = t('Model');
     const windowHeading = document.createElement('span');
-    windowHeading.className = 'model-visibility-header-limit';
+    windowHeading.className = 'settings-model-visibility-header-limit';
     windowHeading.textContent = t('Context window');
     const outputHeading = document.createElement('span');
-    outputHeading.className = 'model-visibility-header-limit';
+    outputHeading.className = 'settings-model-visibility-header-limit';
     outputHeading.textContent = t('Max output');
     header.append(nameHeading, windowHeading, outputHeading);
     list.appendChild(header);
 
     const empty = document.createElement('div');
-    empty.className = 'model-visibility-empty';
+    empty.className = 'settings-model-visibility-empty';
     empty.textContent = t('Nothing.');
     empty.hidden = true;
 
@@ -1362,7 +1362,7 @@ export class ProvidersTab {
       const input = document.createElement('input');
       input.type = 'number';
       input.min = '0';
-      input.className = 'model-limit-input';
+      input.className = 'model-limit-input field-input field-input-xs';
       input.dataset.limit = field;
       input.value = stored() ? String(stored()) : '';
       input.autocomplete = 'off';
@@ -1410,22 +1410,22 @@ export class ProvidersTab {
     // Same lineage grouping the model menu uses, so the two lists read alike.
     for (const model of sortModelsByVersion(models)) {
       const row = document.createElement('div');
-      row.className = 'model-visibility-row';
+      row.className = 'settings-model-visibility-row';
       row.dataset.model = model.id;
 
       // The checkbox and the name are the label; the number fields are not. A
       // label forwards a click anywhere inside it to its control, so wrapping
       // the whole row would hide the model every time one was clicked into.
       const toggle = document.createElement('label');
-      toggle.className = 'model-visibility-toggle';
+      toggle.className = 'settings-model-visibility-toggle';
 
       const box = document.createElement('input');
       box.type = 'checkbox';
-      box.className = 'model-visibility-check';
+      box.className = 'settings-model-visibility-check';
       box.checked = !hidden.has(model.id);
 
       const name = document.createElement('span');
-      name.className = 'model-visibility-name';
+      name.className = 'settings-model-visibility-name';
       name.title = model.id;
       // A long id wraps rather than being cut off, since gateway ids share a
       // vendor prefix and differ only at the end. Each "/" offers a break, so

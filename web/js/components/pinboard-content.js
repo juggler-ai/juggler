@@ -107,7 +107,7 @@ const ENTRY_SELECTOR = 'a[href], button:not(:disabled), input:not(:disabled), se
  * @returns {any} The active `<conversation-tab>`, or null.
  */
 function activeTab() {
-  return document.querySelector('conversation-tab.active');
+  return document.querySelector('conversation-tab.is-active');
 }
 
 /**
@@ -796,9 +796,9 @@ class PinboardContent extends JugglerElement {
     const text = document.createElement('div');
     text.className = 'pinboard-item-toolbar__text';
     const title = document.createElement('div');
-    title.className = 'pinboard-item-toolbar__title';
+    title.className = 'pinboard-item-toolbar__title text-truncate';
     const subtitle = document.createElement('div');
-    subtitle.className = 'pinboard-item-toolbar__subtitle';
+    subtitle.className = 'pinboard-item-toolbar__subtitle text-truncate';
     text.append(title, subtitle);
     const actions = document.createElement('div');
     actions.className = 'pinboard-item-toolbar__actions';
@@ -885,7 +885,7 @@ class PinboardContent extends JugglerElement {
     if (!this._title) return;
     const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1;
     const dir = document.createElement('span');
-    dir.className = 'pinboard-item-toolbar__dir';
+    dir.className = 'pinboard-item-toolbar__dir text-truncate';
     dir.textContent = path.slice(0, cut);
     const name = document.createElement('span');
     name.className = 'pinboard-item-toolbar__name';
@@ -982,7 +982,7 @@ class PinboardContent extends JugglerElement {
    */
   _openOverflow(more, overflow) {
     const surface = document.createElement('nav');
-    surface.className = 'dropdown-menu pinboard-item-toolbar-menu show';
+    surface.className = 'dropdown-menu pinboard-item-toolbar-menu is-open';
     const list = document.createElement('menu');
     for (const index of overflow) {
       const action = this._actionList[index];
@@ -990,7 +990,7 @@ class PinboardContent extends JugglerElement {
       row.className = 'menu-item';
       row.textContent = action?.label || '';
       if (action?.disabled === true) {
-        row.classList.add('unavailable');
+        row.classList.add('menu-item-unavailable');
       } else {
         row.addEventListener('click', () => {
           this._closeOverflow?.();

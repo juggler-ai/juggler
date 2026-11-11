@@ -644,7 +644,7 @@ export async function runTests() {
 
         assert(binned.length === 1 && binned[0] === conversation.id,
           `the conversation goes, in one act and with nothing asked, got ${JSON.stringify(binned)}`);
-        assert(!document.querySelector('modal-dialog.show'),
+        assert(!document.querySelector('modal-dialog.is-open'),
           'and nothing was put in front of the user on the way');
         assert((await projectOps.stat({ path: name })).exists,
           'the tree is where it was: a conversation going away is not a claim on one');

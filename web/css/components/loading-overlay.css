@@ -1,0 +1,66 @@
+/*
+ *     ▄▄ ▄▄ ▄▄  ▄▄▄▄  ▄▄▄▄ ▄▄    ▄▄▄▄▄ ▄▄▄▄
+ *     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
+ *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
+ */
+
+/* The two waits that take the whole window — starting up, and getting the
+   connection back — are one overlay in two configurations
+   (components/loading-overlay.js), so they are styled once here and differ by
+   the `data-loading-overlay` attribute naming which wait it is. */
+.loading-overlay {
+    position: fixed;
+    inset: 0;
+    background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
+    z-index: var(--z-modal);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* A dropped connection leaves the work faintly visible behind the scrim above —
+   it is still there, and being shown it is reassuring. Startup has nothing
+   behind it worth showing: an empty sidebar, an empty tab column, and the line
+   the sidebar renders when it has no session, which is the right thing to say
+   about a session that failed to arrive and the wrong thing to greet a launch
+   with. So this one is solid, and the window is simply blank until there is
+   something in it. It is also why nothing has to be hidden element by element
+   for the duration. */
+.loading-overlay[data-loading-overlay="startup"] {
+    background: var(--bg-primary);
+}
+
+/* The spinner, the message and the buttons are a notice
+   (patterns/notice.css: .notice, .notice__title, .notice__actions), laid out
+   as every whole-window message is; what is here is the overlay's own. */
+
+/* Always laid out so the spinner and lines never shift; only the
+   visibility flips once the spinner-only grace period ends. */
+.loading-overlay__info {
+    visibility: hidden;
+}
+
+.loading-overlay__info--visible {
+    visibility: visible;
+}
+
+/* Its own line below the message, so a retry timer and the wording never
+   overwrite one another. Height is reserved so blanking it shifts nothing. */
+.loading-overlay__detail {
+    margin-top: var(--space-8);
+    min-height: 1.25em;
+    font-size: var(--font-size-md);
+    color: var(--text-secondary);
+}
+
+.loading-overlay__host {
+    margin-top: var(--space-8);
+    font-size: var(--font-size-md);
+    color: var(--text-tertiary);
+    font-family: var(--font-mono);
+}
+
+/* A desktop window's ways out of a dropped connection (disconnection-overlay.js). */
+.loading-overlay__actions {
+    padding-top: var(--space-24);
+}

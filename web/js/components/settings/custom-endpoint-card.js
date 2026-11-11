@@ -305,7 +305,7 @@ function buildEnableToggle(endpoint, saveFields) {
   const toggle = document.createElement('input');
   toggle.type = 'checkbox';
   toggle.id = `${endpoint.providerId}-toggle`;
-  toggle.className = 'provider-toggle custom-endpoint-toggle';
+  toggle.className = 'provider-toggle custom-endpoint-toggle u-visually-hidden';
   toggle.checked = endpoint.enabled;
 
   const label = document.createElement('label');
@@ -447,7 +447,7 @@ function buildHeadersField(endpoint, saveFields) {
 
     const drop = document.createElement('button');
     drop.type = 'button';
-    drop.className = 'settings-btn small custom-endpoint-header-remove';
+    drop.className = 'btn btn-icon btn-icon-lg btn-secondary btn-danger-quiet custom-endpoint-header-remove';
     drop.textContent = '\u00d7';
     drop.setAttribute('aria-label', key ? t('Remove header {name}', { name: key }) : t('Remove header being added'));
     drop.addEventListener('click', () => {
@@ -469,7 +469,7 @@ function buildHeadersField(endpoint, saveFields) {
 
   const add = document.createElement('button');
   add.type = 'button';
-  add.className = 'settings-btn small custom-endpoint-header-add';
+  add.className = 'btn btn-sm btn-secondary custom-endpoint-header-add';
   add.textContent = t('Add header');
   add.addEventListener('click', () => {
     const row = addRow('', '');
@@ -536,13 +536,13 @@ function buildKeyField(endpoint, ctx) {
 
   const saveButton = document.createElement('button');
   saveButton.type = 'button';
-  saveButton.className = 'settings-btn btn-primary small custom-endpoint-key-save';
+  saveButton.className = 'btn btn-sm btn-primary custom-endpoint-key-save';
   saveButton.textContent = t('Save');
   saveButton.style.display = 'none';
 
   const deleteButton = document.createElement('button');
   deleteButton.type = 'button';
-  deleteButton.className = 'settings-btn btn-danger small custom-endpoint-key-delete';
+  deleteButton.className = 'btn btn-sm btn-danger custom-endpoint-key-delete';
   deleteButton.textContent = t('Delete');
   deleteButton.style.display = endpoint.keySource === 'credentials' ? 'block' : 'none';
 
@@ -616,7 +616,7 @@ function buildRemoveRow(endpoint, ctx) {
 
   const remove = document.createElement('button');
   remove.type = 'button';
-  remove.className = 'settings-btn btn-danger small custom-endpoint-remove';
+  remove.className = 'btn btn-sm btn-danger custom-endpoint-remove';
   remove.textContent = t('Remove');
   remove.addEventListener('click', async () => {
     const label = endpoint.displayName || endpoint.id;
@@ -739,12 +739,12 @@ export function buildAddEndpointForm(ctx) {
 
   const add = document.createElement('button');
   add.type = 'button';
-  add.className = 'settings-btn btn-primary small custom-endpoint-add-save';
+  add.className = 'btn btn-sm btn-primary custom-endpoint-add-save';
   add.textContent = t('Add');
 
   const cancel = document.createElement('button');
   cancel.type = 'button';
-  cancel.className = 'settings-btn small custom-endpoint-add-cancel';
+  cancel.className = 'btn btn-sm btn-secondary custom-endpoint-add-cancel';
   cancel.textContent = t('Cancel');
   cancel.addEventListener('click', () => ctx.onCancel());
 

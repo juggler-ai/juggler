@@ -357,7 +357,8 @@ class ModelChip extends JugglerElement {
     tmp.innerHTML = html;
     const fresh = tmp.firstElementChild;
     if (!fresh) return;
-    chip.className = fresh.className;
+    // `default` is the only class thinkingChipHTML varies.
+    chip.classList.toggle('default', fresh.classList.contains('default'));
     chip.setAttribute('title', fresh.getAttribute('title') || '');
     chip.textContent = fresh.textContent;
   }
@@ -380,7 +381,7 @@ class ModelChip extends JugglerElement {
     // `show` up front: presentPopup owns placement, but display comes from the
     // base .dropdown-menu rule, which hides surfaces without it.
     const surface = document.createElement('nav');
-    surface.className = 'dropdown-menu thinking-mini show';
+    surface.className = 'dropdown-menu thinking-mini is-open';
     surface.setAttribute('role', 'dialog');
     surface.setAttribute('aria-label', t('Thinking'));
     const tuning = document.createElement('model-tuning');
@@ -513,7 +514,7 @@ class ModelChip extends JugglerElement {
     this.closeMini();
 
     const state = this._displayState();
-    const classes = ['model-selector-button', 'input-ctrl-btn'];
+    const classes = ['model-selector-button', 'input-ctrl-btn', 'btn-ghost'];
     if (state.modelUnavailable) classes.push('model-unavailable');
     if (this._pulseWhenEmpty && state.noModelSelected) classes.push('pulse');
 

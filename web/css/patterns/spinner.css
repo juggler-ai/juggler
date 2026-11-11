@@ -5,17 +5,17 @@
  */
 
 :where(juggler-spinner) {
-    --size: 2rem;
-    --duration: 1.5s;
+    --spinner-size: 2rem;
+    --spinner-duration: 1.5s;
     --spinner-n: 3;
-    --spinner-radius: calc(var(--size) * 0.28);
-    --spinner-club-w: calc(var(--size) * 0.22);
-    --spinner-club-h: calc(var(--size) * 0.36);
+    --spinner-radius: calc(var(--spinner-size) * 0.28);
+    --spinner-club-w: calc(var(--spinner-size) * 0.22);
+    --spinner-club-h: calc(var(--spinner-size) * 0.36);
 
     display: inline-block;
     position: relative;
-    width: var(--size);
-    height: var(--size);
+    width: var(--spinner-size);
+    height: var(--spinner-size);
     flex-shrink: 0;
     vertical-align: middle;
     contain: layout style;
@@ -54,7 +54,7 @@
     width: 0;
     height: 0;
     transform: rotate(var(--spinner-angle, 0deg));
-    transition: transform 400ms ease, opacity 250ms ease;
+    transition: transform var(--duration-slower) ease, opacity var(--transition-slow);
 }
 
 /* Clubs joining or leaving the cascade fade rather than pop — the same
@@ -73,15 +73,15 @@
     top: 0;
     width: 0;
     height: 0;
-    animation: juggler-spinner-orbit var(--duration) linear infinite;
+    animation: juggler-spinner-orbit var(--spinner-duration) linear infinite;
 }
 
 
 
 /* The flip's slow-zone has to line up with the bottom of THIS club's orbit, so
    it keeps a per-club phase offset — generalised from the hardcoded thirds to
-   any club count. Expressed against the --duration variable (not
-   animation-duration) so the offsets stay proportional if --duration is
+   any club count. Expressed against the --spinner-duration variable (not
+   animation-duration) so the offsets stay proportional if --spinner-duration is
    overridden. */
 :where(juggler-spinner) .spinner-club {
     position: absolute;
@@ -89,22 +89,22 @@
     height: var(--spinner-club-h);
     left: calc(var(--spinner-club-w) / -2);
     top: calc((var(--spinner-radius) + var(--spinner-club-h) / 2) * -1);
-    animation: juggler-spinner-spin var(--duration) linear infinite;
-    animation-delay: calc(var(--duration) * var(--spinner-phase, 0) / var(--spinner-n) * -1);
+    animation: juggler-spinner-spin var(--spinner-duration) linear infinite;
+    animation-delay: calc(var(--spinner-duration) * var(--spinner-phase, 0) / var(--spinner-n) * -1);
 }
 
 /* Scoped through .spinner-club, which the svg always lives inside, so this matches
    all three clubs.
 
    Specificity buys no protection here and must not be relied on for any:
-   :where() contributes nothing, so this is (0,1,1) — a tie with a container's
-   own `.some-btn svg { width: 1rem }`, settled by source order, and this sheet
-   is a pattern, linked ahead of every component. A container that reaches into
+   :where() contributes nothing, so this is (0,1,0) — below a container's own
+   `.some-btn svg { width: 1rem }`, and this sheet is a pattern, in a layer
+   below every component anyway. A container that reaches into
    the clubs with a descendant selector therefore wins and sizes each one to the
    whole spinner. Raising the count here would only swap the failure for a layer
    inversion (patterns sits below components), which is what lint-css-arch
    reports. A container styles its own icons with a child combinator instead. */
-:where(juggler-spinner) .spinner-club svg {
+:where(juggler-spinner) .spinner-club :where(svg) {
     display: block;
     width: 100%;
     height: 100%;
@@ -153,13 +153,13 @@
    the fall lands in the bottom of a throw.
 
    The duration is a fraction of the orbit rather than an absolute, so the fall
-   still finishes within one pass of the bottom whatever --duration says. */
+   still finishes within one pass of the bottom whatever --spinner-duration says. */
 :where(juggler-spinner) .spinner-club.spinner-dropping {
     animation:
-        juggler-spinner-spin var(--duration) linear infinite,
-        juggler-spinner-drop calc(var(--duration) * 0.6) linear 1;
+        juggler-spinner-spin var(--spinner-duration) linear infinite,
+        juggler-spinner-drop calc(var(--spinner-duration) * 0.6) linear 1;
     animation-delay:
-        calc(var(--duration) * var(--spinner-phase, 0) / var(--spinner-n) * -1),
+        calc(var(--spinner-duration) * var(--spinner-phase, 0) / var(--spinner-n) * -1),
         0s;
 }
 
@@ -206,15 +206,15 @@
 @media (prefers-reduced-motion: reduce) {
     juggler-spinner .spinner-club.spinner-dropping {
         animation:
-            juggler-spinner-spin var(--duration) linear infinite;
-        animation-delay: calc(var(--duration) * var(--spinner-phase, 0) / var(--spinner-n) * -1);
+            juggler-spinner-spin var(--spinner-duration) linear infinite;
+        animation-delay: calc(var(--spinner-duration) * var(--spinner-phase, 0) / var(--spinner-n) * -1);
     }
 }
 
 /* No prefers-reduced-motion slowdown: a busy spinner is an essential status
    indicator (it signals the app is working), not decorative motion, so it
-   runs at its normal --duration everywhere. If a gentle slowdown is ever
-   wanted here, override the --duration *variable* (not animation-duration) so
+   runs at its normal --spinner-duration everywhere. If a gentle slowdown is ever
+   wanted here, override the --spinner-duration *variable* (not animation-duration) so
    the calc()'d per-club flip delays scale with it and each club's slow-zone
    stays aligned with the bottom of its orbit — overriding animation-duration
    alone desynchronises them. To change the RATE of a running spinner, set
@@ -234,6 +234,7 @@
 :root[data-doc-hidden] *,
 :root[data-doc-hidden] *::before,
 :root[data-doc-hidden] *::after {
+    /* stylelint-disable-next-line declaration-no-important -- an animation shorthand on any more specific rule would otherwise resume it */
     animation-play-state: paused !important;
 }
 

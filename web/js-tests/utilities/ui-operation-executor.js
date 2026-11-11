@@ -88,7 +88,7 @@ export function disarmConfirm() {
  * not "the confirmation is showing" — a warning notice raised by the operation
  * under test would otherwise be answered instead. Waiting for the button also
  * rules out clicking a footer that is still being built. Class changes are
- * observed as well as children, because the reused element gains `.show` by
+ * observed as well as children, because the reused element gains `.is-open` by
  * attribute alone.
  * @param {string} buttonSelector - The button that must be present
  * @param {number} timeoutMs - Fail-fast deadline
@@ -96,7 +96,7 @@ export function disarmConfirm() {
  */
 function waitForConfirmDialog(buttonSelector, timeoutMs) {
   const find = () => {
-    const modal = /** @type {HTMLElement|null} */ (document.querySelector('modal-dialog.show:not(.is-notice)'));
+    const modal = /** @type {HTMLElement|null} */ (document.querySelector('modal-dialog.is-open:not(.is-notice)'));
     const button = /** @type {HTMLElement|null} */ (modal?.querySelector(buttonSelector) || null);
     return modal && button ? { modal, button } : null;
   };
@@ -126,7 +126,7 @@ function waitForConfirmDialog(buttonSelector, timeoutMs) {
     const expire = async () => {
       if (done) return;
       stop();
-      const shown = document.querySelector('modal-dialog.show');
+      const shown = document.querySelector('modal-dialog.is-open');
       reject(new Error(
         `expect-confirm: no confirmation with a '${buttonSelector}' button appeared within ${timeoutMs}ms` +
 					(shown ? ` (a dialog titled "${shown.querySelector('.modal-title')?.textContent || ''}" was showing)` : '') +
@@ -498,7 +498,7 @@ export async function executeUIOperation(harness, op) {
       const needle = op.textContains || '';
       /** @returns {{ warnings: Element[], match: Element | undefined }} All visible notices, and the first whose text contains the needle (if any). */
       const findMatch = () => {
-        const warnings = Array.from(document.querySelectorAll('modal-dialog.is-notice.show'));
+        const warnings = Array.from(document.querySelectorAll('modal-dialog.is-notice.is-open'));
         return { warnings, match: warnings.find(w => (w.textContent || '').includes(needle)) };
       };
 
@@ -1028,8 +1028,8 @@ export async function executeUIOperation(harness, op) {
       // the waiter runs in the background, clicks when the dialog mounts, and
       // `assert-confirm-shown` collects what it saw.
       const wanted = op.answer === false
-        ? '.modal-button.btn-secondary'
-        : '.modal-button.btn-danger, .modal-button.btn-primary';
+        ? '.modal-footer .btn-secondary'
+        : '.modal-footer .btn-danger, .modal-footer .btn-primary';
       // A previous test in this lane's realm may have died holding an arm; its
       // watcher must not answer this test's dialog.
       disarmConfirm();
@@ -1049,7 +1049,7 @@ export async function executeUIOperation(harness, op) {
           const seen = {
             title: modal.querySelector('.modal-title')?.textContent || '',
             message: modal.querySelector('.modal-message')?.textContent || '',
-            buttons: Array.from(modal.querySelectorAll('.modal-button'))
+            buttons: Array.from(modal.querySelectorAll('.modal-footer .btn'))
               .map(b => b.textContent || ''),
           };
           button.click();
@@ -1568,7 +1568,7 @@ export async function executeUIOperation(harness, op) {
         // The button already says what the menu is for, so every row is a choice:
         // no section header, and no divider under one.
         const addDropdown = document.querySelector('.context-item-add-dropdown');
-        const headerRows = addDropdown?.querySelectorAll('.category-header, .menu-header, .menu-divider') ?? [];
+        const headerRows = addDropdown?.querySelectorAll('.menu-header, .menu-divider') ?? [];
         if (headerRows.length) throw new Error(`add-ai-files-to-sub-thread: add-context-item menu has ${headerRows.length} header/divider row(s): ${Array.from(headerRows).map(el => el.textContent.trim() || el.className).join(', ')}`);
         assertMenuShape(addDropdown, 'add-ai-files-to-sub-thread: add-context-item menu');
         if (menuItemsAI.some(el => el.getAttribute('role') !== 'menuitem')) {
@@ -1583,7 +1583,7 @@ export async function executeUIOperation(harness, op) {
         await waitForElementGone('.context-item-add-dropdown');
         // The click must say what it did: whether it added files or found
         // nothing new, a silent menu item reads as broken.
-        const noticeAI = /** @type {any} */ (await waitForElement('modal-dialog.is-notice.show'));
+        const noticeAI = /** @type {any} */ (await waitForElement('modal-dialog.is-notice.is-open'));
         if (!/Added 1 assistant file\b/.test(noticeAI.textContent || '')) {
           throw new Error(`add-ai-files-to-sub-thread: expected an "Added 1 assistant file" notice, got: ${JSON.stringify((noticeAI.textContent || '').trim())}`);
         }

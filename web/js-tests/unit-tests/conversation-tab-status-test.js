@@ -61,13 +61,13 @@ function conversation(id, state = {}) {
 /**
  * Which of a circle's glyphs is showing.
  * @param {Element} circle - The status circle.
- * @returns {string[]} The `conversation-tab-glyph-*` suffixes of the visible ones.
+ * @returns {string[]} The `conversation-bar-tab-glyph-*` suffixes of the visible ones.
  */
 function visibleGlyphs(circle) {
-  return Array.from(circle.querySelectorAll('.conversation-tab-glyph'))
+  return Array.from(circle.querySelectorAll('.conversation-bar-tab-glyph'))
     .filter(glyph => getComputedStyle(glyph).display !== 'none')
-    .map(glyph => (Array.from(glyph.classList).find(c => c.startsWith('conversation-tab-glyph-')) || '')
-      .replace('conversation-tab-glyph-', ''));
+    .map(glyph => (Array.from(glyph.classList).find(c => c.startsWith('conversation-bar-tab-glyph-')) || '')
+      .replace('conversation-bar-tab-glyph-', ''));
 }
 
 /**
@@ -138,16 +138,16 @@ export async function runTests() {
     bar.render();
 
     const tab = (/** @type {string} */ id) => /** @type {HTMLElement} */ (
-      bar.querySelector(`.conversation-tab[data-conversation-id="${id}"]`));
+      bar.querySelector(`.conversation-bar-tab[data-conversation-id="${id}"]`));
     const circle = (/** @type {string} */ id) => /** @type {HTMLElement} */ (
-      tab(id).querySelector('.conversation-tab-status'));
+      tab(id).querySelector('.conversation-bar-tab-status'));
 
     await check('every tab carries one status circle, ahead of its name', () => {
       for (const id of ['idle', 'running', 'awaiting', 'scheduled']) {
-        const circles = tab(id).querySelectorAll('.conversation-tab-status');
+        const circles = tab(id).querySelectorAll('.conversation-bar-tab-status');
         assert(circles.length === 1, `tab ${id} must carry one status circle, got ${circles.length}`);
         assert(circles[0].classList.contains('item-circle'), `tab ${id}'s circle must be the shared badge circle`);
-        const name = /** @type {Element} */ (tab(id).querySelector('.conversation-tab-name'));
+        const name = /** @type {Element} */ (tab(id).querySelector('.conversation-bar-tab-name'));
         assert(!!(circles[0].compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING),
           `tab ${id}'s circle must come before its name`);
       }
@@ -161,7 +161,7 @@ export async function runTests() {
      * @returns {HTMLElement|null} The clock, or null when it is absent or hidden.
      */
     const scheduleClock = (id) => {
-      const clock = /** @type {HTMLElement|null} */ (tab(id).querySelector('.conversation-tab-schedule'));
+      const clock = /** @type {HTMLElement|null} */ (tab(id).querySelector('.conversation-bar-tab-schedule'));
       return clock && getComputedStyle(clock).display !== 'none' ? clock : null;
     };
 
@@ -169,14 +169,14 @@ export async function runTests() {
       for (const id of ['scheduled', 'empty-scheduled', 'failed-scheduled']) {
         const clock = scheduleClock(id);
         assert(!!clock, `tab ${id} has a send scheduled and must show the clock`);
-        const name = /** @type {Element} */ (tab(id).querySelector('.conversation-tab-name'));
+        const name = /** @type {Element} */ (tab(id).querySelector('.conversation-bar-tab-name'));
         assert(name.nextElementSibling === clock, `tab ${id}'s clock must sit directly after its name`);
         assert(!!clock?.querySelector('svg'), `tab ${id}'s clock must draw the scheduler's clock icon`);
         const flash = getComputedStyle(/** @type {HTMLElement} */ (clock)).animationName;
         if (reducedMotion()) {
           assert(flash === 'none', `under reduced motion the clock holds still, got ${flash}`);
         } else {
-          assert(flash === 'tab-schedule-flash', `tab ${id}'s clock must flash, got ${flash}`);
+          assert(flash === 'conversation-bar-tab-schedule-flash', `tab ${id}'s clock must flash, got ${flash}`);
         }
       }
       for (const id of ['idle', 'running', 'awaiting', 'failed', 'empty']) {
@@ -224,7 +224,7 @@ export async function runTests() {
       if (reducedMotion()) {
         assert(pulse === 'none', `under reduced motion a running circle holds still, got ${pulse}`);
       } else {
-        assert(pulse === 'icon-pulse', `a running circle pulses with the badge pulse, got ${pulse}`);
+        assert(pulse === 'message-icon-box-pulse', `a running circle pulses with the badge pulse, got ${pulse}`);
       }
       for (const id of ['idle', 'awaiting']) {
         assert(getComputedStyle(circle(id)).animationName === 'none', `tab ${id}'s circle must hold still`);
@@ -233,7 +233,7 @@ export async function runTests() {
     });
 
     await check('a running tab keeps its bin out of reach without changing its width', () => {
-      const bin = /** @type {HTMLElement} */ (tab('running').querySelector('.conversation-tab-bin'));
+      const bin = /** @type {HTMLElement} */ (tab('running').querySelector('.conversation-bar-tab-bin'));
       const style = getComputedStyle(bin);
       assert(style.display !== 'none' && style.visibility === 'hidden',
         `the bin must hold its place but be hidden, got display ${style.display}, visibility ${style.visibility}`);

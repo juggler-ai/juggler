@@ -42,7 +42,7 @@ function clearAllDialogs() {
  * @returns {Promise<HTMLElement>} The open dialog's panel.
  */
 async function openDialogPanel() {
-  const sel = 'modal-dialog.show:not(.is-notice) .modal-container';
+  const sel = 'modal-dialog.is-open:not(.is-notice) .modal-container';
   await waitFor(() => !!document.querySelector(sel), { description: 'the dialog to open' });
   return /** @type {HTMLElement} */ (document.querySelector(sel));
 }
@@ -160,7 +160,7 @@ export async function runTests() {
 
   await run('a notice is a status message, not a modal dialog, and does not hold Tab', async () => {
     showNotice('Saved', { duration: 0 });
-    await waitFor(() => !!document.querySelector('modal-dialog.is-notice.show'), { description: 'the notice to show' });
+    await waitFor(() => !!document.querySelector('modal-dialog.is-notice.is-open'), { description: 'the notice to show' });
     const panel = /** @type {HTMLElement} */ (document.querySelector('modal-dialog.is-notice .modal-container'));
     assert(panel.getAttribute('role') === 'status', `notice: role is ${JSON.stringify(panel.getAttribute('role'))}, not "status"`);
     assert(!panel.hasAttribute('aria-modal'), 'notice: it claims to be modal');

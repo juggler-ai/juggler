@@ -80,7 +80,7 @@ function mountBar(session) {
  * @returns {string} `tab:c1` / `box:ws_a`, joined, or '' for nothing.
  */
 function chosen(bar) {
-  return /** @type {HTMLElement[]} */ (Array.from(bar.querySelectorAll('.active')))
+  return /** @type {HTMLElement[]} */ (Array.from(bar.querySelectorAll('[aria-current="true"]')))
     .map((el) => (el.classList.contains('conversation-box')
       ? `box:${el.dataset.workspaceId}`
       : `tab:${el.dataset.conversationId}`))
@@ -106,7 +106,7 @@ function clickBox(bar, id) {
  */
 function tabFor(bar, id) {
   return /** @type {HTMLElement} */ (
-    bar.querySelector(`.conversation-tab[data-conversation-id="${id}"]`));
+    bar.querySelector(`.conversation-bar-tab[data-conversation-id="${id}"]`));
 }
 
 /**

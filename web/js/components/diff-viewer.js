@@ -709,7 +709,7 @@ class DiffViewer extends JugglerElement {
      * @param {string} label - What it says.
      * @returns {string} The button as HTML.
      */
-    const button = (which, label) => `<button type="button" class="diff-view-btn"`
+    const button = (which, label) => `<button type="button" class="btn btn-xs diff-view-btn"`
       + ` data-view="${which}" aria-pressed="${view === which}"`
       + `${this._wide ? '' : ' disabled'}>${escapeHtml(label)}</button>`;
 
@@ -723,7 +723,7 @@ class DiffViewer extends JugglerElement {
       + button('split', t('Split', undefined, { context: 'diff layout' }))
       + '</span>'
       + `<label class="diff-context-picker">${escapeHtml(t('Context', undefined, { context: 'unchanged diff lines' }))}`
-      + `<select class="diff-context-select" aria-label="${escapeAttr(t('Unchanged lines to show around each change'))}">${options}</select>`
+      + `<select class="diff-context-select field-input field-input-xs" aria-label="${escapeAttr(t('Unchanged lines to show around each change'))}">${options}</select>`
       + '</label>'
       + '</div>';
   }
@@ -795,7 +795,7 @@ class DiffViewer extends JugglerElement {
     for (const hunk of hunks) {
       const label = hunkLabel(hunk);
       const heading = hunk.heading ? ` ${hunk.heading}` : '';
-      html += `<diff-hunk role="group" aria-label="${escapeAttr(label)}">`;
+      html += `<diff-hunk class="diff-hunk" role="group" aria-label="${escapeAttr(label)}">`;
       html += `<diff-hunk-header>${escapeHtml(`@@ -${hunk.oldStart},${hunk.oldCount} +${hunk.newStart},${hunk.newCount} @@${heading}`)}</diff-hunk-header>`;
       for (const line of hunk.lines) html += this.renderRow(line);
       html += '</diff-hunk>';
@@ -825,7 +825,7 @@ class DiffViewer extends JugglerElement {
     for (const hunk of hunks) {
       const label = hunkLabel(hunk);
       const heading = hunk.heading ? ` ${hunk.heading}` : '';
-      html += `<diff-hunk role="group" aria-label="${escapeAttr(label)}">`;
+      html += `<diff-hunk class="diff-hunk" role="group" aria-label="${escapeAttr(label)}">`;
       html += `<diff-hunk-header>${escapeHtml(`@@ -${hunk.oldStart},${hunk.oldCount} +${hunk.newStart},${hunk.newCount} @@${heading}`)}</diff-hunk-header>`;
       for (const row of splitRows(hunk.lines)) html += this.renderSplitRow(row);
       html += '</diff-hunk>';
@@ -922,7 +922,7 @@ class DiffViewer extends JugglerElement {
     if (this._readOnly || number === null) return '';
     const label = t('Add comment to {side, select, old {old} other {new}} line {line}{named, select, yes { in {path}} other {}}',
       { side, line: lineNumber(number), named: this.filePath ? 'yes' : 'no', path: this.filePath });
-    return `<button type="button" class="diff-comment-btn" data-side="${side}" data-line="${number}"`
+    return `<button type="button" class="btn btn-icon btn-icon-sm btn-primary diff-comment-btn" data-side="${side}" data-line="${number}"`
       + ` title="${escapeAttr(label)}" aria-label="${escapeAttr(label)}">+</button>`;
   }
 

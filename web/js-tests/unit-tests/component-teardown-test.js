@@ -826,11 +826,11 @@ export async function runTests() {
       if (!answer || answer.value !== null) throw new Error(`a move left its question ${answer ? `answered ${answer.value}` : 'unanswered'}, want null`);
       // The connect rebuilds the panel empty, so a dialog still marked shown
       // would be a blank modal over the app that nothing is waiting on.
-      if (dialog.classList.contains('show')) throw new Error('after a move it still shows a dialog nothing is asking');
+      if (dialog.classList.contains('is-open')) throw new Error('after a move it still shows a dialog nothing is asking');
       dialog.remove();
       elsewhere.appendChild(dialog);
       const next = dialog.show({ type: 'alert', message: 'teardown again' });
-      if (!dialog.classList.contains('show')) throw new Error('reinserted after a removal it shows nothing when asked');
+      if (!dialog.classList.contains('is-open')) throw new Error('reinserted after a removal it shows nothing when asked');
       dialog.querySelector('.modal-backdrop-el').click();
       const dismissed = await settledByNextTask(next);
       if (!dismissed || dismissed.value !== null) throw new Error(`reinserted, a backdrop click ${dismissed ? `answered ${dismissed.value}` : 'left it unanswered'}, want null`);

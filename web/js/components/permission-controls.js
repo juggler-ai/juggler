@@ -299,10 +299,10 @@ class PermissionControls extends JugglerElement {
     const includePopupHtml = this.popupOpen && !existingPopup;
 
     this.innerHTML = `
-            <button class="permission-btn input-ctrl-btn ${/* eslint-disable-line juggler/escape-html-interpolation -- 'allowed' or 'ask', left bare so css-markup-model reads them */ this._buttonStateClass()} ${this.popupOpen ? 'open' : ''}" title="${escapeHtml(t('Manage auto-approval permissions'))}" aria-label="${escapeHtml(this._buttonLabel())}" data-shortcut-id="toggle-file-editing" aria-haspopup="dialog" aria-expanded="${this.popupOpen ? 'true' : 'false'}">
+            <button class="permission-btn input-ctrl-btn btn-ghost ${/* eslint-disable-line juggler/escape-html-interpolation -- 'allowed' or 'ask', left bare so css-markup-model reads them */ this._buttonStateClass()}" title="${escapeHtml(t('Manage auto-approval permissions'))}" aria-label="${escapeHtml(this._buttonLabel())}" data-shortcut-id="toggle-file-editing" aria-haspopup="dialog" aria-expanded="${this.popupOpen ? 'true' : 'false'}">
                   ${this._buttonInnerHTML()}
               </button>
-            ${includePopupHtml ? `<div class="dropdown-menu permissions-popup show" role="dialog" aria-label="${escapeHtml(t('Permissions'))}"></div>` : ''}
+            ${includePopupHtml ? `<div class="dropdown-menu permissions-popup is-open" role="dialog" aria-label="${escapeHtml(t('Permissions'))}"></div>` : ''}
         `;
 
     const btn = this.querySelector('.permission-btn');
@@ -320,7 +320,7 @@ class PermissionControls extends JugglerElement {
   }
 
   /**
-   * Update only the button — label, state class, open class — without
+   * Update only the button — label, state class, expanded state — without
    * touching the popup. Called from the metadata observer when only the
    * permission summary changed, so an open popup keeps its focus, scroll,
    * and any half-typed inline editors intact.
@@ -330,7 +330,11 @@ class PermissionControls extends JugglerElement {
     if (!this.shouldShowControls() || !this.messageThread) return;
     const btn = /** @type {HTMLElement|null} */ (this.querySelector('.permission-btn'));
     if (!btn) return;
-    btn.className = `permission-btn input-ctrl-btn ${this._buttonStateClass()} ${this.popupOpen ? 'open' : ''}`;
+    // Only the state classes change; the button's identity and chrome stay as
+    // the template above wrote them.
+    const state = this._buttonStateClass();
+    btn.classList.toggle('allowed', state === 'allowed');
+    btn.classList.toggle('ask', state === 'ask');
     btn.setAttribute('aria-expanded', String(this.popupOpen));
     btn.setAttribute('aria-label', this._buttonLabel());
     btn.innerHTML = this._buttonInnerHTML();
@@ -470,7 +474,7 @@ class PermissionControls extends JugglerElement {
       wrapper.dataset.sectionId = section.id;
       if (section.title) {
         const heading = document.createElement('h4');
-        heading.className = 'plugin-section-heading';
+        heading.className = 'plugin-section-heading caps-label';
         heading.textContent = section.title;
         wrapper.appendChild(heading);
       }
@@ -509,7 +513,7 @@ class PermissionControls extends JugglerElement {
     let listEl = /** @type {HTMLElement | null} */ (host.querySelector('.paths-list'));
     if (!listEl) {
       host.innerHTML = `
-              <h4 class="plugin-section-heading">${escapeHtml(t('Allowed paths'))}</h4>
+              <h4 class="plugin-section-heading caps-label">${escapeHtml(t('Allowed paths'))}</h4>
               <div class="paths-list"></div>
               <div class="add-pattern-row">
                 <button class="add-pattern-btn add-path-btn">${escapeHtml(t('+ Add path'))}</button>
@@ -582,22 +586,22 @@ class PermissionControls extends JugglerElement {
       row.className = 'pattern-row editing';
       row.innerHTML = `
         <path-input dirs-only class="path-edit-input" value="${escapeHtml(p)}" data-old-path="${escapeHtml(d.key)}" placeholder="${escapeHtml(p)}"></path-input>
-        <button class="pattern-save-btn path-save-btn" data-old-path="${escapeHtml(d.key)}" title="${saveHtml}">${saveHtml}</button>
-        <button class="pattern-cancel-btn path-cancel-btn" title="${cancelHtml}">${cancelHtml}</button>`;
+        <button class="btn btn-xs btn-secondary pattern-save-btn path-save-btn" data-old-path="${escapeHtml(d.key)}" title="${saveHtml}">${saveHtml}</button>
+        <button class="btn btn-xs btn-secondary pattern-cancel-btn path-cancel-btn" title="${cancelHtml}">${cancelHtml}</button>`;
     } else if (d.mode === 'new') {
       // i18n-ignore: an example path, not words
       const example = '~/code/juggler';
       row.className = 'pattern-row editing';
       row.innerHTML = `
         <path-input dirs-only class="path-edit-input" placeholder="${escapeHtml(t('e.g., {example}', { example }))}" data-old-path=""></path-input>
-        <button class="pattern-save-btn path-save-btn" data-old-path="" title="${saveHtml}">${saveHtml}</button>
-        <button class="pattern-cancel-btn path-cancel-btn" title="${cancelHtml}">${cancelHtml}</button>`;
+        <button class="btn btn-xs btn-secondary pattern-save-btn path-save-btn" data-old-path="" title="${saveHtml}">${saveHtml}</button>
+        <button class="btn btn-xs btn-secondary pattern-cancel-btn path-cancel-btn" title="${cancelHtml}">${cancelHtml}</button>`;
     } else {
       row.className = 'pattern-row';
       row.innerHTML = `
         <span class="pattern-text path-text" data-path-id="${escapeHtml(d.key)}" data-path="${escapeHtml(p)}"></span>
-        <button class="permission-scope-btn path-scope-btn" data-path-id="${escapeHtml(d.key)}" data-scope=""></button>
-        <button class="pattern-delete-btn path-delete-btn icon-btn" data-path-id="${escapeHtml(d.key)}" title="${escapeHtml(t('Delete'))}"><span class="icon-trashcan"></span></button>`;
+        <button class="btn btn-xs btn-secondary permission-scope-btn path-scope-btn" data-path-id="${escapeHtml(d.key)}" data-scope=""></button>
+        <button class="btn btn-icon btn-danger-quiet pattern-delete-btn path-delete-btn" data-path-id="${escapeHtml(d.key)}" title="${escapeHtml(t('Delete'))}"><span class="icon-trashcan"></span></button>`;
       this._updatePathRow(row, d);
     }
     return row;

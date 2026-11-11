@@ -161,7 +161,7 @@ class JugglerNudge extends JugglerElement {
     for (const action of nudge.actions) {
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'message-action-btn juggler-nudge__action';
+      btn.className = 'btn btn-sm btn-secondary message-action-btn juggler-nudge__action';
       btn.textContent = t(action.label);
       btn.addEventListener('click', () => { void this._run(action); });
       actions.appendChild(btn);

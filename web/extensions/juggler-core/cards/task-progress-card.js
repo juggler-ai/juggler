@@ -22,10 +22,59 @@
 
 import InfoCardType from 'juggler/info-card-type';
 import { translator, markForTranslation } from 'juggler/i18n';
-import { pinSource, canPinSource, findReaderContextItem, onReaderThreadChange } from 'juggler/ui';
+import { pinSource, canPinSource, findReaderContextItem, onReaderThreadChange, injectStylesOnce } from 'juggler/ui';
 import { taskProgress, createProgressBar } from '../lib/task-lists.js';
 
 const t = translator('@juggler/core');
+
+// One line per list in flight: name, a thin strip, the count. A row is a
+// button that opens the list's pin when there is one, and like the Git
+// launcher it stays a bare region that shows itself only on hover. The strip
+// is the plan/todo pins' bar (lib/task-lists.js), which owns its segments and
+// colours; the row only sizes it and lifts its track off the flat panel.
+injectStylesOnce('task-progress-card-styles', `
+.task-progress-card__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  width: calc(100% + 0.5rem);
+  margin-inline: calc(-1 * var(--space-4));
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  line-height: var(--leading-normal);
+  text-align: left;
+}
+
+button.task-progress-card__row {
+  cursor: pointer;
+}
+
+button.task-progress-card__row:hover {
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+}
+
+.task-progress-card__name {
+  flex: 0 0 auto;
+  min-width: 2.75rem;
+  color: var(--text-primary);
+}
+
+.task-progress-card__row .task-progress {
+  flex: 1 1 auto;
+  background: var(--bg-raised);
+}
+
+.task-progress-card__count {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+`);
 
 /**
  * How long a burst of document changes is gathered before the lists are read
@@ -157,7 +206,7 @@ function row(list) {
   let el;
   if (canPinSource(source)) {
     const button = document.createElement('button');
-    button.className = 'info-card__task-row';
+    button.className = 'task-progress-card__row';
     button.type = 'button';
     button.title = t(spec.open);
     // addSource dedupes: the pin is a singleton, so a second click reveals the
@@ -166,7 +215,7 @@ function row(list) {
     el = button;
   } else {
     const group = document.createElement('div');
-    group.className = 'info-card__task-row';
+    group.className = 'task-progress-card__row';
     group.setAttribute('role', 'group');
     group.title = summary;
     el = group;
@@ -175,14 +224,14 @@ function row(list) {
   el.setAttribute('aria-label', summary);
 
   const name = document.createElement('span');
-  name.className = 'info-card__task-name';
+  name.className = 'task-progress-card__name';
   name.textContent = t(spec.label);
 
   // An active list always has items, so there is always a bar.
   const strip = /** @type {HTMLElement} */ (createProgressBar(items));
 
   const count = document.createElement('span');
-  count.className = 'info-card__task-count';
+  count.className = 'task-progress-card__count';
   count.textContent = t('{completed}/{total}', { completed, total });
 
   el.append(name, strip, count);

@@ -136,7 +136,7 @@ export async function runTests() {
     // and is greyed out, rather than being relabelled under the user.
     assert(labels[2] === 'Older than 90 days',
       `an empty cutoff should keep its label, got "${labels[2]}"`);
-    assert(rows[2].classList.contains('unavailable'), 'the empty cutoff is still offered as a live choice');
+    assert(rows[2].classList.contains('menu-item-unavailable'), 'the empty cutoff is still offered as a live choice');
     assert(labels[3] === 'Everything', `the last row should be Everything, got "${labels[3]}"`);
     assert(!!menu.querySelector('.menu-divider'), 'Everything is not separated from the cutoffs');
 

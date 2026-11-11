@@ -537,8 +537,8 @@ class UIEventManager {
           if (isAutoNameEnabled()) close();
           return;
         }
-        const tab = target?.closest('.conversation-tab');
-        const renames = tab?.classList.contains('active') && !!target?.closest('.conversation-tab-name');
+        const tab = target?.closest('.conversation-bar-tab');
+        const renames = tab?.getAttribute('aria-current') === 'true' && !!target?.closest('.conversation-bar-tab-name');
         if (tab && !renames) close();
       };
       sidebar.addEventListener('click', handler, true);
@@ -615,7 +615,7 @@ class UIEventManager {
 
     // Create dropdown menu
     const dropdown = document.createElement('nav');
-    dropdown.className = 'dropdown-menu context-item-add-dropdown show';
+    dropdown.className = 'dropdown-menu context-item-add-dropdown is-open';
 
     // presentPopup (wired at the end of this method) returns the single
     // teardown; `close` runs it from every dismissal path (selection, outside

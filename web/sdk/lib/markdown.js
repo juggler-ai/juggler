@@ -915,7 +915,7 @@ export function decorateCodeBlocks(root, options = {}) {
     const codeEl = pre.querySelector('code');
     wrap.appendChild(createCopyButton(
       () => (codeEl || pre).textContent || '',
-      'code-copy-button'
+      'btn btn-icon btn-neutral code-copy-button'
     ));
   });
 
@@ -932,7 +932,7 @@ export function decorateCodeBlocks(root, options = {}) {
     quote.appendChild(createCopyButton(
       () => quote.getAttribute(QUOTE_SOURCE_ATTR)
         ?? (/** @type {HTMLElement} */ (quote).innerText || quote.textContent || '').trim(),
-      'code-copy-button quote-copy-button'
+      'btn btn-icon btn-neutral code-copy-button quote-copy-button'
     ));
   });
 

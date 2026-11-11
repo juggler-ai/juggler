@@ -149,10 +149,10 @@ export async function runTests() {
 
       // The add-file picker. `localTree: false` keeps it off the OS chooser.
       const asked = FileContentContextItem.showAddDialog({ localTree: false });
-      const overlay = document.querySelector('.pp-overlay');
-      shown['picker title'] = text(overlay?.querySelector('.pp-title'));
+      const overlay = document.querySelector('.project-picker-overlay');
+      shown['picker title'] = text(overlay?.querySelector('.project-picker-title'));
       shown['picker placeholder'] = overlay?.querySelector('path-input')?.getAttribute('placeholder') || '';
-      shown['picker confirm'] = text(overlay?.querySelector('.pp-btn-open'));
+      shown['picker confirm'] = text(overlay?.querySelector('.project-picker-btn-open'));
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
       if ((await asked) !== null) throw new Error('the cancelled picker chose a file');
 

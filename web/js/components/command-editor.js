@@ -439,7 +439,7 @@ function seedModelConfig(fm) {
 function segmentedHTML(id, ariaLabel, attr, options, current) {
   const segments = Object.entries(options).map(([value, label]) => {
     const active = value === current;
-    return `<button type="button" class="command-editor-seg${active ? ' active' : ''}" role="radio"`
+    return `<button type="button" class="command-editor-seg" role="radio"`
       + ` aria-checked="${active}" tabindex="${active ? 0 : -1}" data-${attr}="${value}">${escapeHtml(t(label))}</button>`;
   }).join('');
   return `<div id="${id}" class="command-editor-segmented" role="radiogroup" aria-label="${escapeHtml(ariaLabel)}">${segments}</div>`;
@@ -462,7 +462,6 @@ function wireSegmented(group, attr, onChange) {
   const choose = (chosen) => {
     for (const seg of segments) {
       const active = seg === chosen;
-      seg.classList.toggle('active', active);
       seg.setAttribute('aria-checked', String(active));
       seg.tabIndex = active ? 0 : -1;
     }
@@ -503,24 +502,24 @@ function buildMarkup(v) {
         <div class="command-editor-row">
           <label class="command-editor-label command-editor-name-field">${escapeHtml(t('Name'))}
             <div class="command-editor-name-row"><span class="command-editor-slash">/</span>
-              <input id="cmd-name" type="text" class="field-input command-editor-input" value="${esc(v.name)}"
+              <input id="cmd-name" type="text" class="field-input field-input-sm command-editor-input" value="${esc(v.name)}"
                 autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="review-pr" /></div>
           </label>
           <label class="command-editor-label">
             <span class="command-editor-label-text">${escapeHtml(t('Args hint'))} <span class="command-editor-optional">${escapeHtml(t('(optional)'))}</span></span>
-            <input id="cmd-argshint" type="text" class="field-input command-editor-input" value="${esc(v.argsHint)}" placeholder="${escapeHtml(t('<pr-number>', undefined, { context: 'example arguments hint for a command' }))}" />
+            <input id="cmd-argshint" type="text" class="field-input field-input-sm command-editor-input" value="${esc(v.argsHint)}" placeholder="${escapeHtml(t('<pr-number>', undefined, { context: 'example arguments hint for a command' }))}" />
           </label>
         </div>
         <div id="cmd-name-error" class="command-editor-field-error" data-error-for="name"></div>
 
         <label class="command-editor-label">${escapeHtml(t('Description'))}
-          <input id="cmd-description" type="text" class="field-input command-editor-input" value="${esc(v.description)}"
+          <input id="cmd-description" type="text" class="field-input field-input-sm command-editor-input" value="${esc(v.description)}"
             placeholder="${escapeHtml(t('Shown in the slash menu'))}" />
           <div class="command-editor-field-error" data-error-for="description"></div>
         </label>
 
         <label class="command-editor-label">${escapeHtml(t('Prompt template'))}
-          <textarea id="cmd-template" class="command-editor-textarea field-input" rows="10"
+          <textarea id="cmd-template" class="command-editor-textarea field-input field-input-sm" rows="10"
             placeholder="${escapeHtml(t('Review PR {first}. {rest}', { first: '$1', rest: '$ARGUMENTS' }))}">${esc(v.template)}</textarea>
           <div class="command-editor-field-error" data-error-for="template"></div>
           <div class="command-editor-hint">${withHtml(t('Placeholders: {first}…{last}, {args}, {dollars} for a literal $.', htmlSlots(syntax)), syntax)}</div>
@@ -529,7 +528,7 @@ function buildMarkup(v) {
         <div class="command-editor-preview surface-well">
           <div class="command-editor-preview-head">
             <span class="command-editor-preview-title">${escapeHtml(t('Preview'))}</span>
-            <input id="cmd-preview-args" type="text" class="field-input command-editor-input command-editor-preview-args"
+            <input id="cmd-preview-args" type="text" class="field-input field-input-sm command-editor-input command-editor-preview-args"
               placeholder="${escapeHtml(t('sample args'))}" aria-label="${escapeHtml(t('Sample arguments for the preview'))}" />
           </div>
           <pre id="cmd-preview-out" class="command-editor-preview-out"></pre>
@@ -544,10 +543,10 @@ function buildMarkup(v) {
         <div id="cmd-subthread-fields" class="command-editor-subthread hidden">
           <div class="command-editor-hint">${escapeHtml(t('Applied to the thread only. Anything left inherited follows this conversation.'))}</div>
           <label class="command-editor-label">${escapeHtml(t('Thread goal'))}
-            <input id="cmd-goal" type="text" class="field-input command-editor-input" value="${esc(v.goal)}" placeholder="${escapeHtml(t('PR review'))}" />
+            <input id="cmd-goal" type="text" class="field-input field-input-sm command-editor-input" value="${esc(v.goal)}" placeholder="${escapeHtml(t('PR review'))}" />
           </label>
           <label class="command-editor-label">${escapeHtml(t('Strategy'))}
-            <select id="cmd-strategy" class="command-editor-select field-input"><option value="">${escapeHtml(t('Inherit from parent'))}</option></select>
+            <select id="cmd-strategy" class="command-editor-select field-input field-input-sm"><option value="">${escapeHtml(t('Inherit from parent'))}</option></select>
           </label>
           <div class="command-editor-label">
             <span class="command-editor-label-text">${escapeHtml(t('Model'))}</span>
@@ -560,11 +559,11 @@ function buildMarkup(v) {
       <footer class="command-editor-footer">
         <div class="command-editor-target">
           ${segmentedHTML('cmd-scope', t('Where to save'), 'scope', SCOPES, v.scope === 'user' ? 'user' : 'project')}
-          <div id="cmd-path-hint" class="command-editor-path"></div>
+          <div id="cmd-path-hint" class="command-editor-path text-truncate"></div>
         </div>
         <div class="command-editor-actions">
-          <button type="button" id="cmd-delete" class="modal-button btn-danger hidden">${escapeHtml(t('Delete'))}</button>
-          <button type="button" id="cmd-save" class="modal-button btn-primary">${escapeHtml(t('Save'))}</button>
+          <button type="button" id="cmd-delete" class="btn btn-danger hidden">${escapeHtml(t('Delete'))}</button>
+          <button type="button" id="cmd-save" class="btn btn-primary">${escapeHtml(t('Save'))}</button>
         </div>
       </footer>
     </form>

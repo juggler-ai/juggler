@@ -40,7 +40,7 @@ class ThreadMessage extends JugglerElement {
     this._live = null;
     /**
      * Structural-mode key: full DOM is rebuilt only when this changes, so the
-     * spinner and icon-box (whose `icon-pulse` animation is tied to
+     * spinner and icon-box (whose `message-icon-box-pulse` animation is tied to
      * `article[data-processing="true"]`) survive in-place text updates and
      * their CSS animations don't reset every tick.
      * @type {string|null} @private
@@ -117,7 +117,7 @@ class ThreadMessage extends JugglerElement {
   _buildStopButton(label) {
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'thread-action-btn thread-stop-btn';
+    btn.className = 'btn btn-xs btn-secondary btn-danger-quiet thread-stop-btn';
     btn.title = label;
     btn.setAttribute('aria-label', label);
     btn.textContent = t('Stop');

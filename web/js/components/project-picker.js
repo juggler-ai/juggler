@@ -53,31 +53,31 @@ export function buildPickerPanel({
   const promise = /** @type {Promise<string|null>} */ (new Promise((r) => { resolve = r; }));
 
   const panel = document.createElement('div');
-  panel.className = 'pp-panel';
+  panel.className = 'project-picker-panel';
   panel.innerHTML = `
-    <div class="pp-header">
-      <span class="pp-title">${escapeHtml(title)}</span>
-      ${subtitle ? `<span class="pp-subtitle">${escapeHtml(subtitle)}</span>` : ''}
+    <div class="project-picker-header">
+      <span class="project-picker-title">${escapeHtml(title)}</span>
+      ${subtitle ? `<span class="project-picker-subtitle">${escapeHtml(subtitle)}</span>` : ''}
     </div>
-    <div class="pp-body">
-      <div class="pp-input-row">
-        <path-input ${dirsOnly ? 'dirs-only ' : ''}placeholder="${escapeHtml(placeholder)}"${currentPath ? ` value="${escapeHtml(currentPath)}"` : ''} class="pp-path-input"></path-input>
-        ${hasNativeHost() ? `<button class="pp-btn pp-btn-browse" type="button">${escapeHtml(t('Browse…'))}</button>` : ''}
+    <div class="project-picker-body">
+      <div class="project-picker-input-row">
+        <path-input ${dirsOnly ? 'dirs-only ' : ''}placeholder="${escapeHtml(placeholder)}"${currentPath ? ` value="${escapeHtml(currentPath)}"` : ''} class="project-picker-path-input"></path-input>
+        ${hasNativeHost() ? `<button class="btn btn-sm btn-neutral project-picker-btn-browse" type="button">${escapeHtml(t('Browse…'))}</button>` : ''}
       </div>
-      <div class="pp-recents" hidden></div>
+      <div class="project-picker-recents" hidden></div>
     </div>
-    <div class="pp-footer">
-      ${showCancel ? `<button class="pp-btn pp-btn-cancel">${escapeHtml(t('Cancel'))}</button>` : ''}
-      <button class="pp-btn pp-btn-open" disabled>${escapeHtml(confirmLabel)}</button>
+    <div class="project-picker-footer">
+      ${showCancel ? `<button class="btn btn-sm btn-neutral project-picker-btn-cancel">${escapeHtml(t('Cancel'))}</button>` : ''}
+      <button class="btn btn-sm btn-primary project-picker-btn-open" disabled>${escapeHtml(confirmLabel)}</button>
     </div>
   `;
 
   const pathInputEl = /** @type {import('./path-input.js').default & HTMLElement} */ (
     panel.querySelector('path-input')
   );
-  const recentsEl = /** @type {HTMLElement} */ (panel.querySelector('.pp-recents'));
-  const cancelBtn = /** @type {HTMLButtonElement|null} */ (panel.querySelector('.pp-btn-cancel'));
-  const openBtn = /** @type {HTMLButtonElement} */ (panel.querySelector('.pp-btn-open'));
+  const recentsEl = /** @type {HTMLElement} */ (panel.querySelector('.project-picker-recents'));
+  const cancelBtn = /** @type {HTMLButtonElement|null} */ (panel.querySelector('.project-picker-btn-cancel'));
+  const openBtn = /** @type {HTMLButtonElement} */ (panel.querySelector('.project-picker-btn-open'));
 
   /**
    * Enable the confirm button for whatever the field holds.
@@ -105,12 +105,12 @@ export function buildPickerPanel({
     }
     recentsEl.removeAttribute('hidden');
     const label = document.createElement('div');
-    label.className = 'pp-recents-label';
+    label.className = 'project-picker-recents-label caps-label';
     label.textContent = t('Recent sessions');
     recentsEl.appendChild(label);
     for (const path of filtered) {
       const btn = document.createElement('button');
-      btn.className = 'pp-recent-item';
+      btn.className = 'project-picker-recent-item text-truncate';
       btn.textContent = path;
       btn.title = path;
       // A click opens the entry: exactly what the confirm button does.
@@ -138,7 +138,7 @@ export function buildPickerPanel({
   // asking about a file — and feeds the result into the field as typing does.
   // The panel's own title is reused as the chooser's, so the sheet says what
   // was asked.
-  const browseBtn = /** @type {HTMLButtonElement|null} */ (panel.querySelector('.pp-btn-browse'));
+  const browseBtn = /** @type {HTMLButtonElement|null} */ (panel.querySelector('.project-picker-btn-browse'));
   if (browseBtn) {
     browseBtn.addEventListener('click', async () => {
       const chosen = dirsOnly ? await pickDirectory() : await pickFile(title, startDir);

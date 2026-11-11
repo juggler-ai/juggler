@@ -527,7 +527,7 @@ class ReplaceTextContextItem extends EditBase {
       const fullObj = toolActionResultField(toolAction, 'fullResult');
       const errorText = fullObj?.llmFeedback || fullObj?.error || t('Edit failed');
       const errorDiv = document.createElement('div');
-      errorDiv.className = 'properties-panel-result error';
+      errorDiv.className = 'properties-panel-result is-error';
       errorDiv.textContent = errorText;
       wrapper.appendChild(errorDiv);
     } else if (!helpers.addDiffViewer(wrapper, toolAction, filePath, ctx.conversation?.id)) {

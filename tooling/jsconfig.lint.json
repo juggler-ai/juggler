@@ -250,7 +250,6 @@
     "../web/js-tests/unit-tests/transaction-panel-test.js", // 19
     "../web/js-tests/unit-tests/transaction-tool-list-test.js", // 23
     "../web/js-tests/unit-tests/turn-active-status-test.js", // 6
-    "../web/js-tests/unit-tests/type-scale-test.js", // 1
     "../web/js-tests/unit-tests/ui-port-test.js", // 4
     "../web/js-tests/unit-tests/unloaded-tab-hydration-test.js", // 3
     "../web/js-tests/unit-tests/updates-settings-test.js", // 9

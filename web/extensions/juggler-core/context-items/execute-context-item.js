@@ -1051,7 +1051,7 @@ class ExecuteContextItem extends ContextItem {
     wrapper.className = 'summary-with-subtitle';
 
     const mainEl = document.createElement('span');
-    mainEl.className = 'summary-with-subtitle-main';
+    mainEl.className = 'summary-with-subtitle-main text-truncate';
     const tag = document.createElement('span');
     tag.className = 'context-item-type-badge action-summary-background-tag';
     tag.textContent = t('Background');
@@ -1059,7 +1059,7 @@ class ExecuteContextItem extends ContextItem {
       // The row's selection is read before the conversation's own click handler
       // runs, so this sees the state the user clicked on, not the one it makes.
       const row = tag.closest('[message-id]');
-      if (!row?.classList.contains('selected') || !canPinSource(TASKS_SOURCE)) return;
+      if (!row?.classList.contains('is-selected') || !canPinSource(TASKS_SOURCE)) return;
       e.stopPropagation();
       void pinSource(TASKS_SOURCE);
     });
@@ -1069,7 +1069,7 @@ class ExecuteContextItem extends ContextItem {
 
     if (description) {
       const subEl = document.createElement('span');
-      subEl.className = 'summary-with-subtitle-sub llm-description';
+      subEl.className = 'summary-with-subtitle-sub llm-description text-truncate';
       subEl.textContent = description;
       wrapper.appendChild(subEl);
     }
@@ -1269,7 +1269,7 @@ class ExecuteContextItem extends ContextItem {
     if (!toolUseId) return null;
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = 'properties-panel-btn bash-stop';
+    button.className = 'btn btn-sm btn-secondary bash-stop';
     button.textContent = t('Stop command');
     button.addEventListener('click', async () => {
       button.disabled = true;
@@ -1296,7 +1296,7 @@ class ExecuteContextItem extends ContextItem {
     if (!canPinSource(TASKS_SOURCE)) return null;
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = 'properties-panel-btn';
+    button.className = 'btn btn-sm btn-secondary';
     button.textContent = t('Show background tasks');
     button.addEventListener('click', () => { void pinSource(TASKS_SOURCE); });
     return button;

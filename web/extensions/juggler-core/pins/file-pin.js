@@ -20,7 +20,7 @@ injectStylesOnce('file-pin-styles', `
 .file-pin {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: var(--space-8);
   height: 100%;
 }
 
@@ -35,15 +35,15 @@ injectStylesOnce('file-pin-styles', `
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.75rem;
-  padding: 1rem;
+  gap: var(--space-12);
+  padding: var(--space-16);
   color: var(--text-secondary);
   text-align: center;
   text-wrap: balance;
 }
 
 .file-pin__outside-error {
-  color: var(--accent-red);
+  color: var(--danger);
   font-size: var(--font-size-sm);
 }
 `);
@@ -127,7 +127,7 @@ class FilePin extends PinboardItemType {
    */
   async configure(options) {
     const overlay = document.createElement('div');
-    overlay.className = 'pp-overlay';
+    overlay.className = 'project-picker-overlay';
     document.body.appendChild(overlay);
 
     const { element, promise, cancel } = buildPickerPanel({

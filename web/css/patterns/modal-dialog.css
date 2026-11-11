@@ -4,7 +4,7 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
-modal-dialog.show {
+modal-dialog.is-open {
     display: flex;
 }
 
@@ -15,7 +15,7 @@ modal-dialog .modal-container {
 }
 
 modal-dialog .modal-header {
-    padding: 1.25rem 1.5rem;
+    padding: var(--space-20) var(--space-24);
     border-bottom: 0.0625rem solid var(--border-divider);
 }
 
@@ -26,38 +26,26 @@ modal-dialog .modal-title {
 }
 
 modal-dialog .modal-body {
-    padding: 1.5rem;
+    padding: var(--space-24);
 }
 
 modal-dialog .modal-message {
     color: var(--text-primary);
-    line-height: 1.6;
-    margin-bottom: 1rem;
+    line-height: var(--leading-relaxed);
+    margin-bottom: var(--space-16);
     white-space: pre-line;
 }
 
 modal-dialog .modal-input {
     width: 100%;
-    padding: 0.625rem 0.875rem;
-    color: var(--text-primary);
-    font-size: var(--font-size-md);
-    font-family: inherit;
 }
 
 modal-dialog .modal-footer {
     display: flex;
     justify-content: flex-end;
-    gap: 0.75rem;
-    padding: 1rem 1.5rem;
+    gap: var(--space-12);
+    padding: var(--space-16) var(--space-24);
     border-top: 0.0625rem solid var(--border-divider);
-}
-
-modal-dialog .modal-button {
-    padding: 0.625rem 1.25rem;
-    border-radius: var(--radius-lg);
-    font-size: var(--font-size-md);
-    cursor: pointer;
-    transition: background var(--transition-base);
 }
 
 /* ── Notice mode (showNotice) ──────────────────────────────────────────────
@@ -70,17 +58,17 @@ modal-dialog .modal-button {
 /* A notice is a quick toast, not a decision modal — it shouldn't dim the page
    behind it. The backdrop stays transparent but still fills the viewport, so a
    click anywhere dismisses. */
-modal-dialog.is-notice .modal-backdrop-el {
+modal-dialog:where(.is-notice) .modal-backdrop-el {
     background: transparent;
 }
 
 /* No header (the heading is empty here) and no footer (there are no buttons). */
-modal-dialog.is-notice .modal-header,
-modal-dialog.is-notice .modal-footer {
+modal-dialog:where(.is-notice) .modal-header,
+modal-dialog:where(.is-notice) .modal-footer {
     display: none;
 }
 
-modal-dialog.is-notice .modal-container {
+modal-dialog:where(.is-notice) .modal-container {
     max-width: 26rem;
     width: min(90vw, 26rem);
 
@@ -92,27 +80,27 @@ modal-dialog.is-notice .modal-container {
     border: none;
     border-radius: var(--radius-xl);
     box-shadow: 0 0.25rem 0.75rem var(--overlay-dark-15), 0 0.0625rem 0.1875rem var(--overlay-dark-10);
-    animation: modal-notice-in 0.18s ease-out;
+    animation: modal-dialog-in 0.18s ease-out;
 }
 
-modal-dialog.is-notice .modal-body {
-    padding: 1.125rem 1.5rem;
+modal-dialog:where(.is-notice) .modal-body {
+    padding: var(--space-16) var(--space-24);
 }
 
-modal-dialog.is-notice .modal-message {
+modal-dialog:where(.is-notice) .modal-message {
     color: var(--notice-text);
     font-size: var(--font-size-body-lg);
-    font-weight: 500;
-    line-height: 1.5;
+    font-weight: var(--font-weight-medium);
+    line-height: var(--leading-normal);
     margin-bottom: 0;       /* no footer to space it from */
     text-align: center;
 }
 
-/* Pop in on open (the .show class flips display:flex in the base rule, so the
+/* Pop in on open (the .is-open class flips display:flex in the base rule, so the
    animation runs on the now-visible panel). No out-animation: the shared base
-   rule hides the element via display:none the instant .show leaves, so an exit
+   rule hides the element via display:none the instant .is-open leaves, so an exit
    animation would never be seen. */
-@keyframes modal-notice-in {
+@keyframes modal-dialog-in {
     from {
         opacity: 0;
         transform: scale(0.94);
@@ -128,15 +116,15 @@ modal-dialog.is-notice .modal-message {
 modal-dialog .modal-choice-options {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
-    margin-top: 1rem;
+    gap: var(--space-12);
+    margin-top: var(--space-16);
 }
 
 modal-dialog .modal-choice-button {
     width: 100%;
     min-height: 3.5rem;
-    padding: 1rem 1.5rem;
-    margin: 0.5rem 0;
+    padding: var(--space-16) var(--space-24);
+    margin: var(--space-8) 0;
     background: var(--bg-primary);
     border: 0.125rem solid var(--border-color);
     border-radius: var(--radius-pill);
@@ -144,7 +132,7 @@ modal-dialog .modal-choice-button {
     font-size: var(--font-size-lg);
     text-align: left;
     cursor: pointer;
-    transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+    transition: background var(--transition-slow), border-color var(--transition-slow), transform var(--transition-slow), box-shadow var(--transition-slow);
 }
 
 modal-dialog .modal-choice-button:hover {
@@ -154,14 +142,14 @@ modal-dialog .modal-choice-button:hover {
     box-shadow: 0 0.25rem 0.5rem var(--overlay-dark-10);
 }
 
-modal-dialog .modal-choice-button.focused {
+modal-dialog .modal-choice-button.is-focused {
     background: var(--bg-raised);
     outline: var(--focus-ring);
     outline-offset: var(--focus-ring-offset);
 }
 
 modal-dialog .modal-choice-button-none {
-    margin-top: 0.5rem;
+    margin-top: var(--space-8);
     border-style: dashed;
     color: var(--text-secondary);
 }
@@ -172,18 +160,7 @@ modal-dialog .modal-choice-button-none:hover {
 
 modal-dialog .modal-custom-input {
     width: 100%;
-    padding: 0.875rem 1rem;
-    margin-top: 0.75rem;
-    background: var(--bg-primary);
-    border: 0.125rem solid var(--accent-blue);
-    border-radius: var(--radius-xl);
-    color: var(--text-primary);
-    font-size: var(--font-size-lg);
-}
-
-modal-dialog .modal-custom-input:focus {
-    outline: none;
-    box-shadow: var(--field-focus-halo);
+    margin-top: var(--space-12);
 }
 
 /* Settings panel - Get API Key link */

@@ -292,7 +292,7 @@ class ToolActionMessage extends JugglerElement {
     row.className = busy ? 'approval-review-status' : 'approval-review-status approval-review-status--done';
     if (busy) {
       const spinner = document.createElement('juggler-spinner');
-      spinner.setAttribute('style', '--size: 1.5rem');
+      spinner.setAttribute('style', '--spinner-size: 1.5rem');
       spinner.setAttribute('aria-hidden', 'true');
       row.appendChild(spinner);
     } else {
@@ -805,7 +805,8 @@ class ToolActionMessage extends JugglerElement {
    * row rather than inside its content box, so it hangs off the lozenge with
    * only the icon column as left gutter: the full badge gutter costs a third
    * of a phone screen, and the form's option text is the content that most
-   * needs the room.
+   * needs the room. The gutter goes on a host `<div>` around the form rather
+   * than on the form itself, which can be any element a plugin chooses.
    * @param {HTMLElement} article - The item's article element
    * @param {HTMLElement} statusElement - The rendered status line
    * @param {HTMLElement} formElement - The plugin's form element
@@ -814,8 +815,10 @@ class ToolActionMessage extends JugglerElement {
    */
   _appendCustomForm(article, statusElement, formElement, colorOverride = undefined) {
     article.appendChild(this._wrapWithIcon(statusElement, colorOverride));
-    formElement.classList.add('action-custom-form', 'message-row-body');
-    article.appendChild(formElement);
+    const wrapper = document.createElement('div');
+    wrapper.className = 'action-custom-form message-row-body';
+    wrapper.appendChild(formElement);
+    article.appendChild(wrapper);
   }
 
   /**
@@ -866,6 +869,7 @@ class ToolActionMessage extends JugglerElement {
     const buttonsEl = /** @type {ActionConfirmationElement} */ (
       document.createElement('action-confirmation')
     );
+    buttonsEl.className = 'action-confirmation';
     buttonsEl.setOptions(approvalOptions, (response) => {
       if (!messageThread) return;
       const isCancel = response === 'no' || response === 'cancel';

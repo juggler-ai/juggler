@@ -119,22 +119,16 @@ injectStylesOnce('file-browser-styles', `
   display: flex;
   flex-shrink: 0;
   align-items: center;
-  gap: 0.25rem;
-  padding-bottom: 0.375rem;
+  gap: var(--space-4);
+  padding-bottom: var(--space-6);
 }
 
+/* A .field-input .field-input-xs, as tall as the tool buttons beside it. */
 .file-browser__filter {
   flex: 1 1 auto;
   min-width: 0;
   max-width: 16rem;
   height: 1.625rem;
-  padding: 0 0.5rem;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  font: inherit;
-  font-size: var(--font-size-sm);
 }
 
 .file-browser__bar-spacer {
@@ -162,7 +156,7 @@ injectStylesOnce('file-browser-styles', `
 
 .file-browser__tool[aria-pressed="true"] {
   background: color-mix(in srgb, var(--accent-blue) 14%, transparent);
-  color: var(--accent-text);
+  color: var(--accent-blue-strong);
 }
 
 .file-browser__tool svg {
@@ -205,8 +199,8 @@ injectStylesOnce('file-browser-styles', `
 .file-browser__row {
   display: flex;
   align-items: center;
-  gap: 0.25rem;
-  padding-right: 0.375rem;
+  gap: var(--space-4);
+  padding-right: var(--space-6);
 }
 
 .file-browser__head {
@@ -214,12 +208,12 @@ injectStylesOnce('file-browser-styles', `
   border-bottom: 1px solid var(--border-subtle);
   color: var(--text-tertiary);
   font-size: var(--font-size-2xs);
-  letter-spacing: 0.04em;
+  letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
 }
 
 .file-browser__sort {
-  padding: 0.125rem 0;
+  padding: var(--space-2) 0;
   border: none;
   background: none;
   color: inherit;
@@ -242,7 +236,7 @@ injectStylesOnce('file-browser-styles', `
 }
 
 .file-browser__head .file-browser__name-cell {
-  padding-left: 0.5rem;
+  padding-left: var(--space-8);
   text-align: left;
 }
 
@@ -251,7 +245,7 @@ injectStylesOnce('file-browser-styles', `
   flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
-  padding: 0.125rem 0;
+  padding: var(--space-2) 0;
   overflow: auto;
 }
 
@@ -259,7 +253,7 @@ injectStylesOnce('file-browser-styles', `
   flex-shrink: 0;
   min-height: 1.5rem;
   border-radius: var(--radius-md);
-  line-height: 1.5;
+  line-height: var(--leading-normal);
   cursor: default;
   user-select: none;
 }
@@ -284,7 +278,7 @@ injectStylesOnce('file-browser-styles', `
   display: flex;
   flex: 1 1 auto;
   align-items: center;
-  gap: 0.3125rem;
+  gap: var(--space-4);
   min-width: 0;
 }
 
@@ -419,13 +413,13 @@ injectStylesOnce('file-browser-styles', `
   flex-shrink: 0;
   color: var(--text-tertiary);
   font-size: var(--font-size-sm);
-  line-height: 1.7;
+  line-height: var(--leading-relaxed);
 }
 
 .file-browser__foot,
 .file-browser__status {
   flex-shrink: 0;
-  padding: 0.125rem 0.375rem;
+  padding: var(--space-2) var(--space-6);
   color: var(--text-tertiary);
   font-size: var(--font-size-2xs);
 }
@@ -461,8 +455,8 @@ injectStylesOnce('file-browser-styles', `
   display: flex;
   flex-shrink: 0;
   align-items: flex-start;
-  gap: 0.5rem;
-  padding: 0.25rem 0.125rem 0.375rem;
+  gap: var(--space-8);
+  padding: var(--space-4) var(--space-2) var(--space-6);
 }
 
 .file-browser__preview-head .file-icon {
@@ -485,7 +479,7 @@ injectStylesOnce('file-browser-styles', `
 .file-browser__preview-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 0 0.625rem;
+  gap: 0 var(--space-10);
   color: var(--text-tertiary);
   font-size: var(--font-size-xs);
 }
@@ -494,12 +488,12 @@ injectStylesOnce('file-browser-styles', `
   display: flex;
   flex-shrink: 0;
   align-items: center;
-  gap: 0.125rem;
+  gap: var(--space-2);
 }
 
 .file-browser__pin {
   height: 1.5rem;
-  padding: 0 0.625rem;
+  padding: 0 var(--space-10);
   border: 1px solid var(--accent-blue);
   border-radius: var(--radius-md);
   background: var(--accent-blue);
@@ -520,7 +514,7 @@ injectStylesOnce('file-browser-styles', `
 }
 
 .file-browser__placeholder {
-  padding: 1rem;
+  padding: var(--space-16);
   color: var(--text-tertiary);
   font-size: var(--font-size-sm);
   text-align: center;
@@ -529,9 +523,9 @@ injectStylesOnce('file-browser-styles', `
 .file-browser__summary {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 0.25rem 1rem;
+  gap: var(--space-4) var(--space-16);
   margin: 0;
-  padding: 0.5rem 0.25rem;
+  padding: var(--space-8) var(--space-4);
   font-size: var(--font-size-sm);
 }
 
@@ -958,7 +952,7 @@ export function createFileBrowser(options) {
 
   const element = createElement('div', 'file-browser');
   const bar = createElement('div', 'file-browser__bar');
-  const filterInput = /** @type {HTMLInputElement} */ (createElement('input', 'file-browser__filter'));
+  const filterInput = /** @type {HTMLInputElement} */ (createElement('input', 'file-browser__filter field-input field-input-xs'));
   filterInput.type = 'search';
   filterInput.placeholder = t('Filter');
   filterInput.setAttribute('aria-label', t('Filter files by name'));

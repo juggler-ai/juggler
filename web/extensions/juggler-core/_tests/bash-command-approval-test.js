@@ -2381,7 +2381,7 @@ export async function runTests() {
       const controls = controlsFor(bgInput);
       const show = controls.find((c) => (c.textContent || '').includes('Show background tasks'));
       if (!show) throw new Error(`panel: no Show background tasks control in ${JSON.stringify(controls.map((c) => c.textContent))}`);
-      if (show.className !== 'properties-panel-btn') throw new Error(`panel: control belongs in the controls block, got ${show.className}`);
+      if (show.className !== 'btn btn-sm btn-secondary') throw new Error(`panel: control belongs in the controls block, got ${show.className}`);
       show.click();
       if (opened.length !== 1 || opened[0]?.kind !== 'tasks') throw new Error(`panel: click should open the tasks pin, got ${JSON.stringify(opened)}`);
 
@@ -2404,7 +2404,7 @@ export async function runTests() {
       if (opened.length) throw new Error('badge: an unselected card\'s badge should not open the pin');
       if (reachedRow !== 1) throw new Error('badge: an unselected card\'s click should reach the card to select it');
 
-      row.classList.add('selected');
+      row.classList.add('is-selected');
       badge.click();
       if (opened.length !== 1 || opened[0]?.kind !== 'tasks') throw new Error(`badge: a selected card's badge should open the tasks pin, got ${JSON.stringify(opened)}`);
       if (reachedRow !== 1) throw new Error('badge: a click that opened the pin should not go on to the card');

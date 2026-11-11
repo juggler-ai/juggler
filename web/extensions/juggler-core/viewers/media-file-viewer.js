@@ -29,6 +29,15 @@ audio.media-view-player {
   background: transparent;
 }
 
+.file-view-image {
+  max-width: 100%;
+  height: auto;
+  align-self: flex-start;
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  cursor: zoom-in;
+}
+
 .media-view-note {
   color: var(--text-tertiary);
   font-size: var(--font-size-sm);

@@ -28,12 +28,12 @@ const t = translator('@juggler/core');
  */
 function optionRow(label, description, selected, extraClass = '') {
   const item = document.createElement('li');
-  item.className = ['option-item', selected ? 'selected' : '', extraClass]
+  item.className = ['option-item', selected ? 'is-selected' : '', extraClass]
     .filter(Boolean)
     .join(' ');
 
   const tick = document.createElement('span');
-  tick.className = selected ? 'tick-box option-tick checked' : 'tick-box option-tick';
+  tick.className = selected ? 'tick-box option-tick is-checked' : 'tick-box option-tick';
   tick.setAttribute('role', 'img');
   tick.setAttribute('aria-label', selected ? t('Chosen') : t('Not chosen'));
   const tickIcon = document.createElement('span');

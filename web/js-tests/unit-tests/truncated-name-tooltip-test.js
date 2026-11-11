@@ -65,7 +65,7 @@ export async function runTests() {
    * @returns {HTMLElement} Its tab's name element.
    */
   const nameOf = (id) => /** @type {HTMLElement} */ (
-    bar.querySelector(`.conversation-tab[data-conversation-id="${id}"] .conversation-tab-name`));
+    bar.querySelector(`.conversation-bar-tab[data-conversation-id="${id}"] .conversation-bar-tab-name`));
 
   try {
     // Attached directly, as the workspace-boxes suite does: setSession() would
@@ -91,7 +91,7 @@ export async function runTests() {
         `precondition: the long name is ellipsised (scroll ${name.scrollWidth}, client ${name.clientWidth})`);
       assert(tooltipManager.textFor(name) === LONG,
         `pointing at a truncated name shows all of it, got ${JSON.stringify(tooltipManager.textFor(name))}`);
-      const button = /** @type {HTMLElement} */ (name.closest('.conversation-tab-button'));
+      const button = /** @type {HTMLElement} */ (name.closest('.conversation-bar-tab-button'));
       assert(!button.hasAttribute('title') && !name.hasAttribute('title'),
         'no native title is written, so the OS tooltip never competes with the app one');
     });
@@ -127,7 +127,7 @@ export async function runTests() {
 
     await check('a name under an open rename editor offers nothing', () => {
       const name = nameOf('short');
-      const tab = /** @type {HTMLElement} */ (name.closest('.conversation-tab'));
+      const tab = /** @type {HTMLElement} */ (name.closest('.conversation-bar-tab'));
       tab.classList.add('is-renaming');
       try {
         assert(tooltipManager.textFor(name) === null,

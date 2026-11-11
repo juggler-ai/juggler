@@ -21,10 +21,28 @@ import { translator } from 'juggler/i18n';
 import defaultModelCache from '../../../js/services/default-model-cache.js';
 import providersCache from '../../../js/services/providers-cache.js';
 import usageStatsCache from '../../../js/services/usage-stats-cache.js';
-import { escapeHtml } from 'juggler/ui';
+import { escapeHtml, injectStylesOnce } from 'juggler/ui';
 import { formatPlan, renderUsageRow } from '../../../js/utils/usage-renderer.js';
 
 const t = translator('@juggler/core');
+
+// Active provider and optional plan above the shared usage meter rows; the
+// stale note sits under meters kept from an earlier fetch after a later one
+// failed.
+injectStylesOnce('usage-card-styles', `
+.usage-card__sub {
+  font-size: var(--font-size-xs);
+  line-height: var(--leading-tight);
+  color: var(--text-secondary);
+}
+
+.usage-card__stale {
+  padding-top: var(--space-6);
+  font-size: var(--font-size-xs);
+  line-height: var(--leading-tight);
+  color: var(--text-tertiary);
+}
+`);
 
 // Re-render/retry tick. Live network fetches are governed by the usage cache's
 // own per-provider debounce (aligned to the upstream ~5-minute refresh), so this
@@ -131,12 +149,12 @@ export default class UsageCard extends InfoCardType {
       const stats = usage?.stats || [];
       const hasStats = stats.length > 0;
       const subtitle = providerName
-        ? `<div class="info-card__usage-sub">${escapeHtml(providerLabel(providerName))}${usage?.plan ? ` · ${escapeHtml(formatPlan(usage.plan))}` : ''}</div>`
+        ? `<div class="usage-card__sub">${escapeHtml(providerLabel(providerName))}${usage?.plan ? ` · ${escapeHtml(formatPlan(usage.plan))}` : ''}</div>`
         : '';
       // Meters kept from an earlier fetch are not current once a later one has
       // failed, so they carry a note saying so, with the error as its tooltip.
       const staleNote = hasStats && error
-        ? `<div class="info-card__usage-stale" title="${escapeHtml(error)}">${escapeHtml(t('Couldn’t refresh — showing earlier figures'))}</div>`
+        ? `<div class="usage-card__stale" title="${escapeHtml(error)}">${escapeHtml(t('Couldn’t refresh — showing earlier figures'))}</div>`
         : '';
       const body = hasStats
         ? stats.map(renderUsageRow).join('') + staleNote

@@ -244,7 +244,7 @@ export function renderMcpFormExtra(f, wrap, ctrl) {
   argsLabel.textContent = t('Fixed arguments');
   argsField.appendChild(argsLabel);
   const ta = document.createElement('textarea');
-  ta.className = 'mcp-input field-input mcp-default-args-input';
+  ta.className = 'mcp-input field-input field-input-sm mcp-default-args-input';
   ta.rows = 4;
   ta.placeholder = '{\n  "bank_id": "general"\n}'; // i18n-ignore: example JSON
   ta.value = f.defaultArgsText || '';

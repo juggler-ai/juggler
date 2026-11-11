@@ -84,7 +84,7 @@ class LoadingOverlay {
    * @param {object} [options] - How this overlay differs from the other one.
    * @param {string} [options.variant] - Which wait this is: `startup` or `disconnected`. Carried as `data-loading-overlay`, not as a class — it is an identity, and the CSS that keys off it is styling the same overlay differently rather than styling a different thing.
    * @param {number} [options.graceMs] - Time in view before the info block is revealed.
-   * @param {string} [options.spinnerSize] - `--size` for the spinner, as a CSS length.
+   * @param {string} [options.spinnerSize] - `--spinner-size` for the spinner, as a CSS length.
    * @param {((waitedMs: number) => string)|null} [options.lineForWait] - Wording for the wait, restated as it grows. Omit when the line is pushed in with {@link LoadingOverlay#setLine} instead.
    * @param {boolean} [options.detailLine] - Reserve a second line below the message.
    * @param {boolean} [options.hostLine] - Show the server this page is talking to.
@@ -288,7 +288,7 @@ class LoadingOverlay {
     // stand-in pages are, so every whole-window message reads alike.
     return `
             <div class="loading-overlay__content notice">
-                <juggler-spinner style="--size: ${this._spinnerSize}"></juggler-spinner>
+                <juggler-spinner style="--spinner-size: ${this._spinnerSize}"></juggler-spinner>
                 <div class="loading-overlay__info">
                     <div class="loading-overlay__message notice__title"></div>
                     ${detail}
@@ -309,7 +309,7 @@ class LoadingOverlay {
   _actionButton(action) {
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = 'modal-button btn-secondary';
+    button.className = 'btn btn-secondary';
     button.textContent = t(action.label);
     button.addEventListener('click', () => {
       button.disabled = true;

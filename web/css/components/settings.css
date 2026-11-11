@@ -14,7 +14,7 @@ settings-panel .get-api-key-link {
     font-size: var(--font-size-sm);
     color: var(--accent-blue);
     text-decoration: none;
-    font-weight: normal;
+    font-weight: var(--font-weight-normal);
     align-self: flex-start;
 }
 
@@ -26,8 +26,8 @@ settings-panel .get-api-key-link:hover {
 settings-panel .key-source-hint {
     font-size: var(--font-size-sm);
     color: var(--accent-green);
-    margin-top: 0.375rem;
-    padding-left: 0.125rem;
+    margin-top: var(--space-6);
+    padding-left: var(--space-2);
 }
 
 /* The offer to switch to the provider that suits this server better — LocalAI
@@ -37,8 +37,8 @@ settings-panel .provider-switch-notice {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 0.375rem;
-    padding: 0.5rem 0.625rem;
+    gap: var(--space-6);
+    padding: var(--space-8) var(--space-10);
     border: 0.0625rem solid var(--accent-orange);
     border-radius: var(--radius-lg);
     background: var(--bg-primary);
@@ -61,8 +61,8 @@ settings-panel .provider-switch-status:empty {
    providers are left alone and the list is long enough to bury the API-key field
    it sits under. The summary is primary text, not a footnote: it is the only way
    into the limits. */
-settings-panel .model-visibility {
-    margin-top: 0.625rem;
+settings-panel .settings-model-visibility {
+    margin-top: var(--space-10);
     min-width: 0;
 }
 
@@ -71,14 +71,14 @@ settings-panel .model-visibility {
    card (Remove) spans too, so it stays under the list. The negative margin takes
    the card's 1.5rem grid gap, sized to separate its two columns, down to a
    row's spacing. */
-settings-panel .provider-field > .model-visibility,
+settings-panel .provider-field > .settings-model-visibility,
 settings-panel .provider-field > .custom-endpoint-models,
 settings-panel .provider-field > .custom-endpoint-actions {
     grid-column: 1 / -1;
-    margin-top: -0.875rem;
+    margin-top: calc(-1 * var(--space-14));
 }
 
-settings-panel .custom-endpoint-models > .model-visibility {
+settings-panel .custom-endpoint-models > .settings-model-visibility {
     margin-top: 0;
 }
 
@@ -90,26 +90,26 @@ settings-panel .provider-field > .custom-endpoint-models:empty {
 
 /* The whole line is the toggle, so it carries its own caret (the native marker
    is dropped) and a hit area wider than its text. */
-settings-panel .model-visibility-summary {
+settings-panel .settings-model-visibility-summary {
     display: flex;
     align-items: center;
-    gap: 0.375rem;
+    gap: var(--space-6);
     list-style: none;
-    padding: 0.1875rem 0.25rem;
-    margin-left: -0.25rem;
+    padding: var(--space-2) var(--space-4);
+    margin-left: calc(-1 * var(--space-4));
     border-radius: var(--radius-md);
     font-size: var(--font-size-base);
-    font-weight: 500;
+    font-weight: var(--font-weight-medium);
     color: var(--text-primary);
     cursor: pointer;
     user-select: none;
 }
 
-settings-panel .model-visibility-summary::-webkit-details-marker {
+settings-panel .settings-model-visibility-summary::-webkit-details-marker {
     display: none;
 }
 
-settings-panel .model-visibility-summary::before {
+settings-panel .settings-model-visibility-summary::before {
     content: "";
     width: 0.35rem;
     height: 0.35rem;
@@ -121,91 +121,86 @@ settings-panel .model-visibility-summary::before {
     flex-shrink: 0;
 }
 
-settings-panel .model-visibility[open] .model-visibility-summary::before {
+settings-panel .settings-model-visibility[open] .settings-model-visibility-summary::before {
     transform: rotate(45deg);
 }
 
-settings-panel .model-visibility-summary:hover {
+settings-panel .settings-model-visibility-summary:hover {
     background: var(--bg-raised);
     color: var(--text-primary);
 }
 
 /* The count is the part that changes, so it stays a shade brighter than its
    label rather than trailing off after it. */
-settings-panel .model-visibility-count {
+settings-panel .settings-model-visibility-count {
     color: var(--text-tertiary);
-    font-weight: normal;
+    font-weight: var(--font-weight-normal);
     font-variant-numeric: tabular-nums;
 }
 
 /* How many windows in the list are guesses: the reason the list opened itself. */
-settings-panel .model-visibility-assumed {
+settings-panel .settings-model-visibility-assumed {
     color: var(--accent-orange);
-    font-weight: normal;
+    font-weight: var(--font-weight-normal);
 }
 
 /* Column headings, pinned to the top of the scroller and laid out like a row:
    the name column takes the slack, the limit columns match the inputs' width. */
-settings-panel .model-visibility-header {
+settings-panel .settings-model-visibility-header {
     position: sticky;
     top: 0;
     z-index: 1;
     display: grid;
     grid-template-columns: 1fr 6.5rem 6.5rem;
-    column-gap: 0.25rem;
-    padding: 0.125rem 0.375rem;
+    column-gap: var(--space-4);
+    padding: var(--space-2) var(--space-6);
     background: var(--bg-primary);
     border-bottom: 0.0625rem solid var(--border-color);
     font-size: var(--font-size-xs);
     color: var(--text-secondary);
 }
 
-settings-panel .model-visibility-header-limit {
+settings-panel .settings-model-visibility-header-limit {
     text-align: right;
     white-space: nowrap;
 }
 
 /* The picker's "assumed" marker, on the row whose window it qualifies. */
-settings-panel .model-visibility-row .model-window-assumed {
+settings-panel .settings-model-visibility-row .model-window-assumed {
     font-size: var(--font-size-xs);
     color: var(--accent-orange);
 }
 
-/* Sized like the panel's other compact sub-inputs (.mcp-input); the box is
-   .field-input. */
-settings-panel .model-visibility-filter {
+/* The field is .field-input .field-input-sm. */
+settings-panel .settings-model-visibility-filter {
     width: 100%;
-    box-sizing: border-box;
-    margin-top: 0.5rem;
-    padding: 0.375rem 0.5rem;
-    color: var(--text-primary);
+    margin-top: var(--space-8);
     font-family: var(--font-mono);
-    font-size: var(--font-size-base);
 }
 
 /* Capped and scrollable: OpenRouter lists several hundred models, and without a
    ceiling one provider's list would push every other provider off the page. */
-settings-panel .model-visibility-list {
+settings-panel .settings-model-visibility-list {
     display: flex;
     flex-direction: column;
     max-height: 16rem;
     overflow-y: auto;
     overscroll-behavior: contain;
-    margin-top: 0.375rem;
-    padding: 0.1875rem;
+    margin-top: var(--space-6);
+    padding: var(--space-2);
     scrollbar-width: thin;
     scrollbar-color: var(--scrollbar-thumb-bg) transparent;
 }
 
-settings-panel .model-visibility-list::-webkit-scrollbar {
+settings-panel .settings-model-visibility-list::-webkit-scrollbar {
     width: var(--scrollbar-size-thin);
 }
 
-settings-panel .model-visibility-list::-webkit-scrollbar-track {
+settings-panel .settings-model-visibility-list::-webkit-scrollbar-track {
     background: transparent;
 }
 
-settings-panel .model-visibility-list::-webkit-scrollbar-thumb {
+settings-panel .settings-model-visibility-list::-webkit-scrollbar-thumb {
     background: var(--scrollbar-thumb-bg);
     border-radius: var(--scrollbar-thumb-radius);
 }
@@ -213,26 +208,26 @@ settings-panel .model-visibility-list::-webkit-scrollbar-thumb {
 /* Wraps so a narrow card can't squeeze the name to nothing: the limit fields
    drop to a line of their own, still right-aligned under their headings, once
    the name would get less than its 10rem basis. */
-settings-panel .model-visibility-row {
+settings-panel .settings-model-visibility-row {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--space-8);
     min-height: 1.625rem;
-    padding: 0.125rem 0.375rem;
+    padding: var(--space-2) var(--space-6);
     border-radius: var(--radius-md);
 }
 
-settings-panel .model-visibility-row:hover {
+settings-panel .settings-model-visibility-row:hover {
     background: var(--bg-raised);
 }
 
 /* Only the checkbox and the name are the label — the token-limit fields beside
    them are not, or clicking into one would toggle the model's visibility. */
-settings-panel .model-visibility-toggle {
+settings-panel .settings-model-visibility-toggle {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--space-8);
     flex: 1 1 10rem;
     min-width: 0;
     cursor: pointer;
@@ -240,14 +235,14 @@ settings-panel .model-visibility-toggle {
 }
 
 settings-panel .model-limit-legend {
-    margin-top: 0.375rem;
+    margin-top: var(--space-6);
     font-size: var(--font-size-xs);
     color: var(--text-tertiary);
 }
 
 settings-panel .model-limit-fields {
     display: flex;
-    gap: 0.25rem;
+    gap: var(--space-4);
     flex: 0 0 auto;
     margin-left: auto;
 }
@@ -255,20 +250,8 @@ settings-panel .model-limit-fields {
 /* Wide enough for a derived output budget's placeholder, "auto (64,000)". */
 settings-panel .model-limit-input {
     width: 6.5rem;
-    padding: 0.0625rem 0.25rem;
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-    border: 0.0625rem solid var(--border-color);
-    border-radius: var(--radius-md);
     font-family: var(--font-mono);
-    font-size: var(--font-size-xs);
     text-align: right;
-}
-
-settings-panel .model-limit-input:focus {
-    outline: none;
-    border-color: var(--field-focus-border);
-    box-shadow: var(--field-focus-halo);
 }
 
 /* An overridden limit is the exception, so it reads as one rather than sitting
@@ -277,7 +260,7 @@ settings-panel .model-limit-input:not(:placeholder-shown) {
     color: var(--accent-blue);
 }
 
-settings-panel .model-visibility-check {
+settings-panel .settings-model-visibility-check {
     width: 0.875rem;
     height: 0.875rem;
     margin: 0;
@@ -292,7 +275,7 @@ settings-panel .model-visibility-check {
 
 /* Wraps rather than truncating: gateway ids share a vendor prefix and differ only
    at the end, so an ellipsis hides exactly the part that tells them apart. */
-settings-panel .model-visibility-name {
+settings-panel .settings-model-visibility-name {
     flex: 1 1 auto;
     min-width: 0;
     font-family: var(--font-mono);
@@ -303,24 +286,24 @@ settings-panel .model-visibility-name {
 
 /* A model the menu won't offer reads back as struck-through and muted, so the
    list can be scanned without reading every checkbox. */
-settings-panel .model-visibility-row.is-hidden .model-visibility-name {
+settings-panel .settings-model-visibility-row.is-hidden .settings-model-visibility-name {
     color: var(--text-tertiary);
     text-decoration: line-through;
     text-decoration-thickness: 0.0625rem;
 }
 
-settings-panel .model-visibility-empty {
+settings-panel .settings-model-visibility-empty {
     font-size: var(--font-size-sm);
     color: var(--text-tertiary);
-    padding: 0.375rem;
+    padding: var(--space-6);
 }
 
 /* Only ever an error — the save is silent when it works. */
-settings-panel .model-visibility-status {
+settings-panel .settings-model-visibility-status {
     font-size: var(--font-size-sm);
-    color: var(--accent-red);
-    margin-top: 0.375rem;
-    padding-left: 0.125rem;
+    color: var(--danger);
+    margin-top: var(--space-6);
+    padding-left: var(--space-2);
 }
 
 /* A labelled sub-field inside a provider card's control column, each with its
@@ -331,12 +314,12 @@ settings-panel .provider-subfield {
     position: relative; /* anchor for the floating save-status note */
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: var(--space-4);
 }
 
 settings-panel .provider-subfield-label {
     font-size: var(--font-size-sm);
-    font-weight: 500;
+    font-weight: var(--font-weight-medium);
     color: var(--text-secondary);
 }
 
@@ -354,11 +337,11 @@ settings-panel .provider-subfield-status {
 }
 
 settings-panel .provider-subfield-status[data-kind="ok"] {
-    color: var(--accent-green);
+    color: var(--success);
 }
 
 settings-panel .provider-subfield-status[data-kind="error"] {
-    color: var(--accent-red);
+    color: var(--danger);
 }
 
 /* The user's own endpoints: the same provider cards as everything above them,
@@ -366,12 +349,12 @@ settings-panel .provider-subfield-status[data-kind="error"] {
 settings-panel .custom-endpoints-note {
     color: var(--text-secondary);
     font-size: var(--font-size-base);
-    line-height: 1.5;
-    margin-bottom: 0.625rem;
+    line-height: var(--leading-normal);
+    margin-bottom: var(--space-10);
 }
 
 settings-panel .custom-endpoint .provider-control {
-    gap: 0.75rem;
+    gap: var(--space-12);
 }
 
 /* The provider id: not editable, because everything stored names it. */
@@ -385,8 +368,8 @@ settings-panel .custom-endpoint-id {
    there is nothing wrong, and it takes no room. */
 settings-panel .custom-endpoint-problem {
     font-size: var(--font-size-sm);
-    line-height: 1.4;
-    color: var(--accent-red);
+    line-height: var(--leading-tight);
+    color: var(--danger);
 }
 
 settings-panel .custom-endpoint-problem:empty {
@@ -395,13 +378,13 @@ settings-panel .custom-endpoint-problem:empty {
 
 settings-panel .custom-endpoint-toggle-note {
     font-size: var(--font-size-sm);
-    color: var(--accent-red);
+    color: var(--danger);
 }
 
 settings-panel .custom-endpoint-headers {
     display: flex;
     flex-direction: column;
-    gap: 0.375rem;
+    gap: var(--space-6);
 }
 
 /* Name, value, and the button that drops the row. The name column is narrower:
@@ -409,47 +392,25 @@ settings-panel .custom-endpoint-headers {
 settings-panel .custom-endpoint-header-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) auto;
-    gap: 0.375rem;
+    gap: var(--space-6);
     align-items: center;
-}
-
-settings-panel .custom-endpoint-header-remove {
-    background: var(--bg-secondary);
-    color: var(--text-secondary);
-    border: 0.0625rem solid var(--border-color);
-    min-width: 0;
-    padding: 0.375rem 0.5rem;
-    line-height: 1;
-}
-
-settings-panel .custom-endpoint-header-remove:hover {
-    color: var(--text-primary);
-    border-color: var(--text-secondary);
 }
 
 settings-panel .custom-endpoint-header-add {
     align-self: flex-start;
-    background: var(--bg-secondary);
-    color: var(--text-secondary);
-    border: 0.0625rem solid var(--border-color);
-    margin-top: 0.375rem;
-}
-
-settings-panel .custom-endpoint-header-add:hover {
-    color: var(--text-primary);
-    border-color: var(--text-secondary);
+    margin-top: var(--space-6);
 }
 
 settings-panel .custom-endpoint-headers-hint {
     color: var(--text-tertiary);
     font-size: var(--font-size-sm);
-    padding-top: 0.375rem;
+    padding-top: var(--space-6);
 }
 
 settings-panel .custom-endpoint-actions {
     display: flex;
     justify-content: flex-end;
-    gap: 0.5rem;
+    gap: var(--space-8);
 }
 
 /* The add form is a card in waiting: same grid, dashed while it holds nothing. */
@@ -461,17 +422,6 @@ settings-panel .custom-endpoint-add-id {
     font-family: var(--font-mono);
     font-size: var(--font-size-sm);
     color: var(--text-tertiary);
-}
-
-settings-panel .custom-endpoint-add-open {
-    background: var(--bg-secondary);
-    color: var(--text-secondary);
-    border: 0.0625rem solid var(--border-color);
-}
-
-settings-panel .custom-endpoint-add-open:hover {
-    color: var(--text-primary);
-    border-color: var(--text-secondary);
 }
 
 /* ============================================================================
@@ -493,7 +443,7 @@ settings-panel {
     user-select: none;
 }
 
-settings-panel.show {
+settings-panel.is-open {
     display: block;
 }
 
@@ -507,7 +457,7 @@ settings-panel .settings-container {
     position: fixed;
     inset: 0;
     margin: auto;
-    padding-top: 0.3rem;
+    padding-top: var(--space-4);
     width: 92%;
     max-width: 82rem;
     height: 90vh;
@@ -520,7 +470,7 @@ settings-panel .settings-tabs {
 
     /* Extra right padding reserves room for the corner close button, which is
        absolutely positioned over this strip in the horizontal (mobile) layout. */
-    padding: 0 3rem 0 1.5rem;
+    padding: 0 var(--space-48) 0 var(--space-24);
     border-bottom: 0.0625rem solid var(--border-divider);
     flex-shrink: 0;
     align-items: center;
@@ -538,7 +488,7 @@ settings-panel .settings-tabs {
    strip that fits shows no fade at all (no false "there's more" cue), and the
    right fade disappears once you've scrolled to the last tab. */
 settings-panel .settings-tabs-scroll {
-    --tab-fade: 2.5rem;
+    --settings-tab-fade: 2.5rem;
 
     flex: 1 1 auto;
     min-width: 0;
@@ -549,20 +499,20 @@ settings-panel .settings-tabs-scroll {
     mask-image: linear-gradient(
         to right,
         transparent 0,
-        var(--mask-opaque) var(--tab-fade-start, 0),
+        var(--mask-opaque) var(--settings-tab-fade-start, 0),
         /* A length, not a bare 0: calc() cannot subtract a unitless number
            from a percentage, and the invalid result drops the whole mask. */
-        var(--mask-opaque) calc(100% - var(--tab-fade-end, 0rem)),
+        var(--mask-opaque) calc(100% - var(--settings-tab-fade-end, 0rem)),
         transparent 100%
     );
 }
 
 settings-panel .settings-tabs-scroll.overflow-start {
-    --tab-fade-start: var(--tab-fade);
+    --settings-tab-fade-start: var(--settings-tab-fade);
 }
 
 settings-panel .settings-tabs-scroll.overflow-end {
-    --tab-fade-end: var(--tab-fade);
+    --settings-tab-fade-end: var(--settings-tab-fade);
 }
 
 settings-panel .settings-tabs-scroll::-webkit-scrollbar {
@@ -574,19 +524,18 @@ settings-panel .settings-tabs-scroll::-webkit-scrollbar {
    position:fixed, so this absolute box is measured from the dialog itself. It
    sits above the loading overlay so the panel stays dismissable while loading.
    The desktop sidebar layout re-homes it into its own grid cell (see below). */
-settings-panel .close-button {
+settings-panel .settings-close {
     position: absolute;
     top: max(0.3rem, env(safe-area-inset-top));
     right: max(0.55rem, env(safe-area-inset-right));
-    z-index: calc(var(--z-raised) + 1);
-    flex-shrink: 0;
+    z-index: 3;
 }
 
 settings-panel .settings-tab {
     background: transparent;
     border: none;
     color: var(--text-secondary);
-    padding: 0.875rem 1.25rem;
+    padding: var(--space-14) var(--space-20);
     font-size: var(--font-size-md);
     cursor: pointer;
     border-radius: 0;
@@ -606,10 +555,10 @@ settings-panel .settings-tab:hover {
 settings-panel .settings-tab-language {
     display: inline-flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--space-8);
 }
 
-settings-panel .settings-tab.active {
+settings-panel .settings-tab.is-active {
     color: var(--accent-blue);
     border-bottom-color: var(--accent-blue);
 }
@@ -628,11 +577,11 @@ settings-panel .settings-content {
        panel edge). The gutter clears that box with room to spare, so content
        pinned to the right — the Skills tab's refresh button, for one — reads as
        a separate control rather than crowding the ×. */
-    padding: 1.5rem 3.25rem 1.5rem 1.5rem;
+    padding: var(--space-24) var(--space-48) var(--space-24) var(--space-24);
     display: grid;
     min-height: 0;
     opacity: 0;
-    transition: opacity 200ms ease;
+    transition: opacity var(--transition-slow);
     -webkit-user-select: text;
     user-select: text;
 }
@@ -649,11 +598,11 @@ settings-panel .settings-loading {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 1rem;
+    gap: var(--space-16);
     background: var(--bg-secondary);
-    z-index: var(--z-raised);
+    z-index: 2;
     opacity: 1;
-    transition: opacity 200ms ease;
+    transition: opacity var(--transition-slow);
 }
 
 settings-panel.loaded .settings-loading {
@@ -675,21 +624,21 @@ settings-panel .settings-tab-content {
     overflow-y: auto;
 }
 
-settings-panel .settings-tab-content.active {
+settings-panel .settings-tab-content.is-active {
     visibility: visible;
     opacity: 1;
 }
 
 settings-panel .settings-description {
     color: var(--text-secondary);
-    margin-bottom: 1.5rem;
-    line-height: 1.6;
+    margin-bottom: var(--space-24);
+    line-height: var(--leading-relaxed);
     font-size: var(--font-size-md);
 }
 
 settings-panel .settings-description code {
     background: var(--bg-primary);
-    padding: 0.125rem 0.375rem;
+    padding: var(--space-2) var(--space-6);
     border-radius: var(--radius-sm);
     color: var(--accent-green);
     font-family: var(--font-mono);
@@ -708,11 +657,11 @@ settings-panel .provider-field {
     display: grid;
     grid-template-columns: minmax(0, 40%) minmax(0, 1fr);
     align-items: start;
-    gap: 1.5rem;
-    padding: 1rem 1.25rem;
+    gap: var(--space-24);
+    padding: var(--space-16) var(--space-20);
     background: var(--bg-tertiary);
     border-radius: var(--radius-xl);
-    margin-bottom: 0.625rem;
+    margin-bottom: var(--space-10);
 }
 
 settings-panel .provider-field:last-child {
@@ -726,8 +675,8 @@ settings-panel .provider-field:last-child {
 settings-panel .settings-card {
     background: var(--bg-tertiary);
     border-radius: var(--radius-xl);
-    padding: 0 1.25rem;
-    margin-bottom: 0.625rem;
+    padding: 0 var(--space-20);
+    margin-bottom: var(--space-10);
 }
 
 settings-panel .settings-card:last-child {
@@ -737,7 +686,7 @@ settings-panel .settings-card:last-child {
 settings-panel .settings-card .provider-field {
     background: none;
     border-radius: 0;
-    padding: 1rem 0;
+    padding: var(--space-16) 0;
     margin-bottom: 0;
     border-bottom: 0.0625rem solid var(--border-color);
 }
@@ -754,24 +703,19 @@ settings-panel .settings-card > div:not(:last-child) > .provider-field:last-chil
     border-bottom: 0.0625rem solid var(--border-color);
 }
 
-/* Logs tab: file picker + live-tailing viewer. The tab and its form are flex
-   columns so the viewer fills the panel's full width and remaining height, with
-   its own internal scroll (the tab itself does not scroll). */
-settings-panel #tab-logs {
+/* A tab whose content fills it and scrolls on its own, so the tab is a flex
+   column that does not scroll itself: the Logs tab (a file picker over a
+   live-tailing viewer that takes the remaining height) and the Slash commands
+   tab (a master/detail page whose list and detail each scroll). */
+settings-panel .settings-tab-fill {
     display: flex;
     flex-direction: column;
     overflow: hidden;
 }
 
-/* Slash commands tab: a master/detail page whose list and detail scroll on
-   their own, so the tab is a flex column that does not scroll itself. */
-settings-panel #tab-commands {
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
-
-settings-panel #logs-form {
+/* The Logs tab's form is a flex column too, so the viewer fills the panel's
+   full width and remaining height. */
+settings-panel .settings-logs-form {
     display: flex;
     flex-direction: column;
     flex: 1;
@@ -787,8 +731,8 @@ settings-panel .logs-empty {
 settings-panel .logs-controls {
     display: flex;
     align-items: center;
-    gap: 0.625rem;
-    margin-bottom: 0.75rem;
+    gap: var(--space-10);
+    margin-bottom: var(--space-12);
 }
 
 settings-panel .logs-picker-label {
@@ -800,24 +744,10 @@ settings-panel .logs-picker-label {
 settings-panel .logs-picker {
     flex: 1 1 auto;
     min-width: 0;
-    padding: 0.4375rem 0.625rem;
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-lg);
-    font-family: var(--font-ui);
-    font-size: var(--font-size-base);
-    cursor: pointer;
-}
-
-settings-panel .logs-picker:focus-visible {
-    outline: none;
-    border-color: var(--field-focus-border);
-    box-shadow: var(--field-focus-halo);
 }
 
 settings-panel .logs-filepath {
-    margin-bottom: 0.75rem;
+    margin-bottom: var(--space-12);
 }
 
 settings-panel .logs-filepath:empty {
@@ -829,11 +759,11 @@ settings-panel .logs-viewer {
     flex: 1;
     min-height: 0;
     overflow: auto;
-    padding: 0.75rem 1rem;
+    padding: var(--space-12) var(--space-16);
     color: var(--text-primary);
     font-family: var(--font-mono);
     font-size: var(--font-size-sm);
-    line-height: 1.5;
+    line-height: var(--leading-normal);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     tab-size: 4;
@@ -842,7 +772,7 @@ settings-panel .logs-viewer {
 /* Keyboard shortcuts tab: category headings + the key display on each row. */
 settings-panel .settings-section-heading {
     color: var(--text-secondary);
-    margin: 1.25rem 0 0.625rem;
+    margin: var(--space-20) 0 var(--space-10);
 }
 
 settings-panel .settings-section-heading:first-child {
@@ -853,21 +783,21 @@ settings-panel .settings-section-heading:first-child {
    gap above, so the line under it only needs the shorter gap down to the card
    it is describing. */
 settings-panel .settings-section-heading + .settings-description {
-    margin-bottom: 0.75rem;
+    margin-bottom: var(--space-12);
 }
 
 /* The global settings section's heading is the first child of its own container
    and would otherwise hit the reset above despite not being at the top of the
    panel. Restore the standard top gap. */
-settings-panel #global-settings .settings-section-heading {
-    margin-top: 1.25rem;
+settings-panel .settings-global-form .settings-section-heading {
+    margin-top: var(--space-20);
 }
 
 /* Give the label its full width and let the key sit right after it (content
    width), instead of the default 40%/60% split that strands the key far right. */
 settings-panel .shortcut-row {
     grid-template-columns: minmax(0, 1fr) auto;
-    gap: 1rem;
+    gap: var(--space-16);
 }
 
 /* .provider-control is a column flex; lay the keycaps out in a right-aligned row
@@ -877,7 +807,7 @@ settings-panel .shortcut-control {
     flex-direction: row;
     align-items: center;
     justify-content: flex-end;
-    gap: 0.375rem;
+    gap: var(--space-6);
 }
 
 settings-panel .shortcut-keycap {
@@ -886,7 +816,7 @@ settings-panel .shortcut-keycap {
     justify-content: center;
     min-width: 2rem;
     min-height: 2rem;
-    padding: 0.25rem 0.625rem;
+    padding: var(--space-4) var(--space-10);
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
@@ -903,27 +833,27 @@ settings-panel .shortcut-keycap {
 settings-panel .provider-info {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: var(--space-4);
     min-width: 0;
 }
 
 settings-panel .provider-info .provider-name {
     color: var(--text-primary);
     font-size: var(--font-size-body-lg);
-    font-weight: 500;
+    font-weight: var(--font-weight-medium);
     margin: 0;
 }
 
 settings-panel .provider-info .provider-description {
     color: var(--text-secondary);
     font-size: var(--font-size-base);
-    line-height: 1.4;
+    line-height: var(--leading-tight);
 }
 
 settings-panel .provider-control {
     display: flex;
     flex-direction: column;
-    gap: 0.375rem;
+    gap: var(--space-6);
     min-width: 0;
 }
 
@@ -933,9 +863,9 @@ settings-panel .provider-control {
 settings-panel .auto-name-instruction {
     display: flex;
     flex-direction: column;
-    gap: 0.375rem;
-    margin-top: 0.5rem;
-    padding-top: 0.75rem;
+    gap: var(--space-6);
+    margin-top: var(--space-8);
+    padding-top: var(--space-12);
     border-top: 0.0625rem solid var(--border-color);
 }
 
@@ -950,7 +880,7 @@ settings-panel .provider-input-wrapper input {
     flex: 1 1 0;
     min-width: 0;
     width: 0;
-    padding: 0.625rem 0.875rem;
+    padding: var(--space-10) var(--space-14);
     background: transparent;
     border: none;
     color: var(--text-primary);
@@ -960,8 +890,8 @@ settings-panel .provider-input-wrapper input {
 
 settings-panel .provider-buttons {
     display: flex;
-    gap: 0.375rem;
-    padding-right: 0.5rem;
+    gap: var(--space-6);
+    padding-right: var(--space-8);
     flex-shrink: 0;
 }
 
@@ -971,7 +901,7 @@ settings-panel .provider-buttons {
 settings-panel .copilot-host-field {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: var(--space-4);
     min-width: 0;
 }
 
@@ -982,10 +912,6 @@ settings-panel .copilot-host-label {
 
 settings-panel .copilot-host-field input {
     width: 100%;
-    box-sizing: border-box;
-    padding: 0.4rem 0.6rem;
-    color: var(--text-primary);
-    font-size: var(--font-size-base);
     font-family: var(--font-mono);
 }
 
@@ -996,94 +922,36 @@ settings-panel .provider-active-badge {
     transform: translateY(-50%);
     display: inline-flex;
     align-items: center;
-    gap: 0.375rem;
+    gap: var(--space-6);
     color: var(--text-secondary);
     font-size: var(--font-size-md);
     pointer-events: none;
 }
 
 settings-panel .provider-active-badge svg {
-    fill: var(--accent-green);
+    fill: var(--success);
     flex-shrink: 0;
 }
 
-/* Settings-panel native selects. Defaults, Notifications, Connectivity, keyboard
-   shortcuts, and manifest-driven extension settings share the same control. */
+/* Settings-panel selects (Defaults, Notifications, Connectivity, keyboard
+   shortcuts, extension settings) are default-size .field-input selects that
+   fill their row. */
 settings-panel .settings-select,
 settings-panel .chime-select,
 settings-panel .proxy-mode-select {
     width: 100%;
-    padding: 0.625rem 2rem 0.625rem 0.875rem;
-    color: var(--text-primary);
-    font-size: var(--font-size-md);
-    font-family: inherit;
-    cursor: pointer;
-    appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960' width='16' height='16'%3E%3Cpath fill='%238b949e' d='M480-360 280-560h400L480-360Z'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 0.625rem center;
-}
-
-/* Not while focused: the focus border is the field's (.field-input). */
-settings-panel .settings-select:hover:not(:focus),
-settings-panel .chime-select:hover:not(:focus),
-settings-panel .proxy-mode-select:hover:not(:focus) {
-    border-color: var(--text-secondary);
 }
 
 settings-panel .chime-select option {
     color: var(--text-primary);
     background: var(--bg-primary);
-    padding: 0.25rem 0.5rem;
+    padding: var(--space-4) var(--space-8);
 }
 
-settings-panel .settings-btn {
-    padding: 0.625rem 1.25rem;
-    border-radius: var(--radius-lg);
-    font-size: var(--font-size-md);
-    cursor: pointer;
-    transition: background var(--transition-base);
-    border: none;
-}
-
-settings-panel .settings-btn.small {
-    padding: 0.375rem 0.75rem;
-    font-size: var(--font-size-sm);
-    min-width: 4rem;
-}
-
-settings-panel .settings-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-/* Icon-only button (OAuth "re-check sign-in" refresh). Subtle secondary styling
-   so it sits quietly next to any primary/danger action in the same group. */
-settings-panel .settings-btn.icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0.375rem;
-    min-width: 0;
-    background: var(--bg-secondary);
-    color: var(--text-secondary);
-    border: 0.0625rem solid var(--border-color);
-}
-
-settings-panel .settings-btn.icon:hover:not(:disabled) {
-    color: var(--text-primary);
-    border-color: var(--text-secondary);
-}
-
-settings-panel .settings-btn.icon svg {
-    display: block;
-    width: 1rem;
-    height: 1rem;
-    fill: currentcolor;
-}
-
-settings-panel .settings-btn.icon.spinning svg {
-    animation: control-spin 0.8s linear infinite;
+/* The re-check spinner on a provider's refresh button
+   (providers-tab.js _buildOAuthRefreshButton) while the check runs. */
+settings-panel .settings-recheck-btn.spinning svg {
+    animation: btn-spin 0.8s linear infinite;
     transform-origin: center;
 }
 
@@ -1091,32 +959,25 @@ settings-panel .settings-btn.icon.spinning svg {
 settings-panel .provider-toggle-wrapper {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    padding: 0.5rem 0;
-}
-
-settings-panel .provider-toggle {
-    position: absolute;
-    opacity: 0;
-    width: 0;
-    height: 0;
+    gap: var(--space-12);
+    padding: var(--space-8) 0;
 }
 
 settings-panel .toggle-switch {
-    --toggle-height: 1.125rem;
-    --toggle-padding: 0.125rem;
-    --toggle-knob: calc(var(--toggle-height) - var(--toggle-padding) * 2);
-    --toggle-width: calc(var(--toggle-knob) * 2 + var(--toggle-padding) * 2);
-    --toggle-travel: calc(var(--toggle-width) - var(--toggle-knob) - var(--toggle-padding) * 2);
+    --settings-toggle-height: 1.125rem;
+    --settings-toggle-padding: 0.125rem;
+    --settings-toggle-knob: calc(var(--settings-toggle-height) - var(--settings-toggle-padding) * 2);
+    --settings-toggle-width: calc(var(--settings-toggle-knob) * 2 + var(--settings-toggle-padding) * 2);
+    --settings-toggle-travel: calc(var(--settings-toggle-width) - var(--settings-toggle-knob) - var(--settings-toggle-padding) * 2);
 
     position: relative;
     display: inline-block;
-    width: var(--toggle-width);
-    height: var(--toggle-height);
+    width: var(--settings-toggle-width);
+    height: var(--settings-toggle-height);
     background: var(--border-subtle);
     border-radius: var(--radius-pill);
     cursor: pointer;
-    padding-right: 2rem;
+    padding-right: var(--space-32);
     transition: background-color var(--transition-base);
     flex-shrink: 0;
 }
@@ -1124,10 +985,10 @@ settings-panel .toggle-switch {
 settings-panel .toggle-switch::after {
     content: '';
     position: absolute;
-    top: var(--toggle-padding);
-    left: var(--toggle-padding);
-    width: var(--toggle-knob);
-    height: var(--toggle-knob);
+    top: var(--settings-toggle-padding);
+    left: var(--settings-toggle-padding);
+    width: var(--settings-toggle-knob);
+    height: var(--settings-toggle-knob);
     background: var(--toggle-knob-bg);
     border-radius: 50%;
     transition: transform var(--transition-base);
@@ -1138,7 +999,7 @@ settings-panel .provider-toggle:checked + .toggle-switch {
 }
 
 settings-panel .provider-toggle:checked + .toggle-switch::after {
-    transform: translateX(var(--toggle-travel));
+    transform: translateX(var(--settings-toggle-travel));
 }
 
 /* The checkbox is hidden, so the switch drawn for it wears its ring. */
@@ -1149,14 +1010,9 @@ settings-panel .provider-toggle:focus-visible + .toggle-switch {
 
 /* Connectivity tab */
 
-/* The proxy-mode picker reuses the shared settings-panel native-select styling
-   (.settings-select / .chime-select). The Manual URL field is sized like
-   .mcp-input; the box is .field-input. */
+/* The Manual URL field is .field-input .field-input-sm, like .mcp-input. */
 settings-panel .proxy-url-input {
-    padding: 0.4375rem 0.625rem;
-    color: var(--text-primary);
     font-family: var(--font-ui);
-    font-size: var(--font-size-base);
 }
 
 /* Manual URL field: revealed only when Manual is selected (JS toggles [hidden]),
@@ -1164,7 +1020,7 @@ settings-panel .proxy-url-input {
 settings-panel .proxy-url-row {
     display: flex;
     flex-direction: column;
-    gap: 0.375rem;
+    gap: var(--space-6);
 }
 
 settings-panel .proxy-status:empty {
@@ -1174,13 +1030,13 @@ settings-panel .proxy-status:empty {
 /* The Connectivity form is one column of rows, evenly spaced: the LAN and
    tunnel sections are wrappers the layout looks through, so a row's spacing
    never depends on which wrapper it sits in or where. */
-settings-panel #connectivity-form {
+settings-panel .settings-connectivity-form {
     display: flex;
     flex-direction: column;
-    gap: 0.625rem;
+    gap: var(--space-10);
 }
 
-settings-panel #connectivity-form .provider-field {
+settings-panel .settings-connectivity-form .provider-field {
     margin-bottom: 0;
 }
 
@@ -1190,16 +1046,16 @@ settings-panel .connectivity-section:not([hidden]) {
 
 /* The server's row has no controls, so its description takes the whole row
    rather than wrapping in the 40% a title column gets. */
-settings-panel #connectivity-form .connectivity-server {
+settings-panel .settings-connectivity-form .connectivity-server {
     grid-template-columns: minmax(0, 1fr);
 }
 
-settings-panel #connectivity-form .connectivity-server > .provider-control:empty {
+settings-panel .settings-connectivity-form .connectivity-server > .provider-control:empty {
     display: none;
 }
 
 /* A way in's Start/Stop sits at its natural width, like a switch would. */
-settings-panel #connectivity-form .provider-control > .settings-btn {
+settings-panel .settings-connectivity-form .provider-control > .btn {
     align-self: flex-start;
 }
 
@@ -1221,13 +1077,13 @@ settings-panel .connectivity-client-list {
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: var(--space-8);
 }
 
 settings-panel .connectivity-client {
     display: flex;
     align-items: baseline;
-    gap: 0.5rem;
+    gap: var(--space-8);
     font-size: var(--font-size-base);
     color: var(--text-secondary);
 }
@@ -1255,7 +1111,7 @@ settings-panel .connectivity-client-dot.origin-remote {
 
 settings-panel .connectivity-client-origin {
     color: var(--text-primary);
-    font-weight: 500;
+    font-weight: var(--font-weight-medium);
 }
 
 settings-panel .connectivity-client-meta {
@@ -1267,9 +1123,9 @@ settings-panel .connectivity-client-meta {
 settings-panel .mcp-toolbar {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: var(--space-12);
     flex-wrap: wrap;
-    margin-bottom: 0.875rem;
+    margin-bottom: var(--space-14);
 }
 
 settings-panel .mcp-import-soon {
@@ -1278,21 +1134,21 @@ settings-panel .mcp-import-soon {
 }
 
 settings-panel .mcp-empty {
-    line-height: 1.5;
+    line-height: var(--leading-normal);
 }
 
 /* A condition every row is blind to (e.g. the MCP extension being off), stated
    once above the list rather than repeated on rows that all look healthy. */
 settings-panel .mcp-notice {
-    margin-bottom: 0.875rem;
-    line-height: 1.5;
+    margin-bottom: var(--space-14);
+    line-height: var(--leading-normal);
     color: var(--text-secondary);
 }
 
 settings-panel .mcp-list {
     display: flex;
     flex-direction: column;
-    gap: 0.625rem;
+    gap: var(--space-10);
 }
 
 settings-panel .mcp-row {
@@ -1300,13 +1156,13 @@ settings-panel .mcp-row {
 }
 
 settings-panel .mcp-row-disabled .provider-info {
-    opacity: 0.55;
+    opacity: var(--disabled-opacity);
 }
 
 settings-panel .mcp-name-row {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--space-8);
     flex-wrap: wrap;
 }
 
@@ -1324,11 +1180,11 @@ settings-panel .mcp-status-dot.status-running {
 
 settings-panel .mcp-status-dot.status-starting {
     background: var(--accent-orange);
-    animation: mcp-dot-pulse 1.2s ease-in-out infinite;
+    animation: settings-mcp-dot-pulse 1.2s ease-in-out infinite;
 }
 
 settings-panel .mcp-status-dot.status-failed {
-    background: var(--accent-red);
+    background: var(--danger);
 }
 
 settings-panel .mcp-status-dot.status-untrusted {
@@ -1339,7 +1195,7 @@ settings-panel .mcp-status-dot.status-stopped {
     background: var(--text-tertiary);
 }
 
-@keyframes mcp-dot-pulse {
+@keyframes settings-mcp-dot-pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.35; }
 }
@@ -1348,17 +1204,17 @@ settings-panel .mcp-impl,
 settings-panel .mcp-scope-chip {
     color: var(--text-tertiary);
     font-size: var(--font-size-sm);
-    font-weight: normal;
+    font-weight: var(--font-weight-normal);
 }
 
 settings-panel .mcp-scope-chip {
-    padding: 0.0625rem 0.375rem;
+    padding: 0.0625rem var(--space-6);
     border: 0.0625rem solid var(--border-color);
     border-radius: var(--radius-2xl);
 }
 
 settings-panel .mcp-error-hint {
-    color: var(--accent-red);
+    color: var(--danger);
 }
 
 settings-panel .mcp-controls {
@@ -1375,21 +1231,21 @@ settings-panel .mcp-btn-row {
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-end;
-    gap: 0.375rem;
+    gap: var(--space-6);
 }
 
 settings-panel .mcp-log-view {
-    margin: 0.25rem 0 0;
+    margin: var(--space-4) 0 0;
     max-height: 12rem;
     overflow: auto;
-    padding: 0.625rem 0.75rem;
+    padding: var(--space-10) var(--space-12);
     background: var(--bg-primary);
     border: 0.0625rem solid var(--border-color);
     border-radius: var(--radius-lg);
     color: var(--text-secondary);
     font-family: var(--font-mono);
     font-size: var(--font-size-sm);
-    line-height: 1.5;
+    line-height: var(--leading-normal);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     tab-size: 4;
@@ -1399,19 +1255,19 @@ settings-panel .mcp-log-view {
 settings-panel .mcp-form {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: var(--space-16);
 }
 
 settings-panel .mcp-form-field {
     display: flex;
     flex-direction: column;
-    gap: 0.375rem;
+    gap: var(--space-6);
 }
 
 settings-panel .mcp-field-label {
     color: var(--text-primary);
     font-size: var(--font-size-base);
-    font-weight: 500;
+    font-weight: var(--font-weight-medium);
 }
 
 settings-panel .mcp-field-hint {
@@ -1419,28 +1275,22 @@ settings-panel .mcp-field-hint {
     font-size: var(--font-size-sm);
 }
 
+/* The field is .field-input .field-input-sm. */
 settings-panel .mcp-input {
-    padding: 0.4375rem 0.625rem;
-    color: var(--text-primary);
     font-family: var(--font-ui);
-    font-size: var(--font-size-base);
-}
-
-settings-panel select.mcp-input {
-    cursor: pointer;
 }
 
 settings-panel .mcp-args-list,
 settings-panel .mcp-env-list {
     display: flex;
     flex-direction: column;
-    gap: 0.375rem;
+    gap: var(--space-6);
 }
 
 settings-panel .mcp-repeat-row {
     display: flex;
     align-items: center;
-    gap: 0.375rem;
+    gap: var(--space-6);
 }
 
 settings-panel .mcp-repeat-row .mcp-input {
@@ -1448,46 +1298,21 @@ settings-panel .mcp-repeat-row .mcp-input {
     min-width: 0;
 }
 
-settings-panel .mcp-remove-row,
-settings-panel .mcp-reveal-btn {
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.75rem;
-    height: 1.75rem;
-    padding: 0;
-    background: transparent;
-    border: 0.0625rem solid var(--border-color);
-    border-radius: var(--radius-lg);
-    color: var(--text-secondary);
-    font-size: var(--font-size-md);
-    cursor: pointer;
-}
-
-settings-panel .mcp-remove-row:hover,
-settings-panel .mcp-reveal-btn:hover {
-    color: var(--text-primary);
-    border-color: var(--text-tertiary);
-}
-
 settings-panel .mcp-add-row {
     align-self: flex-start;
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
 }
 
 settings-panel .mcp-enabled-field {
     flex-direction: row;
     align-items: center;
-    gap: 0.75rem;
+    gap: var(--space-12);
 }
 
 settings-panel .mcp-form-actions {
     display: flex;
     justify-content: flex-end;
-    gap: 0.75rem;
-    margin-top: 0.5rem;
+    gap: var(--space-12);
+    margin-top: var(--space-8);
 }
 
 /* Notifications tab: the chime-customisation row — two popup menus (Pattern +
@@ -1501,13 +1326,13 @@ settings-panel .chime-controls-field {
 settings-panel .chime-controls {
     flex-flow: column nowrap;
     align-items: stretch;
-    gap: 0.85rem;
+    gap: var(--space-14);
 }
 
 /* The two curated popup menus, side by side. */
 settings-panel .chime-menus {
     display: flex;
-    gap: 0.75rem;
+    gap: var(--space-12);
 }
 
 settings-panel .chime-select-field {
@@ -1515,7 +1340,7 @@ settings-panel .chime-select-field {
     flex: 1 1 0;
     min-width: 0;
     flex-direction: column;
-    gap: 0.3rem;
+    gap: var(--space-4);
 }
 
 settings-panel .chime-select-label {
@@ -1529,25 +1354,23 @@ settings-panel .chime-actions {
     display: flex;
     flex-flow: row wrap;
     align-items: center;
-    gap: 1rem;
+    gap: var(--space-16);
 }
 
 settings-panel .chime-rotary {
-    --value: 0;
-
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.4rem;
+    gap: var(--space-6);
     color: var(--text-primary);
     font-size: var(--font-size-sm);
     user-select: none;
 }
 
 settings-panel .chime-rotary-knob {
-    --angle: 120deg;
-    --chime-rotary-colour: color-mix(in srgb, var(--text-primary) 65%, transparent);
-    --chime-rotary-ring-thickness: 0.16rem;
+    --settings-chime-rotary-angle: 120deg;
+    --settings-chime-rotary-colour: color-mix(in srgb, var(--text-primary) 65%, transparent);
+    --settings-chime-rotary-ring-thickness: 0.16rem;
 
     width: 3.4rem;
     height: 3.4rem;
@@ -1566,18 +1389,18 @@ settings-panel .chime-rotary-outer {
     position: absolute;
     inset: 0;
     border-radius: 50%;
-    background: conic-gradient(from 210deg, var(--chime-rotary-colour) 0 300deg, transparent 300deg 360deg);
+    background: conic-gradient(from 210deg, var(--settings-chime-rotary-colour) 0 300deg, transparent 300deg 360deg);
 
     /* Feather the inner edge across ~1px so the mask boundary gets antialiased.
        Coincident stops (a hard cliff) rasterise without supersampling in Blink —
        most visibly in the Windows WebView — leaving the inner circle jagged. */
-    mask: radial-gradient(farthest-side, transparent calc(100% - var(--chime-rotary-ring-thickness)), var(--mask-opaque) calc(100% - var(--chime-rotary-ring-thickness) + 0.0625rem));
+    mask: radial-gradient(farthest-side, transparent calc(100% - var(--settings-chime-rotary-ring-thickness)), var(--mask-opaque) calc(100% - var(--settings-chime-rotary-ring-thickness) + 0.0625rem));
 }
 
 settings-panel .chime-rotary-inner {
     position: absolute;
     inset: 0.5rem;
-    border: var(--chime-rotary-ring-thickness) solid var(--chime-rotary-colour);
+    border: var(--settings-chime-rotary-ring-thickness) solid var(--settings-chime-rotary-colour);
     border-radius: 50%;
 }
 
@@ -1586,18 +1409,14 @@ settings-panel .chime-rotary-tick {
     top: 50%;
     left: 50%;
     width: 1.45rem;
-    height: var(--chime-rotary-ring-thickness);
+    height: var(--settings-chime-rotary-ring-thickness);
     border-radius: var(--radius-pill);
-    background: var(--chime-rotary-colour);
-    transform: translateY(-50%) rotate(var(--angle));
+    background: var(--settings-chime-rotary-colour);
+    transform: translateY(-50%) rotate(var(--settings-chime-rotary-angle));
     transform-origin: 0 50%;
 }
 
 settings-panel .chime-rotary-input {
-    position: absolute;
-    width: 0.0625rem;
-    height: 0.0625rem;
-    opacity: 0;
     pointer-events: none;
 }
 
@@ -1614,7 +1433,7 @@ settings-panel .chime-rotary-label {
 }
 
 settings-panel .chime-preview-btn {
-    margin-left: 0.25rem;
+    margin-left: var(--space-4);
 }
 
 /* Desktop / tablet (>36rem): the tabs no longer fit as a single horizontal row,
@@ -1639,7 +1458,7 @@ settings-panel .chime-preview-btn {
         grid-area: sidebar;
         flex-direction: column;
         align-items: stretch;
-        padding: 1.5rem 0.6rem;
+        padding: var(--space-24) var(--space-10);
         border-bottom: none;
         border-right: 0.0625rem solid var(--border-divider);
         overflow-y: auto;
@@ -1652,20 +1471,20 @@ settings-panel .chime-preview-btn {
     settings-panel .settings-tabs-scroll {
         flex: 0 0 auto;
         flex-direction: column;
-        gap: 0.125rem;
+        gap: var(--space-2);
         overflow: visible;
         mask-image: none;
     }
 
     /* Full-width rows; the active tab is marked by its background + accent text
-       (the base .settings-tab.active colour), no side bar. Labels wrap rather
+       (the base .settings-tab.is-active colour), no side bar. Labels wrap rather
        than get clipped. */
     settings-panel .settings-tab {
         top: 0;
         width: 100%;
         text-align: left;
         white-space: normal;
-        padding: 0.5625rem 0.75rem;
+        padding: var(--space-8) var(--space-12);
         border-bottom: none;
         border-radius: var(--radius-lg);
     }
@@ -1674,7 +1493,7 @@ settings-panel .chime-preview-btn {
         background: var(--bg-tertiary);
     }
 
-    settings-panel .settings-tab.active {
+    settings-panel .settings-tab.is-active {
         border-bottom-color: transparent;
         background: var(--bg-tertiary);
     }
@@ -1718,26 +1537,26 @@ settings-panel .chime-preview-btn {
 
     settings-panel .settings-tabs {
         /* Extra right padding clears the corner close button (absolute, top-right). */
-        padding: env(safe-area-inset-top) 3rem 0 0.75rem;
+        padding: env(safe-area-inset-top) var(--space-48) 0 var(--space-12);
     }
 
     settings-panel .settings-tab {
-        padding: 0.75rem 0.9rem;
+        padding: var(--space-12) var(--space-14);
     }
 
     settings-panel .settings-content {
-        padding: 0.75rem 0.625rem;
-        padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
+        padding: var(--space-12) var(--space-10);
+        padding-bottom: calc(var(--space-8) + env(safe-area-inset-bottom));
     }
 
     settings-panel .provider-field {
         grid-template-columns: 1fr;
-        gap: 0.75rem;
-        padding: 0.75rem 0.875rem;
+        gap: var(--space-12);
+        padding: var(--space-12) var(--space-14);
     }
 
     /* The stacked card's gap is already row-sized. */
-    settings-panel .provider-field > .model-visibility,
+    settings-panel .provider-field > .settings-model-visibility,
     settings-panel .provider-field > .custom-endpoint-models,
     settings-panel .provider-field > .custom-endpoint-actions {
         margin-top: 0;
@@ -1799,10 +1618,10 @@ settings-panel .updates-check-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
+    gap: var(--space-16);
     background: none;
-    padding: 0.75rem 0.25rem 0;
-    margin-top: 0.25rem;
+    padding: var(--space-12) var(--space-4) 0;
+    margin-top: var(--space-4);
 }
 
 settings-panel .updates-check-row .provider-info {

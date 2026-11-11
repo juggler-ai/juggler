@@ -374,7 +374,7 @@ export async function runTests(_ctx) {
 
     // First entry (an extension) is selected by default; its detail reports
     // state but must NOT carry a toggle (toggling is done from the tree badge).
-    assert(el.querySelector('.plugin-tree-row.selected'), 'a row is selected by default');
+    assert(el.querySelector('.plugin-tree-row.is-selected'), 'a row is selected by default');
     assert(detail.querySelector('.plugin-detail-name'), 'the detail pane shows the selected item');
     assert(!detail.querySelector('.ext-switch'), 'the detail pane has no toggle control');
   });
@@ -591,7 +591,7 @@ export async function runTests(_ctx) {
     const revealed = await el.revealCapability('context-item', 'a');
     assert(revealed === true, 'revealCapability reports the capability was found');
     assert(el._selectedKey === 'cap:context-item:a', 'the capability is now selected');
-    const selected = /** @type {HTMLElement} */ (el.querySelector('.plugin-tree-row.selected'));
+    const selected = /** @type {HTMLElement} */ (el.querySelector('.plugin-tree-row.is-selected'));
     assert(selected && selected.dataset.key === 'cap:context-item:a',
       'its tree row carries the selection');
 
@@ -626,7 +626,7 @@ export async function runTests(_ctx) {
     const revealed = await el.revealCapability('command', 'b');
     assert(revealed === true, 'revealCapability reports the command was found');
     assert(el._selectedKey === 'cap:command:b', `the command is now selected, got ${el._selectedKey}`);
-    const selected = /** @type {HTMLElement} */ (el.querySelector('.plugin-tree-row.selected'));
+    const selected = /** @type {HTMLElement} */ (el.querySelector('.plugin-tree-row.is-selected'));
     assert(selected && selected.dataset.key === 'cap:command:b', 'its tree row, expanded into view, carries the selection');
   });
 

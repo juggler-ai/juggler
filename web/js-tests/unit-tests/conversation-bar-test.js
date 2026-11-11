@@ -250,10 +250,10 @@ export async function runTests() {
     try {
       en.bar._session = tabsSession(knobs);
       en.bar.render();
-      const enTab = en.bar.querySelector('.conversation-tab[data-conversation-id="c_b"]');
-      const enName = enTab?.querySelector('.conversation-tab-name')?.textContent;
+      const enTab = en.bar.querySelector('.conversation-bar-tab[data-conversation-id="c_b"]');
+      const enName = enTab?.querySelector('.conversation-bar-tab-name')?.textContent;
       assert(enName === 'Untitled 3', `English "Untitled 3" tab drew as "${enName}"`);
-      const enBin = enTab?.querySelector('.conversation-tab-bin')?.getAttribute('aria-label');
+      const enBin = enTab?.querySelector('.conversation-bar-tab-bin')?.getAttribute('aria-label');
       assert(enBin === 'Move Untitled 3 to bin', `English bin label: "${enBin}"`);
     } finally {
       en.container.remove();
@@ -266,8 +266,8 @@ export async function runTests() {
       xbar._session = session;
       xbar.render();
       const tabFor = (/** @type {string} */ id) => /** @type {HTMLElement} */ (
-        xbar.querySelector(`.conversation-tab[data-conversation-id="${id}"]`));
-      const nameOf = (/** @type {string} */ id) => tabFor(id)?.querySelector('.conversation-tab-name')?.textContent || '';
+        xbar.querySelector(`.conversation-bar-tab[data-conversation-id="${id}"]`));
+      const nameOf = (/** @type {string} */ id) => tabFor(id)?.querySelector('.conversation-bar-tab-name')?.textContent || '';
       const box = /** @type {HTMLElement} */ (xbar.querySelector('.conversation-box[data-workspace-id="ws_5"]'));
       assert(!!box && !!tabFor('c_a') && !!tabFor('c_b') && !!tabFor('c_c'), 'en-XA: the box or a tab was not drawn');
 
@@ -276,12 +276,12 @@ export async function runTests() {
       // The box's own aria-label is the workspace's label, which is data.
       assert(box.getAttribute('aria-label') === '5', `the box's label: "${box.getAttribute('aria-label')}"`);
       shown.push(...shownStrings(/** @type {HTMLElement} */ (xbar.querySelector('.conversation-tabs')),
-        '.conversation-tab-name, .conversation-box-header').filter((s) => s !== '5'));
+        '.conversation-bar-tab-name, .conversation-box-header').filter((s) => s !== '5'));
       shown.push(nameOf('c_a'), nameOf('c_b'));
       assert(nameOf('c_b').includes('3'), `en-XA "Untitled 3" tab lost its number: "${nameOf('c_b')}"`);
       assert(nameOf('c_c') === '7', `a tab named "7" drew as "${nameOf('c_c')}"`);
       for (const [id, n] of [['c_b', '3'], ['c_c', '7']]) {
-        const label = tabFor(id).querySelector('.conversation-tab-bin')?.getAttribute('aria-label') || '';
+        const label = tabFor(id).querySelector('.conversation-bar-tab-bin')?.getAttribute('aria-label') || '';
         assert(label.includes(n), `en-XA: ${id}'s bin label lost its name: "${label}"`);
       }
 

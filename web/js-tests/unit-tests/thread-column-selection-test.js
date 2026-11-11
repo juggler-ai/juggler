@@ -94,7 +94,7 @@ export async function runTests() {
     assert(threadCols.length > 0,
       'root column should auto-select the thread item, opening its thread column');
 
-    const selected = threadCols[0].querySelector('.selected');
+    const selected = threadCols[0].querySelector('.is-selected');
     assert(!!selected,
       'thread column must have an auto-selected item when its entire content ' +
 			'arrives in a single coalesced batch (no later event will rescue it)');

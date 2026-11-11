@@ -148,11 +148,11 @@ export async function runTests() {
     // field that is missing — and a document-level notice raised over it takes
     // the focus that surface just placed. Routing the fallback to `showNotice`
     // breaks `unit:conversation-workspace-panel` for exactly that reason.
-    const before = document.querySelectorAll('modal-dialog.is-notice.show').length;
+    const before = document.querySelectorAll('modal-dialog.is-notice.is-open').length;
     const conv = conversationWith(null);
     conv.showWarning('Still connecting to the engine', 5000);
 
-    const after = document.querySelectorAll('modal-dialog.is-notice.show').length;
+    const after = document.querySelectorAll('modal-dialog.is-notice.is-open').length;
     assert(after === before, `a dropped warning must raise no notice, went from ${before} to ${after}`);
   });
 

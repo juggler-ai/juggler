@@ -10,8 +10,50 @@ import { renderWriteFilePermissionSection } from './edit/permission-section.js';
 import { tildeify } from './path-approval.js';
 import { translator, markUntranslated } from 'juggler/i18n';
 import { uploadAssetText } from 'juggler/ops';
+import { injectStylesOnce } from 'juggler/ui';
 
 const t = translator('@juggler/core');
+
+// The edit-family result summary (_editStatSummary): a badge-shaped `+A -B`
+// diffstat, then the filename, which truncates while the badge stays fixed.
+// The diffstat is an `.item-lozenge` (padding, radius, size and weight are the
+// shared badge's) restyled for digits: mono, neither uppercased nor tracked, on
+// a neutral raised fill so the green/red counts carry the meaning in both
+// themes. Its right margin matches the content-box gap that separates it from
+// the type badge on its left.
+injectStylesOnce('edit-summary-styles', `
+.action-edit-summary {
+  display: inline-flex;
+  align-items: baseline;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.action-edit-summary-name {
+  min-width: 0;
+}
+
+.action-edit-stat {
+  flex: none;
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-6);
+  margin: 0 var(--space-16) 0 0;
+  font-family: var(--font-mono);
+  text-transform: none;
+  letter-spacing: normal;
+  color: inherit;
+  background: var(--bg-raised);
+}
+
+.action-edit-stat-add {
+  color: var(--accent-green);
+}
+
+.action-edit-stat-del {
+  color: var(--accent-red);
+}
+`);
 
 /**
  * The single `itemType` used by every edit-family plugin. The rule shape is
@@ -482,7 +524,7 @@ class EditBase extends ContextItem {
     wrap.appendChild(stat);
 
     const nameEl = document.createElement('span');
-    nameEl.className = 'action-edit-summary-name';
+    nameEl.className = 'action-edit-summary-name text-truncate';
     nameEl.textContent = label;
     wrap.appendChild(nameEl);
 

@@ -48,18 +48,21 @@ button {
     background: transparent;
     color: inherit;
     border: none;
-    padding: 0.625rem 1.25rem;
+    padding: var(--space-10) var(--space-20);
     border-radius: var(--radius-md);
     cursor: pointer;
     font-family: var(--font-ui);
     font-size: var(--font-size-md);
-    transition: background 0.2s, color 0.2s;
+    transition: background var(--duration-slow), color var(--duration-slow);
     -webkit-user-select: none;
     user-select: none;
 }
 
-button:disabled {
-    opacity: 0.5;
+/* Element weight, so a component that sets its own opacity or cursor on a
+   button decides them in every state; a component that only means the
+   default leaves `cursor` to the two rules here. */
+button:where(:disabled) {
+    opacity: var(--disabled-opacity);
     cursor: not-allowed;
 }
 
@@ -67,23 +70,14 @@ button:disabled {
    them a UA default (a bare textarea defaults to the generic `monospace`
    keyword, which resolves to Menlo on macOS, Consolas on Windows). Force them to
    inherit so they use our embedded fonts and render identically across OSes.
-   A button is not in the list: the button rule above names --font-ui outright. */
+   A button is not in the list: the button rule above names --font-ui outright.
+   That is all a bare control gets here: a text field is `.field-input`
+   (patterns/fields.css), and a control drawn borderless inside something else
+   (the composer, a rename row) states what it is itself. */
 input,
 textarea,
 select {
     font-family: inherit;
-}
-
-/* Input Styles */
-input, textarea {
-    background: var(--bg-secondary);
-    border: 0.0625rem solid var(--border-color);
-    color: var(--text-primary);
-    padding: 0.625rem;
-    border-radius: var(--radius-md);
-    font-size: var(--font-size-lg);
-    outline: none;
-    transition: border-color 0.2s;
 }
 
 /* Force our SVG i-beam over inputs — Windows-only, for the WebView2 white-cursor
@@ -103,8 +97,25 @@ input, textarea {
     cursor: var(--cursor-row-resize);
 }
 
-input:where(:focus), textarea:where(:focus) {
-    border-color: var(--field-focus-border);
+/* Blanket i-beam substitution for the same Windows bug. The UA draws the native
+   i-beam automatically over any selectable/editable text — we never wrote
+   `cursor: text` for those, so there's no per-element rule to override and every
+   untouched text region still shows the invisible white cursor. A fixed `url()`
+   cursor can't replicate the UA's context-sensitive `auto` (i-beam only over
+   glyphs, arrow over padding), so instead we set it once on each text-region
+   root and lean on `cursor` inheritance to reach all their text children. Scoped
+   to Windows so macOS/Linux keep the pixel-perfect native i-beam. Interactive
+   descendants (links/buttons) inherit it too, so the second rule re-asserts the
+   pointer for them. input/textarea already carry --cursor-text via their own
+   rule. Both rules weigh nothing, so any rule that sets a cursor of its own on
+   one of these elements keeps it. Part of the TEMPORARY workaround — remove
+   with the cursor tokens in tokens/scale.css. */
+:where(:root[data-os="windows"] :is(.markdown, pre, code, .ci-text-block, .ci-code-block, [contenteditable])) {
+    cursor: var(--cursor-text);
+}
+
+:where(:root[data-os="windows"] :is(.markdown, .ci-text-block, .ci-code-block) :is(a, button, [role="button"])) {
+    cursor: pointer;
 }
 
 /* The focus ring every control gets from the keyboard. It replaces the
@@ -135,16 +146,8 @@ a {
     text-decoration: none;
 }
 
-a:hover {
+a:where(:hover) {
     text-decoration: underline;
-}
-
-/* Utility Classes */
-
-/* Animation */
-@keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
 }
 
 /* Below a tablet the whole type scale steps down one notch. */

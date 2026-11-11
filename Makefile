@@ -1187,7 +1187,9 @@ lint-js-deadcode: node-deps
 	@NODE_NO_WARNINGS=1 node tooling/js-deadcode.js
 
 ## lint-css: Run the CSS linters — stylelint (rem units, no px, no literal
-## colour outside web/css/tokens/), after the cases for the repo's own
+## colour outside web/css/tokens/; no ID selectors, depth and specificity caps,
+## no [data-theme] outside tokens/, no !important, every disable with a
+## reason — tooling/.stylelintrc.json), after the cases for the repo's own
 ## stylelint rule; the same stylelint and config over the CSS the JavaScript
 ## passes to injectStylesOnce() (tooling/lint-css-in-js.js, after its cases in
 ## tooling/lint-css-in-js.test.js; it names its own scope, the web/ .js files

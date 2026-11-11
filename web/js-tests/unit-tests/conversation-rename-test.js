@@ -92,7 +92,7 @@ function mountBar(session) {
  * @returns {string} The text on the tab.
  */
 function shownName(bar) {
-  return bar.querySelector('.conversation-tab[data-conversation-id="c1"] .conversation-tab-name')
+  return bar.querySelector('.conversation-bar-tab[data-conversation-id="c1"] .conversation-bar-tab-name')
     ?.textContent ?? '';
 }
 
@@ -217,7 +217,7 @@ export async function runTests() {
     session.registry.select({ kind: 'conversation', id: 'c1' });
     const { bar, teardown } = mountBar(session);
     try {
-      const tab = /** @type {HTMLElement} */ (bar.querySelector('.conversation-tab[data-conversation-id="c1"]'));
+      const tab = /** @type {HTMLElement} */ (bar.querySelector('.conversation-bar-tab[data-conversation-id="c1"]'));
       const box = tab.getBoundingClientRect();
       // Well past the end of a short name, short of the bin at the row's end:
       // the stretch of row a click on the strip's "whitespace" lands in.
@@ -226,7 +226,7 @@ export async function runTests() {
       /** @type {HTMLElement} */ (blank).click();
       assert(!field(), `a click on the empty row (${/** @type {HTMLElement} */ (blank).className}) opened the rename editor`);
 
-      /** @type {HTMLElement} */ (tab.querySelector('.conversation-tab-name')).click();
+      /** @type {HTMLElement} */ (tab.querySelector('.conversation-bar-tab-name')).click();
       assert(!!field(), 'a click on the open tab\'s name did not open the rename editor');
       await typeAnd(/** @type {HTMLInputElement} */ (field()), 'Old name', 'Escape');
     } finally {
@@ -239,7 +239,7 @@ export async function runTests() {
     const { bar, teardown } = mountBar(session);
     try {
       const nameEl = () => /** @type {HTMLElement} */ (
-        bar.querySelector('.conversation-tab[data-conversation-id="c1"] .conversation-tab-name'));
+        bar.querySelector('.conversation-bar-tab[data-conversation-id="c1"] .conversation-bar-tab-name'));
       session.setAutoNaming('c1', true);
       bar.render();
       assert(shownName(bar) === 'Auto-naming…', `while being named the tab shows "${shownName(bar)}"`);
@@ -251,7 +251,7 @@ export async function runTests() {
         assert(color !== 'rgba(0, 0, 0, 0)' && color !== 'transparent',
           `under reduced motion the still label must be painted, got color ${color}`);
       } else {
-        assert(shimmer === 'tab-auto-naming-shimmer', `the is-auto-naming name runs the shimmer, got ${shimmer}`);
+        assert(shimmer === 'conversation-bar-tab-auto-naming-shimmer', `the is-auto-naming name runs the shimmer, got ${shimmer}`);
       }
 
       session.conversations.get('c1').name = 'Tunnel rendezvous';
@@ -274,7 +274,7 @@ export async function runTests() {
     const { bar, teardown } = mountBar(session);
     try {
       bar._enterRenameMode('c1');
-      const button = /** @type {HTMLElement|null} */ (document.querySelector('.conversation-tab-auto-name'));
+      const button = /** @type {HTMLElement|null} */ (document.querySelector('.conversation-bar-tab-auto-name'));
       assert(!!button, 'the rename editor offers no Auto-name button');
       /** @type {HTMLElement} */ (button).click();
       assert(requested.join() === 'c1', `auto-name requested for "${requested.join()}"`);
@@ -292,8 +292,8 @@ export async function runTests() {
     session.registry.select({ kind: 'conversation', id: 'c1' });
     const { bar, teardown } = mountBar(session);
     try {
-      const tab = /** @type {HTMLElement} */ (bar.querySelector('.conversation-tab[data-conversation-id="c1"]'));
-      const name = /** @type {HTMLElement} */ (tab.querySelector('.conversation-tab-name'));
+      const tab = /** @type {HTMLElement} */ (bar.querySelector('.conversation-bar-tab[data-conversation-id="c1"]'));
+      const name = /** @type {HTMLElement} */ (tab.querySelector('.conversation-bar-tab-name'));
       const box = name.getBoundingClientRect();
       // Two rem in from where the name starts: past the end of the letter, but
       // within reach of anyone aiming at it.

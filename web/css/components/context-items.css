@@ -83,7 +83,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0.5rem 0.75rem;
+    padding: var(--space-8) var(--space-12);
     background: var(--bg-raised);
     border-bottom: 0.0625rem solid var(--border-divider);
     font-size: var(--font-size-xs);
@@ -93,6 +93,7 @@
     font-family: var(--font-mono);
     color: var(--text-secondary);
     text-transform: uppercase;
+    letter-spacing: var(--tracking-caps);
 }
 
 .ci-code-range {
@@ -102,7 +103,7 @@
 }
 
 .ci-code-content {
-    padding: 0.5rem;
+    padding: var(--space-8);
     margin: 0;
     overflow-x: auto;
     background: var(--bg-secondary);
@@ -119,18 +120,18 @@
     border-radius: 0;
     font-family: var(--font-mono);
     font-size: var(--font-size-base);
-    line-height: 1.6;
+    line-height: var(--leading-relaxed);
     color: var(--text-primary);
     white-space: pre;
     overflow-x: auto;
 }
 
-/* Override Prism theme to use app's standard font and size
-   Note: !important needed to override Prism's inline styles */
+/* A highlighted block here takes the wrapper's font size, where the rule above
+   sizes a plain pre itself. */
 .ci-code-content pre[class*="language-"],
 .ci-code-content code[class*="language-"] {
-    font-family: var(--font-mono) !important;
-    font-size: inherit !important;
+    font-family: var(--font-mono);
+    font-size: inherit;
 }
 
 /* Line-numbered code: one block per source line, its number drawn in the left
@@ -140,7 +141,7 @@
    one. The gutter is sized from --line-digits (the digit count of the last line
    number) instead, so nothing is measured. */
 .ci-code-lines {
-    --line-gutter: calc(var(--line-digits, 4) * 1ch + 1.25rem);
+    --ci-code-line-gutter: calc(var(--line-digits, 4) * 1ch + 1.25rem);
 
     display: block;
 }
@@ -148,10 +149,10 @@
 .ci-line {
     display: block;
     position: relative;
-    padding-left: var(--line-gutter);
+    padding-left: var(--ci-code-line-gutter);
     font-family: var(--font-mono);
     font-size: var(--font-size-base);
-    line-height: 1.6;
+    line-height: var(--leading-relaxed);
 
     /* A blank line is an empty block, which would otherwise collapse to no
        height and break the uniform row height the line numbers align to. */
@@ -171,8 +172,8 @@
     top: 0;
     bottom: 0;
     left: 0;
-    width: calc(var(--line-gutter) - 0.8rem);
-    padding-right: 0.4rem;
+    width: calc(var(--ci-code-line-gutter) - 0.8rem);
+    padding-right: var(--space-6);
     border-right: 0.0625rem solid var(--border-divider);
     color: var(--text-tertiary);
     text-align: right;
@@ -196,17 +197,6 @@
    ================================================================== */
 
 /* These are used in collapsed (square) context item views */
-
-/* ===================================================================
-   Expanded View Common Layouts
-   ================================================================== */
-
-/* Common container for all expanded context items */
-.ci-expanded {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-}
 
 /* ===================================================================
    Search Results Styling
@@ -244,19 +234,19 @@
 .skill-load-panel {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: var(--space-12);
 }
 
 .skill-panel-note {
     display: flex;
     flex-direction: column;
-    gap: 0.4rem;
+    gap: var(--space-6);
 
     /* The properties panel inherits the app's monospace font; the explainer is
        prose, so pin it to the UI (non-fixed-width) font. */
     font-family: var(--font-ui);
     font-size: var(--font-size-base);
-    line-height: 1.45;
+    line-height: var(--leading-tight);
     color: var(--text-secondary);
 }
 
@@ -267,10 +257,10 @@
 
 .skill-panel-how {
     margin: 0;
-    padding-left: 1.1rem;
+    padding-left: var(--space-16);
     display: flex;
     flex-direction: column;
-    gap: 0.3rem;
+    gap: var(--space-4);
 }
 
 .skill-panel-heading,
@@ -281,40 +271,40 @@
 /* Section titles inside the load panel need breathing room above the block
    they label (files, instructions). */
 .skill-panel-section-title {
-    margin-top: 0.25rem;
+    margin-top: var(--space-4);
 }
 
 .skill-load-note {
     font-size: var(--font-size-base);
-    line-height: 1.4;
+    line-height: var(--leading-tight);
     color: var(--text-secondary);
     background: var(--bg-tertiary);
     border-radius: var(--radius-sm);
-    padding: 0.5rem 0.6rem;
+    padding: var(--space-8) var(--space-10);
 }
 
 /* Rendered SKILL.md body. The enclosing panel section scrolls, so this just
    sets readable width limits and a subtle frame. */
 .skill-load-body {
     font-size: var(--font-size-md);
-    line-height: 1.5;
+    line-height: var(--leading-normal);
     color: var(--text-primary);
 }
 
 .skill-load-raw {
     margin: 0;
-    padding: 0.6rem 0.7rem;
+    padding: var(--space-10) var(--space-12);
     font-family: var(--font-mono);
     font-size: var(--font-size-base);
-    line-height: 1.5;
+    line-height: var(--leading-normal);
     color: var(--text-primary);
     white-space: pre-wrap;
     overflow-wrap: break-word;
 }
 
-/* The panel's action row is left-aligned; the button is the shared
-   .skills-btn from skills-marketplace.css. */
+/* The panel's action row is left-aligned; its buttons are the shared
+   .btn (patterns/buttons.css). */
 .skill-panel-actions {
     display: flex;
-    gap: 0.5rem;
+    gap: var(--space-8);
 }

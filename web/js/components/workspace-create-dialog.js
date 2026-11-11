@@ -279,7 +279,7 @@ export function openWorkspaceCreate(session) {
       title.className = 'workspace-create-title';
       title.textContent = t('New workspace');
       header.appendChild(title);
-      const close = setupButton('close-button workspace-create-close', '', () => modal.close(undefined));
+      const close = setupButton('btn btn-icon btn-icon-lg btn-ghost workspace-create-close', '', () => modal.close(undefined));
       close.setAttribute('aria-label', t('Close'));
       close.title = t('Close');
       const cross = document.createElement('span');

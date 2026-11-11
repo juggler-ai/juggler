@@ -76,7 +76,7 @@ export function menuOrderedCommands(commands) {
  */
 export function buildCommandRow(cmd, { extraClass = '', labelClass = 'menu-item-desc' } = {}) {
   const row = document.createElement('li');
-  row.className = ['menu-item', extraClass, cmd.danger ? 'danger' : ''].filter(Boolean).join(' ');
+  row.className = ['menu-item', extraClass, cmd.danger ? 'menu-item-danger' : ''].filter(Boolean).join(' ');
   row.dataset.command = cmd.name;
 
   const code = document.createElement('code');
@@ -113,11 +113,12 @@ export function withoutManagerCommand(commands) {
  */
 export function buildCommandsSettingsRow(extraClass = '') {
   const row = document.createElement('li');
-  row.className = ('menu-item slash-command-pinned ' + extraClass).trim();
+  row.className = 'menu-item slash-command-pinned';
+  if (extraClass) row.classList.add(extraClass);
   row.dataset.command = MANAGER_COMMAND_ID;
 
   const text = document.createElement('span');
-  text.className = 'slash-command-pinned-label';
+  text.className = 'slash-command-pinned-label text-truncate';
   text.textContent = t(COMMANDS_SETTINGS_LABEL);
   row.appendChild(text);
 

@@ -1579,7 +1579,7 @@ const threadAliasDeleteRemovesOneTileTest = {
     { type: 'click-dom', selector: 'thread-message', index: 1 },
     {
       type: 'click-dom', global: true, index: 0,
-      selector: 'conversation-area.thread-column thread-column-actions .properties-panel-btn.danger'
+      selector: 'conversation-area.thread-column thread-column-actions .properties-panel-delete-btn'
     }
   ],
 

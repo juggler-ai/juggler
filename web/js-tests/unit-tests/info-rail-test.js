@@ -104,8 +104,8 @@ function mountColumn({ height, tabs }) {
   host.appendChild(bar);
 
   const tabMarkup = Array.from({ length: tabs }, (_, i) => `
-    <li class="conversation-tab" data-conversation-id="c${i}">
-      <button class="conversation-tab-button"><span class="conversation-tab-name">Tab ${i}</span></button>
+    <li class="conversation-bar-tab" data-conversation-id="c${i}">
+      <button class="conversation-bar-tab-button"><span class="conversation-bar-tab-name">Tab ${i}</span></button>
     </li>`).join('');
 
   // Stands in for conversation-bar.render()'s output: the column, the scrolling

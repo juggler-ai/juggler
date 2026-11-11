@@ -158,7 +158,7 @@ class WorkspaceBoxHeader extends JugglerElement {
     const name = document.createElement('span');
     name.className = 'item-lozenge conversation-box-label';
     const text = document.createElement('span');
-    text.className = 'conversation-box-label-text';
+    text.className = 'conversation-box-label-text text-truncate';
     // Cut short, the name is offered in full by the tooltip manager; when it
     // fits, the header's own title (the uncommitted-work note) stands.
     text.setAttribute('data-tooltip-overflow', '');

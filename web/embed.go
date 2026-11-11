@@ -33,7 +33,7 @@ var builtin embed.FS
 //go:embed css/base/fonts.css css/base/reset.css css/base/elements.css css/base/text-selection.css
 //go:embed css/tokens/scale.css css/tokens/theme-dark.css css/tokens/theme-light.css
 //go:embed css/layout/app-shell.css css/layout/window-chrome.css css/layout/app-header.css
-//go:embed css/patterns/notice.css
+//go:embed css/patterns/notice.css css/patterns/buttons.css
 //go:embed machine/sessions.css
 //go:embed resources/fonts/* resources/juggler-logo.svg resources/juggler-logo-with-name.svg resources/chrome-pattern.svg
 //go:embed js/components/window-caption-controls.js js/components/window-caption-glyphs.js js/components/juggler-element.js

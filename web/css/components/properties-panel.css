@@ -19,7 +19,7 @@ properties-panel-content {
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    padding: 1rem;
+    padding: var(--space-16);
 }
 
 /* Empty state */
@@ -29,7 +29,7 @@ properties-panel-empty {
     align-items: center;
     justify-content: center;
     height: 100%;
-    gap: 0.75rem;
+    gap: var(--space-12);
     color: var(--text-tertiary);
 }
 
@@ -53,9 +53,9 @@ properties-panel-section {
     flex-direction: column;
     flex: 1;
     min-height: 0;
-    gap: 1rem;
+    gap: var(--space-16);
     overflow-y: auto;
-    padding-right: 0.5rem;
+    padding-right: var(--space-8);
 }
 
 /* Mirror .message-with-icon: the row top-aligns (so a wrapping title doesn't
@@ -72,8 +72,8 @@ properties-panel-section {
     align-items: flex-start;
     min-width: 0;
     max-width: 100%;
-    gap: 0.8rem;
-    padding-bottom: 0.5rem;
+    gap: var(--space-12);
+    padding-bottom: var(--space-8);
     border-bottom: 1px solid var(--border-divider);
 }
 
@@ -119,7 +119,8 @@ properties-panel-section {
 }
 
 /* Right-edge elements stay vertically centred regardless of the row's
-   flex-start alignment. */
+   flex-start alignment. The header's icon button is `btn btn-icon
+   btn-secondary` (patterns/buttons.css); this is its place in the row. */
 .properties-panel-timestamp,
 .properties-panel-token-chip,
 .properties-panel-header-icon-btn {
@@ -128,18 +129,23 @@ properties-panel-section {
 
 .properties-panel-title {
     font-size: var(--font-size-lg);
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     color: var(--text-primary);
     margin: 0;
 }
 
 properties-panel-body {
     font-size: var(--font-size-md);
-    line-height: 1.6;
+    line-height: var(--leading-relaxed);
     color: var(--text-primary);
 }
 
-properties-panel-body pre {
+/* Every <pre> in the body, whoever built it. A hidden one has no box, so
+   `:not([hidden])` matches every <pre> that has a margin to lose; it weighs the
+   rule one class — level with the markdown `:first-child`/`:last-child` resets
+   it meets, and with the `.properties-panel-*` classes below that give their
+   own <pre> a margin back. */
+:where(properties-panel-body pre):not([hidden]) {
     margin: 0;
 }
 
@@ -148,7 +154,7 @@ properties-panel-body pre {
     white-space: pre-wrap;
     overflow-wrap: break-word;
     background: var(--bg-primary);
-    padding: 0.75rem;
+    padding: var(--space-12);
     border-radius: var(--radius-md);
     font-size: var(--font-size-md);
 }
@@ -176,7 +182,7 @@ properties-panel-body pre {
 properties-panel-subsection {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: var(--space-8);
 }
 
 .properties-panel-subtitle {
@@ -196,9 +202,8 @@ properties-panel-subsection {
     color: var(--text-secondary);
 }
 
-/* The Stop button shrinks to fit its label: .properties-panel-btn is
-   display:flex inside a column flex subsection, so it would otherwise stretch
-   the full width of the panel. */
+/* The Stop button shrinks to fit its label: it sits in a column flex
+   subsection, so it would otherwise stretch the full width of the panel. */
 .live-task-output-stop {
     align-self: flex-start;
 }
@@ -207,23 +212,22 @@ properties-panel-subsection {
 .properties-panel-attachments {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: var(--space-8);
 }
 
 .properties-panel-attachment {
     display: flex;
     align-items: center;
-    gap: 0.625rem;
+    gap: var(--space-10);
     margin: 0;
     min-width: 0;
-    padding: 0.5rem;
+    padding: var(--space-8);
     background: var(--bg-primary);
     border-radius: var(--radius-lg);
 }
 
 /* <file-view> — the host element every file viewer renders into. It is a plain
-   block so a viewer controls its own layout; only the shared image case needs a
-   size cap here, since an image renders at its intrinsic size otherwise. */
+   block so a viewer controls its own layout. */
 file-view {
     display: block;
     min-width: 0;
@@ -233,38 +237,6 @@ file-view {
     display: flex;
     flex-direction: column;
     min-width: 0;
-}
-
-.file-view-image {
-    max-width: 100%;
-    height: auto;
-    align-self: flex-start;
-    border-radius: var(--radius-md);
-    background: var(--bg-secondary);
-    cursor: zoom-in;
-}
-
-/* PDF viewer: one canvas per page, drawn lazily as it scrolls into view. The
-   aspect-ratio is set per page from its viewport so the box is reserved before
-   the page is drawn and the column does not jump as pages fill in. */
-.pdf-view-pages {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    min-width: 0;
-}
-
-.pdf-view-page {
-    width: 100%;
-    height: auto;
-    background: var(--bg-secondary);
-    border-radius: var(--radius-md);
-}
-
-.pdf-view-pagecount {
-    font-size: var(--font-size-2xs);
-    font-family: var(--font-mono);
-    opacity: 0.7;
 }
 
 .properties-panel-attachment-thumb {
@@ -280,16 +252,13 @@ file-view {
 .properties-panel-attachment-caption {
     display: flex;
     flex-direction: column;
-    gap: 0.125rem;
+    gap: var(--space-2);
     min-width: 0;
 }
 
 .properties-panel-attachment-name {
     font-size: var(--font-size-base);
     color: var(--text-primary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 .properties-panel-attachment-meta {
@@ -302,9 +271,9 @@ file-view {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--space-8);
     min-width: 0;
-    margin-right: 0.5rem;
+    margin-right: var(--space-8);
 }
 
 /* Bare file path (no box) */
@@ -326,14 +295,14 @@ file-view {
 .properties-panel-filepath-box {
     flex: 1 1 auto;
     min-width: 0;
-    padding: 0.25rem 0.375rem;
+    padding: var(--space-4) var(--space-6);
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
     color: var(--text-primary);
     font-family: var(--font-mono);
     font-size: var(--font-size-sm);
-    line-height: 1.45;
+    line-height: var(--leading-tight);
     word-break: break-all;
 }
 
@@ -343,56 +312,21 @@ file-view {
     font-size: var(--font-size-xs);
     color: var(--text-tertiary);
     white-space: nowrap;
-    margin-top: 0.25rem;
+    margin-top: var(--space-4);
 }
 
 /* Copy + reveal buttons pinned to the right-hand end of the path row */
 .properties-panel-filepath-actions {
     display: flex;
     align-items: center;
-    gap: 0.25rem;
+    gap: var(--space-4);
     flex-shrink: 0;
 }
 
+/* The row's buttons, <reveal-button>'s included, are `btn btn-icon
+   btn-secondary` (patterns/buttons.css). */
 reveal-button {
     display: inline-flex;
-}
-
-/* Inline icon buttons shared by the path-row copy button and <reveal-button>. */
-.properties-panel-filepath-btn,
-.reveal-button {
-    position: relative;
-    width: 1.5rem;
-    height: 1.5rem;
-    padding: 0.25rem;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
-    color: var(--text-secondary);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background var(--transition-base), color var(--transition-base);
-}
-
-.properties-panel-filepath-btn svg,
-.reveal-button svg {
-    width: 0.875rem;
-    height: 0.875rem;
-    display: block;
-}
-
-.properties-panel-filepath-btn:hover,
-.reveal-button:hover {
-    background: var(--bg-raised);
-    color: var(--text-primary);
-}
-
-.properties-panel-filepath-btn:disabled,
-.reveal-button:disabled {
-    opacity: 0.4;
-    cursor: default;
 }
 
 /* A highlighted <pre> keeps this panel's box, not the syntax theme's: the
@@ -402,23 +336,23 @@ reveal-button {
 .properties-panel-code.syntax-highlight {
     white-space: pre-wrap;
     font-size: var(--font-size-sm);
-    padding: 0.1rem 0.5rem;
+    padding: var(--space-2) var(--space-8);
 }
 
 .properties-panel-result.syntax-highlight {
     white-space: pre-wrap;
     font-size: var(--font-size-base);
-    padding: 0.1rem 0.5rem;
+    padding: var(--space-2) var(--space-8);
     background: var(--bg-primary);
 }
 
 /* Code blocks */
 .properties-panel-code {
     border-radius: var(--radius-md);
-    padding: 0.1rem 0.5rem;
+    padding: var(--space-2) var(--space-8);
     font-family: var(--font-mono);
     font-size: var(--font-size-sm);
-    line-height: 1.5;
+    line-height: var(--leading-normal);
     overflow-x: auto;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -433,33 +367,33 @@ reveal-button {
  * base64) break rather than overflow. */
 .properties-panel-result {
     background: var(--bg-primary);
-    padding: 0.1rem 0.5rem;
+    padding: var(--space-2) var(--space-8);
     border-radius: var(--radius-md);
     font-family: var(--font-mono);
     font-size: var(--font-size-base);
-    line-height: 1.5;
+    line-height: var(--leading-normal);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     overflow: auto;
     min-width: 0;
 }
 
-.properties-panel-result.error {
-    color: var(--accent-red);
-    background: color-mix(in srgb, var(--accent-red) 8%, transparent);
+.properties-panel-result.is-error {
+    color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
     white-space: pre-wrap;
     overflow: visible;
 }
 
-.properties-panel-result.cancelled,
-.properties-panel-result.empty {
+.properties-panel-result.is-cancelled,
+.properties-panel-result.is-empty {
     color: var(--text-secondary);
     font-style: italic;
 }
 
 /* Status in properties panel title */
 .properties-panel-title-status {
-    font-weight: 400;
+    font-weight: var(--font-weight-normal);
     color: var(--text-secondary);
     font-size: 0.85em;
     margin-left: 0.75em;
@@ -494,8 +428,8 @@ properties-panel-section .properties-panel-result {
 /* Token count chip in header */
 .properties-panel-token-chip {
     margin-left: auto;
-    margin-right: 0.1rem;
-    padding: 0.125rem 0.5rem;
+    margin-right: var(--space-2);
+    padding: var(--space-2) var(--space-8);
     border-radius: var(--radius-2xl);
     font-size: var(--font-size-xs);
     font-family: var(--font-mono);
@@ -505,102 +439,31 @@ properties-panel-section .properties-panel-result {
 }
 
 .properties-panel-token-chip.token-high {
-    background: color-mix(in srgb, var(--accent-yellow) 30%, var(--bg-raised));
+    background: color-mix(in srgb, var(--warning) 30%, var(--bg-raised));
     color: var(--text-primary);
 }
 
 .properties-panel-token-chip.token-critical {
-    background: color-mix(in srgb, var(--accent-red) 30%, var(--bg-raised));
+    background: color-mix(in srgb, var(--danger) 30%, var(--bg-raised));
     color: var(--text-primary);
 }
 
 /* With a timestamp before it, the chip sits next to the timestamp rather than pushing right */
 .properties-panel-timestamp ~ .properties-panel-token-chip {
-    margin-left: 0.4rem;
-}
-
-/* The discreet small icon-only button: sized to sit at the right edge of a
-   properties-panel header next to the token chip, and reused wherever an
-   affordance should be available without asking for attention — the transaction
-   view, per-row copy buttons, the conversation footer's log button. */
-.properties-panel-header-icon-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.5rem;
-    height: 1.5rem;
-    padding: 0.25rem;
-    background: transparent;
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
-    color: var(--text-secondary);
-    cursor: pointer;
-    transition: background var(--transition-base), color var(--transition-base), border-color var(--transition-base);
-}
-
-.properties-panel-header-icon-btn:hover {
-    background: var(--bg-raised);
-    color: var(--text-primary);
-    border-color: var(--text-tertiary);
-}
-
-.properties-panel-header-icon-btn svg {
-    width: 0.875rem;
-    height: 0.875rem;
+    margin-left: var(--space-6);
 }
 
 /* Controls */
 properties-panel-controls {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.5rem;
-    padding-bottom: 1rem;
+    gap: var(--space-8);
+    padding-bottom: var(--space-16);
     border-bottom: 1px solid var(--border-divider);
 }
 
 properties-panel-controls:empty {
     display: none;
-}
-
-.properties-panel-btn {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-    padding: 0.5rem 0.75rem;
-    background: var(--bg-primary);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-lg);
-    color: var(--text-secondary);
-    font-size: var(--font-size-base);
-    cursor: pointer;
-    transition: background var(--transition-base), border-color var(--transition-base), color var(--transition-base);
-}
-
-.properties-panel-btn:hover:not(:disabled) {
-    background: var(--bg-raised);
-    border-color: var(--text-tertiary);
-    color: var(--text-primary);
-}
-
-.properties-panel-btn svg {
-    width: 1rem;
-    height: 1rem;
-    flex-shrink: 0;
-}
-
-.properties-panel-btn.danger {
-    color: var(--accent-red);
-}
-
-.properties-panel-btn.danger:hover:not(:disabled) {
-    background: var(--accent-red);
-    border-color: var(--accent-red);
-    color: var(--text-on-accent);
-}
-
-.properties-panel-btn:disabled {
-    color: var(--text-tertiary);
-    cursor: not-allowed;
 }
 
 /* Copyable text container */
@@ -617,29 +480,13 @@ properties-panel-controls:empty {
     z-index: 1;
 }
 
-/* Inline copy button for text areas */
+/* Inline copy button for text areas (`btn btn-icon btn-neutral`, the default
+   createCopyButton makes): its corner, and hidden until the text is hovered. */
 .properties-panel-inline-copy {
     position: absolute;
     top: 0.375rem;
     right: 0.375rem;
-    width: 1.5rem;
-    height: 1.5rem;
-    padding: 0.25rem;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
-    color: var(--text-secondary);
-    cursor: pointer;
     opacity: 0;
-    transition: opacity var(--transition-base), background var(--transition-base);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.properties-panel-inline-copy svg {
-    width: 0.875rem;
-    height: 0.875rem;
 }
 
 .properties-panel-copyable:hover .properties-panel-inline-copy {
@@ -652,11 +499,6 @@ properties-panel-controls:empty {
     }
 }
 
-.properties-panel-inline-copy:hover {
-    background: var(--bg-raised);
-    color: var(--text-primary);
-}
-
 /* Keep the button visible while its "Copied" confirmation is showing, even if
    the pointer has moved away from the (otherwise hover-revealed) button. */
 .properties-panel-inline-copy.copied {
@@ -666,7 +508,7 @@ properties-panel-controls:empty {
 /* Transaction subsection demarcation in properties panel */
 properties-panel-section properties-panel-subsection + properties-panel-subsection {
     border-top: 1px solid var(--border-divider);
-    padding-top: 1rem;
+    padding-top: var(--space-16);
 }
 
 /* Transaction detail — one scroller for the whole panel (the enclosing
@@ -680,7 +522,7 @@ properties-panel-tx-sections {
 }
 
 properties-panel-tx-sections > properties-panel-subsection {
-    padding: 0.75rem 0;
+    padding: var(--space-12) 0;
 }
 
 properties-panel-tx-sections > properties-panel-subsection + properties-panel-subsection {
@@ -688,17 +530,17 @@ properties-panel-tx-sections > properties-panel-subsection + properties-panel-su
 }
 
 /* Section header: title, then the size line and copy-all button at the right */
-.tx-section-head {
+.transaction-section-head {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--space-8);
 }
 
-.tx-section-head .properties-panel-subtitle {
+.transaction-section-head .properties-panel-subtitle {
     margin: 0;
 }
 
-.tx-section-summary {
+.transaction-section-summary {
     margin-left: auto;
     font-family: var(--font-mono);
     font-size: var(--font-size-xs);
@@ -706,55 +548,48 @@ properties-panel-tx-sections > properties-panel-subsection + properties-panel-su
     white-space: nowrap;
 }
 
-.tx-section-head .properties-panel-header-icon-btn {
-    flex-shrink: 0;
-}
-
 /* Input rows — one per message, collapsed until asked for */
-.tx-rows {
+.transaction-rows {
     display: flex;
     flex-direction: column;
 }
 
-.tx-row {
+.transaction-row {
     border-bottom: 1px solid var(--border-divider);
 }
 
-.tx-row-summary {
+.transaction-row-summary {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.3rem 0.25rem;
+    gap: var(--space-8);
+    padding: var(--space-4) var(--space-4);
     cursor: pointer;
     list-style: none;
     font-size: var(--font-size-sm);
 }
 
-.tx-row-summary::-webkit-details-marker {
+.transaction-row-summary::-webkit-details-marker {
     display: none;
 }
 
-.tx-row-summary:hover {
+.transaction-row-summary:hover {
     background: var(--bg-raised);
 }
 
-.tx-row-kind {
+.transaction-row-kind {
     flex-shrink: 0;
     min-width: 6.5rem;
     font-family: var(--font-mono);
     color: var(--text-tertiary);
 }
 
-.tx-row-label {
+.transaction-row-label {
     flex: 1;
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
     color: var(--text-secondary);
 }
 
-.tx-row-size {
+.transaction-row-size {
     flex-shrink: 0;
     font-family: var(--font-mono);
     color: var(--text-tertiary);
@@ -762,43 +597,42 @@ properties-panel-tx-sections > properties-panel-subsection + properties-panel-su
 
 /* The per-row copy button appears on hover/focus only — a column of buttons
    down every row would drown out the sizes, which are what the list is for. */
-.tx-row-copy {
-    flex-shrink: 0;
+.transaction-row-copy {
     opacity: 0;
 }
 
-.tx-row-summary:hover .tx-row-copy,
-.tx-row-copy:focus-visible,
-.tx-row-copy.copied {
+.transaction-row-summary:hover .transaction-row-copy,
+.transaction-row-copy:focus-visible,
+.transaction-row-copy.copied {
     opacity: 1;
 }
 
 @media (hover: none) {
-    .tx-row-copy {
+    .transaction-row-copy {
         opacity: 1;
     }
 }
 
-.tx-row-body,
-.tx-out-block {
-    padding: 0.25rem 0 0.75rem;
+.transaction-row-body,
+.transaction-out-block {
+    padding: var(--space-4) 0 var(--space-12);
 }
 
-.tx-field {
-    margin-top: 0.5rem;
+.transaction-field {
+    margin-top: var(--space-8);
 }
 
-.tx-field-key,
-.tx-out-kind {
+.transaction-field-key,
+.transaction-out-kind {
     font-family: var(--font-mono);
     font-size: var(--font-size-xs);
     color: var(--text-tertiary);
-    margin-bottom: 0.25rem;
+    margin-bottom: var(--space-4);
 }
 
 /* Text rendered as text: a system prompt or a file body keeps its line breaks
    instead of arriving as one enormous JSON-escaped line. */
-.tx-text {
+.transaction-text {
     max-height: 30rem;
     overflow: auto;
     font-family: var(--font-mono);
@@ -807,15 +641,15 @@ properties-panel-tx-sections > properties-panel-subsection + properties-panel-su
 
 /* JSON inside a row sits tight against its key label rather than carrying the
    standalone block's vertical margin. */
-.tx-row-body .properties-panel-json-display,
-.tx-out-block .properties-panel-json-display {
+.transaction-row-body .properties-panel-json-display,
+.transaction-out-block .properties-panel-json-display {
     margin: 0;
 }
 
 /* The tool list: one line per tool the model was offered, grouped by where it
    came from, so a missing tool is visibly missing rather than buried in a
    schema dump. */
-.tx-tools {
+.transaction-tools {
     display: flex;
     flex-direction: column;
 }
@@ -823,93 +657,80 @@ properties-panel-tx-sections > properties-panel-subsection + properties-panel-su
 /* Header on the tool list: when this list was sent, and whether the thread's
    live list has moved since. A tool that arrived after the turn is absent here
    for a reason, and the header is what says so. */
-.tx-tools-header {
-    padding: 0.25rem 0.25rem 0.35rem;
+.transaction-tools-header {
+    padding: var(--space-4) var(--space-4) var(--space-6);
     font-size: var(--font-size-xs);
     color: var(--text-tertiary);
 }
 
-.tx-tools-drift {
-    margin-top: 0.2rem;
+.transaction-tools-drift {
+    margin-top: var(--space-4);
     color: var(--text-tertiary);
 }
 
-.tx-tool-group {
+.transaction-tool-group {
     display: flex;
     align-items: baseline;
-    gap: 0.5rem;
-    padding: 0.5rem 0.25rem 0.25rem;
+    gap: var(--space-8);
+    padding: var(--space-8) var(--space-4) var(--space-4);
     font-family: var(--font-mono);
     font-size: var(--font-size-xs);
     color: var(--text-tertiary);
 }
 
-.tx-tool-group-title {
+.transaction-tool-group-title {
     flex: 1;
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
-.tx-tool-group-count {
+.transaction-tool-group-count {
     flex-shrink: 0;
 }
 
-.tx-tool-summary {
+.transaction-tool-summary {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.2rem 0.25rem 0.2rem 0.75rem;
+    gap: var(--space-8);
+    padding: var(--space-4) var(--space-4) var(--space-4) var(--space-12);
     cursor: pointer;
     list-style: none;
     font-size: var(--font-size-sm);
 }
 
-.tx-tool-summary::-webkit-details-marker {
+.transaction-tool-summary::-webkit-details-marker {
     display: none;
 }
 
-.tx-tool-summary:hover {
+.transaction-tool-summary:hover {
     background: var(--bg-raised);
 }
 
-.tx-tool-name {
+.transaction-tool-name {
     flex-shrink: 0;
     max-width: 14rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
     font-family: var(--font-mono);
     color: var(--text-secondary);
 }
 
-.tx-tool-category {
+.transaction-tool-category {
     flex-shrink: 0;
     font-size: var(--font-size-2xs);
     color: var(--text-tertiary);
 }
 
-.tx-tool-category-write {
-    color: var(--text-tertiary);
-}
-
-.tx-tool-desc {
+.transaction-tool-desc {
     flex: 1;
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
     color: var(--text-tertiary);
 }
 
 /* Transaction metadata bar in properties panel */
-properties-panel-tx-metadata {
+.properties-panel-tx-metadata {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.75rem;
-    padding: 0.5rem 0;
-    margin-bottom: 1rem;
+    gap: var(--space-12);
+    padding: var(--space-8) 0;
+    margin-bottom: var(--space-16);
     font-size: var(--font-size-xs);
 }
 
@@ -919,13 +740,13 @@ properties-panel-tx-metadata .meta-item {
 
 /* JSON display in properties panel */
 .properties-panel-json-display {
-    margin: 1rem 0;
+    margin: var(--space-16) 0;
     padding: 0;
     background: transparent;
     border: none;
     font-family: var(--font-mono);
     font-size: var(--font-size-sm);
-    line-height: 1.6;
+    line-height: var(--leading-relaxed);
     color: var(--text-primary);
     white-space: pre-wrap;
     overflow-wrap: break-word;
@@ -959,7 +780,7 @@ properties-panel-tx-metadata .meta-item {
 }
 
 /* Selection styles - apply to outer custom element, not article */
-.conversation-item.selected {
+.conversation-item.is-selected {
     background: var(--item-selected-bg);
     border-radius: var(--radius-lg) var(--radius-xl);
 
@@ -980,7 +801,7 @@ properties-panel-tx-metadata .meta-item {
 /* Make items selectable */
 .conversation-item {
     cursor: pointer;
-    padding: 0.4rem 0.75rem;
+    padding: var(--space-6) var(--space-12);
 }
 
 /* Approval-provenance badge in a tool-action's properties-panel header. Reuses
@@ -991,13 +812,13 @@ properties-panel-tx-metadata .meta-item {
     display: inline-flex;
     align-items: center;
     align-self: center;
-    gap: 0.25rem;
+    gap: var(--space-4);
     color: var(--text-secondary);
     background: var(--bg-raised);
 }
 
 .properties-panel-approval-badge.approval-source-strategy {
-    color: var(--accent-green);
+    color: var(--success);
 }
 
 .properties-panel-approval-badge .icon-auto-awesome,

@@ -26,6 +26,7 @@ import (
 	"unicode/utf8"
 
 	"juggler/internal/atomicio"
+	"juggler/internal/projectpaths"
 )
 
 // State is what a conversation is doing, as far as its user is concerned.
@@ -118,12 +119,14 @@ func Excerpt(s string) string {
 	return strings.TrimRight(string(r[:ExcerptMax-1]), " ") + "…"
 }
 
-// fileName is the saved summary's name under the project's .juggler directory.
+// fileName is the saved summary's name in the project's state folder.
 const fileName = "attention.json"
 
-// Path is where project's saved summary lives.
+// Path is where project's saved summary lives. It resolves the state folder
+// itself (projectpaths.For) rather than being told it, because the machine
+// server reads it for projects that have no session running.
 func Path(project string) string {
-	return filepath.Join(project, ".juggler", fileName)
+	return filepath.Join(projectpaths.StateDir(project), fileName)
 }
 
 // Read returns project's saved summary: conversation id → durable entry.

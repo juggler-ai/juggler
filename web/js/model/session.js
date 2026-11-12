@@ -67,6 +67,7 @@ const RENAME_ERROR_CODES = new Map(/** @type {const} */ ([
  * @typedef {object} SessionData
  * @property {string} id - Session ID
  * @property {string} projectPath - Project path
+ * @property {string} [stateDir] - The folder holding the project's local state (memory, env.local.json, sandboxes): <projectPath>/.juggler, or the project's folder outside it
  * @property {string} [platform] - Platform (darwin/linux/windows)
  * @property {string[]} [conversationOrder] - Conversation IDs in order (v4 format with binary storage)
  * @property {string} activeConversationId - Active conversation ID
@@ -254,6 +255,17 @@ class Session {
      * @type {string}
      */
     this.projectPath = '';
+
+    /**
+     * The folder the project's local state is kept in — memory,
+     * env.local.json, scratch-copy sandboxes, conversations — as the server
+     * reports it: `<projectPath>/.juggler`, or the project's own folder outside
+     * the project when that setting is on. '' until the load sets it (and from
+     * a server that does not report it), which every reader takes to mean
+     * `<projectPath>/.juggler` (`juggler-core/lib/project-state.js`).
+     * @type {string}
+     */
+    this.stateDir = '';
 
     /**
      * The workspaces this session has registered — every place a conversation

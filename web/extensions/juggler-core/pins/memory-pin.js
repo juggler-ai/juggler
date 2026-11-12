@@ -14,6 +14,7 @@ import { createElement, errorText, injectStylesOnce } from 'juggler/ui';
 import { parseMemory, removeEntry } from '../lib/memory-format.js';
 import { pinEmpty } from '../lib/pin-empty.js';
 import { pathPinController } from '../lib/path-pin.js';
+import { statePath } from '../lib/project-state.js';
 
 const t = translator('@juggler/core');
 
@@ -37,9 +38,6 @@ injectStylesOnce('memory-pin-styles', `
   font-size: var(--font-size-sm);
 }
 `);
-
-/** Where project memory lives, relative to the project root. */
-const DEFAULT_PATH = '.juggler/MEMORY.md';
 
 /**
  * How long to let a burst of context-item changes settle before reading the file
@@ -68,13 +66,17 @@ const REFRESH_MAX_WAIT_MS = 1000;
  * Which file this pin reads. `config.path` overrides the project's own memory,
  * mirroring the memory context item's `data.path` and existing for the same
  * reason: a second pin over a different memory file — a global one, say — is
- * then a registration rather than a rewrite.
+ * then a registration rather than a rewrite. The project's own is
+ * `.juggler/MEMORY.md`, or MEMORY.md in its state folder by the absolute path
+ * while that is kept outside the project (`lib/project-state.js`), as the
+ * memory context item names it.
  * @param {Record<string, unknown>} config - The pin's config.
+ * @param {import('juggler/pinboard-item-type').PinActiveContext} active - The active context.
  * @returns {string} The path to read.
  */
-function memoryPath(config) {
+function memoryPath(config, active) {
   const path = typeof config?.path === 'string' ? config.path.trim() : '';
-  return path || DEFAULT_PATH;
+  return path || statePath(active?.project?.path, active?.project?.stateDir, 'MEMORY.md');
 }
 
 /**
@@ -172,7 +174,7 @@ class MemoryPin extends PinboardItemType {
     let drawn = /** @type {string|null} */ (null);
 
     const readAndDraw = async () => {
-      const path = memoryPath(context.pin.config);
+      const path = memoryPath(context.pin.config, context.active);
       let content = '';
       try {
         const result = await readFile({ path }, context.signal);
@@ -186,7 +188,7 @@ class MemoryPin extends PinboardItemType {
       if (context.signal.aborted) return;
       // Read for a path the pin has since moved off: the move marked the pin
       // dirty, so the read owed after this one draws the right file.
-      if (path !== memoryPath(context.pin.config)) return;
+      if (path !== memoryPath(context.pin.config, context.active)) return;
       // A `remember` in this conversation is one line added to a file this pin
       // may not even be showing, and most context-item changes are not memory at
       // all. The same bytes on screen are the same entries on screen.
@@ -199,7 +201,7 @@ class MemoryPin extends PinboardItemType {
         // this says what the feature is rather than what the card would contain.
         body.replaceChildren(pinEmpty(t(
           'Facts the assistant keeps about this project, in {file}. Ask it to remember something — a build command, a convention, a decision you would rather not explain twice — and every conversation after this one starts with it already read.',
-          { file: DEFAULT_PATH },
+          { file: memoryPath({}, context.active) },
         )));
         return;
       }
@@ -303,8 +305,8 @@ class MemoryPin extends PinboardItemType {
  * @returns {string} An absolute path, or the relative one when no project is open.
  */
 function absoluteMemoryPath(config, active) {
-  const path = memoryPath(config);
-  if (path.startsWith('/')) return path;
+  const path = memoryPath(config, active);
+  if (path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path)) return path;
   const root = (active?.project?.path || '').replace(/\/+$/, '');
   return root ? `${root}/${path}` : path;
 }

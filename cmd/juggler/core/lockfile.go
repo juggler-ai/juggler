@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"juggler/internal/jlog"
+	"juggler/internal/projectpaths"
 
 	"github.com/gofrs/flock"
 )
@@ -36,20 +37,33 @@ type InstanceLock struct {
 	info        InstanceInfo
 }
 
-// NewInstanceLock creates a new instance lock manager for the given project path
+// NewInstanceLock creates a new instance lock manager for the given project
+// path. The lock lives in the project's state folder (projectpaths.For).
 func NewInstanceLock(projectPath string) *InstanceLock {
-	jugglerDir := filepath.Join(projectPath, ".juggler")
+	return newInstanceLockIn(projectPath, projectpaths.StateDir(projectPath))
+}
+
+// newInstanceLockIn is NewInstanceLock for the lock kept in stateDir, which
+// PlaceProjectState needs for the folder state is moving out of and the one
+// it is moving into.
+func newInstanceLockIn(projectPath, stateDir string) *InstanceLock {
 	return &InstanceLock{
 		projectPath: projectPath,
-		lockPath:    filepath.Join(jugglerDir, "juggler.lock"),
-		infoPath:    filepath.Join(jugglerDir, "instance.json"),
+		lockPath:    filepath.Join(stateDir, lockFileName),
+		infoPath:    filepath.Join(stateDir, instanceInfoFileName),
 	}
 }
+
+// The lock and its holder's record, in the project's state folder.
+const (
+	lockFileName         = "juggler.lock"
+	instanceInfoFileName = "instance.json"
+)
 
 // AcquireResult is the outcome of InstanceLock.TryAcquire.
 // Existing is only meaningful when Acquired is false.
 // FirstRun is only meaningful when Acquired is true (it reports whether the
-// .juggler directory had to be created).
+// state folder had to be created).
 type AcquireResult struct {
 	Acquired bool
 	Existing *InstanceInfo
@@ -59,15 +73,14 @@ type AcquireResult struct {
 // TryAcquire attempts to acquire the lock.
 func (l *InstanceLock) TryAcquire() (AcquireResult, error) {
 	// Check if this is first-time setup (directory doesn't exist yet)
-	jugglerDir := filepath.Dir(l.lockPath)
+	stateDir := filepath.Dir(l.lockPath)
 	isFirstRun := false
-	if _, statErr := os.Stat(jugglerDir); os.IsNotExist(statErr) {
+	if _, statErr := os.Stat(stateDir); os.IsNotExist(statErr) {
 		isFirstRun = true
 	}
 
-	// Ensure .juggler directory exists
-	if err := os.MkdirAll(jugglerDir, 0700); err != nil {
-		return AcquireResult{}, fmt.Errorf("failed to create .juggler directory: %w", err)
+	if err := os.MkdirAll(stateDir, 0700); err != nil {
+		return AcquireResult{}, fmt.Errorf("failed to create %s: %w", stateDir, err)
 	}
 
 	// Create flock instance
@@ -106,6 +119,9 @@ func (l *InstanceLock) TryAcquire() (AcquireResult, error) {
 
 	return AcquireResult{Acquired: true, FirstRun: isFirstRun}, nil
 }
+
+// Path is the lock file this lock takes.
+func (l *InstanceLock) Path() string { return l.lockPath }
 
 // UpdateAddr records in instance.json the address the server bound, which
 // TryAcquire runs too early to know. No-op if the lock isn't held by us.
@@ -171,6 +187,9 @@ func (l *InstanceLock) readInstanceInfo() (*InstanceInfo, error) {
 type ProjectLockedError struct {
 	Project string
 	Info    *InstanceInfo
+	// Lock is the lock file that was found held. Empty means the one in the
+	// project's state folder as it resolves now.
+	Lock string
 }
 
 func (e *ProjectLockedError) Error() string {
@@ -179,7 +198,10 @@ func (e *ProjectLockedError) Error() string {
 
 // LockPath is the file a person has to delete if the advice runs out.
 func (e *ProjectLockedError) LockPath() string {
-	return filepath.Join(e.Project, ".juggler", "juggler.lock")
+	if e.Lock != "" {
+		return e.Lock
+	}
+	return filepath.Join(projectpaths.StateDir(e.Project), lockFileName)
 }
 
 // Advice explains the situation and the way out of it, in the order someone
@@ -203,8 +225,9 @@ func (e *ProjectLockedError) Advice() string {
 // Returns (locked bool, info *InstanceInfo, err error).
 // locked==false means the path is free (or the lock file doesn't exist yet).
 func CheckProjectLocked(projectPath string) (bool, *InstanceInfo, error) {
-	lockPath := filepath.Join(projectPath, ".juggler", "juggler.lock")
-	infoPath := filepath.Join(projectPath, ".juggler", "instance.json")
+	stateDir := projectpaths.StateDir(projectPath)
+	lockPath := filepath.Join(stateDir, lockFileName)
+	infoPath := filepath.Join(stateDir, instanceInfoFileName)
 
 	// If the lock file doesn't exist yet, the project is definitely free.
 	if _, err := os.Stat(lockPath); os.IsNotExist(err) {

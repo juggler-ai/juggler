@@ -13,6 +13,7 @@ import { isShellCommandPermitted, isShellCommandCatastrophic, shellApprovalConte
 import { renderExecutePermissionSection } from './execute/permission-section.js';
 import { homeBase, tildeify, untildeify } from './path-approval.js';
 import { inputText, toolActionDisplayData } from '../lib/tool-action-result.js';
+import { sessionStatePath } from '../lib/project-state.js';
 
 const t = translator('@juggler/core');
 
@@ -319,10 +320,13 @@ class ExecuteContextItem extends ContextItem {
   }
 
   /**
-   * Get tool definitions for Bash action
+   * Get tool definitions for Bash action. The description names env.local.json
+   * where the session keeps the project's local state (`lib/project-state.js`):
+   * `.juggler/env.local.json`, or its absolute path when that is outside the project.
+   * @param {import('juggler/context-item').ToolDefinitionContext} [context] - The session the tool is offered in
    * @returns {Array<{name: string, category: string, description: string, input_schema: import('juggler/strategy-type').JSONObjectSchema}>} Tool definitions
    */
-  static getToolDefinitions() {
+  static getToolDefinitions(context = {}) {
     /** @type {import('juggler/strategy-type').JSONObjectSchema} */
     const inputSchema = {
       type: 'object',
@@ -347,7 +351,8 @@ class ExecuteContextItem extends ContextItem {
       required: ['command']
     };
 
-    const description = markUntranslated('Runs a bash command in a fresh shell rooted at the project directory (no `cd` needed). Nothing persists between calls; variables every command needs belong in `.juggler/env.local.json`, a JSON object of names to values.');
+    const envLocal = sessionStatePath(context?.session, 'env.local.json');
+    const description = markUntranslated(`Runs a bash command in a fresh shell rooted at the project directory (no \`cd\` needed). Nothing persists between calls; variables every command needs belong in \`${envLocal}\`, a JSON object of names to values.`);
 
     return [
       {

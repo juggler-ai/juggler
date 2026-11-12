@@ -50,6 +50,7 @@ import { takeDeepLinkConversationId } from '../utils/view-mode.js';
  * The session-level fields the manifest sets, as the session holds them.
  * @typedef {object} PersistedState
  * @property {string} projectPath - The project root ('' until the manifest sets it)
+ * @property {string} stateDir - The project's local-state folder ('' until the manifest sets it)
  * @property {import('./session.js').Workspace[]} workspaces - The registered workspaces
  * @property {boolean|undefined} projectHostsLocalProviders - Whether the project can host a provider Juggler spawns
  * @property {string} platform - darwin/linux/windows
@@ -269,6 +270,9 @@ export default class SessionPersistence {
           Object.assign(globalThis, { __jugglerProjectRoot: toSandboxRoot(data.projectPath) });
         }
       }
+      // Beside the project root for the same reason: the memory item, the
+      // system prompt and the scratch-copy sandboxes all name files in it.
+      if (data.stateDir) state.stateDir = data.stateDir;
       // The workspace table belongs in this block for the same reason as the
       // project root, and is the more dangerous of the two to leave late: it is
       // what a conversation's binding resolves against, and an unresolved

@@ -5,7 +5,8 @@
 
 import ContextItem from 'juggler/context-item';
 // Memory is the PROJECT's, not the workspace's: `.juggler/MEMORY.md` is a
-// relative path, and a conversation working in a worktree must still remember
+// relative path (or the absolute one in the project's state folder kept outside
+// it — `MemoryContextItem.defaultPath`), and a conversation working in a worktree must still remember
 // what the project knows — nothing of Juggler's own is written into a workspace
 // root (a fresh worktree would acquire an untracked `.juggler/`, and removing
 // the tree would destroy the facts). These ops therefore run unscoped, in the
@@ -17,6 +18,7 @@ import { createElement, injectStylesOnce } from 'juggler/ui';
 import { translator, markUntranslated } from 'juggler/i18n';
 import { parseMemory, appendEntry, removeEntry, removeMatching } from '../lib/memory-format.js';
 import { toolActionResult } from '../lib/tool-action-result.js';
+import { sessionStatePath } from '../lib/project-state.js';
 
 const t = translator('@juggler/core');
 
@@ -55,7 +57,9 @@ function lastGoodKey(path, projectRoot) {
  * Project memory — agent-writable, user-visible durable facts.
  *
  * SEMANTICS (the FILE is the store; the injected block is a per-conversation snapshot):
- *  - Persisted to `.juggler/MEMORY.md` (private, gitignored, hand-editable).
+ *  - Persisted to MEMORY.md in the project's state folder — `.juggler/MEMORY.md`
+ *    unless the state is kept outside the project (defaultPath) — private to
+ *    the checkout and hand-editable.
  *  - The block this conversation injects is FROZEN at seed time: when the item
  *    auto-instantiates, `onToolCall` snapshots the parsed entries into
  *    `this.data.entries` (persisted in the shared conversation doc), and
@@ -100,8 +104,23 @@ class MemoryContextItem extends ContextItem {
     exampleData: { path: '.juggler/MEMORY.md' }
   };
 
-  /** Default on-disk location for project memory (relative to project root). */
+  /**
+   * Default on-disk location for project memory (relative to project root)
+   * while the project's state is kept in it. See {@link MemoryContextItem.defaultPath}.
+   */
   static DEFAULT_PATH = '.juggler/MEMORY.md';
+
+  /**
+   * The project memory file of a session: {@link MemoryContextItem.DEFAULT_PATH}
+   * while the project's state is kept in the project, and `MEMORY.md` in the
+   * state folder, by its absolute path, while it is kept outside
+   * (`lib/project-state.js`).
+   * @param {{projectPath?: string, stateDir?: string}|null|undefined} session - The session
+   * @returns {string} The memory path to read and write
+   */
+  static defaultPath(session) {
+    return sessionStatePath(session, 'MEMORY.md');
+  }
 
   /**
    * Badge for the remember/forget tool-ACTION (the write event). The standing
@@ -190,8 +209,8 @@ class MemoryContextItem extends ContextItem {
   }
 
   /**
-   * On-disk path for this memory instance. Defaults to the project's
-   * `.juggler/MEMORY.md`; an alternate path (e.g. a global `~/.juggler/MEMORY.md`)
+   * On-disk path for this memory instance. Defaults to the project's memory
+   * file ({@link MemoryContextItem.defaultPath}); an alternate path (e.g. a global `~/.juggler/MEMORY.md`)
    * can be pinned via `data.path`, which is what makes a second, global-scope
    * instance a trivial registration later.
    * @returns {string} Resolved memory file path
@@ -199,7 +218,7 @@ class MemoryContextItem extends ContextItem {
    */
   _memoryPath() {
     const path = this.data?.path;
-    return (typeof path === 'string' && path) || MemoryContextItem.DEFAULT_PATH;
+    return (typeof path === 'string' && path) || MemoryContextItem.defaultPath(this.session);
   }
 
   /** @returns {string} Today's date as `YYYY-MM-DD` */
@@ -301,10 +320,13 @@ class MemoryContextItem extends ContextItem {
    * conversation, whose system prompt stays as it began; from then on new
    * conversations seed it here. Mirrors how CLAUDE.md is auto-added only when
    * present.
-   * @param {string} [path] - Path to probe (defaults to the project memory file)
+   * @param {{session?: {projectPath?: string, stateDir?: string}, path?: string}} [context] -
+   *   The session seeding the conversation, whose memory file is probed
+   *   ({@link MemoryContextItem.defaultPath}), or an explicit `path` to probe instead
    * @returns {Promise<boolean>} True if the memory file exists
    */
-  static async shouldAutoInstantiate(path = MemoryContextItem.DEFAULT_PATH) {
+  static async shouldAutoInstantiate(context = {}) {
+    const path = context.path || MemoryContextItem.defaultPath(context.session);
     try {
       const s = await stat({ path });
       return !!(s && s.exists);

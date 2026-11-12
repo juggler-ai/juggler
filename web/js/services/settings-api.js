@@ -103,6 +103,16 @@ export function updateSettings(patch, policy = {}) {
   return fetchJson(apiUrl('/settings'), { method: 'PUT', body: patch, ...policy });
 }
 
+/**
+ * GET /api/project-state: where this project's local state lives now, and
+ * where it would live with the outside setting on.
+ * @param {RequestPolicy} [policy]
+ * @returns {Promise<{stateDir: string, outside: boolean, outsideDir: string, byEnv: boolean}|null>} Where the state is and would be.
+ */
+export function getProjectState(policy = {}) {
+  return fetchJson(apiUrl('/project-state'), { ...policy });
+}
+
 // ── Providers ──────────────────────────────────────────────────────────────
 
 /**

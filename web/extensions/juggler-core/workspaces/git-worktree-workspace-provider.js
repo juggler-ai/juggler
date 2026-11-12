@@ -491,7 +491,7 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
     // i18n-ignore: git's own name for where the repository is standing
     const base = field(container, ids.base, 'base', t('Base'), 'HEAD');
     // i18n-ignore: an example branch name, which is git's to read
-    const branch = field(container, ids.branch, 'branch', t('Branch'), 'feat/tunnels');
+    const branch = field(container, ids.branch, 'branch', t('Branch'), 'feat/my-change');
     const location = field(container, ids.location, 'location', t('Location'), t('beside the repository'));
 
     // What the section last reported, when there is any: a provision that was

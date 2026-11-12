@@ -18,6 +18,7 @@ import (
 
 	"juggler/cmd/juggler/extmanifest"
 	"juggler/internal/jlog"
+	"juggler/internal/projectpaths"
 	"juggler/internal/userpaths"
 )
 
@@ -32,6 +33,7 @@ type GlobalSettings struct {
 	Connectivity ConnectivitySettings `json:"connectivity"`
 	Network      NetworkSettings      `json:"network"`
 	Models       ModelSettings        `json:"models"`
+	Projects     ProjectSettings      `json:"projects"`
 
 	// UILocale is the language the UI is shown in, as a BCP 47 tag ("fr",
 	// "zh-Hant-TW", or the pseudo-locale "en-XA"), or "" for the default,
@@ -246,6 +248,27 @@ type ConnectivitySettings struct {
 	// that cannot start on this machine, opens nothing and stays saved, so it
 	// comes back with the mode. Under --test it is not read.
 	WANOnLaunch string `json:"wanOnLaunch,omitempty"`
+}
+
+// ProjectSettings holds preferences about how Juggler keeps each project's own
+// files. Additive; like GlobalSettings, unknown keys are tolerated on read.
+type ProjectSettings struct {
+	// StateOutside keeps a project's local state — conversations, session,
+	// bash output, memory, env.local.json, sandboxes — in a per-project folder
+	// under projectpaths.StateBase instead of <project>/.juggler, which is then
+	// left with only the files meant to be committed. Read when a project's
+	// session starts, which moves the state to match (PlaceProjectState), so a
+	// change applies the next time a project is opened. Under --test it is not
+	// read; projectpaths.StateDirEnv drives it there.
+	StateOutside bool `json:"stateOutside,omitempty"`
+}
+
+// WantsProjectStateOutside reports whether a session starting now should keep
+// its project's state outside the project: the setting, or
+// projectpaths.StateDirEnv, which turns it on wherever settings.json is not
+// read.
+func WantsProjectStateOutside(gs GlobalSettings) bool {
+	return gs.Projects.StateOutside || projectpaths.OutsideByEnv()
 }
 
 // UpdateSettings controls how the app looks for and applies new versions.

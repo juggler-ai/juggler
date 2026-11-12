@@ -86,13 +86,13 @@ export async function runTests(ctx) {
 
   await test('shouldAutoInstantiate is false when the memory file is absent', async () => {
     const absent = `${ctx.fixtureDir}/_memory_seed/does-not-exist/MEMORY.md`;
-    assert((await MemoryContextItem.shouldAutoInstantiate(absent)) === false, 'absent file → no auto-instantiate');
+    assert((await MemoryContextItem.shouldAutoInstantiate({ path: absent })) === false, 'absent file → no auto-instantiate');
   });
 
   await test('shouldAutoInstantiate is true once the memory file exists', async () => {
     const present = `${ctx.fixtureDir}/_memory_seed/present/MEMORY.md`;
     await writeFile({ path: present, content: '# Memory\n\n- [2026-06-14] seeded fact\n' });
-    assert((await MemoryContextItem.shouldAutoInstantiate(present)) === true, 'present file → auto-instantiate');
+    assert((await MemoryContextItem.shouldAutoInstantiate({ path: present })) === true, 'present file → auto-instantiate');
   });
 
   await test('a fresh conversation has NO memory item when the project has no memory file', () => {

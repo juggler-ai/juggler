@@ -1587,8 +1587,9 @@ class PinboardContent extends JugglerElement {
 
   /**
    * Subscribe an item type to file changes, absolute-path side out. The watcher
-   * reports paths relative to the project it is rooted at, which is the host's
-   * business and not a provider's — a pin holds a path and wants to know whether
+   * reports paths relative to the project it is rooted at (and a file of a
+   * state folder kept outside the project by its absolute path), which is the
+   * host's business and not a provider's — a pin holds a path and wants to know whether
    * it is the one that moved.
    *
    * The subscription is tied to the pin's own signal as well as to the returned
@@ -1604,7 +1605,7 @@ class PinboardContent extends JugglerElement {
     const handler = (/** @type {any} */ changes) => {
       if (!Array.isArray(changes) || !changes.length) return;
       const resolved = changes.map((/** @type {any} */ change) => ({
-        path: root && !String(change.path).startsWith('/') ? `${root}/${change.path}` : change.path,
+        path: root && !/^(?:[/\\]|[A-Za-z]:[/\\])/.test(String(change.path)) ? `${root}/${change.path}` : change.path,
         event: change.event,
       }));
       this._notifyPin(listener, [resolved], 'a file change');

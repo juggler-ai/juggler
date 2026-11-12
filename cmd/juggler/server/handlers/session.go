@@ -1071,7 +1071,7 @@ func (api *SessionAPI) HandleDeleteConversation(w http.ResponseWriter, r *http.R
 	}
 }
 
-// HandleBinConversation moves a conversation to .juggler/bin/.
+// HandleBinConversation moves a conversation to the bin.
 // Tears down the worker and provider-side resources like Delete does;
 // unlike a permanent delete, the folder is preserved so it can be restored
 // (it lingers in the bin until the user restores it or empties the bin).
@@ -1106,7 +1106,7 @@ func (api *SessionAPI) HandleBinConversation(w http.ResponseWriter, r *http.Requ
 	}
 }
 
-// HandleRestoreConversation moves a conversation out of .juggler/bin/ back
+// HandleRestoreConversation moves a conversation out of the bin back
 // into the active set.
 func (api *SessionAPI) HandleRestoreConversation(w http.ResponseWriter, r *http.Request) {
 	convID, ok := ConvIDFromVars(w, r)
@@ -1151,7 +1151,7 @@ func (api *SessionAPI) HandleListBinnedConversations(w http.ResponseWriter, r *h
 }
 
 // HandleDeleteBinnedConversation permanently removes a single conversation
-// folder from .juggler/bin/.
+// folder from the bin.
 func (api *SessionAPI) HandleDeleteBinnedConversation(w http.ResponseWriter, r *http.Request) {
 	convID, ok := ConvIDFromVars(w, r)
 	if !ok {
@@ -1170,7 +1170,7 @@ func (api *SessionAPI) HandleDeleteBinnedConversation(w http.ResponseWriter, r *
 	}
 }
 
-// HandleEmptyBin permanently removes conversations from .juggler/bin/. Empties
+// HandleEmptyBin permanently removes conversations from the bin. Empties
 // the whole bin by default; with ?olderThanDays=N (a positive integer) it
 // removes only those whose last activity is more than N days old.
 func (api *SessionAPI) HandleEmptyBin(w http.ResponseWriter, r *http.Request) {

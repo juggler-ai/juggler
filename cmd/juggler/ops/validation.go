@@ -17,6 +17,7 @@ import (
 
 	"juggler/internal/instructionfiles"
 	"juggler/internal/jlog"
+	"juggler/internal/projectpaths"
 )
 
 // Security limits
@@ -95,12 +96,39 @@ func (s PathScope) ProjectRoot() string {
 // AGENTS.md in <ConfigDir> or ~/.agents), named exactly, so a conversation can
 // be seeded with them. Nothing else in those folders is admitted — <ConfigDir>
 // also holds credentials (instructionfiles.IsGlobalFile).
+//
+// The other is the project's state folder when it lives outside the project
+// (projectpaths.For): it is what <project>/.juggler holds otherwise — the
+// spill files a command tells the model to read back, memory, sandboxes — so
+// it is admitted exactly as it would be there. Only this project's folder: a
+// sibling under the same base is another project's.
 func (s PathScope) Resolve(requestedPath string) (*PathValidationResult, error) {
 	if instructionfiles.IsGlobalFile(requestedPath) {
 		abs := filepath.Clean(requestedPath)
 		return &PathValidationResult{AbsPath: abs, RelPath: requestedPath, IsValid: true}, nil
 	}
+	if state := s.outsideStateRoot(); state != "" && filepath.IsAbs(requestedPath) {
+		abs := filepath.Clean(requestedPath)
+		if pathWithinRootFold(resolveExistingPrefix(abs), state) {
+			return &PathValidationResult{AbsPath: abs, RelPath: requestedPath, IsValid: true}, nil
+		}
+	}
 	return ValidateFilePathWithRoots(s.root, s.allowedRoots, requestedPath)
+}
+
+// outsideStateRoot is the project's state folder, canonicalised, when it
+// lives outside the project, and "" when it does not (when it is inside, the
+// project's own containment already covers it).
+func (s PathScope) outsideStateRoot() string {
+	project := s.ProjectRoot()
+	if project == "" {
+		return ""
+	}
+	dirs := projectpaths.For(project)
+	if !dirs.Outside() {
+		return ""
+	}
+	return canonicalizeRoot(dirs.State)
 }
 
 // Sanitize cleans a requested path to absolute form WITHOUT enforcing
@@ -439,6 +467,9 @@ func (s PathScope) withinScope(absPath string) bool {
 		if root := canonicalizeRoot(extra); root != "" && pathWithinRootFold(target, root) {
 			return true
 		}
+	}
+	if state := s.outsideStateRoot(); state != "" && pathWithinRootFold(target, state) {
+		return true
 	}
 	return false
 }

@@ -218,6 +218,14 @@ export const INTERACTION_KIND = {
  * `isEngine()` / `isViewer()` from `web/sdk/lib/client-role.js`.
  * @class
  */
+/**
+ * What `getToolDefinitions` may be told about where its tools are offered.
+ * @typedef {object} ToolDefinitionContext
+ * @property {{projectPath?: string, stateDir?: string}} [session] - The session
+ *   of the thread the tools are offered to: its project root and the folder its
+ *   local state is kept in (`<projectPath>/.juggler`, or one outside the project)
+ */
+
 class ContextItem {
   /**
    * Item manifest (static property set by subclasses)
@@ -1309,9 +1317,13 @@ class ContextItem {
    * Get tool definitions for this item type
    * [Context: shared]
    * @static
+   * @param {ToolDefinitionContext} [context] - Where the tools are being offered.
+   *   Absent when a caller only wants names and schemas; a description that
+   *   reads from it must still return something true without it.
    * @returns {Array<{name: string, category: string, description: string, input_schema: import('./strategy-type.js').JSONObjectSchema}>} Array of tool definitions
    */
-  static getToolDefinitions() {
+  static getToolDefinitions(context) {
+    void context;
     return [];
   }
 

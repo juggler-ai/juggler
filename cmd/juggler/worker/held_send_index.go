@@ -12,13 +12,14 @@ import (
 
 	"juggler/internal/atomicio"
 	"juggler/internal/jlog"
+	"juggler/internal/projectpaths"
 )
 
 // The held-send index: which of a project's conversations have something
 // waiting in a pending queue, so a server that starts can load them and their
 // sends fire with nobody opening them (Manager.LoadHeldConversations).
 //
-// It lives at <project>/.juggler/held-sends.json, beside the conversations
+// It lives at held-sends.json in the project's state folder, beside the conversations
 // themselves, as a JSON object of conversation id → heldIndexEntry. A worker
 // publishes its own entry whenever it recomputes its held-send timer
 // (rearmHeldTimer) and the entry differs from the one it last published, and
@@ -26,12 +27,12 @@ import (
 // truth: the conversation's own document says what is queued, and a load that
 // finds nothing there does nothing.
 
-// heldIndexFile is the index's name under the project's .juggler directory.
+// heldIndexFile is the index's name in the project's state folder.
 const heldIndexFile = "held-sends.json"
 
 // heldIndexPath is where a project's held-send index lives.
 func heldIndexPath(projectPath string) string {
-	return filepath.Join(projectPath, ".juggler", heldIndexFile)
+	return filepath.Join(projectpaths.StateDir(projectPath), heldIndexFile)
 }
 
 // heldIndexEntry is what one conversation's queues are waiting for.

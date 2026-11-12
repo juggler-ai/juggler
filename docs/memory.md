@@ -17,9 +17,16 @@ keeps for itself.
 <your project>/.juggler/MEMORY.md
 ```
 
-`.juggler/` is git-ignored, so memory is **private to your checkout** — never
-committed, never shared with your team, and per-machine. It is a plain Markdown
-file you can open and edit in your own editor at any time.
+If you keep project state outside the project
+([config-directory.md](./config-directory.md#keeping-local-state-outside-the-project)),
+it is `MEMORY.md` in that project's state folder instead.
+
+Memory is meant to be **private to your checkout**: per-machine, and not shared
+with your team. Juggler does not add `.juggler/` to `.gitignore`, so exclude it
+yourself (for example in `.git/info/exclude`) to make sure it is never committed.
+Memory kept outside the project is never in the repository at all. Either way,
+it is a plain Markdown file you can open and edit in your own editor at any
+time.
 
 ## What it looks like
 

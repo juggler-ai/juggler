@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"juggler/internal/projectpaths"
 )
 
 // Timeout bounds shared by the shell/python execution paths, in milliseconds.
@@ -82,20 +84,21 @@ func capTimeout(timeoutMs int) time.Duration {
 
 // spillDirFor returns the per-conversation directory that holds a command's
 // full-output spill file. convID=="" falls back to the _unassigned bucket, which
-// the store sweeps by age. The directory lives under the project's .juggler/ so
-// the model can read the spill back without an approval prompt, and it stays out
-// of git status.
+// the store sweeps by age. The directory lives under the project's state folder
+// (projectpaths.For), which the read scope admits (PathScope.Resolve), so the
+// model can read the spill back without an approval prompt, and it stays out of
+// git status.
 //
-// The PROJECT's .juggler/, note, even when the command ran somewhere else: a
+// The PROJECT's state folder, note, even when the command ran somewhere else: a
 // command in a workspace spills here too. A worktree that grew an untracked
 // .juggler/ would be reported dirty by anything reading `git status`, and
 // removing the tree would take the spill of every conversation bound to it. It
 // also keeps one sweep covering every spill there is.
-func spillDirFor(root, convID string) string {
+func spillDirFor(projectRoot, convID string) string {
 	if convID == "" {
 		convID = "_unassigned"
 	}
-	return filepath.Join(root, ".juggler", "bash-output", convID)
+	return filepath.Join(projectpaths.StateDir(projectRoot), "bash-output", convID)
 }
 
 // exitCodeOf reports the process exit code for a command error. The bool is

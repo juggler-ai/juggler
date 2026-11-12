@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -15,6 +16,7 @@ import (
 
 	"juggler/internal/gitignore"
 	"juggler/internal/jlog"
+	"juggler/internal/projectpaths"
 	"juggler/internal/skipdirs"
 
 	"github.com/fsnotify/fsnotify"
@@ -22,7 +24,7 @@ import (
 
 // FileChange represents a single file change event
 type FileChange struct {
-	Path  string `json:"path"`  // Relative path to the file
+	Path  string `json:"path"`  // Relative path to the file; absolute for one in a state folder outside the project (watchedStateFiles)
 	Event string `json:"event"` // write, create, remove, rename
 }
 
@@ -59,14 +61,28 @@ var watchedHiddenFiles = map[string]bool{
 	".juggler/env.local.json": true,
 }
 
+// watchedStateFiles are the files of a state folder kept outside the project
+// (projectpaths.For) that are reported, for the same reason as
+// watchedHiddenFiles: the two of its local files a user edits by hand. That
+// folder is watched on its own and every other event in it is dropped, and a
+// change to one of these is reported by its absolute path — the only spelling
+// of a file outside the project.
+var watchedStateFiles = map[string]bool{
+	"MEMORY.md":      true,
+	"env.local.json": true,
+}
+
 // FileWatcher watches a directory for file changes and sends immediate notifications
 type FileWatcher struct {
 	watcher     *fsnotify.Watcher
 	projectPath string
-	changeChan  chan ChangeNotification
-	stopChan    chan struct{}
-	stopOnce    sync.Once
-	index       *PathIndex
+	// outsideState is the project's state folder when it lives outside the
+	// project, or "" (see watchedStateFiles).
+	outsideState string
+	changeChan   chan ChangeNotification
+	stopChan     chan struct{}
+	stopOnce     sync.Once
+	index        *PathIndex
 
 	// ign filters gitignored paths out of the watch/index (not the frontend
 	// change stream). Rebuilt from scratch on each walk. Owned by the constructor
@@ -89,6 +105,12 @@ func NewFileWatcher(projectPath string) (*FileWatcher, error) {
 	w := &FileWatcher{
 		watcher:     fsw,
 		projectPath: projectPath,
+		outsideState: func() string {
+			if dirs := projectpaths.For(projectPath); dirs.Outside() {
+				return dirs.State
+			}
+			return ""
+		}(),
 		// 100 absorbs a "git checkout" burst (file events arrive faster than the
 		// frontend can ack); larger wastes memory, smaller drops events on
 		// branch swaps and forces a full re-scan.
@@ -158,6 +180,10 @@ func (w *FileWatcher) buildWatchesAndIndex(root string) (paths []string, partial
 			continue
 		}
 		_ = w.watcher.Add(filepath.Join(root, dir))
+		watched++
+	}
+	if w.outsideState != "" {
+		_ = w.watcher.Add(w.outsideState)
 		watched++
 	}
 
@@ -471,6 +497,20 @@ func (w *FileWatcher) handleEvent(event fsnotify.Event) {
 	eventType := eventKind(event)
 	if eventType == "" {
 		return // an operation this watcher does not report
+	}
+
+	if w.outsideState != "" && filepath.Dir(event.Name) == w.outsideState {
+		if watchedStateFiles[filepath.Base(event.Name)] {
+			w.emitChange(event.Name, eventType)
+		}
+		return
+	}
+
+	// A .juggler made while the server runs — the first file meant to be
+	// committed, in a project whose state is kept outside it — is watched as
+	// one that was there at the start would have been.
+	if eventType == "create" && slices.Contains(watchedHiddenDirs(), filepath.ToSlash(relPath)) {
+		_ = w.watcher.Add(event.Name)
 	}
 
 	// An allowlisted file inside a dot-directory — the project memory file — is

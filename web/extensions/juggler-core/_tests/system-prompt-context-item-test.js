@@ -120,7 +120,7 @@ export async function runTests(_ctx) {
 			'<env>\n' +
 			'Working directory: /proj\n' +
 			'Platform: darwin\n' +
-			"Today's date: 2020-01-01 (when this conversation started; a later message gives the new date if it changes)\n" +
+			"Today's date: 2020-01-01\n" +
 			'</env>';
     assert(prompt === expected, `assembled prompt should pin the date to conversation.created:\n--- got ---\n${prompt}\n--- want ---\n${expected}`);
   });
@@ -336,7 +336,7 @@ export async function runTests(_ctx) {
         // The model's text is English under any UI language.
         const prompt = makeItem().buildPrompt();
         const expected = getDefaultIdentityText() + '\n\n<env>\nWorking directory: /proj\nPlatform: darwin\n' +
-          'Today\'s date: 2020-01-01 (when this conversation started; a later message gives the new date if it changes)\n</env>';
+          'Today\'s date: 2020-01-01\n</env>';
         assert(prompt === expected, `the prompt changed under en-XA:\n${prompt}`);
         const envBody = panel.querySelector('[data-section-id="environment"] .system-prompt-section-body')?.textContent || '';
         assert(envBody.includes('Working directory: /proj'), `the environment preview is the prompt's English; got ${JSON.stringify(envBody)}`);

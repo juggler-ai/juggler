@@ -229,6 +229,7 @@ func newIsolatedRun(t *testing.T) isolatedRun {
 		"XDG_STATE_HOME":     "",
 		"XDG_DATA_HOME":      "",
 		"JUGGLER_SERVER_BIN": "",
+		"JUGGLER_STATE_DIR":  "",
 		"JUGGLER_LOG_DIR":    logs,
 		// An empty skills dir, so a user's skills never reach a child.
 		"JUGGLER_SKILLS_USER_DIR": skills,

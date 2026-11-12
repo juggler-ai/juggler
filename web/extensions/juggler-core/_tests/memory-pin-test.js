@@ -86,10 +86,11 @@ export async function runTests(ctx) {
 
   /**
    * Mount the pin against a path, with a context-items service the test drives.
-   * @param {string} path - The memory file to read.
+   * @param {string} path - The memory file to read; '' for the project's own.
+   * @param {string} [stateDir] - The project's state folder, as the session reports it.
    * @returns {any} The body, controller and the levers a test needs.
    */
-  function mount(path) {
+  function mount(path, stateDir = undefined) {
     const body = document.createElement('div');
     document.body.appendChild(body);
     const abort = new AbortController();
@@ -108,9 +109,9 @@ export async function runTests(ctx) {
     reads.observe({ type: 'resource' });
 
     const controller = /** @type {any} */ (pin.mount(body, /** @type {any} */ ({
-      pin: { id: 'pin_test', type: 'memory', config: { path } },
+      pin: { id: 'pin_test', type: 'memory', config: path ? { path } : {} },
       active: {
-        project: { path: ctx.fixtureDir, displayName: 'fixture' },
+        project: { path: ctx.fixtureDir, displayName: 'fixture', ...(stateDir ? { stateDir } : {}) },
         conversation: { id: 'c1', title: 'Conv' },
         thread: { id: null },
       },
@@ -270,7 +271,33 @@ export async function runTests(ctx) {
       'with no project open there is nothing to resolve against, and the path stands as written');
   });
 
+  await test('with the state kept outside the project, the default is MEMORY.md there', () => {
+    const outside = /** @type {any} */ ({ project: { path: '/proj', stateDir: '/state/proj-1a2b3c4d' } });
+    assert(pin.describe({}, outside).path === '/state/proj-1a2b3c4d/MEMORY.md',
+      `expected the outside memory file, got ${JSON.stringify(pin.describe({}, outside).path)}`);
+    assert(pin.describe({ path: 'elsewhere/M.md' }, outside).path === '/proj/elsewhere/M.md',
+      'an overridden path still wins over the state folder');
+    const home = /** @type {any} */ ({ project: { path: '/proj', stateDir: '/proj/.juggler' } });
+    assert(pin.describe({}, home).path === '/proj/.juggler/MEMORY.md',
+      `a state folder in the project is the project's own .juggler, got ${JSON.stringify(pin.describe({}, home).path)}`);
+  });
+
   // --- reading the real file ------------------------------------------------
+
+  await test('with the state kept outside the project, the facts shown are the ones there', async () => {
+    // A state folder under the fixture: the server admits absolute paths only
+    // inside the project or its real outside folder, and this is the former,
+    // which reads the same way.
+    const stateDir = `${ctx.fixtureDir}/_memorypin/state-outside`;
+    await writeFile({ path: `${stateDir}/MEMORY.md`, content: '# Memory\n\n- [2026-11-12] Kept outside the tree\n' });
+    const m = mount('', stateDir);
+    try {
+      const text = await until(m.body, (s) => s.includes('Kept outside the tree'));
+      assert(text.includes('Kept outside the tree'), `expected the outside fact, got ${JSON.stringify(text)}`);
+    } finally {
+      m.teardown();
+    }
+  });
 
   await test('the facts on disk are the facts shown', async () => {
     const path = await writeMemory('facts', TWO_FACTS);

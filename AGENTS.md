@@ -296,6 +296,13 @@ Key invariants:
   source of truth. Durable state (credentials, sessions, extensions) lives
   directly under it; regenerable ephemera under `CacheDir()` =
   `~/.juggler/cache/`. Doc: `docs/config-directory.md`.
+- **Project files** (`internal/projectpaths`): `For(project)` gives `Shared`
+  (`<project>/.juggler`, for files meant to be committed) and `State` (local
+  state). `State` is the same folder unless it lives outside the project
+  (`<StateBase>/<slug>`), and it is outside exactly when that folder exists.
+  Never build `<project>/.juggler/...` by hand; only `core.PlaceProjectState`
+  moves state between the two. `JUGGLER_STATE_DIR` sets the base and turns the
+  outside placement on (tests use it).
 
 ## Vendored forks
 

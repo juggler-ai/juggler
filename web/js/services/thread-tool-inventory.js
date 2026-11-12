@@ -69,11 +69,12 @@ function needsAPerson(def) {
  *
  * A thread with no strategy, or a strategy that doesn't filter, offers
  * everything — the common case, and the one where `withheld` is empty.
- * @param {{strategy?: any, conversation?: {unattended?: boolean}}|null|undefined} messageThread - The thread whose turn this is.
+ * @param {{strategy?: any, conversation?: {unattended?: boolean, session?: any}}|null|undefined} messageThread - The thread whose turn this is.
  * @returns {Promise<ToolInventory>} What the model gets, and what it doesn't.
  */
 export async function buildToolInventory(messageThread) {
-  const inventory = splitToolsByStrategy(await generateToolDefinitions(), messageThread?.strategy);
+  const definitions = await generateToolDefinitions({ session: messageThread?.conversation?.session });
+  const inventory = splitToolsByStrategy(definitions, messageThread?.strategy);
   const unattended = messageThread?.conversation?.unattended === true;
   const offered = unattended ? inventory.offered.filter((def) => !needsAPerson(def)) : inventory.offered;
   return {

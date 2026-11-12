@@ -284,10 +284,12 @@ async function collectEnabledPluginIds() {
  * enabled-plugin set, so a contribution can gate its sections on the specific
  * plugins the user has on. Extensions disabled at the extension level
  * contribute nothing. A failing contribution is logged and skipped — it never
- * breaks prompt assembly.
+ * breaks prompt assembly. Each is also handed the project root and its
+ * state folder, so it can name a file of the project's local state where it is.
+ * @param {{projectPath?: string, stateDir?: string}|null} [session] - The session the prompt is for
  * @returns {Promise<string>} Combined contributions (possibly empty), sections separated by blank lines
  */
-export async function buildExtensionSystemPromptContributions() {
+export async function buildExtensionSystemPromptContributions(session = null) {
   // Wait for the capability registries to finish their initial hydration before
   // reading the enabled-plugin set: contributions gate their sections on
   // enabledPluginIds, so rendering against a partially-hydrated registry would
@@ -312,7 +314,7 @@ export async function buildExtensionSystemPromptContributions() {
       const mod = await importModuleUrl(resolveAssetUrl(url));
       const fn = mod?.default;
       if (typeof fn !== 'function') continue;
-      const text = fn({ enabledPluginIds });
+      const text = fn({ enabledPluginIds, projectPath: session?.projectPath || '', stateDir: session?.stateDir || '' });
       if (typeof text === 'string' && text.trim()) {
         parts.push(text.trim());
       }

@@ -10,7 +10,9 @@
  * ## Where the copies live, and why not the temp directory
  *
  * Under `.juggler/sandboxes/` of the workspace the copy was made from — the
- * project, ordinarily. "Throwaway" describes what the user means to do with it,
+ * project, ordinarily — or, for a copy of the project whose local state is kept
+ * outside it, under `sandboxes/` of that state folder, so the project tree holds
+ * no `.juggler` of the app's own making (`sandboxPlaces`). "Throwaway" describes what the user means to do with it,
  * not what the storage guarantees: a sandbox holds hours of unapplied work, and
  * a reboot that clears `/tmp`, or macOS reaping `/var/folders`, would destroy it
  * silently. Living beside the project also makes the artifacts enumerable —
@@ -21,6 +23,7 @@
 
 import WorkspaceProvider from 'juggler/workspace-provider';
 import { baseName, join } from '../lib/workspace-paths.js';
+import { sessionOutsideStateDir, samePath } from '../lib/project-state.js';
 import { field, nextFormSequence, showNote } from '../lib/setup-fields.js';
 import { translator, formatList } from 'juggler/i18n';
 
@@ -62,20 +65,51 @@ export function slug(name) {
 }
 
 /**
- * Everywhere one sandbox is, absolute and relative, from its name alone.
+ * Everywhere one sandbox is, absolute and as operations are to name it, from
+ * its name alone.
+ *
+ * In the tree being copied, under `.juggler/sandboxes`, unless `stateDir` is
+ * given: then under `sandboxes` of that folder — the project's local state kept
+ * outside the project ({@link sandboxStateDir}). There every path an operation
+ * is given is absolute, which the project's scope admits for its own state
+ * folder (`ops/validation.go`); in the tree they are relative.
+ *
+ * `removal` is how to delete the sandbox with `copyTree`, whose `delete` names
+ * something inside `to`: the project with the sandbox's relative path in the
+ * tree, the sandboxes folder with the sandbox's name outside it.
  *
  * The suite builds its fixtures through this and the provider builds the real
  * thing through it, so the place that is tested and the place that is made
  * cannot be two different places.
  * @param {string} baseRoot - The workspace being copied, absolutely.
  * @param {string} name - What the sandbox is called.
- * @returns {{name: string, rel: string, workRel: string, pristineRel: string, dir: string, work: string, pristine: string}} Everywhere involved.
+ * @param {string} [stateDir] - The project's state folder when the copy is of the project and that folder is outside it; '' otherwise.
+ * @returns {{name: string, rel: string, workRel: string, pristineRel: string, dir: string, work: string, pristine: string, outside: boolean, holderRel: string, removal: {to: string, delete: string[]}}} Everywhere involved.
  */
-export function sandboxPlaces(baseRoot, name) {
+export function sandboxPlaces(baseRoot, name, stateDir = '') {
   const named = slug(name);
+  if (stateDir) {
+    const holder = join(stateDir, 'sandboxes');
+    const dir = join(holder, named);
+    return {
+      name: named,
+      rel: dir,
+      workRel: join(dir, 'work'),
+      pristineRel: join(dir, 'pristine'),
+      dir,
+      work: join(dir, 'work'),
+      pristine: join(dir, 'pristine'),
+      outside: true,
+      holderRel: holder,
+      removal: { to: holder, delete: [named] }
+    };
+  }
   const rel = `${SANDBOXES_REL}/${named}`;
   return {
     name: named,
+    outside: false,
+    holderRel: SANDBOXES_REL,
+    removal: { to: '.', delete: [rel] },
     rel,
     // Relative paths are what operations are given: they are the only form both
     // path worlds agree on (see lib/workspace-paths).
@@ -88,6 +122,47 @@ export function sandboxPlaces(baseRoot, name) {
     // made in a sandbox is told apart from the tree it was made in.
     pristine: join(baseRoot, `${rel}/pristine`)
   };
+}
+
+/**
+ * The state folder a copy of `baseRoot` keeps its sandboxes in, when that is
+ * outside the project: only a copy of the project itself, and only while the
+ * session reports its state kept outside. '' means in the tree.
+ * @param {any} session - The session.
+ * @param {string} baseRoot - The workspace being copied.
+ * @returns {string} The outside state folder, or ''.
+ */
+function sandboxStateDir(session, baseRoot) {
+  const projectPath = String(session?.projectPath ?? '');
+  if (!projectPath || !baseRoot || !samePath(projectPath, baseRoot)) return '';
+  return sessionOutsideStateDir(session);
+}
+
+/**
+ * Where a recorded sandbox is: the places its name gives under its tree, in
+ * whichever of the two locations its record names — `meta.dir`, `meta.work`
+ * or `meta.pristine`, which the server repoints when the project's state moves
+ * — and where a new copy would go when the record names neither. The path
+ * itself is always rebuilt from the slugged name, so a record edited by hand
+ * cannot name a directory outside the place sandboxes live.
+ * @param {any} meta - The row's meta.
+ * @param {any} session - The session.
+ * @returns {ReturnType<typeof sandboxPlaces>} The places.
+ */
+function recordedPlaces(meta, session) {
+  const baseDir = String(meta?.baseDir ?? '');
+  const named = slug(String(meta?.name ?? ''));
+  const outside = sandboxStateDir(session, baseDir);
+  const candidates = [sandboxPlaces(baseDir, named, outside)];
+  if (outside) candidates.push(sandboxPlaces(baseDir, named));
+  // The directory first, then what is under it: the first of them the record
+  // holds that names one of the two places decides.
+  for (const key of /** @type {const} */ (['dir', 'work', 'pristine'])) {
+    const recorded = String(meta?.[key] ?? '');
+    const match = recorded && candidates.find((places) => samePath(recorded, places[key]));
+    if (match) return match;
+  }
+  return /** @type {ReturnType<typeof sandboxPlaces>} */ (candidates[0]);
 }
 
 /**
@@ -191,7 +266,7 @@ class ScratchCopyWorkspaceProvider extends WorkspaceProvider {
     showNote(
       form.note,
       baseRoot ? t('Work in a copy of the project, not your own files. Files git ignores are not copied.') : '',
-      { path: baseRoot ? sandboxPlaces(baseRoot, named).work : '' }
+      { path: baseRoot ? sandboxPlaces(baseRoot, named, sandboxStateDir(form.ctx?.session, baseRoot)).work : '' }
     );
   }
 
@@ -210,7 +285,7 @@ class ScratchCopyWorkspaceProvider extends WorkspaceProvider {
       name,
       // Reported so the host can register the row where the copy is really
       // going before a single byte of it exists; `plannedRoot` reads it back.
-      location: named && baseRoot ? sandboxPlaces(baseRoot, named).work : ''
+      location: named && baseRoot ? sandboxPlaces(baseRoot, named, sandboxStateDir(form.ctx?.session, baseRoot)).work : ''
     };
     return named
       ? { valid: true, values }
@@ -246,7 +321,7 @@ class ScratchCopyWorkspaceProvider extends WorkspaceProvider {
   _places(values, ctx) {
     const baseRoot = ctx?.session?.workspaceRoot?.(ctx?.baseWorkspaceId ?? '');
     if (!baseRoot) throw new Error(t("Couldn't make a copy: the workspace it would be a copy of has no root."));
-    const places = sandboxPlaces(baseRoot, values?.name ?? '');
+    const places = sandboxPlaces(baseRoot, values?.name ?? '', sandboxStateDir(ctx?.session, baseRoot));
     if (!places.name) {
       throw new Error(t("Couldn't make a copy: {name} leaves nothing that can be a directory name.",
         { name: JSON.stringify(String(values?.name ?? '')) }));
@@ -297,11 +372,14 @@ class ScratchCopyWorkspaceProvider extends WorkspaceProvider {
     // which a removal tolerates.
     await ctx.checkpoint(meta);
     ctx.rollback.push(async () => {
-      await ctx.ops.copyTree({ to: '.', delete: [places.rel] }, ctx.signal);
+      await ctx.ops.copyTree(places.removal, ctx.signal);
     });
 
-    await ctx.ops.writeFile(
-      { path: `${SANDBOXES_REL}/.gitignore`, content: IGNORE_MARKER }, ctx.signal);
+    // Outside the project there is no git status to keep a copy out of.
+    if (!places.outside) {
+      await ctx.ops.writeFile(
+        { path: `${SANDBOXES_REL}/.gitignore`, content: IGNORE_MARKER }, ctx.signal);
+    }
     await ctx.ops.copyTree({ from: '.', to: places.workRel }, ctx.signal);
 
     ctx.progress(t('Taking a snapshot of it'), places.pristine);
@@ -405,7 +483,7 @@ class ScratchCopyWorkspaceProvider extends WorkspaceProvider {
     if (!baseDir || workspace?.available === false) return null;
 
     const named = slug(String(meta?.name ?? '')) || workspace.label || baseName(workspace.root);
-    const places = sandboxPlaces(baseDir, named);
+    const places = recordedPlaces({ ...meta, name: named }, ctx?.session ?? this.session);
     const ops = ctx.baseOps ?? ctx.ops;
     const difference = await ops.compareTrees(
       { left: places.pristineRel, right: places.workRel }, ctx.signal);
@@ -478,7 +556,7 @@ class ScratchCopyWorkspaceProvider extends WorkspaceProvider {
       return { done: false, message: t("Can't finish with this copy: there's no record of what it was copied from.") };
     }
 
-    const places = sandboxPlaces(baseDir, named);
+    const places = recordedPlaces(meta, ctx?.session ?? this.session);
     const ops = ctx.baseOps ?? ctx.ops;
 
     if (actionId === 'keep') {
@@ -537,7 +615,7 @@ class ScratchCopyWorkspaceProvider extends WorkspaceProvider {
       { from: places.workRel, to: '.', paths: written, delete: removed }, ctx.signal);
     // The copy has nothing left to hold: every byte of it is now in the tree it
     // came from.
-    await ops.copyTree({ to: '.', delete: [places.rel] }, ctx.signal);
+    await ops.copyTree(places.removal, ctx.signal);
     return {
       done: true,
       message: t('Applied {count, plural, one {{count} file} other {{count} files}} and removed {dir}.',
@@ -583,7 +661,7 @@ class ScratchCopyWorkspaceProvider extends WorkspaceProvider {
    * @returns {Promise<any>} Whether anything is left.
    */
   async _discard(places, ops, ctx) {
-    await ops.copyTree({ to: '.', delete: [places.rel] }, ctx.signal);
+    await ops.copyTree(places.removal, ctx.signal);
     const left = await ops.stat({ path: places.rel });
     return left?.exists
       ? { done: false, message: t('{dir} is still there and could not be removed.', { dir: places.dir }) }
@@ -622,7 +700,11 @@ class ScratchCopyWorkspaceProvider extends WorkspaceProvider {
     // what this pass can see. A copy made from somewhere else — a worktree —
     // is left strictly alone rather than reported missing on the strength of
     // having looked in the wrong place.
-    const listing = await ctx.ops.expandDirectory({ path: SANDBOXES_REL }).catch(() => null);
+    // Where the project's copies go now: its state folder when that is outside
+    // it, which the server moves them into along with the rest of the state.
+    const outside = sandboxStateDir(ctx?.session, projectPath);
+    const holder = sandboxPlaces(projectPath, '', outside).holderRel;
+    const listing = await ctx.ops.expandDirectory({ path: holder }).catch(() => null);
     const present = new Set((listing?.items ?? [])
       .filter((/** @type {any} */ item) => item.isDir)
       .map((/** @type {any} */ item) => String(item.name)));
@@ -651,7 +733,7 @@ class ScratchCopyWorkspaceProvider extends WorkspaceProvider {
 
     for (const named of present) {
       if (spokenFor.has(named)) continue;
-      const places = sandboxPlaces(projectPath, named);
+      const places = sandboxPlaces(projectPath, named, outside);
       orphanedArtifacts.push({
         id: places.dir,
         label: named,
@@ -679,7 +761,8 @@ class ScratchCopyWorkspaceProvider extends WorkspaceProvider {
    * It works from `meta` alone, and rebuilds the path from the sandbox's name
    * rather than trusting the one recorded beside it: a name is put back through
    * the same slug on the way out, so a record that has been edited by hand
-   * cannot name a directory outside the place sandboxes live.
+   * cannot name a directory outside the place sandboxes live. The record only
+   * chooses which of the two places that may be ({@link recordedPlaces}).
    * @param {any} workspace - The half-built row.
    * @param {any} ctx - Operations rooted at the project, plus the base workspace's.
    * @returns {Promise<any>} Whether anything is left.
@@ -696,8 +779,8 @@ class ScratchCopyWorkspaceProvider extends WorkspaceProvider {
     // where the copy is: a sandbox of a worktree lives under the worktree, which
     // a pass rooted at the project cannot reach at all.
     const ops = ctx.baseOps ?? ctx.ops;
-    const places = sandboxPlaces(baseDir, named);
-    await ops.copyTree({ to: '.', delete: [places.rel] }, ctx.signal);
+    const places = recordedPlaces(meta, ctx?.session ?? this.session);
+    await ops.copyTree(places.removal, ctx.signal);
 
     // Asked rather than assumed: a removal succeeds for a copy that was never
     // made and for one that will not go, and those are opposite answers to the

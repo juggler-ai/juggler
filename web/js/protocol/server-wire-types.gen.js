@@ -285,7 +285,7 @@
 /**
  * FileChange represents a single file change event
  * @typedef {object} FileChange
- * @property {string} path - Relative path to the file
+ * @property {string} path - Relative path to the file; absolute for one in a state folder outside the project (watchedStateFiles)
  * @property {string} event - write, create, remove, rename
  */
 

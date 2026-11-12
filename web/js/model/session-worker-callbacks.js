@@ -166,7 +166,7 @@ export function setupWorkerCallbacks(session) {
       // Assemble the system prompt via the shared builder — the single source
       // of truth shared with the tests' context-builder.js prepare().
       const systemPositionItems = systemPositionItemsOf(contextItems);
-      const extensionContributions = await buildExtensionSystemPromptContributions();
+      const extensionContributions = await buildExtensionSystemPromptContributions(session);
       const systemPrompt = await assembleSystemPrompt({
         contextItems,
         contextParams,

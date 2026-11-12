@@ -1250,6 +1250,75 @@ export async function runTests() {
       }
     });
 
+    await run('with the state kept outside the project, a copy of the project lives in the state folder', async () => {
+      // Hooks called directly, every operation recorded and stubbed: the test
+      // server keeps its state in the project, so nothing real is outside.
+      const provider = new ScratchCopyWorkspaceProvider({});
+      /** @type {any} */
+      const hooks = provider;
+      /** @type {Array<[string, any]>} */
+      const calls = [];
+      /**
+       * @param {string} op - The operation's name.
+       * @param {any} answer - What it answers.
+       * @returns {(params: any) => Promise<any>} The stub.
+       */
+      const rec = (op, answer) => async (params) => { calls.push([op, params]); return answer; };
+      const stubOps = {
+        stat: rec('stat', { exists: false }),
+        writeFile: rec('writeFile', {}),
+        copyTree: rec('copyTree', {}),
+        compareTrees: rec('compareTrees', {}),
+        expandDirectory: rec('expandDirectory', { items: [{ isDir: true, name: 'loose' }] })
+      };
+      const outside = { projectPath: '/1', stateDir: '/s/1-ab', workspaceRoot: (/** @type {string} */ id) => (id ? '/w' : '/1') };
+      const ctx = (/** @type {string} */ baseWorkspaceId) => ({
+        session: outside, baseWorkspaceId, ops: stubOps, baseOps: stubOps,
+        signal: new AbortController().signal,
+        rollback: { push: () => {} }, checkpoint: async () => {}, progress: () => {}
+      });
+
+      const made = await hooks.provision({ name: 'idea' }, ctx(''));
+      const meta = made.workspace.meta;
+      assert(meta.dir === '/s/1-ab/sandboxes/idea' && meta.work === '/s/1-ab/sandboxes/idea/work'
+        && meta.pristine === '/s/1-ab/sandboxes/idea/pristine' && made.workspace.root === meta.work,
+      `a copy of the project goes in the state folder, got ${JSON.stringify(made.workspace)}`);
+      const copies = calls.filter(([op]) => op === 'copyTree').map(([, p]) => p);
+      assert(copies.some((p) => p.from === '.' && p.to === '/s/1-ab/sandboxes/idea/work'),
+        `the copy is made straight into the state folder, got ${JSON.stringify(copies)}`);
+      assert(!calls.some(([op, p]) => op === 'writeFile' && String(p.path).includes('.gitignore')),
+        'no ignore marker is written: nothing is in the project for git to see');
+      assert(!JSON.stringify(calls).includes('.juggler'), `nothing names the project's .juggler, got ${JSON.stringify(calls)}`);
+
+      calls.length = 0;
+      const cleaned = await hooks.cleanupPartial({ meta }, ctx(''));
+      assert(cleaned.removed === true, `cleanup should report it gone, got ${JSON.stringify(cleaned)}`);
+      assert(calls.some(([op, p]) => op === 'copyTree' && p.to === '/s/1-ab/sandboxes' && JSON.stringify(p.delete) === '["idea"]'),
+        `cleanup removes the recorded outside copy, got ${JSON.stringify(calls)}`);
+
+      // A row whose copy was left in the project — made before the state moved,
+      // and still recorded there — is found where its record says.
+      calls.length = 0;
+      await hooks.cleanupPartial({ meta: { ...meta, dir: '/1/.juggler/sandboxes/idea' } }, ctx(''));
+      assert(calls.some(([op, p]) => op === 'copyTree' && p.to === '.' && JSON.stringify(p.delete) === '[".juggler/sandboxes/idea"]'),
+        `a record in the project is honoured, got ${JSON.stringify(calls)}`);
+
+      calls.length = 0;
+      const reconciled = await hooks.reconcile([], ctx(''));
+      assert(calls.some(([op, p]) => op === 'expandDirectory' && p.path === '/s/1-ab/sandboxes'),
+        `reconcile lists the state folder's sandboxes, got ${JSON.stringify(calls)}`);
+      assert(reconciled.orphanedArtifacts[0]?.workspace?.meta?.dir === '/s/1-ab/sandboxes/loose',
+        `an unclaimed copy there is offered where it is, got ${JSON.stringify(reconciled.orphanedArtifacts)}`);
+
+      // A copy of a worktree stays under the worktree.
+      calls.length = 0;
+      const ofTree = await hooks.provision({ name: 'idea' }, ctx('wt'));
+      assert(ofTree.workspace.meta.dir === '/w/.juggler/sandboxes/idea',
+        `a worktree's copy stays in the worktree, got ${JSON.stringify(ofTree.workspace.meta)}`);
+      assert(sandboxPlaces('/1', 'idea').dir === '/1/.juggler/sandboxes/idea',
+        'with no state folder given, the places are in the tree as always');
+    });
+
     await run('everything a scratch copy says to the user is translated under en-XA', async () => {
       /** @type {Record<string, string>} */
       const shown = {};

@@ -21,6 +21,8 @@ import systemPromptContribution from '../system-prompt-contribution.js';
 import QueryCodeContextItem from '../context-items/query-code-context-item.js';
 import ThreadContextItem from '../context-items/thread-context-item.js';
 import NewConversationContextItem from '../context-items/new-conversation-context-item.js';
+import ExecuteContextItem from '../context-items/execute-context-item.js';
+import { buildToolInventory } from '../../../js/services/thread-tool-inventory.js';
 import { buildExtensionSystemPromptContributions } from '../../../js/services/extensions.js';
 import {
   initializeRegistries,
@@ -224,6 +226,26 @@ export async function runTests(_ctx) {
     assert(out.includes('`forget`'), 'memory guidance names the forget action');
   });
 
+  await test('the memory section names the memory file where the project state is', () => {
+    const plain = systemPromptContribution({ enabledPluginIds: ['memory'] });
+    assert(plain.includes('`.juggler/MEMORY.md`'), 'with no state folder reported, the relative path');
+    const home = systemPromptContribution({ enabledPluginIds: ['memory'], projectPath: '/proj', stateDir: '/proj/.juggler' });
+    assert(home === plain, 'a state folder in the project must leave the prompt byte-identical');
+    const outside = systemPromptContribution({ enabledPluginIds: ['memory'], projectPath: '/proj', stateDir: '/state/proj-1a2b3c4d' });
+    assert(outside.includes('`/state/proj-1a2b3c4d/MEMORY.md`') && !outside.includes('.juggler/MEMORY.md'),
+      `state kept outside must name the file there, got: ${outside}`);
+  });
+
+  await test('the bash tool names env.local.json where the project state is', () => {
+    const plain = ExecuteContextItem.getToolDefinitions()[0]?.description ?? '';
+    assert(plain.includes('`.juggler/env.local.json`'), 'with no session, the relative path');
+    const home = ExecuteContextItem.getToolDefinitions({ session: { projectPath: '/proj', stateDir: '/proj/.juggler' } })[0]?.description;
+    assert(home === plain, 'a state folder in the project must leave the description byte-identical');
+    const outside = ExecuteContextItem.getToolDefinitions({ session: { projectPath: '/proj', stateDir: '/state/proj-1a2b3c4d' } })[0]?.description ?? '';
+    assert(outside.includes('`/state/proj-1a2b3c4d/env.local.json`') && !outside.includes('.juggler/env.local.json'),
+      `state kept outside must name the file there, got: ${outside}`);
+  });
+
   await test('git workflow is never extension-generated (opinionated; removed)', () => {
     // Removed entirely — a git/commit convention is not neutral enough to ship.
     assert(!systemPromptContribution({ enabledPluginIds: ['execute'] }).includes('## Git Workflow'), 'git workflow must be gone even with execute');
@@ -268,6 +290,23 @@ export async function runTests(_ctx) {
     // be present — proving the extension hook → aggregator → builder path.
     assert(sysPrompt.includes(EXPLORE_MARKER), `system prompt should include query_code guidance; got head: ${sysPrompt.slice(0, 200)}`);
     assert(sysPrompt.includes(THREAD_MARKER), 'system prompt should include create_thread guidance');
+  });
+
+  await test('the session\u2019s state folder reaches the aggregated prompt and the offered bash tool', async () => {
+    await initializeRegistries();
+    const session = await createTestSession();
+    const conversation = await createTestConversation(session);
+    const outside = Object.assign(Object.create(session), { stateDir: '/state/sp-outside' });
+    const contrib = await buildExtensionSystemPromptContributions(outside);
+    assert(contrib.includes('`/state/sp-outside/MEMORY.md`'), 'the aggregator must hand the contribution the session\u2019s state folder');
+    const thread = Object.create(conversation.rootMessageThread);
+    const conv = Object.create(conversation);
+    Object.defineProperty(conv, 'session', { value: outside });
+    Object.defineProperty(thread, 'conversation', { value: conv });
+    const { offered } = await buildToolInventory(thread);
+    const bash = offered.find((d) => d.name === 'bash');
+    assert(String(bash?.description).includes('`/state/sp-outside/env.local.json`'),
+      `the inventory must build tool definitions for the thread\u2019s session, got: ${bash?.description}`);
   });
 
   await test('neutral global guidance reaches the prompt via the preset body, not the extension', async () => {

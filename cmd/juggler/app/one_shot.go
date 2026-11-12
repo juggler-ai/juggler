@@ -24,6 +24,7 @@ import (
 	"juggler/cmd/juggler/machineserver"
 	"juggler/cmd/juggler/server"
 	"juggler/internal/apipaths"
+	"juggler/internal/projectpaths"
 )
 
 // `juggler run "<prompt>"` — one prompt, unattended, exiting with a status.
@@ -361,7 +362,7 @@ func reportOneShot(stdout, stderr io.Writer, opts *oneShotOptions, code int, res
 // be read. The id is the exact answer when the engine got far enough to report
 // one; the name is the fallback, which is why each run's name is unique.
 func conversationDir(project, name, id string) string {
-	index, err := core.ScanConvDirs(filepath.Join(project, ".juggler"))
+	index, err := core.ScanConvDirs(projectpaths.StateDir(project))
 	if err != nil {
 		return ""
 	}

@@ -781,7 +781,7 @@ class PinboardPanel extends JugglerElement {
       (conversation.name ? displayConversationName(conversation.name) : '');
     const session = /** @type {any} */ (this._session);
     const path = session?.projectPath || '';
-    const project = { path, displayName: baseName(path) };
+    const project = { path, displayName: baseName(path), stateDir: session?.stateDir || '' };
     if (isPinboardView()) {
       const conversation = session?.getConversation?.(boardConversationId()) || null;
       return {

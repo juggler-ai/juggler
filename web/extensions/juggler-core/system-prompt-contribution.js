@@ -21,14 +21,20 @@
  * @module juggler-core/system-prompt-contribution
  */
 
+import { statePath } from './lib/project-state.js';
+
 /**
  * Build Juggler Core's contribution to the system prompt.
  * @param {object} args
  * @param {string[]} args.enabledPluginIds - Capability ids currently enabled
  *   (catalog minus the disabled set). Sections gate on membership.
+ * @param {string} [args.projectPath] - The project root, as the session reports it
+ * @param {string} [args.stateDir] - The project's state folder, as the session
+ *   reports it; the memory file is named there when it is outside the project
+ *   (`lib/project-state.js`), and as `.juggler/MEMORY.md` otherwise
  * @returns {string} Guidance text (possibly empty), sections separated by blank lines
  */
-export default function systemPromptContribution({ enabledPluginIds }) {
+export default function systemPromptContribution({ enabledPluginIds, projectPath, stateDir }) {
   const ids = Array.isArray(enabledPluginIds) ? enabledPluginIds : [];
   const has = (/** @type {string} */ id) => ids.includes(id);
 
@@ -182,7 +188,7 @@ export default function systemPromptContribution({ enabledPluginIds }) {
   if (has('memory')) {
     sections.push(
       '## Memory\n' +
-				'The `memory` tool keeps durable project facts in `.juggler/MEMORY.md`, already shown at the top ' +
+				`The \`memory\` tool keeps durable project facts in \`${statePath(projectPath, stateDir, 'MEMORY.md')}\`, already shown at the top ` +
 				'of your context every turn (never re-read it). The block is fixed for this conversation — a ' +
 				'fact you record now reaches future ones.\n' +
 				'- `remember` a durable, cross-session fact worth recalling — a build/test command, a convention, ' +

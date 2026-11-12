@@ -99,9 +99,12 @@ export function getBlockedToolReason(toolName) {
 /**
  * Generate tool definitions dynamically from context item and action registries
  * @async
+ * @param {import('../../sdk/context-item.js').ToolDefinitionContext} [context] - Handed to each
+ *   item's `getToolDefinitions`: the session the tools are offered in, for a
+ *   description that names one of its paths. Without it, the in-project names.
  * @returns {Promise<ToolDefinition[]>} Array of tool definitions
  */
-export async function generateToolDefinitions() {
+export async function generateToolDefinitions(context = {}) {
   const tools = [];
 
   const contextItemRegistry = (await import('../registries/context-item-registry.js')).default;
@@ -123,7 +126,7 @@ export async function generateToolDefinitions() {
   for (const { class: ItemClass } of allItems) {
     const itemClass = /** @type {any} */ (ItemClass);
     if (itemClass.getToolDefinitions) {
-      const itemTools = itemClass.getToolDefinitions();
+      const itemTools = itemClass.getToolDefinitions(context);
       // Carry the item's subthread-delegation capability onto each of its tool
       // definitions so the worker knows which tools MAY delegate (the per-call
       // decision still runs in buildSubthreadSpec), which have no inline path at

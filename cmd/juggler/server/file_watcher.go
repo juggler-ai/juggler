@@ -13,6 +13,7 @@ import (
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/extmanifest"
 	"juggler/internal/jlog"
+	"juggler/internal/projectpaths"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -85,8 +86,8 @@ func (s *Server) flushFileChangeBatch(changes []core.FileChange) {
 	s.broadcastToAll(fileChangeFrame{Type: frameFileChange, Changes: deduped})
 }
 
-// startPluginWatcher watches the extension container directories
-// (~/.juggler/extensions and <project>/.juggler/extensions) for changes,
+// startPluginWatcher watches the extension container directory
+// (~/.juggler/extensions) and the user-command and hook directories for changes,
 // broadcasting plugin-changed for hot reload. Extension containers hold one
 // subdirectory per extension — often a symlink created by `juggler ext link` —
 // so each tree is registered recursively with symlinks resolved, and newly
@@ -112,7 +113,15 @@ func (s *Server) startPluginWatcher() {
 	watched := map[string]bool{}
 	extDirs := map[string]bool{}
 	total := 0
+	var awaited []*awaitedDir
 	for _, dir := range dirs {
+		if dir.await {
+			if a, ok := newAwaitedDir(watcher, dir.path); ok {
+				awaited = append(awaited, a)
+				total++
+			}
+			continue
+		}
 		var ext map[string]bool
 		if dir.isExtension {
 			ext = extDirs
@@ -142,11 +151,29 @@ func (s *Server) startPluginWatcher() {
 			pendingPath string
 			pendingExt  bool
 		)
+		schedule := func(path string, isExt bool) {
+			pendingPath = path
+			pendingExt = pendingExt || isExt
+			if timer != nil {
+				timer.Stop()
+			}
+			timer = time.NewTimer(pluginReloadDebounce)
+			debounce = timer.C
+		}
 		for {
 			select {
 			case event, ok := <-watcher.Events:
 				if !ok {
 					return
+				}
+				if arrived, ours := handleAwaited(watcher, awaited, event.Name); ours {
+					if arrived != "" {
+						// The awaited directory appeared, perhaps already holding
+						// the file whose write made it: watch it and reload.
+						addPluginTree(watcher, arrived, watched, nil)
+						schedule(arrived, false)
+					}
+					continue
 				}
 				isDir := false
 				if fi, err := os.Stat(event.Name); err == nil {
@@ -164,13 +191,7 @@ func (s *Server) startPluginWatcher() {
 					addPluginTree(watcher, event.Name, watched, ext)
 				}
 				if action.broadcast {
-					pendingPath = event.Name
-					pendingExt = pendingExt || isExt
-					if timer != nil {
-						timer.Stop()
-					}
-					timer = time.NewTimer(pluginReloadDebounce)
-					debounce = timer.C
+					schedule(event.Name, isExt)
 				}
 
 			case <-debounce:
@@ -220,6 +241,11 @@ func isExtensionEvent(name string, extDirs map[string]bool) bool {
 // written while the server is already running is caught by the watch on the
 // container. An external edit to a command or hook file broadcasts plugin-changed (see isPluginFile), reusing the extension hot-reload
 // path with no new client plumbing.
+//
+// The one exception is the project's command directory when the project keeps
+// its state outside it (projectpaths.For): then nothing else puts a .juggler/
+// in the project, and creating one just to watch it is the clutter the setting
+// exists to avoid. That directory is instead awaited (see awaitedDir).
 func (s *Server) pluginWatchDirs() []pluginWatchDir {
 	var dirs []pluginWatchDir
 	watch := func(dir string, isExtension bool) {
@@ -231,7 +257,13 @@ func (s *Server) pluginWatchDirs() []pluginWatchDir {
 	}
 	watch(s.extensionsAPI.UserExtensionDir(), true)
 	watch(s.userCommandsAPI.UserCommandDir(), false)
-	watch(s.userCommandsAPI.ProjectCommandDir(), false)
+	if dir := s.userCommandsAPI.ProjectCommandDir(); dir != "" {
+		if _, err := os.Stat(dir); err != nil && projectpaths.For(s.ProjectPath()).Outside() {
+			dirs = append(dirs, pluginWatchDir{path: dir, await: true})
+		} else {
+			watch(dir, false)
+		}
+	}
 	watch(core.UserHookDir(), false)
 	return dirs
 }
@@ -242,6 +274,92 @@ func (s *Server) pluginWatchDirs() []pluginWatchDir {
 type pluginWatchDir struct {
 	path        string
 	isExtension bool
+	// await marks a directory that does not exist and is not to be created:
+	// it is watched for from its nearest existing ancestor (awaitedDir).
+	await bool
+}
+
+// awaitedDir watches for a directory that does not exist yet, without
+// creating it: each missing step from its nearest existing ancestor down is
+// watched on its own, non-recursively, until the directory itself appears and
+// is handed back to be watched as a plugin tree. Everything else those
+// stepping-stone watches see — every other file created in the project root —
+// is none of the plugin watcher's business and is dropped.
+type awaitedDir struct {
+	target string
+	// steps holds the ancestors being watched on target's behalf.
+	steps map[string]bool
+}
+
+// newAwaitedDir watches target's nearest existing ancestor, reporting false
+// when there is none to watch.
+func newAwaitedDir(watcher *fsnotify.Watcher, target string) (*awaitedDir, bool) {
+	a := &awaitedDir{target: target, steps: map[string]bool{}}
+	dir := filepath.Dir(target)
+	for {
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			break
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return nil, false
+		}
+		dir = parent
+	}
+	if err := watcher.Add(dir); err != nil {
+		return nil, false
+	}
+	a.steps[dir] = true
+	return a, true
+}
+
+// handleAwaited offers an event to each awaited directory, returning the one
+// that has just appeared ("" if none) and whether any of them claimed it.
+func handleAwaited(watcher *fsnotify.Watcher, awaited []*awaitedDir, name string) (arrived string, ours bool) {
+	for _, a := range awaited {
+		mine, done := a.handle(watcher, name)
+		if done {
+			return a.target, true
+		}
+		ours = ours || mine
+	}
+	return "", ours
+}
+
+// handle takes an event from one of the stepping-stone watches, reporting
+// whether it was one (so the caller drops it) and whether target has now
+// appeared (so the caller watches it and reloads).
+func (a *awaitedDir) handle(watcher *fsnotify.Watcher, name string) (ours, arrived bool) {
+	if !a.steps[filepath.Dir(name)] {
+		return false, false
+	}
+	info, err := os.Stat(name)
+	if err != nil || !info.IsDir() {
+		return true, false
+	}
+	if name == a.target {
+		for step := range a.steps {
+			_ = watcher.Remove(step)
+		}
+		a.steps = map[string]bool{}
+		return true, true
+	}
+	rel, err := filepath.Rel(name, a.target)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return true, false // a sibling, not on the way to target
+	}
+	if _, err := os.Stat(a.target); err == nil {
+		// Made in one go (MkdirAll) before this watch could see the step.
+		for step := range a.steps {
+			_ = watcher.Remove(step)
+		}
+		a.steps = map[string]bool{}
+		return true, true
+	}
+	if watcher.Add(name) == nil {
+		a.steps[name] = true
+	}
+	return true, false
 }
 
 // isPluginFile reports whether a changed path is one a hot reload cares about:

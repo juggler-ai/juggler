@@ -293,11 +293,19 @@ Everything directly under ~/.juggler is durable and worth copying to a new
 machine; cache/ is not. Logs are elsewhere (see Troubleshooting).
 JUGGLER_CONFIG_DIR moves ~/.juggler and JUGGLER_LOG_DIR the logs.
 
-Per-project state lives in <project>/.juggler: MEMORY.md (the memory tool's
-project facts, private to your checkout), commands/, skills/, env.json and
-env.local.json, plus config, session, conversation folders, MCP config and bash
-output. That location is fixed; a checkout that must not be written to has to
-exclude the folder.
+Per-project files live in <project>/.juggler. Some are meant to be committed:
+commands/, skills/, env.json, mcp.json, acp.json, worktree-setup. The rest is
+local state: MEMORY.md (the memory tool's project facts, private to your
+checkout), env.local.json, config, session, conversation folders, trash, bash
+output and scratch-copy sandboxes. Juggler does not gitignore the folder.
+
+Settings → Project files → "Keep project state outside the project" moves each
+project's local state to a folder of its own — macOS ~/Library/Application
+Support/Juggler/projects/<name>-<hash>, Linux
+$XDG_STATE_HOME/juggler/projects/…, Windows %LOCALAPPDATA%\\Juggler\\projects\\…
+— leaving <project>/.juggler with only the committed files, or absent when there
+are none. It applies, moving existing state across, the next time the project is
+opened. JUGGLER_STATE_DIR names that base folder and forces the placement on.
 
 ### Environment variables
 

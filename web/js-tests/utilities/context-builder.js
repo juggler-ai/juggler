@@ -261,7 +261,7 @@ export class ContextBuilder {
       ? ownItems
       : this.conversation.rootMessageThread.contextItems;
 
-    const extensionContributions = await buildExtensionSystemPromptContributions();
+    const extensionContributions = await buildExtensionSystemPromptContributions(this.conversation.session);
     return await assembleSystemPrompt({
       contextItems,
       contextParams,

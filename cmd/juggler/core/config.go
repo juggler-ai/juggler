@@ -12,6 +12,7 @@ import (
 	"slices"
 
 	"juggler/internal/atomicio"
+	"juggler/internal/projectpaths"
 )
 
 // Config represents the application configuration
@@ -163,9 +164,15 @@ func DefaultConfig() *Config {
 	}
 }
 
+// configFilePath is config.json in the project's state folder: it is this
+// checkout's settings, not something to commit.
+func configFilePath(projectPath string) string {
+	return filepath.Join(projectpaths.StateDir(projectPath), "config.json")
+}
+
 // LoadConfig loads configuration from file
 func LoadConfig(projectPath string) (*Config, error) {
-	configPath := filepath.Join(projectPath, ".juggler", "config.json")
+	configPath := configFilePath(projectPath)
 
 	cfg := DefaultConfig()
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
@@ -213,11 +220,11 @@ func LoadConfig(projectPath string) (*Config, error) {
 
 // Save saves configuration to file
 func (c *Config) Save(projectPath string) error {
-	configPath := filepath.Join(projectPath, ".juggler", "config.json")
+	configPath := configFilePath(projectPath)
 
-	jugglerDir := filepath.Dir(configPath)
-	if err := os.MkdirAll(jugglerDir, 0755); err != nil {
-		return fmt.Errorf("failed to create .juggler directory: %w", err)
+	stateDir := filepath.Dir(configPath)
+	if err := os.MkdirAll(stateDir, 0755); err != nil {
+		return fmt.Errorf("failed to create %s: %w", stateDir, err)
 	}
 
 	data, err := json.MarshalIndent(c, "", "  ")

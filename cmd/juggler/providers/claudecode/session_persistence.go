@@ -14,10 +14,12 @@ import (
 
 	"juggler/cmd/juggler/core"
 	"juggler/internal/jlog"
+	"juggler/internal/projectpaths"
 )
 
 // diskSessionState is the on-disk shape of the persistent fields of an
-// activeSession. Saved as `<projectPath>/.juggler/<name>--<convID>/claude_session.json`
+// activeSession. Saved as `<state folder>/<name>--<convID>/claude_session.json`
+// (the project's state folder: projectpaths.For)
 // after every successful turn so juggler restarts can resume the claude
 // session via --resume <uuid> instead of cold-starting from full history.
 type diskSessionState struct {
@@ -43,7 +45,7 @@ func sessionDiskPath(stateDir, convID string) string {
 	if stateDir == "" || convID == "" {
 		return ""
 	}
-	idx, err := core.ScanConvDirs(filepath.Join(stateDir, ".juggler"))
+	idx, err := core.ScanConvDirs(projectpaths.StateDir(stateDir))
 	if err != nil {
 		return ""
 	}
@@ -60,7 +62,7 @@ func legacySessionDiskPath(stateDir, convID string) string {
 	if stateDir == "" || convID == "" {
 		return ""
 	}
-	return filepath.Join(stateDir, ".juggler", convID+".claudecode.json")
+	return filepath.Join(projectpaths.StateDir(stateDir), convID+".claudecode.json")
 }
 
 // loadDiskSession reads the sidecar, and answers nil for a session that belongs

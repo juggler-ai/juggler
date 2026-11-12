@@ -378,8 +378,9 @@ function conversationStartDate(created) {
  * Build the auto-appended environment block. Pure: the caller supplies the
  * date so the block is a function of durable conversation state, not the live
  * clock (a conversation resumed across midnight must rebuild identical bytes).
- * The date is therefore the conversation's start, and the block says so; a turn
- * on a later day is told the new date by a reminder the worker appends.
+ * The date is therefore the conversation's start; a turn on a later day is told
+ * the new date by a reminder the worker appends, which says it supersedes this
+ * one — so the block needs no caveat of its own.
  *
  * `projectPath` is stated only when it is somewhere other than the working
  * directory — which is to say only for a conversation bound to a workspace,
@@ -400,7 +401,7 @@ function buildEnvBlock(workingDir, projectPath, platform, today) {
   return markUntranslated(`<env>
 Working directory: ${workingDir || 'unknown'}${project}
 Platform: ${platform || 'unknown'}
-Today's date: ${today} (when this conversation started; a later message gives the new date if it changes)
+Today's date: ${today}
 </env>`);
 }
 
@@ -727,7 +728,7 @@ class SystemPromptContextItem extends ContextItem {
   async _fillExtensionGuidance(section) {
     try {
       const { buildExtensionSystemPromptContributions } = await import('../../../js/services/extensions.js');
-      const text = await buildExtensionSystemPromptContributions();
+      const text = await buildExtensionSystemPromptContributions(this.session);
       const body = section.querySelector('.system-prompt-section-body');
       if (!body) return;
       if (!text || !text.trim()) {

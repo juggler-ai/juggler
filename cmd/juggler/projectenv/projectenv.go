@@ -41,6 +41,7 @@ import (
 	"strings"
 
 	"juggler/internal/atomicio"
+	"juggler/internal/projectpaths"
 	"juggler/internal/userpaths"
 )
 
@@ -81,9 +82,9 @@ func Path(scope Scope, projectRoot string) string {
 	case ScopeUser:
 		return filepath.Join(userpaths.ConfigDir(), fileName)
 	case ScopeLocal:
-		return filepath.Join(projectRoot, ".juggler", localFileName)
+		return filepath.Join(projectpaths.StateDir(projectRoot), localFileName)
 	default:
-		return filepath.Join(projectRoot, ".juggler", fileName)
+		return filepath.Join(projectpaths.SharedDir(projectRoot), fileName)
 	}
 }
 
@@ -310,6 +311,10 @@ func Write(projectRoot string, sc Scope, env map[string]string) error {
 	case ScopeProject:
 		return addApproval(fingerprint(projectRoot, env))
 	case ScopeLocal:
+		// Kept outside the project, there is nothing for git to see.
+		if projectpaths.For(projectRoot).Outside() {
+			return nil
+		}
 		return excludeLocal(projectRoot)
 	}
 	return nil

@@ -30,6 +30,7 @@ import { McpTab, AcpTab } from './settings/subprocess-tabs.js';
 import { SkillsTab } from './settings/skills-tab.js';
 import { CommandsTab } from './settings/commands-tab.js';
 import { UpdatesTab } from './settings/updates-tab.js';
+import { ProjectFilesTab } from './settings/project-files-tab.js';
 import { escapeHtml } from '../../sdk/lib/html.js';
 import { t, markUntranslated, htmlSlots, withHtml } from '../../sdk/lib/i18n.js';
 
@@ -140,6 +141,7 @@ class SettingsPanel extends JugglerElement {
       language: new LanguageTab(this),
       notifications: new NotificationsTab(this),
       shortcuts: new ShortcutsTab(this),
+      'project-files': new ProjectFilesTab(this),
       logs: new LogsTab(this),
       updates: new UpdatesTab(this),
     };
@@ -214,6 +216,7 @@ class SettingsPanel extends JugglerElement {
                         <button class="settings-tab" data-tab="appearance">${escapeHtml(t('Appearance'))}</button>
                         <button class="settings-tab" data-tab="notifications">${escapeHtml(t('Notifications'))}</button>
                         <button class="settings-tab" data-tab="shortcuts">${escapeHtml(t('Keyboard shortcuts'))}</button>
+                        <button class="settings-tab" data-tab="project-files">${escapeHtml(t('Project files'))}</button>
                         <button class="settings-tab" data-tab="logs">${escapeHtml(t('Logs'))}</button>
                         <button class="settings-tab" data-tab="updates">${escapeHtml(t('Updates'))}</button>
                     </div>
@@ -327,6 +330,13 @@ class SettingsPanel extends JugglerElement {
                             ${escapeHtml(t('Keyboard shortcuts for common actions. Modifier keys are shown for {platform, select, mac {macOS} other {this platform}}.', { platform: isMac ? 'mac' : 'other' }))}
                         </p>
                         <div class="settings-form" id="shortcuts-form"></div>
+                    </section>
+
+                    <section class="settings-tab-content" id="tab-project-files">
+                        <p class="settings-description">
+                            ${escapeHtml(t('Where Juggler keeps each project’s own files. A change applies the next time a project is opened.'))}
+                        </p>
+                        <div class="settings-form" id="project-files-form"></div>
                     </section>
 
                     <section class="settings-tab-content settings-tab-fill" id="tab-logs">

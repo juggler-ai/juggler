@@ -131,9 +131,10 @@ export async function runTests() {
   /**
    * Mount the pin over a fake server.
    * @param {Parameters<typeof fakeServer>[0]} seed - The files.
+   * @param {string} [stateDir] - The project's state folder, as the session reports it.
    * @returns {any} Body, controller, server and levers.
    */
-  function mount(seed) {
+  function mount(seed, stateDir = undefined) {
     const server = fakeServer(seed);
     const body = document.createElement('div');
     document.body.appendChild(body);
@@ -142,7 +143,7 @@ export async function runTests() {
     const fileListeners = [];
     const controller = /** @type {any} */ (pin.mount(body, /** @type {any} */ ({
       pin: { id: 'pin_env', type: 'env', config: {} },
-      active: { project: { path: ROOT, displayName: 'proj' }, conversation: { id: 'c1' }, thread: { id: null } },
+      active: { project: { path: ROOT, displayName: 'proj', ...(stateDir ? { stateDir } : {}) }, conversation: { id: 'c1' }, thread: { id: null } },
       services: {
         files: {
           onChange: (/** @type {any} */ listener) => {
@@ -318,6 +319,22 @@ export async function runTests() {
       m.fileChange(`${ROOT}/.juggler/env.local.json`);
       await until(m.body, (b) => row(b, 'local', 'B'), 'the hand edit picked up');
       assert(m.server.reads() === before + 1, `expected exactly one re-read, got ${m.server.reads() - before}`);
+    } finally { m.teardown(); }
+  });
+
+  await test('with the state kept outside the project, env.local.json there re-reads; env.json stays in the project', async () => {
+    const stateDir = '/state/proj-1a2b3c4d';
+    const m = mount({ local: { A: '1' } }, stateDir);
+    try {
+      await until(m.body, (b) => row(b, 'local', 'A'), 'first read');
+      const before = m.server.reads();
+      m.server.files.local.B = '2';
+      m.fileChange(`${stateDir}/env.local.json`);
+      await until(m.body, (b) => row(b, 'local', 'B'), 'the outside hand edit picked up');
+      m.server.files.project.C = '3';
+      m.fileChange(`${ROOT}/.juggler/env.json`);
+      await until(m.body, (b) => row(b, 'project', 'C'), 'the committed file, still in the project, picked up');
+      assert(m.server.reads() === before + 2, `expected exactly two re-reads, got ${m.server.reads() - before}`);
     } finally { m.teardown(); }
   });
 

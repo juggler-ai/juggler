@@ -269,8 +269,8 @@ async function addAIAssistantFiles(session, conversation, messageThread = null, 
  * `autoInstantiate` onto a thread, so it is "always present" without the user
  * adding it (e.g. project memory). Idempotent: each type's `mergeOrReplace`
  * dedups, so re-running reuses the existing instance. A class may gate seeding
- * with a static `shouldAutoInstantiate()` (default: seed unconditionally) —
- * memory uses this to seed only when its file already exists.
+ * with a static `shouldAutoInstantiate({session})` (default: seed
+ * unconditionally) — memory uses this to seed only when its file already exists.
  *
  * This is the generic counterpart to {@link addAIAssistantFiles}'s
  * file-existence-gated CLAUDE.md path (which could later migrate onto this
@@ -287,7 +287,7 @@ export async function seedAutoContextItems(conversation, messageThread = null) {
     if (!ItemClass.MANIFEST?.autoInstantiate) continue;
     try {
       const gate = 'shouldAutoInstantiate' in ItemClass ? ItemClass.shouldAutoInstantiate : undefined;
-      if (typeof gate === 'function' && !(await gate.call(ItemClass))) {
+      if (typeof gate === 'function' && !(await gate.call(ItemClass, { session: conversation.session }))) {
         continue;
       }
       await mt.executeContextItem(id, {});

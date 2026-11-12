@@ -23,6 +23,11 @@ Each is a JSON object of names to values:
 | `<project>/.juggler/env.json` | the project's, meant to be committed | in this project, **once you approve it** |
 | `<project>/.juggler/env.local.json` | yours | in this project; the place for secrets |
 
+With project state kept outside the project
+([config-directory.md](./config-directory.md#keeping-local-state-outside-the-project)),
+`env.local.json` is in the project's state folder instead. `env.json` stays in
+the project, because it is meant to be committed.
+
 They are merged in that order, so a later file wins for a name both set. The
 variables are added to Juggler's own environment, replacing a variable of the
 same name.
@@ -53,6 +58,7 @@ Put them in `.juggler/env.local.json`. Juggler writes it readable by you alone,
 and the first time it does so in a git repository it adds the file to
 `.git/info/exclude` — which keeps it out of `git status` without touching the
 repository's `.gitignore`. A file you create by hand is not excluded for you.
+Kept outside the project, it is never in the repository at all.
 
 `~/.juggler/env.json` is owner-only too. The project's `env.json` is written
 like any source file, because it is meant to be shared.

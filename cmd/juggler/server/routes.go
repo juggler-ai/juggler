@@ -415,6 +415,7 @@ func (s *Server) setupRoutes() {
 
 	api.HandleFunc("/settings", s.handleGetSettings).Methods("GET")
 	api.HandleFunc("/settings", s.handlePutSettings).Methods("PUT")
+	api.HandleFunc("/project-state", handlers.NewProjectStateAPI(s.ProjectPath).HandleGet).Methods("GET")
 	api.HandleFunc("/i18n/catalog", s.handleUICatalog).Methods("GET")
 	api.HandleFunc("/i18n/locales", s.handleUILocales).Methods("GET")
 

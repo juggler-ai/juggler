@@ -125,9 +125,12 @@ import { validateManifest } from './lib/manifest.js';
  * as immutable — it is a snapshot, not a live view, and a new one arrives through
  * `update()` whenever the active conversation or project changes.
  * @typedef {object} PinActiveContext
- * @property {{path: string, displayName: string}} project - The open project: its
- *   root path, and the last segment of that path as a name to show. Both are empty
- *   strings when no project is open.
+ * @property {{path: string, displayName: string, stateDir?: string}} project - The
+ *   open project: its root path, and the last segment of that path as a name to
+ *   show. Both are empty strings when no project is open. `stateDir` is the folder
+ *   the project's local state (memory, env.local.json) is kept in:
+ *   `<path>/.juggler`, or a folder outside the project when the user keeps it
+ *   there. Absent or empty means `<path>/.juggler`.
  * @property {{id: string, title: string}|null} conversation - Active conversation, if any
  * @property {{id: string|null}|null} thread - The thread the viewer is looking at,
  *   or null when no conversation is open. A conversation's root thread has no id of

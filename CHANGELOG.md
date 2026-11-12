@@ -13,6 +13,7 @@ the current release). The project follows semantic versioning.
 - Worktree panel shows unlanded commits, and lands work by rebase or merge, submodules included
 - Long-running conversations tell the model when the date changes
 - Theme and zoom are per window again; changing one window no longer restyles the others
+- Option to keep conversations and other local state outside the project folder
 
 ## [0.8.0] - 2026-11-08
 

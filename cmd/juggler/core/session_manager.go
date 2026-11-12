@@ -735,7 +735,7 @@ func (m *SessionManager) ResolveAutoName(base, excludeID string) string {
 	return v
 }
 
-// BinConversation moves a conversation's folder to .juggler/bin/ and removes
+// BinConversation moves a conversation's folder to the state folder's trash/ and removes
 // it from the active conversation order. The detached boards that were views of
 // it are forgotten as they are on a delete: the bin holds the conversation, not
 // the windows that were watching it, and a board window left open over a
@@ -766,8 +766,8 @@ func (m *SessionManager) BinConversation(convID string) error {
 	return err
 }
 
-// RestoreConversation moves a conversation's folder back from .juggler/bin/
-// to .juggler/ and prepends it to the active conversation order, matching
+// RestoreConversation moves a conversation's folder back from trash/ into the
+// state folder and prepends it to the active conversation order, matching
 // CreateConversation: a restore is a deliberate act on one conversation, so it
 // belongs at the head of the bar rather than the tail of a long tab list.
 func (m *SessionManager) RestoreConversation(convID string) error {
@@ -789,8 +789,8 @@ func (m *SessionManager) RestoreConversation(convID string) error {
 	return err
 }
 
-// ListBinnedConversations returns metadata for all conversations in
-// .juggler/bin/, sorted most-recently-modified first.
+// ListBinnedConversations returns metadata for all conversations in the
+// trash/, sorted most-recently-modified first.
 func (m *SessionManager) ListBinnedConversations() []BinnedConvInfo {
 	v, _ := runRead(m, func(s *sessionState) ([]BinnedConvInfo, error) {
 		return s.store.BinnedConvList(), nil
@@ -799,7 +799,7 @@ func (m *SessionManager) ListBinnedConversations() []BinnedConvInfo {
 }
 
 // DeleteBinnedConversation permanently removes (via OS trash) a single
-// conversation folder from .juggler/bin/.
+// conversation folder from the trash/.
 func (m *SessionManager) DeleteBinnedConversation(convID string) error {
 	_, err := runWrite(m, func(s *sessionState) (struct{}, error) {
 		return struct{}{}, s.store.removeBinnedConversationFiles(convID)

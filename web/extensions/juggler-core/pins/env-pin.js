@@ -11,6 +11,7 @@ import { translator, markForTranslation } from 'juggler/i18n';
 import { createElement, errorText, injectStylesOnce } from 'juggler/ui';
 import { debounce } from 'juggler/utils/debounce';
 import { pinEmpty } from '../lib/pin-empty.js';
+import { STATE_REL, statePath, samePath } from '../lib/project-state.js';
 
 const t = translator('@juggler/core');
 
@@ -100,8 +101,20 @@ const SCOPE_TITLES = {
   local: markForTranslation('Yours, in this project only'),
 };
 
-/** The project-relative env files the watcher reports. */
-const WATCHED = ['.juggler/env.json', '.juggler/env.local.json'];
+/**
+ * The env files the watcher reports, by their absolute paths. env.json is the
+ * committed one and is always in the project's `.juggler`; env.local.json is
+ * local state, so it is in the state folder, which may be outside the project
+ * (`lib/project-state.js`) — where the watcher reports it by that path.
+ * @param {import('juggler/pinboard-item-type').PinActiveContext} active - The active context.
+ * @returns {string[]} The paths, or none when no project is open.
+ */
+function watchedPaths(active) {
+  const root = (active?.project?.path || '').replace(/[/\\]+$/, '');
+  if (!root) return [];
+  const local = statePath(root, active?.project?.stateDir, 'env.local.json');
+  return [`${root}/${STATE_REL}/env.json`, local.startsWith(`${STATE_REL}/`) ? `${root}/${local}` : local];
+}
 
 /** Coalesces a burst of watcher events into one read. */
 const REFRESH_DEBOUNCE_MS = 150;
@@ -329,10 +342,8 @@ class EnvPin extends PinboardItemType {
     const refresh = debounce(() => { void render(); }, REFRESH_DEBOUNCE_MS, { maxWait: REFRESH_MAX_WAIT_MS });
 
     const stopWatching = context.services.files.onChange((changes) => {
-      const root = (context.active?.project?.path || '').replace(/\/+$/, '');
-      if (!root) return;
-      const targets = WATCHED.map((rel) => `${root}/${rel}`);
-      if (changes.some((change) => targets.includes(change.path))) refresh();
+      const targets = watchedPaths(context.active);
+      if (changes.some((change) => targets.some((target) => samePath(target, change.path)))) refresh();
     });
 
     void render();

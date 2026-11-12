@@ -347,8 +347,9 @@
  *   seeded onto every new conversation/thread (deduped via mergeOrReplace), so
  *   it is "always present" without the user adding it — e.g. project memory.
  *   A class may additionally gate seeding with a static
- *   `shouldAutoInstantiate()` returning a boolean/Promise (default: seed
- *   unconditionally when true). Default: false
+ *   `shouldAutoInstantiate({session})` returning a boolean/Promise — given the
+ *   session seeding the conversation — (default: seed unconditionally when
+ *   true). Default: false
  * @property {string} [itemCategory] - **@internal** (outside the engineApi compat promise). Item category: 'context-item', 'meta', or 'rule'
  */
 

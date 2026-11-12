@@ -19,6 +19,7 @@ import (
 	"juggler/internal/atomicio"
 	"juggler/internal/instructionfiles"
 	"juggler/internal/jlog"
+	"juggler/internal/projectpaths"
 	"juggler/internal/windowstate"
 )
 
@@ -39,8 +40,12 @@ type BinnedConvInfo struct {
 // RuntimeInfo contains environment info injected at runtime (not persisted)
 type RuntimeInfo struct {
 	ProjectPath string `json:"projectPath"`
-	Platform    string `json:"platform"`
-	Home        string `json:"home"`
+	// StateDir is the folder the project's local state is kept in — memory,
+	// env.local.json, sandboxes, conversations: <project>/.juggler, or the
+	// project's folder outside it (projectpaths.For).
+	StateDir string `json:"stateDir"`
+	Platform string `json:"platform"`
+	Home     string `json:"home"`
 	// InstructionDirs are the folders holding the user's global AGENTS.md,
 	// widest first (instructionfiles.Dirs). The read scope admits exactly the
 	// instruction files in them, so a conversation can be seeded with them.
@@ -52,6 +57,7 @@ func GetRuntimeInfo(projectPath string) RuntimeInfo {
 	home, _ := os.UserHomeDir()
 	return RuntimeInfo{
 		ProjectPath: projectPath,
+		StateDir:    projectpaths.StateDir(projectPath),
 		Platform:    runtime.GOOS,
 		Home:        home,
 
@@ -393,7 +399,8 @@ var (
 // ============================================================================
 
 // FileSessionStore implements session persistence using the filesystem.
-// Session state is stored in {projectPath}/.juggler/: session.json holds the
+// Session state is stored in the project's state folder — {projectPath}/.juggler/
+// unless it lives outside the project (projectpaths.For): session.json holds the
 // manifest (version, conversationOrder, activeConversationId, messageHistory,
 // metadata), and one folder per conversation holds the rest. Those folders are
 // convdir.go's subject — their name, their contents, and the accessors for
@@ -409,7 +416,9 @@ var (
 // mutated by Save/Delete/Rename.
 type FileSessionStore struct {
 	projectPath string
-	index       *ConvDirIndex
+	// stateRoot is the project's state folder, fixed when the store is made.
+	stateRoot string
+	index     *ConvDirIndex
 	// binIndex mirrors the layout of .juggler/trash/ — conversation folders
 	// that have been binned. Same shape as index; rebuilt on Load and mutated
 	// by BinConversation/RestoreConversation.
@@ -424,14 +433,19 @@ type FileSessionStore struct {
 }
 
 // NewFileSessionStore creates a new file-based store
+//
+// The store is rooted in the project's state folder as it resolves now
+// (projectpaths.For) and stays there for its whole life: placement only
+// changes before a session starts (PlaceProjectState).
 func NewFileSessionStore(projectPath string) (*FileSessionStore, error) {
-	jugglerDir := filepath.Join(projectPath, ".juggler")
-	if err := os.MkdirAll(jugglerDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create .juggler directory: %w", err)
+	stateDir := projectpaths.StateDir(projectPath)
+	if err := os.MkdirAll(stateDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create %s: %w", stateDir, err)
 	}
 
 	return &FileSessionStore{
 		projectPath: projectPath,
+		stateRoot:   stateDir,
 		index:       NewConvDirIndex(),
 		binIndex:    NewConvDirIndex(),
 		deletedIDs:  make(map[string]bool),
@@ -649,9 +663,15 @@ func (fs *FileSessionStore) binDir() string {
 	return filepath.Join(fs.jugglerDir(), "trash")
 }
 
-// jugglerDir returns the .juggler directory path
+// jugglerDir returns the project's state folder: <project>/.juggler, or its
+// folder outside the project (projectpaths.For).
 func (fs *FileSessionStore) jugglerDir() string {
-	return filepath.Join(fs.projectPath, ".juggler")
+	return fs.stateRoot
+}
+
+// StateDir is the folder this store keeps the project's state in.
+func (fs *FileSessionStore) StateDir() string {
+	return fs.stateRoot
 }
 
 // removeSpillDir best-effort deletes a conversation's full-output spill

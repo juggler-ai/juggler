@@ -8,9 +8,12 @@ import (
 	"net/http"
 
 	"juggler/cmd/juggler/core"
+	"juggler/internal/lanfind"
 )
 
-// HandleVersion serves GET /api/version: the server's version.
+// HandleVersion serves GET /api/version: the server's version, and the name of
+// the machine it runs on (lanfind.MachineName), which a window on it from
+// another computer shows it by.
 func HandleVersion(w http.ResponseWriter, r *http.Request) {
-	WriteJSON(w, r, 0, map[string]any{"version": core.Version})
+	WriteJSON(w, r, 0, map[string]any{"version": core.Version, "name": lanfind.MachineName()})
 }

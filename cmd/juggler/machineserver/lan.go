@@ -10,7 +10,6 @@ import (
 	"errors"
 	"net"
 	"net/http"
-	"os"
 	"runtime"
 	"strconv"
 	"strings"
@@ -380,15 +379,8 @@ var advertiseLAN = func(name string, port int, version string) (lanAdvert, error
 	return ad, nil
 }
 
-// machineName is the name this machine's server goes by on the network: its
-// host name, cut to an instance name (lanfind.InstanceName).
-func machineName() string {
-	host, _ := os.Hostname()
-	return lanfind.InstanceName(host)
-}
-
 // startAdvertising announces this server on the network under this machine's
-// name (machineName), so the desktop app on another computer lists it to connect to, and
+// name (lanfind.MachineName), so the desktop app on another computer lists it to connect to, and
 // logs whether the announcement left the machine. One that could not start or
 // did not leave (no multicast on this network, the OS refusing it) changes
 // nothing else: the server is reachable by its address all the same, and the
@@ -408,7 +400,7 @@ func (s *Server) startAdvertising() {
 	if err != nil {
 		return
 	}
-	st := &advertState{name: machineName()}
+	st := &advertState{name: lanfind.MachineName()}
 	st.ad, err = s.advertise(st.name, port, core.Version)
 	if err != nil {
 		st.ad = nil

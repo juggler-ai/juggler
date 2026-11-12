@@ -718,22 +718,31 @@ export async function runTests() {
         assert(!hostShown(), `${width}px: a local window names no host`);
         local.dispose();
 
-        const remote = bindNetworkClients(button, { events, seed: async () => 1, host: 'devbox:8080' });
+        // A server that does not say its machine's name is shown by its address.
+        const unnamed = bindNetworkClients(button, { events, seed: async () => 1, host: 'devbox:8080', name: async () => '' });
+        await unnamed.ready;
+        assert(hostShown() && host.textContent === 'devbox:8080',
+          `${width}px: an unnamed remote server's button reads its address, got shown=${hostShown()} "${host.textContent}"`);
+        unnamed.dispose();
+
+        const remote = bindNetworkClients(button, { events, seed: async () => 1, host: '192.168.68.52:3939', name: async () => 'devbox' });
         try {
           await remote.ready;
-          assert(hostShown() && host.textContent === 'devbox:8080',
-            `${width}px: a remote window's button reads the host, got shown=${hostShown()} "${host.textContent}"`);
+          assert(hostShown() && host.textContent === 'devbox',
+            `${width}px: a remote window's button reads the machine's name, got shown=${hostShown()} "${host.textContent}"`);
+          assert(button.title.includes('devbox') && button.title.includes('192.168.68.52:3939'),
+            `${width}px: the title gives the machine's name and its address, got "${button.title}"`);
           const b = button.getBoundingClientRect();
           const h = host.getBoundingClientRect();
           assert(h.left >= b.left && h.right <= b.right + 0.5,
             `${width}px: the host sits inside the button (${Math.round(h.left)}–${Math.round(h.right)} in ${Math.round(b.left)}–${Math.round(b.right)})`);
-          assert(button.title.includes('devbox:8080') && button.getAttribute('aria-label') === button.title,
-            `${width}px: the title and accessible name name the server, got "${button.title}"`);
+          assert(button.getAttribute('aria-label') === button.title,
+            `${width}px: the accessible name is the title, got "${button.getAttribute('aria-label')}"`);
           assert(b.left >= f.box('#project-new-window-button').right && b.right <= f.box('header-actions').left,
             `${width}px: the network button ends the title, before the app's controls`);
 
           clientsChanged(3);
-          assert(button.title.includes('devbox:8080') && button.title.includes('2'),
+          assert(button.title.includes('devbox') && button.title.includes('2'),
             `${width}px: the title names the server and the other clients, got "${button.title}"`);
           const count = f.el('.network-button__count');
           assert(view.getComputedStyle(f.el('.network-button__clients')).display !== 'none' && count.textContent === '2',
@@ -751,7 +760,7 @@ export async function runTests() {
     const shown = [];
     try {
       await underPseudoLocale('test-header-bar-remote', async () => {
-        const binding = bindNetworkClients(get('network-button'), { events, seed: async () => null, host: '9:9' });
+        const binding = bindNetworkClients(get('network-button'), { events, seed: async () => null, host: '9:9', name: async () => '99' });
         try {
           await binding.ready;
           for (const total of [1, 2, 4]) {

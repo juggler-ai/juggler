@@ -121,22 +121,36 @@ async function fetchClientCount() {
 }
 
 /**
+ * The name of the machine this window's server runs on, as that server
+ * reports it (GET /api/version, the name LAN access announces it by); '' when
+ * it does not say.
+ * @returns {Promise<string>} The name.
+ */
+async function fetchMachineName() {
+  const v = await fetchJson(apiUrl('/version'), { fallback: null });
+  return typeof v?.name === 'string' ? v.name.trim() : '';
+}
+
+/**
  * Show on the network button where this window's server is and how many OTHER
  * clients share this session. A window on a server the app did not start names
- * that server's host beside the icon: nothing else on screen tells a window
- * onto another computer from one onto this one, and what the agent runs, it
- * runs there. The server's count includes this one, so one is subtracted;
+ * that server beside the icon — by its machine's name once the server gives
+ * it, with the address in the title, else by its address: nothing else on
+ * screen tells a window onto another computer from one onto this one, and
+ * what the agent runs, it runs there. The server's count includes this one, so one is subtracted;
  * alone, the button carries no count. The count is a badge over the icon and
  * is also spoken in the button's title and accessible name.
  * @param {HTMLElement} button - The header's #network-button.
- * @param {{events?: ClientsEventSource, seed?: () => Promise<number|null>, host?: string}} [options]
+ * @param {{events?: ClientsEventSource, seed?: () => Promise<number|null>, host?: string, name?: () => Promise<string>}} [options]
  *   Where joins and leaves are heard (the session socket by default), how the
- *   starting count is read (the /connectivity endpoint by default), and the
- *   host of a server the app did not start ('' for this computer's own).
+ *   starting count is read (the /connectivity endpoint by default), the host
+ *   of a server the app did not start ('' for this computer's own), and how
+ *   that server's machine name is read (GET /api/version by default).
  * @returns {{ready: Promise<void>, dispose: () => void}} `ready` settles once
- *   the starting count is shown; `dispose` stops listening.
+ *   the starting count, and a remote server's name, are shown; `dispose`
+ *   stops listening.
  */
-export function bindNetworkClients(button, { events = wsService, seed = fetchClientCount, host = externalServerHost() } = {}) {
+export function bindNetworkClients(button, { events = wsService, seed = fetchClientCount, host = externalServerHost(), name = fetchMachineName } = {}) {
   const clients = /** @type {HTMLElement|null} */ (button.querySelector('.network-button__clients'));
   const hostLabel = /** @type {HTMLElement|null} */ (button.querySelector('.network-button__host'));
   if (hostLabel) {
@@ -146,11 +160,17 @@ export function bindNetworkClients(button, { events = wsService, seed = fetchCli
   // Lets CSS widen the button to hold the host.
   button.classList.toggle('is-remote', !!host);
 
+  // The server as the title names it: its address until its machine's name is
+  // known, then the name with the address after it.
+  let server = host;
+  /** @type {number|null|undefined} */
+  let shownTotal = 1;
   const show = (/** @type {number|null|undefined} */ total) => {
+    shownTotal = total;
     const others = Math.max(0, (total || 1) - 1);
     const label = host
       ? t('{count, plural, =0 {Network settings — connected to the Juggler server at {host}} one {Network settings — connected to the Juggler server at {host}, with {count} other client} other {Network settings — connected to the Juggler server at {host}, with {count} other clients}}',
-        { count: others, host })
+        { count: others, host: server })
       : t('{count, plural, =0 {Network settings} one {Network settings — {count} other client connected} other {Network settings — {count} other clients connected}}',
         { count: others });
     button.title = label;
@@ -184,10 +204,19 @@ export function bindNetworkClients(button, { events = wsService, seed = fetchCli
   let heard = false;
   const heardFirst = () => { heard = true; };
   events.on('clients-changed', heardFirst);
-  const ready = seed().then((total) => {
+  const counted = seed().then((total) => {
     events.off('clients-changed', heardFirst);
     if (!disposed && !heard && total !== null) show(total);
   });
+  const named = host
+    ? name().then((machine) => {
+      if (disposed || !machine || machine === host) return;
+      server = t('{machine} ({address})', { machine, address: host });
+      if (hostLabel) hostLabel.textContent = machine;
+      show(shownTotal);
+    }, () => {})
+    : Promise.resolve();
+  const ready = Promise.all([counted, named]).then(() => {});
   return {
     ready,
     dispose: () => {

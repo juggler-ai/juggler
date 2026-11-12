@@ -40,6 +40,7 @@ import (
 	"juggler/internal/hostcheck"
 	"juggler/internal/ingress"
 	"juggler/internal/jlog"
+	"juggler/internal/lanfind"
 	"juggler/internal/userpaths"
 )
 
@@ -389,7 +390,7 @@ func (s *Server) handleVersion(w http.ResponseWriter, _ *http.Request) {
 		Version:         core.Version,
 		ProtocolVersion: tunnel.RendezvousProtocolVersion,
 		EmbedVersion:    embedVersion,
-		Name:            machineName(),
+		Name:            lanfind.MachineName(),
 	})
 }
 

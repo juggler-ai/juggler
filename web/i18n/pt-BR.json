@@ -2025,6 +2025,7 @@
   "{label} — {description}": "{label} — {description}",
   "{label}: {path}": "{label}: {path}",
   "{lead} {reason}": "{lead} {reason}",
+  "{machine} ({address})": "{machine} ({address})",
   "{minutes}m": "{minutes}min",
   "{mode} is not available: {hint}": "{mode} não está disponível: {hint}",
   "{n, plural, one {A conversation is still working. Quitting will stop and discard it.} other {# conversations are still working. Quitting will stop and discard them.}}": "{n, plural, one {Uma conversa ainda está em andamento. Sair vai interrompê-la e descartá-la.} other {# conversas ainda estão em andamento. Sair vai interrompê-las e descartá-las.}}",

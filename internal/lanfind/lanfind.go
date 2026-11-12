@@ -21,6 +21,7 @@ import (
 	"maps"
 	"net"
 	"net/netip"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -139,6 +140,15 @@ func InstanceName(hostname string) string {
 		return "Juggler"
 	}
 	return name
+}
+
+// MachineName is the name a Juggler server on this machine goes by: the
+// machine's host name, cut to an instance name (InstanceName). LAN access
+// announces it, and GET /api/version reports it, so a window on another
+// computer's server can say which computer that is.
+func MachineName() string {
+	host, _ := os.Hostname()
+	return InstanceName(host)
 }
 
 // hostLabel is the .local host name a server's SRV record points at: its own

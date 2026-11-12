@@ -2025,6 +2025,7 @@
   "{label} — {description}": "{label} — {description}",
   "{label}: {path}": "{label}: {path}",
   "{lead} {reason}": "{lead} {reason}",
+  "{machine} ({address})": "{machine}（{address}）",
   "{minutes}m": "{minutes}分",
   "{mode} is not available: {hint}": "{mode} は利用できません: {hint}",
   "{n, plural, one {A conversation is still working. Quitting will stop and discard it.} other {# conversations are still working. Quitting will stop and discard them.}}": "{n, plural, =1 {まだ作業中の会話があります。終了すると、停止され破棄されます。} other {# 件の会話がまだ作業中です。終了すると、それらは停止され破棄されます。}}",

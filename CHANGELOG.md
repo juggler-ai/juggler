@@ -15,6 +15,7 @@ the current release). The project follows semantic versioning.
 - Long-running conversations tell the model when the date changes
 - Theme and zoom are per window again; changing one window no longer restyles the others
 - Option to keep conversations and other local state outside the project folder
+- A window on another computer's server shows that computer's name, not its IP
 
 ## [0.8.0] - 2026-11-08
 

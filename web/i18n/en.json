@@ -2025,6 +2025,7 @@
   "{label} — {description}": "{label} — {description}",
   "{label}: {path}": "{label}: {path}",
   "{lead} {reason}": "{lead} {reason}",
+  "{machine} ({address})": "{machine} ({address})",
   "{minutes}m": "{minutes}m",
   "{mode} is not available: {hint}": "{mode} is not available: {hint}",
   "{n, plural, one {A conversation is still working. Quitting will stop and discard it.} other {# conversations are still working. Quitting will stop and discard them.}}": "{n, plural, one {A conversation is still working. Quitting will stop and discard it.} other {# conversations are still working. Quitting will stop and discard them.}}",

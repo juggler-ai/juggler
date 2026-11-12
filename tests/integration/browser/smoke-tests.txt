@@ -1,0 +1,66 @@
+# The browser smoke set: what TestBrowser runs under JUGGLER_TEST_SMOKE=1.
+#
+# A quick sanity pass over the main flows, not a substitute for the full suite.
+# Each entry was chosen for being cheap (a few seconds of lane time in a full
+# run) and for covering a path most changes reach. Keep it near this size: a
+# suite that grows slow belongs out of here, not in with a bigger budget. Every
+# name must exist; TestBrowser fails on one that does not, so a rename or a
+# removal cannot quietly shrink the set.
+
+# Tools and approvals
+integration:read-file-string-offset
+integration:write-file-read-then-write
+integration:edit-basic
+integration:approval-parallel-3-tools
+integration:approval-deny-stops-loop
+integration:cmd-approval-pattern-match
+integration:yolo-auto-approves-bash
+integration:error-invalid-tool-params
+integration:rerun-grep-tool
+integration:query-grep
+integration:run-code-turn
+integration:ask-user-question-answer-flow
+integration:at-mention-adds-file-content-item
+
+# Turns: streaming, cancel, queueing
+integration:streaming-multiple-chunks
+integration:cancel-during-execution
+integration:cancel-stops-llm-loop
+integration:queue-drains-at-turn-boundary
+integration:scheduled-send-queued-when-idle
+integration:monitor-stopped-from-panel
+integration:clear-wipes-pending
+integration:compaction-keeps-recent
+
+# Threads, undo, conversations
+integration:thread-lifecycle-single
+integration:thread-command-basic
+integration:thread-undo
+integration:undo-redo-restores-pending
+integration:move-items-undo
+integration:fork-from-assistant-message
+integration:multi-conv-switch-basic
+integration:duplicate-conversation-basic
+integration:new-conversation-command
+
+# Components and contracts
+unit:composer
+unit:conversation-area
+unit:conversation-bar
+unit:tool-action-render
+unit:approval-buttons
+unit:streaming-markdown
+unit:markdown-sanitizer
+unit:diff-split
+unit:model-picker
+unit:settings-panel
+unit:session-persistence
+unit:pinboard-view-state
+unit:workspace-boxes
+unit:reconnect-policy
+unit:worker-inbound
+unit:wire-protocol-parity
+unit:sdk-facade-parity
+unit:i18n
+unit:exclusive-test-flags
+unit:suite-verdict

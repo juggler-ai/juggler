@@ -238,6 +238,15 @@ func (p *lanePool) run() {
 // grant satisfies every waiter the servers' state allows and returns the rest,
 // in their original order.
 //
+// Arrival order is deliberate, not a missing longest-first. Granting the
+// suites with the longest recorded lane time first was measured (2026-11-12):
+// the browser package went from 355s to 502s, and the lane-seconds the suites
+// themselves took rose 1.4× in the unit pool and 1.9× in the shared one. The
+// long suites are long because they load the shared session — many
+// conversations, which every sibling lane in their subprocess hydrates — so
+// starting them together puts them in the same windows at once, each slowing
+// the others. Arrival order spreads them across the run.
+//
 //   - acquire takes a lane on the unreserved ordinary subprocess with the most
 //     free.
 //   - acquireServer reserves a subprocess — a solo window if the pool has any,

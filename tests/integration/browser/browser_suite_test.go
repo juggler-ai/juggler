@@ -68,6 +68,11 @@ func TestBrowser(t *testing.T) {
 	if len(names) == 0 {
 		t.Fatal("browser returned empty test list")
 	}
+	if os.Getenv(smokeEnv) == "1" {
+		if names, err = smokeSubset(names); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	// Wipe each pool slot's fixture (preserving .juggler/ session state) so
 	// `-count=N` iterations don't see leftover test files from the prior
@@ -187,6 +192,48 @@ func TestBrowser(t *testing.T) {
 	for _, pool := range allPools() {
 		pool.expectExclusive(exclusiveIn[pool])
 	}
+}
+
+// smokeEnv, set to 1, narrows TestBrowser to the smoke set: the names in
+// smokeListFile, a quick pass over the main flows for a check that cannot
+// afford the whole suite.
+const smokeEnv = "JUGGLER_TEST_SMOKE"
+
+// smokeListFile is the smoke set, one test name per line, `#` comments, beside
+// this file.
+const smokeListFile = "smoke-tests.txt"
+
+// smokeSubset is the names of the smoke set, in the order the browser listed
+// them. A name in the set the browser did not list is an error: a test renamed
+// or removed would otherwise drop out of the set unnoticed.
+func smokeSubset(names []string) ([]string, error) {
+	data, err := os.ReadFile(smokeListFile)
+	if err != nil {
+		return nil, fmt.Errorf("%s=1, but the smoke set is unreadable: %w", smokeEnv, err)
+	}
+	want := map[string]bool{}
+	for _, line := range strings.Split(string(data), "\n") {
+		if line = strings.TrimSpace(line); line != "" && !strings.HasPrefix(line, "#") {
+			want[line] = true
+		}
+	}
+	var out []string
+	for _, n := range names {
+		if want[n] {
+			out = append(out, n)
+			delete(want, n)
+		}
+	}
+	if len(want) > 0 {
+		missing := make([]string, 0, len(want))
+		for n := range want {
+			missing = append(missing, n)
+		}
+		sort.Strings(missing)
+		return nil, fmt.Errorf("%s names browser tests that do not exist: %s — rename or remove them there",
+			smokeListFile, strings.Join(missing, ", "))
+	}
+	return out, nil
 }
 
 // resetAllFixtures resets every pool subprocess's fixture, wiping any files

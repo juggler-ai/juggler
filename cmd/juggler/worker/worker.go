@@ -180,7 +180,8 @@ type ConversationWorker struct {
 	// Set at construction; a test sets them on its own worker before it runs.
 	historyNavStopCheck, historyNavStopCeiling time.Duration
 
-	// clock is what a pending-queue drain reads as now, and what arms heldTimer.
+	// clock is what a pending-queue drain and the date notice read as now, and
+	// what arms heldTimer.
 	// The wall clock; a test installs its own before the worker runs.
 	clock workerClock
 

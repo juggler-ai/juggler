@@ -85,8 +85,15 @@ export async function runTests(_ctx) {
 
   // A fixed PAST creation timestamp: the env block's date must reflect this,
   // never the live clock, so the assembled prompt is byte-stable across turns
-  // and across a resume that crosses midnight.
-  const FIXED_CREATED = '2020-01-01T08:30:00.000Z';
+  // and across a resume that crosses midnight. Midday UTC, so the local date it
+  // reads as is 2020-01-01 in every timezone within ±11h.
+  const FIXED_CREATED = '2020-01-01T12:00:00.000Z';
+
+  /** @returns {string} The live clock's date on this machine's calendar */
+  function localToday() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
 
   /**
    * Construct a SystemPromptContextItem against minimal fakes — the item only
@@ -113,7 +120,7 @@ export async function runTests(_ctx) {
 			'<env>\n' +
 			'Working directory: /proj\n' +
 			'Platform: darwin\n' +
-			"Today's date: 2020-01-01\n" +
+			"Today's date: 2020-01-01 (when this conversation started; a later message gives the new date if it changes)\n" +
 			'</env>';
     assert(prompt === expected, `assembled prompt should pin the date to conversation.created:\n--- got ---\n${prompt}\n--- want ---\n${expected}`);
   });
@@ -121,7 +128,7 @@ export async function runTests(_ctx) {
   await test('buildPrompt does not leak the live clock date', () => {
     const item = makeItem();
     const prompt = item.buildPrompt();
-    const todayLive = new Date().toISOString().split('T')[0];
+    const todayLive = localToday();
     // The pinned date is in the distant past, so the live date cannot match it.
     assert(todayLive !== '2020-01-01', 'precondition: test must not be run on 2020-01-01');
     assert(!prompt.includes(`Today's date: ${todayLive}`), `live clock date must not appear in the prompt:\n${prompt}`);
@@ -142,7 +149,7 @@ export async function runTests(_ctx) {
       messageThread: /** @type {any} */ ({})
     });
     const prompt = item.buildPrompt();
-    const todayLive = new Date().toISOString().split('T')[0];
+    const todayLive = localToday();
     assert(prompt.includes(`Today's date: ${todayLive}`), `with no conversation.created the fallback live date should appear:\n${prompt}`);
   });
 
@@ -328,7 +335,8 @@ export async function runTests(_ctx) {
 
         // The model's text is English under any UI language.
         const prompt = makeItem().buildPrompt();
-        const expected = getDefaultIdentityText() + '\n\n<env>\nWorking directory: /proj\nPlatform: darwin\nToday\'s date: 2020-01-01\n</env>';
+        const expected = getDefaultIdentityText() + '\n\n<env>\nWorking directory: /proj\nPlatform: darwin\n' +
+          'Today\'s date: 2020-01-01 (when this conversation started; a later message gives the new date if it changes)\n</env>';
         assert(prompt === expected, `the prompt changed under en-XA:\n${prompt}`);
         const envBody = panel.querySelector('[data-section-id="environment"] .system-prompt-section-body')?.textContent || '';
         assert(envBody.includes('Working directory: /proj'), `the environment preview is the prompt's English; got ${JSON.stringify(envBody)}`);

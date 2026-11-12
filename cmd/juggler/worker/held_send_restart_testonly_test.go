@@ -34,11 +34,13 @@ func heldManager(t *testing.T, store *heldStore, fc *fakeClock, replies ...strin
 }
 
 // queueTimedSend seeds a conversation in a first server's Manager, queues a
-// send for at, and shuts that server down.
+// send for at, and shuts that server down. The conversation is created at at,
+// on the fake clock's day, so the turn that answers the send is not also told
+// the date has changed (announceDateChange).
 func queueTimedSend(t *testing.T, store *heldStore, fc *fakeClock, id, text string, at time.Time) {
 	t.Helper()
 	m := heldManager(t, store, fc)
-	if err := m.SeedNewConversation(id, "Held", store.project, "2026-10-26T00:00:00Z", testModel); err != nil {
+	if err := m.SeedNewConversation(id, "Held", store.project, at.UTC().Format(time.RFC3339), testModel); err != nil {
 		t.Fatalf("SeedNewConversation: %v", err)
 	}
 	payload, err := json.Marshal(SendMessageMessage{Type: "send-message", Text: text, NotBefore: at.UnixMilli()})

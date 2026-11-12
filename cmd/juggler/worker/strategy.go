@@ -228,6 +228,11 @@ func (r *run) runOneTurn(st *strategyRunState, explicitContinuation bool) turnVe
 	// run budget is exactly who a runaway fan-out is made of.
 	r.announceSpendCeiling()
 
+	// A turn taken on a later day than the transcript last stated is told
+	// today's date, here for the reason the notices above are: so it is in the
+	// request it is about, behind what the user just sent.
+	r.announceDateChange()
+
 	userMsgToStamp := r.findUnstampedUserMsgID()
 
 	// Fire the strategy's onActivate hook (in the engine) if the active

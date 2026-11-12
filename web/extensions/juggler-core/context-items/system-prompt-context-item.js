@@ -360,9 +360,26 @@ injectStylesOnce('system-prompt-styles', SYSTEM_PROMPT_STYLES);
 // ============================================================================
 
 /**
+ * The date a conversation started, as `YYYY-MM-DD` on this machine's calendar:
+ * the day the user saw, not UTC's. The worker compares today against the same
+ * local day (date_notice.go, announceDateChange) and tells the model when they
+ * differ. A conversation with no creation stamp gets today.
+ * @param {string | undefined} created - The conversation's ISO creation timestamp
+ * @returns {string} Local date as `YYYY-MM-DD`, or `''` for an unreadable stamp
+ */
+function conversationStartDate(created) {
+  const d = created ? new Date(created) : new Date();
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (/** @type {number} */ n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/**
  * Build the auto-appended environment block. Pure: the caller supplies the
  * date so the block is a function of durable conversation state, not the live
  * clock (a conversation resumed across midnight must rebuild identical bytes).
+ * The date is therefore the conversation's start, and the block says so; a turn
+ * on a later day is told the new date by a reminder the worker appends.
  *
  * `projectPath` is stated only when it is somewhere other than the working
  * directory — which is to say only for a conversation bound to a workspace,
@@ -383,7 +400,7 @@ function buildEnvBlock(workingDir, projectPath, platform, today) {
   return markUntranslated(`<env>
 Working directory: ${workingDir || 'unknown'}${project}
 Platform: ${platform || 'unknown'}
-Today's date: ${today}
+Today's date: ${today} (when this conversation started; a later message gives the new date if it changes)
 </env>`);
 }
 
@@ -570,7 +587,7 @@ class SystemPromptContextItem extends ContextItem {
     // Section 2: Environment (strip <env> tags for display). Pin the date to
     // the conversation's creation timestamp so the preview matches the bytes
     // that get hashed (a live clock here would diverge from buildPrompt).
-    const today = (this.conversation?.created || new Date().toISOString()).split('T')[0] || '';
+    const today = conversationStartDate(this.conversation?.created);
     const envBlock = buildEnvBlock(
       this._workingDir(), this.session?.projectPath || '', this.session?.platform || '', today);
     const envDisplay = envBlock.replace(/^<env>\n?/, '').replace(/\n?<\/env>$/, '');
@@ -1053,7 +1070,7 @@ class SystemPromptContextItem extends ContextItem {
    */
   buildPrompt() {
     const identityText = this._getEffectiveText();
-    const today = (this.conversation?.created || new Date().toISOString()).split('T')[0] || '';
+    const today = conversationStartDate(this.conversation?.created);
     const projectPath = this.session?.projectPath || '';
     const workingDir = this._workingDir();
     if (!workingDir) {

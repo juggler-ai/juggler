@@ -10,6 +10,7 @@ the current release). The project follows semantic versioning.
 - Pinned or mentioned folders inside a gitignored directory no longer show as empty
 - Project files and pinned folders are a file browser: click to preview, sizes, git status, filter
 - A stalled engine whose reload fails is reloaded again, instead of staying dead
+- Long-running conversations tell the model when the date changes
 
 ## [0.8.0] - 2026-11-08
 

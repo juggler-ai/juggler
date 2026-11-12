@@ -10,6 +10,7 @@ the current release). The project follows semantic versioning.
 - Pinned or mentioned folders inside a gitignored directory no longer show as empty
 - Project files and pinned folders are a file browser: click to preview, sizes, git status, filter
 - A stalled engine whose reload fails is reloaded again, instead of staying dead
+- A command re-run after an engine reload no longer runs twice; Stop ends every copy
 - Worktree panel shows unlanded commits, and lands work by rebase or merge, submodules included
 - Long-running conversations tell the model when the date changes
 - Theme and zoom are per window again; changing one window no longer restyles the others

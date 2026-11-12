@@ -214,6 +214,82 @@ func TestProcessInventory_StopByOwnerBeforeStart(t *testing.T) {
 	StopProcess(root, "shell-again")
 }
 
+// A tool call runs one foreground command at a time. When the call is run again
+// while its earlier command is still going — an engine reloaded mid-command
+// re-runs the calls it was running — the earlier command is stopped, so the two
+// never run side by side.
+func TestProcessInventory_RerunSupersedesForeground(t *testing.T) {
+	requirePOSIXShell(t)
+	root := t.TempDir()
+	shellOps := NewShellOperations(NewPathScope(root, nil))
+	owner := ProcessOwner{ConvID: "conv-f", ThreadID: "thread-f", ToolUseID: "call_f"}
+
+	first := make(chan ShellStreamChunk, 64)
+	go shellOps.ExecuteStreamingFor(context.Background(), owner, "shell-first", "sleep 30", "", 60000, first)
+	waitForProcess(t, root, hasProcess("shell-first"))
+
+	// Another conversation's call with the same tool-use id is not a re-run.
+	stranger := ProcessOwner{ConvID: "conv-g", ThreadID: "thread-f", ToolUseID: "call_f"}
+	strangerOut := make(chan ShellStreamChunk, 64)
+	go shellOps.ExecuteStreamingFor(context.Background(), stranger, "shell-stranger", "sleep 30", "", 60000, strangerOut)
+	waitForProcess(t, root, hasProcess("shell-stranger"))
+	defer StopProcess(root, "shell-stranger")
+
+	second := make(chan ShellStreamChunk, 64)
+	go shellOps.ExecuteStreamingFor(context.Background(), owner, "shell-second", "sleep 30", "", 60000, second)
+	defer StopProcess(root, "shell-second")
+
+	var last ShellStreamChunk
+	deadline := time.After(10 * time.Second)
+	for done := false; !done; {
+		select {
+		case chunk, ok := <-first:
+			if !ok {
+				done = true
+				break
+			}
+			last = chunk
+		case <-deadline:
+			t.Fatalf("the earlier run kept going beside its re-run; listed %+v", ListProcesses(root))
+		}
+	}
+	if !last.Done {
+		t.Fatalf("expected the earlier run to end with a done chunk, got %+v", last)
+	}
+	list := waitForProcess(t, root, hasNoProcess("shell-first"))
+	if !hasProcess("shell-second")(list) || !hasProcess("shell-stranger")(list) {
+		t.Fatalf("the re-run, or another conversation's call, was stopped too: %+v", list)
+	}
+}
+
+// A stop asked for by the tool call reaches every process it has listed, not
+// just the first found.
+func TestProcessInventory_StopByOwnerStopsAll(t *testing.T) {
+	requirePOSIXShell(t)
+	root := t.TempDir()
+	shellOps := NewShellOperations(NewPathScope(root, nil))
+	params := map[string]any{"command": "sleep 30", "convId": "conv-h", "threadId": "thread-h", "toolUseId": "call_h"}
+	var ids []string
+	for range 2 {
+		res, err := shellOps.startBackground(params)
+		if err != nil {
+			t.Fatalf("startBackground: %v", err)
+		}
+		id, _ := res.(map[string]any)["task_id"].(string)
+		defer KillTask(id)
+		waitForProcess(t, root, hasProcess(id))
+		ids = append(ids, id)
+	}
+
+	stopped, held := StopOwnedProcess(root, ProcessOwner{ConvID: "conv-h", ThreadID: "thread-h", ToolUseID: "call_h"})
+	if !stopped || held {
+		t.Fatalf("expected the call's processes stopped now, got stopped=%v held=%v", stopped, held)
+	}
+	for _, id := range ids {
+		waitForProcess(t, root, hasNoProcess(id))
+	}
+}
+
 // The one-shot execute op is listed too, and a stop ends the call.
 func TestProcessInventory_ExecuteListedAndStoppable(t *testing.T) {
 	requirePOSIXShell(t)

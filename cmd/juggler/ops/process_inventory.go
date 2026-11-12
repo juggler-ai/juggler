@@ -34,6 +34,15 @@ import (
 // (StopOwnedProcess) before there is anything listed to stop. Such a stop is held
 // against the call's owner and carried out the moment a process with that owner
 // is listed, rather than answered "nothing running" and lost.
+//
+// A tool call runs one foreground command at a time, so listing one supersedes
+// any earlier foreground or python process the same call still has running: the
+// earlier one is stopped. The engine that executes tool calls holds its
+// in-flight set only in memory, and a reloaded engine re-runs the calls the old
+// one left running (resetRunningToolsForReattach) while their commands, which
+// outlive the engine, carry on. Nothing would read the earlier run's output, and
+// two copies of a command must never run side by side. Background tasks are
+// exempt: they outlive their call by design.
 
 // Process kinds, as listed.
 const (
@@ -71,6 +80,18 @@ type processEntry struct {
 
 func (e *processEntry) owner() ProcessOwner {
 	return ProcessOwner{ConvID: e.info.ConvID, ThreadID: e.info.ThreadID, ToolUseID: e.info.ToolUseID}
+}
+
+// runsInForeground reports whether the entry's caller is waiting on it, so that
+// the call can have only one at a time.
+func (e *processEntry) runsInForeground() bool {
+	return e.info.Kind == ProcessForeground || e.info.Kind == ProcessPython
+}
+
+// ownedBy reports whether the tool call owner under projectRoot started the
+// entry. An owner without a tool call owns nothing.
+func (e *processEntry) ownedBy(owner ProcessOwner, projectRoot string) bool {
+	return owner.ToolUseID != "" && e.owner() == owner && sameProject(e.projectRoot, projectRoot)
 }
 
 // heldStop is a stop asked for by a tool call whose process is not listed yet.
@@ -115,6 +136,7 @@ type inventoryOp struct {
 type inventoryResp struct {
 	list      []ProcessInfo
 	entry     *processEntry
+	owned     []*processEntry    // the processes a stop by owner, or a re-run, ends
 	observers []*processObserver // who to tell about a track or untrack
 	stopNow   bool               // the tracked process's call asked to stop before it was listed
 }
@@ -142,6 +164,14 @@ func runProcessInventory() {
 	for op := range inventoryOps {
 		switch op.kind {
 		case invTrack:
+			var superseded []*processEntry
+			if op.entry.runsInForeground() {
+				for _, entry := range entries {
+					if entry.runsInForeground() && entry.ownedBy(op.entry.owner(), op.entry.projectRoot) {
+						superseded = append(superseded, entry)
+					}
+				}
+			}
 			entries[op.entry.info.ID] = op.entry
 			stopNow := false
 			if op.entry.info.ToolUseID != "" {
@@ -153,7 +183,7 @@ func runProcessInventory() {
 					}
 				}
 			}
-			op.resp <- inventoryResp{observers: snapshot(), stopNow: stopNow}
+			op.resp <- inventoryResp{observers: snapshot(), stopNow: stopNow, owned: superseded}
 
 		case invUntrack:
 			// Only this entry: an id reused by a later process is that process's.
@@ -175,20 +205,19 @@ func runProcessInventory() {
 			op.resp <- inventoryResp{entry: entries[op.id]}
 
 		case invStopOwned:
-			var found *processEntry
+			var found []*processEntry
 			for _, entry := range entries {
-				if entry.owner() == op.owner && sameProject(entry.projectRoot, op.projectRoot) {
-					found = entry
-					break
+				if entry.ownedBy(op.owner, op.projectRoot) {
+					found = append(found, entry)
 				}
 			}
-			if found == nil {
+			if len(found) == 0 {
 				held = append(held, heldStop{owner: op.owner, projectRoot: op.projectRoot})
 				if len(held) > maxHeldStops {
 					held = append(held[:0:0], held[len(held)-maxHeldStops:]...)
 				}
 			}
-			op.resp <- inventoryResp{entry: found}
+			op.resp <- inventoryResp{owned: found}
 
 		case invObserve:
 			observers = append(observers, op.observer)
@@ -234,6 +263,11 @@ func trackProcess(id, kind, command, projectRoot string, owner ProcessOwner, sto
 	if tracked.stopNow {
 		stop()
 	}
+	for _, earlier := range tracked.owned {
+		jlog.Info("ops: %s re-runs tool call %s (conv=%s thread=%s); stopping its earlier run %s",
+			id, owner.ToolUseID, owner.ConvID, owner.ThreadID, earlier.info.ID)
+		earlier.stop()
+	}
 
 	var once sync.Once
 	return func() {
@@ -267,7 +301,7 @@ func StopProcess(projectRoot, id string) bool {
 	return true
 }
 
-// StopOwnedProcess stops the process the tool call owner started under
+// StopOwnedProcess stops every process the tool call owner started under
 // projectRoot. When none is listed it holds the stop, and the next process listed
 // for that owner there is stopped as it is listed: stopped reports a process was
 // stopped now, held that the stop waits for one. An owner without a tool call
@@ -276,11 +310,13 @@ func StopOwnedProcess(projectRoot string, owner ProcessOwner) (stopped, held boo
 	if owner.ToolUseID == "" {
 		return false, false
 	}
-	entry := askInventory(inventoryOp{kind: invStopOwned, owner: owner, projectRoot: projectRoot}).entry
-	if entry == nil {
+	owned := askInventory(inventoryOp{kind: invStopOwned, owner: owner, projectRoot: projectRoot}).owned
+	if len(owned) == 0 {
 		return false, true
 	}
-	entry.stop()
+	for _, entry := range owned {
+		entry.stop()
+	}
 	return true, false
 }
 

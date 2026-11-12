@@ -5,7 +5,7 @@
 
 import ContextItem from 'juggler/context-item';
 import { translator, markUntranslated } from 'juggler/i18n';
-import { shellKill, shellListProcesses, shellStopProcess, MAX_EXEC_TIMEOUT_MS, DEFAULT_EXEC_TIMEOUT_MS } from 'juggler/ops';
+import { shellKill, shellStopProcess, MAX_EXEC_TIMEOUT_MS, DEFAULT_EXEC_TIMEOUT_MS } from 'juggler/ops';
 import { createHighlightedCode, createSummaryWithSubtitle, renderLiveTaskOutput, pinSource, canPinSource } from 'juggler/ui';
 import { resolveAgainstCwd, posixNormalize, canonicalRoot, isGrantableRoot } from 'juggler/utils/path-containment';
 import { isCommandAutoApproved, suggestApprovalPatterns, MAX_SUGGESTED_PATTERN_LENGTH } from './execute/command-approval.js';
@@ -1259,11 +1259,10 @@ class ExecuteContextItem extends ContextItem {
    * The panel control that stops a foreground command while it runs, or null
    * once it is not running. Stopping one command is not stopping the turn: the
    * call ends "Killed by user" and a turn it belongs to carries on with that
-   * result. The process is found in the session's inventory by the call's
-   * tool-use id, and stopped as the Running tasks pin stops it. The call reads
-   * running before its process is listed, so with nothing listed the stop is
-   * asked for by the call's owner, and the server stops the process as it is
-   * listed.
+   * result. The stop is asked for by the call's owner — conversation, thread
+   * and tool-use id — and the server stops every process that call has listed.
+   * The call reads running before its process is listed, so with nothing listed
+   * the server holds the stop and carries it out as the process is listed.
    * @param {any} toolAction - The tool-action Y.Map.
    * @param {{convId: string, threadId: string}} owner - The conversation and thread the call runs in.
    * @returns {HTMLButtonElement|null} The control, or null to offer nothing.
@@ -1279,10 +1278,7 @@ class ExecuteContextItem extends ContextItem {
     button.addEventListener('click', async () => {
       button.disabled = true;
       try {
-        const { processes } = await shellListProcesses();
-        const process = processes.find((p) => p.toolUseId === toolUseId);
-        if (process) await shellStopProcess({ id: process.id });
-        else await shellStopProcess({ convId: owner.convId, threadId: owner.threadId, toolUseId });
+        await shellStopProcess({ convId: owner.convId, threadId: owner.threadId, toolUseId });
       } catch (err) {
         console.error('[execute] could not stop the command:', err);
         button.disabled = false;

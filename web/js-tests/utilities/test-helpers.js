@@ -757,6 +757,13 @@ export async function createGateTestConversation(session) {
  * @returns {Promise<{toolUseId: string, executionPromise: Promise<import('../../js/services/tool-executor.js').ToolOutcome>}>} The tool use ID and execution promise
  */
 export async function executeToolUntilApproval(conversation, _session, toolCall, timeoutMs = 2000) {
+  // This lane executes the call, so the worker must never see it: it would
+  // command the pool's engine to run the same approved call a second time, and
+  // the server stops a call's earlier run when a re-run starts. Cutting the
+  // outbound sync keeps this lane the only executor, as createGateTestConversation
+  // keeps it the only gate.
+  /** @type {any} */ (conversation)._doc.setOnSyncBroadcast(() => {});
+
   // The Yjs observer only processes REMOTE (non-local) transactions.
   // Locally inserted tool-actions are not auto-processed by handleNewToolAction.
   // So we must manually set state=PENDING and approvalOptions when inserting.

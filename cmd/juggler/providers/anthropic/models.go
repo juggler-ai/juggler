@@ -17,11 +17,16 @@ import (
 // them — so this table is what a lapsed key, a failed fetch or a hand-typed id
 // resolves against, and the generation rules below cover the ids it omits.
 var ModelContextWindows = map[string]int{
-	// The current lineup — Fable, Mythos, Opus and Sonnet from 4.6 up — carries
-	// a 1M window as both default and maximum, at standard per-token pricing,
+	// The current lineup — Fable, Mythos, Opus and Sonnet from 4.6 up, and Haiku
+	// from 5.5 — carries a 1M window as both default and maximum, at standard per-token pricing,
 	// so no beta header is involved. currentLineupLimits answers for the whole
 	// generation, dated ids included; these entries exist so the settings model
 	// list has something to show.
+	"claude-fable-5-2":  1000000,
+	"claude-mythos-5-2": 1000000,
+	"claude-opus-5-5":   1000000,
+	"claude-sonnet-5-5": 1000000,
+	"claude-haiku-5-5":  1000000,
 	"claude-fable-5-1":  1000000,
 	"claude-mythos-5-1": 1000000,
 	"claude-fable-5":    1000000,
@@ -55,14 +60,14 @@ func GetContextWindow(model string) int {
 }
 
 // currentLineupLimits returns the context window and output ceiling shared by
-// the current lineup — Fable, Mythos, Opus and Sonnet — and true when the id
-// names one of them. Every member publishes a 1M window and a 128k output
+// the current lineup — Fable, Mythos, Opus, Sonnet and Haiku — and true when the
+// id names one of them. Every member publishes a 1M window and a 128k output
 // ceiling, so the generation carries the limits and the family only says which
 // naming this is; that is what lets a new family name (Fable, Mythos) resolve
 // without being added to a list.
 //
 // The lineup starts at 4.6, which is where the 1M window arrived: 4.5 and below
-// are 200k, and the family ladder in CatalogMaxOutputTokens still answers for
+// are 200k (Haiku 4.5 included; the next Haiku is 5.5), and the family ladder in CatalogMaxOutputTokens still answers for
 // them. Matching on the generation rather than on exact ids covers both the
 // dateless pinned ids used from 4.6 on and any dated variant.
 //
@@ -78,7 +83,7 @@ func currentLineupLimits(m string) (contextWindow, maxOutput int, ok bool) {
 	if !hasVersion || !inLineup {
 		return 0, 0, false
 	}
-	for _, family := range []string{"fable", "mythos", "opus", "sonnet"} {
+	for _, family := range []string{"fable", "mythos", "opus", "sonnet", "haiku"} {
 		if strings.Contains(m, family) {
 			return 1000000, 128000, true
 		}
@@ -97,7 +102,7 @@ func currentLineupLimits(m string) (contextWindow, maxOutput int, ok bool) {
 // claude-4.5-sonnet). Order matters: the most specific generations are checked
 // first, since "claude-3-5-sonnet" also contains "claude-3".
 //
-// Ceilings (Anthropic docs): generation 5 (Fable, Mythos, Opus, Sonnet) →
+// Ceilings (Anthropic docs): generation 5 (Fable, Mythos, Opus, Sonnet, Haiku) →
 // 128000; Opus 4.x → 32000; Sonnet/Haiku 4.x and Sonnet 3.7 → 64000;
 // Sonnet/Haiku 3.5 → 8192; Claude 3 (non-3.5) → 4096. Unknown/future ids fall
 // back to defaultMaxOutputTokens, which is at or below every known model's
@@ -200,42 +205,58 @@ func SupportsThinking(model string) bool {
 // arguments instead. tool_choice "auto" and "none" stay accepted everywhere,
 // which is what keeps compaction's disabled-tools probe legal.
 //
-// That is the Fable and Mythos lineage from 5.1 on. Fable 5 and Mythos 5 accept
-// a forced choice, so the test is the version and not the family alone; from 5.1
-// the restriction travels with the lineage, which is why a later generation of
-// it keeps the answer rather than aging out of it.
+// The rejecting models are the Fable and Mythos lineage from 5.1 on, and Opus
+// and Sonnet from 5.5 on. Sonnet 5.5 rejects it although its thinking can be
+// turned down, so this is a per-model fact rather than one derived from
+// thinkingAlwaysOn, and Haiku 5.5, which also thinks by default, accepts one.
+// Fable 5, Mythos 5, Opus 5 and Sonnet 5 accept a forced choice, so the test is
+// the version and not the family alone; once a lineage loses it the restriction
+// travels with it, which is why a later generation keeps the answer rather than
+// aging out of it.
 func supportsForcedToolChoice(model string) bool {
-	major, minor, ok := claudeVersion(model)
-	if !ok || major < 5 || (major == 5 && minor < 1) {
+	m := strings.ToLower(model)
+	switch {
+	case strings.Contains(m, "fable"), strings.Contains(m, "mythos"):
+		return !versionAtLeast(m, 5, 1)
+	case strings.Contains(m, "opus"), strings.Contains(m, "sonnet"):
+		return !versionAtLeast(m, 5, 5)
+	default:
 		return true
 	}
-	m := strings.ToLower(model)
-	return !strings.Contains(m, "fable") && !strings.Contains(m, "mythos")
 }
 
 // thinkingAlwaysOn reports whether a model thinks on every turn with no way to
 // turn it off: it rejects both thinking.type "disabled" and the manual
 // "enabled" form, leaving effort as the only control over how deeply it thinks.
 //
-// That is the Fable and Mythos lineage, at every version. It is the cause behind
-// two separate rules — a prefill has nowhere to go when thinking opens the turn,
-// and omitting the thinking config cannot mean "no thinking" — so both read it
-// rather than repeat the test.
+// That is the Fable and Mythos lineage at every version, and Opus from 5.5 on
+// (Opus 5 can still be told not to think). Omitting the thinking config cannot
+// mean "no thinking" on these models, so "off" still sends one.
 func thinkingAlwaysOn(model string) bool {
 	m := strings.ToLower(model)
-	return strings.Contains(m, "fable") || strings.Contains(m, "mythos")
+	switch {
+	case strings.Contains(m, "fable"), strings.Contains(m, "mythos"):
+		return true
+	case strings.Contains(m, "opus"):
+		return versionAtLeast(m, 5, 5)
+	default:
+		return false
+	}
 }
 
 // supportsAssistantPrefill reports whether a model accepts a request whose last
 // message is an assistant turn — a prefill, asking the model to continue that
 // message rather than answer it. A model that always thinks rejects one with a
-// 400: thinking opens the turn, and a prefill leaves nowhere for it to go.
+// 400: thinking opens the turn, and a prefill leaves nowhere for it to go. From
+// 5.5 every family rejects one, Haiku and Sonnet included, whose thinking is
+// only on by default.
 //
 // Being wrong toward "unsupported" costs a two-token user turn; being wrong
-// toward "supported" is a 400 on every continuation, so anything unattested
-// stays supported and is corrected by evidence rather than by guess.
+// toward "supported" is a 400 on every continuation. An id naming no generation
+// stays supported and is corrected by evidence rather than by guess, but a
+// generation past 5.5 takes the side that cannot 400.
 func supportsAssistantPrefill(model string) bool {
-	return !thinkingAlwaysOn(model)
+	return !thinkingAlwaysOn(model) && !versionAtLeast(model, 5, 5)
 }
 
 // thinkingMode names the wire form a model accepts for extended thinking. The
@@ -324,6 +345,16 @@ func versionNumber(token string) (int, bool) {
 		return 0, false
 	}
 	return value, true
+}
+
+// versionAtLeast reports whether the model id names a generation at or above
+// major.minor. An id naming no generation is never at least anything.
+func versionAtLeast(model string, major, minor int) bool {
+	gotMajor, gotMinor, ok := claudeVersion(model)
+	if !ok {
+		return false
+	}
+	return gotMajor > major || (gotMajor == major && gotMinor >= minor)
 }
 
 // SupportsImageInput reports whether an Anthropic model accepts image input.

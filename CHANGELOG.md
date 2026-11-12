@@ -16,6 +16,7 @@ the current release). The project follows semantic versioning.
 - Theme and zoom are per window again; changing one window no longer restyles the others
 - Option to keep conversations and other local state outside the project folder
 - A window on another computer's server shows that computer's name, not its IP
+- Claude Opus, Sonnet and Haiku 5.5 no longer fail on Continue or forced tool calls
 
 ## [0.8.0] - 2026-11-08
 

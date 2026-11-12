@@ -24,6 +24,14 @@ func TestGetContextWindow(t *testing.T) {
 		model string
 		want  int
 	}{
+		{"claude-fable-5-2", 1000000},
+		{"claude-mythos-5-2", 1000000},
+		{"claude-opus-5-5", 1000000},
+		{"claude-sonnet-5-5", 1000000},
+		// Haiku joined the lineup at 5.5. A family list naming only the
+		// frontier families sizes it at 200000 offline.
+		{"claude-haiku-5-5", 1000000},
+		{"claude-haiku-5-5-20261007", 1000000},
 		{"claude-fable-5-1", 1000000},
 		{"claude-mythos-5-1", 1000000},
 		{"claude-fable-5", 1000000},
@@ -235,6 +243,10 @@ func TestGetMaxOutputTokens(t *testing.T) {
 		{"claude-mythos-5-1", 128000},
 		{"claude-opus-5", 128000},
 		{"claude-sonnet-5", 128000},
+		{"claude-fable-5-2", 128000},
+		{"claude-opus-5-5", 128000},
+		{"claude-sonnet-5-5", 128000},
+		{"claude-haiku-5-5", 128000},
 		// Unknown / empty → conservative default (never below a known model's min).
 		// A generation past the catalog's knowledge stays here rather than
 		// inheriting generation 5's ceiling: too high is a hard 400 per request.
@@ -338,6 +350,7 @@ func TestThinkingDisplayScope(t *testing.T) {
 	}{
 		{"always-thinking at off shows progress, not reasoning", "claude-fable-5-1", "off", "updates"},
 		{"always-thinking with a level shows reasoning", "claude-fable-5-1", "high", "summarized"},
+		{"Opus 5.5 always thinks, so off shows progress", "claude-opus-5-5", "off", "updates"},
 		{"optional-thinking with a level shows reasoning", "claude-opus-4-7-20260210", "high", "summarized"},
 		{"optional-thinking at off asks for nothing", "claude-opus-4-7-20260210", "off", ""},
 	}
@@ -392,6 +405,7 @@ func TestBlockBindingScope(t *testing.T) {
 	}{
 		{"always-thinking model at off", "claude-fable-5-1", "off", true},
 		{"always-thinking model with a level", "claude-fable-5-1", "high", true},
+		{"Opus 5.5 always thinks, so off still binds", "claude-opus-5-5", "off", true},
 		{"optional-thinking model with a level", "claude-opus-4-7-20260210", "high", true},
 		{"optional-thinking model at off keeps its silence", "claude-opus-4-7-20260210", "off", false},
 		{"manual-thinking model is a different wire form", "claude-sonnet-4-5-20250929", "high", false},
@@ -417,11 +431,11 @@ func TestBlockBindingScope(t *testing.T) {
 	}
 }
 
-// TestSupportsForcedToolChoice pins the version boundary. Anthropic documents
+// TestSupportsForcedToolChoice pins the version boundaries. Anthropic documents
 // losing forced tool use as a breaking change *from* Fable 5, so Fable 5 accepts
-// a forced choice and only 5.1 onward rejects it — a family-only test would
-// wrongly disarm the predecessor, and a generation-only test would wrongly
-// disarm Opus 5 and Sonnet 5, which keep it.
+// a forced choice and only 5.1 onward rejects it; Opus and Sonnet lose it at 5.5.
+// Haiku 5.5 keeps it, so a generation-only test would wrongly disarm it, as it
+// would Opus 5 and Sonnet 5.
 func TestSupportsForcedToolChoice(t *testing.T) {
 	cases := []struct {
 		model string
@@ -429,6 +443,10 @@ func TestSupportsForcedToolChoice(t *testing.T) {
 	}{
 		{"claude-fable-5-1", false},
 		{"claude-mythos-5-1", false},
+		{"claude-fable-5-2", false},
+		{"claude-opus-5-5", false},
+		{"claude-sonnet-5-5", false},
+		{"claude-haiku-5-5", true},
 		{"claude-fable-5", true},
 		{"claude-mythos-5", true},
 		{"claude-opus-5", true},
@@ -441,6 +459,35 @@ func TestSupportsForcedToolChoice(t *testing.T) {
 	for _, tc := range cases {
 		if got := supportsForcedToolChoice(tc.model); got != tc.want {
 			t.Errorf("supportsForcedToolChoice(%q) = %t, want %t", tc.model, got, tc.want)
+		}
+	}
+}
+
+// TestSupportsAssistantPrefill pins which models get the continuation turn in
+// place of a prefill. Every family rejects a prefill from 5.5 on, and Fable and
+// Mythos at every version; Opus 5 and Sonnet 5 still take one.
+func TestSupportsAssistantPrefill(t *testing.T) {
+	cases := []struct {
+		model string
+		want  bool
+	}{
+		{"claude-opus-5-5", false},
+		{"claude-sonnet-5-5", false},
+		{"claude-haiku-5-5", false},
+		{"claude-haiku-5-5-20261007", false},
+		{"claude-fable-5-2", false},
+		{"claude-fable-5", false},
+		{"claude-mythos-5-1", false},
+		{"claude-opus-5", true},
+		{"claude-sonnet-5", true},
+		{"claude-opus-4-8", true},
+		{"claude-haiku-4-5-20251001", true},
+		{"some-future-model", true},
+		{"", true},
+	}
+	for _, tc := range cases {
+		if got := supportsAssistantPrefill(tc.model); got != tc.want {
+			t.Errorf("supportsAssistantPrefill(%q) = %t, want %t", tc.model, got, tc.want)
 		}
 	}
 }

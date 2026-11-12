@@ -144,7 +144,11 @@ app-container {
    One class of specificity, so nothing here outranks a later layer's rule, and
    no `display` of its own, so the [hidden] attribute keeps hiding it. Sized
    and set on the button's outer corner to fit the glyph's bare top-right,
-   right of its top box and above its crossbar, so it covers none of the ink. */
+   right of its top box and above its crossbar, so it covers none of the ink.
+   The digit is centred on its ink, not its line box: a line box centres the
+   font's ascent and descent, which are unequal, so the digit would sit off
+   the middle. text-box trims the line to cap height and baseline, and
+   align-content centres what is left. */
 .network-button__clients {
     --network-button-badge-size: 0.75rem;
 
@@ -160,7 +164,9 @@ app-container {
     font-size: var(--font-size-2xs);
     font-weight: var(--font-weight-semibold);
     font-variant-numeric: tabular-nums;
-    line-height: var(--network-button-badge-size);
+    line-height: 1;
+    text-box: trim-both cap alphabetic;
+    align-content: center;
     text-align: center;
     pointer-events: none;
 }

@@ -24,6 +24,10 @@
  * inline-rename editor (`.is-renaming`, utils/inline-rename.js), which lies over
  * the name it would describe. An overflow element that fits gives way to any
  * titled ancestor.
+ *
+ * A keyboard shortcut never goes in the title text. The anchor names it with
+ * `data-shortcut-id` (or a literal `data-tooltip-keys`), and the surface sets it
+ * beside the text as a keycap — see {@link TooltipManager#_shortcutOf}.
  * @module services/tooltip-manager
  */
 
@@ -293,19 +297,53 @@ class TooltipManager {
   }
 
   /**
-   * Append the platform-correct keystroke to a tooltip when its anchor declares
-   * a `data-shortcut-id`, so buttons advertise their shortcut without any
-   * hard-coded key text in the markup. The manager is the source of the combo.
+   * The keystroke a tooltip advertises beside its text, kept out of the title so
+   * the surface can set it apart as a keycap. An anchor names it by
+   * `data-shortcut-id` (the key-shortcut manager supplies the platform-correct
+   * combo, so markup holds no key text) or, for a key no registered command
+   * owns, spells it out in `data-tooltip-keys`. `data-tooltip-keys-note` adds a
+   * short qualifier after the keycap ("hold for menu").
    * @param {HTMLElement} anchor - The titled anchor.
-   * @param {string} text - The base tooltip text.
-   * @returns {string} The text, with " (⌘K)"-style suffix when a shortcut applies.
+   * @returns {{keys: string, note: string}|null} The keystroke, or null when none applies.
    * @private
    */
-  _withShortcut(anchor, text) {
+  _shortcutOf(anchor) {
     const id = anchor.getAttribute('data-shortcut-id');
-    if (!id) return text;
-    const combo = keyShortcutManager.formatBinding(id);
-    return combo ? `${text} (${combo})` : text;
+    const keys = id ? keyShortcutManager.formatBinding(id) : (anchor.getAttribute('data-tooltip-keys') ?? '');
+    if (!keys) return null;
+    return { keys, note: anchor.getAttribute('data-tooltip-keys-note') ?? '' };
+  }
+
+  /**
+   * Fill the surface: the text, then — when the anchor advertises one — the
+   * keystroke as a keycap (and its note) in a trailing column of its own.
+   * @param {HTMLElement} el - The surface.
+   * @param {string} text - The tooltip text.
+   * @param {{keys: string, note: string}|null} shortcut - The keystroke, if any.
+   * @private
+   */
+  _fill(el, text, shortcut) {
+    el.classList.toggle('app-tooltip--with-keys', !!shortcut);
+    if (!shortcut) {
+      el.textContent = text;
+      return;
+    }
+    const body = document.createElement('span');
+    body.className = 'app-tooltip__text';
+    body.textContent = text;
+    const hint = document.createElement('span');
+    hint.className = 'app-tooltip__hint';
+    const kbd = document.createElement('kbd');
+    kbd.className = 'app-tooltip__keys';
+    kbd.textContent = shortcut.keys;
+    hint.appendChild(kbd);
+    if (shortcut.note) {
+      const note = document.createElement('span');
+      note.className = 'app-tooltip__note';
+      note.textContent = shortcut.note;
+      hint.appendChild(note);
+    }
+    el.replaceChildren(body, hint);
   }
 
   /**
@@ -322,9 +360,14 @@ class TooltipManager {
     if (!text) return;
 
     const el = this._surface();
-    el.textContent = this._withShortcut(anchor, text);
+    this._fill(el, text, this._shortcutOf(anchor));
 
-    // Measure with the surface laid out but not yet animating.
+    // Measure with the surface laid out but not yet animating, from the origin:
+    // a fixed box with auto width shrinks to the room right of its `left`, so
+    // measured where the last tooltip was left (near the right edge, say) it
+    // would wrap text that fits.
+    el.style.left = '0px';
+    el.style.top = '0px';
     const a = anchor.getBoundingClientRect();
     const vw = document.documentElement.clientWidth;
     const vh = document.documentElement.clientHeight;

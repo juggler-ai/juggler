@@ -30,7 +30,6 @@ import JugglerElement from '../juggler-element.js';
 import { presentPopup, whenRevealed } from '../../utils/popup-surface.js';
 import { modelLabelFromList } from '../../model/model-display.js';
 import { buildModelConfig } from '../../model/model-config.js';
-import keyShortcutManager from '../../services/key-shortcut-manager.js';
 import { escapeHtml } from '../../../sdk/lib/html.js';
 import { t } from '../../../sdk/lib/i18n.js';
 import './model-tuning.js';
@@ -57,6 +56,8 @@ class ModelChip extends JugglerElement {
     this._pulseWhenEmpty = false;
     /** @type {string} @private - The button's tooltip. */
     this._buttonTitle = t('LLM Model');
+    /** @type {string} @private - Shortcut id the button's tooltip advertises as a keycap ('' for none). */
+    this._buttonShortcutId = '';
     /** @type {(() => void)|null} @private - presentPopup release for the mini popover. */
     this._miniRelease = null;
     /** @type {HTMLElement|null} @private - The mini popover's surface while open. */
@@ -176,6 +177,25 @@ class ModelChip extends JugglerElement {
     this._update();
   }
 
+  /**
+   * @param {string} id - Shortcut id the button's tooltip shows as a keycap
+   *   (with "hold for menu" beside it); '' for none.
+   */
+  set buttonShortcutId(id) {
+    this._buttonShortcutId = id;
+    this._update();
+  }
+
+  /**
+   * The keycap attributes for the button's tooltip.
+   * @returns {string} Attribute markup, or '' when the button advertises no shortcut.
+   * @private
+   */
+  _buttonShortcutAttrs() {
+    if (!this._buttonShortcutId) return '';
+    return ` data-shortcut-id="${escapeHtml(this._buttonShortcutId)}" data-tooltip-keys-note="${escapeHtml(t('hold for menu'))}"`;
+  }
+
   /** @returns {HTMLElement|null} The button, for use as a popup anchor. */
   get button() {
     return /** @type {HTMLElement|null} */ (this.querySelector('.model-selector-button'));
@@ -259,20 +279,17 @@ class ModelChip extends JugglerElement {
     const level = explicit && levels.includes(explicit) ? explicit : '';
     const declaredDefault = modelEntry?.defaultThinkingLevel || '';
     const shown = level || declaredDefault || t('def', undefined, { context: 'short for the default thinking level, on a small pill' });
-    // Cite the switch-thinking shortcut (⌥⌘T / Ctrl+Alt+T) live from the central
-    // table, so the hint stays correct if it's ever rebound or left unbound.
-    const cycleKey = keyShortcutManager.formatBinding('cycle-thinking');
     const params = {
       state: level ? 'explicit' : declaredDefault ? 'declared' : 'none',
       level: level || declaredDefault,
-      key: cycleKey,
     };
-    const title = cycleKey
-      ? t('Thinking: {state, select, explicit {{level}} declared {{level} (default)} other {default}} — click to change ({key}, hold for menu)', params)
-      : t('Thinking: {state, select, explicit {{level}} declared {{level} (default)} other {default}} — click to change', params);
+    const title = t('Thinking: {state, select, explicit {{level}} declared {{level} (default)} other {default}} — click to change', params);
+    // The tooltip shows the switch-thinking shortcut (⌥⌘T / Ctrl+Alt+T) as a
+    // keycap, read live from the central table, so it stays correct if it's
+    // ever rebound — and drops out if it's left unbound.
     // A <span> (not <button>): the chip nests inside the model button, and a
     // button inside a button is invalid HTML the parser would eject.
-    return `<span class="thinking-chip${level ? '' : ' default'}" role="button" aria-haspopup="dialog" aria-expanded="${!!this._miniRelease}" title="${escapeHtml(title)}">${escapeHtml(shown)}</span>`;
+    return `<span class="thinking-chip${level ? '' : ' default'}" role="button" aria-haspopup="dialog" aria-expanded="${!!this._miniRelease}" title="${escapeHtml(title)}" data-shortcut-id="cycle-thinking" data-tooltip-keys-note="${escapeHtml(t('hold for menu'))}">${escapeHtml(shown)}</span>`;
   }
 
   /**
@@ -330,6 +347,13 @@ class ModelChip extends JugglerElement {
     button.classList.toggle('model-unavailable', state.modelUnavailable);
     button.classList.toggle('pulse', this._pulseWhenEmpty && state.noModelSelected);
     button.title = this._buttonTitle;
+    if (this._buttonShortcutId) {
+      button.setAttribute('data-shortcut-id', this._buttonShortcutId);
+      button.setAttribute('data-tooltip-keys-note', t('hold for menu'));
+    } else {
+      button.removeAttribute('data-shortcut-id');
+      button.removeAttribute('data-tooltip-keys-note');
+    }
     const contentHTML = this._contentHTML(state);
     if (contentHTML !== this._renderedContentHTML) {
       button.innerHTML = contentHTML;
@@ -521,7 +545,7 @@ class ModelChip extends JugglerElement {
     const contentHTML = this._contentHTML(state);
     this._renderedContentHTML = contentHTML;
     this.innerHTML = `
-            <button class="${/* eslint-disable-line juggler/escape-html-interpolation -- literal class names, left bare so css-markup-model reads them */ classes.join(' ')}" id="model-button" type="button" title="${escapeHtml(this._buttonTitle)}" aria-haspopup="dialog" aria-expanded="${this._expanded ? 'true' : 'false'}">
+            <button class="${/* eslint-disable-line juggler/escape-html-interpolation -- literal class names, left bare so css-markup-model reads them */ classes.join(' ')}" id="model-button" type="button" title="${escapeHtml(this._buttonTitle)}"${this._buttonShortcutAttrs()} aria-haspopup="dialog" aria-expanded="${this._expanded ? 'true' : 'false'}">
                 ${contentHTML}
             </button>
         `;

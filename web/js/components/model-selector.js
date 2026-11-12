@@ -28,7 +28,6 @@ import connectionStatus from '../services/connection-status.js';
 import recentModels from '../services/recent-models.js';
 import { buildModelConfig, sameModelConfig } from '../model/model-config.js';
 import { modelLabel } from '../model/model-display.js';
-import keyShortcutManager from '../services/key-shortcut-manager.js';
 import CycleBuffer from '../services/cycle-buffer.js';
 import { showConfirm } from './modal-dialog.js';
 import { openSettings } from '../services/settings-launcher.js';
@@ -933,17 +932,11 @@ class ModelSelector extends JugglerElement {
   }
 
   render() {
-    // Cite the switch-model shortcut (⌥⌘M / Ctrl+Alt+M) live from the central
-    // table, so the tooltip stays correct if it's ever rebound or left unbound.
-    const cycleModelKey = keyShortcutManager.formatBinding('cycle-model');
-    const modelTitle = cycleModelKey
-      ? t('LLM Model ({key}, hold for menu)', { key: cycleModelKey })
-      : t('LLM Model');
-
     this.innerHTML = '<model-chip></model-chip>';
     const chip = this._chip;
     if (!chip) return;
-    chip.update({ placeholder: t('Select Model'), pulseWhenEmpty: true, buttonTitle: modelTitle });
+    // The tooltip shows the switch-model shortcut (⌥⌘M / Ctrl+Alt+M) as a keycap.
+    chip.update({ placeholder: t('Select Model'), pulseWhenEmpty: true, buttonTitle: t('LLM Model'), buttonShortcutId: 'cycle-model' });
     chip.addEventListener('chip-toggle', () => this.toggleDropdown());
     chip.addEventListener('mini-requested', () => {
       // The pill promises the mini popover, so the picker sitting over it goes

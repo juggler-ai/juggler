@@ -20,6 +20,7 @@
 
 import { escapeHtml } from '../../../sdk/lib/html.js';
 import { t } from '../../../sdk/lib/i18n.js';
+import { isMac, formatBindingLabel } from '../../services/key-shortcut-manager.js';
 import { presentModal } from '../../utils/modal-surface.js';
 
 /**
@@ -229,7 +230,7 @@ function shell(view, actions, dismissLabel, canGoBack) {
       <header class="onboarding-wizard-header">
         ${canGoBack ? `<button type="button" class="onboarding-wizard-back" aria-label="${escapeHtml(t('Back'))}">${escapeHtml(t('← Back'))}</button>` : ''}
         <h2 class="onboarding-wizard-title">${escapeHtml(view.title)}</h2>
-        <button class="btn btn-icon btn-icon-lg btn-ghost onboarding-wizard-close" title="${escapeHtml(t('Close (Esc)'))}" aria-label="${escapeHtml(dismissLabel)}"><span class="icon-close"></span></button>
+        <button class="btn btn-icon btn-icon-lg btn-ghost onboarding-wizard-close" title="${escapeHtml(t('Close'))}" data-tooltip-keys="${escapeHtml(formatBindingLabel({ key: 'Escape' }, isMac()))}" aria-label="${escapeHtml(dismissLabel)}"><span class="icon-close"></span></button>
       </header>
       <div class="onboarding-wizard-body">${view.body}</div>
       ${buttons ? `<footer class="onboarding-wizard-footer">${buttons}</footer>` : ''}

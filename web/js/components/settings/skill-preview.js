@@ -28,6 +28,7 @@
 
 import { escapeHtml } from '../../../sdk/lib/html.js';
 import { t } from '../../../sdk/lib/i18n.js';
+import { isMac, formatBindingLabel } from '../../services/key-shortcut-manager.js';
 import { renderMarkdown } from '../../../sdk/lib/markdown.js';
 import { httpErrorText } from '../../services/http.js';
 import { formatBytes } from '../../utils/format.js';
@@ -52,7 +53,7 @@ export function skillPreviewShell(title, bodyHtml, footerHtml = '') {
     <modal-panel class="skills-preview-panel" ${dialogAttributes(titleId)}>
       <header class="skills-preview-header">
         <h2 class="skills-preview-title text-truncate" id="${titleId}">${title}</h2>
-        <button class="btn btn-icon btn-icon-lg btn-ghost skills-preview-close" data-action="drawer-close" title="${escapeHtml(t('Close (Esc)'))}" aria-label="${escapeHtml(t('Close'))}"><span class="icon-close"></span></button>
+        <button class="btn btn-icon btn-icon-lg btn-ghost skills-preview-close" data-action="drawer-close" title="${escapeHtml(t('Close'))}" data-tooltip-keys="${escapeHtml(formatBindingLabel({ key: 'Escape' }, isMac()))}" aria-label="${escapeHtml(t('Close'))}"><span class="icon-close"></span></button>
       </header>
       <div class="skills-preview-body">${bodyHtml}</div>
       ${footerHtml ? `<footer class="skills-preview-footer">${footerHtml}</footer>` : ''}

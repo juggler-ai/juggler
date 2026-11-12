@@ -225,7 +225,10 @@
 			"file": "patterns/tooltip.css",
 			"layer": "patterns",
 			"owns": [
-				"app-tooltip"
+				"app-tooltip",
+				"app-tooltip__text",
+				"app-tooltip__hint",
+				"app-tooltip__keys"
 			]
 		},
 		{

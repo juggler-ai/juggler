@@ -793,14 +793,14 @@ export async function runTests(_ctx) {
     try {
       findBar.open(col);
       const mac = isMac();
-      const title = (/** @type {string} */ sel) => col.querySelector(sel)?.getAttribute('title') || '';
+      const shown = (/** @type {string} */ sel) => col.querySelector(sel)?.getAttribute('data-tooltip-keys') || '';
       for (const [sel, binding] of /** @type {Array<[string, any]>} */ ([
         ['.find-bar__next', { key: 'Enter' }],
         ['.find-bar__prev', { key: 'Enter', shift: true }],
         ['.find-bar__close', { key: 'Escape' }],
       ])) {
         const keys = formatBindingLabel(binding, mac);
-        assert(title(sel).includes(`(${keys})`), `${sel} title "${title(sel)}" does not name ${keys}`);
+        assert(shown(sel) === keys, `${sel} tooltip keys "${shown(sel)}" are not ${keys}`);
       }
     } finally {
       findBar.close();

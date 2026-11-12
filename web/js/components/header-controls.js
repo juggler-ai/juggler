@@ -169,7 +169,7 @@ export function bindNetworkClients(button, { events = wsService, seed = fetchCli
     shownTotal = total;
     const others = Math.max(0, (total || 1) - 1);
     const label = host
-      ? t('{count, plural, =0 {Network settings — connected to the Juggler server at {host}} one {Network settings — connected to the Juggler server at {host}, with {count} other client} other {Network settings — connected to the Juggler server at {host}, with {count} other clients}}',
+      ? t('{count, plural, =0 {This window is connected to the Juggler server at {host} — click for connectivity settings} one {This window is connected to the Juggler server at {host}, with {count} other client — click for connectivity settings} other {This window is connected to the Juggler server at {host}, with {count} other clients — click for connectivity settings}}',
         { count: others, host: server })
       : t('{count, plural, =0 {Network settings} one {Network settings — {count} other client connected} other {Network settings — {count} other clients connected}}',
         { count: others });
@@ -313,11 +313,9 @@ export function setupHeaderControls(session) {
       pathTile.textContent = name ? initials(name) : '';
       pathTile.style.setProperty('--session-switcher-tint', workspaceTint(ownProjectLink()));
     }
-    const key = keyShortcutManager.formatBindings('switch-session')[0] || '';
     if (pathChip) {
-      pathChip.title = key
-        ? t('{path} — switch session ({key})', { path: projectPath, key })
-        : t('{path} — switch session', { path: projectPath });
+      pathChip.title = t('{path} — switch session', { path: projectPath });
+      pathChip.setAttribute('data-shortcut-id', 'switch-session');
     }
   };
 

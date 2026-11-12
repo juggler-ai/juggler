@@ -937,10 +937,9 @@ func setWindowPref(s *sessionState, role string, apply func(*WindowState)) error
 
 // GetUIZoom returns the UI zoom (root font-size %) this project's session holds,
 // or (0, false) if it holds none. Runs on the actor goroutine so it never races a
-// concurrent save. Nothing writes it: the zoom is a machine preference in
-// settings.json (see web/js/utils/zoom-manager.js), and this is read only so
-// serveIndex can offer it to the server's own window to adopt for a machine that
-// has none.
+// concurrent save. Nothing writes it: the zoom is a window preference, kept in
+// each window role's UI preferences (see web/js/utils/zoom-manager.js), and this
+// is read only so serveIndex can offer it to a window with none of its own.
 func (m *SessionManager) GetUIZoom() (int, bool) {
 	return runLookup(m, func(s *sessionState) (int, bool) {
 		if s.session == nil || s.session.UIZoom <= 0 {
@@ -958,9 +957,9 @@ func validUIThemeMode(mode string) bool {
 // GetUITheme returns the UI theme mode (system|light|dark) this project's
 // session holds, or ("", false) if it holds none or one the viewer does not
 // accept. Runs on the actor goroutine so it never races a concurrent save.
-// Nothing writes it: the theme is a machine preference in settings.json (see
-// web/js/utils/theme-manager.js), and this is read only so serveIndex can offer
-// it to the server's own window to adopt for a machine that has none.
+// Nothing writes it: the theme is a window preference, kept in each window
+// role's UI preferences (see web/js/utils/theme-manager.js), and this is read
+// only so serveIndex can offer it to a window with none of its own.
 func (m *SessionManager) GetUITheme() (string, bool) {
 	return runLookup(m, func(s *sessionState) (string, bool) {
 		if s.session == nil || !validUIThemeMode(s.session.UITheme) {

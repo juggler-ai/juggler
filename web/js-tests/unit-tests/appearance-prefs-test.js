@@ -3,17 +3,17 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 /**
- * Theme and zoom are machine preferences unit test.
+ * Theme and zoom are window preferences unit test.
  *
- * The theme and the UI zoom describe the screen in front of the user, so they
- * live in the machine realm: one value for every desktop window on the server's
- * own machine, kept in settings.json, and a value of its own for any viewer on
- * another machine — a phone, or the desktop app's own window on a server
- * elsewhere. This pins where each client stores them, that a change made in
- * another window reaches this one, and where a page starts before anything has
- * been stored: a window that inherits a value stores it for its machine, the
- * plain default is never stored, and a viewer on another machine never takes
- * the host's choice as its own.
+ * Each window keeps its own theme and UI zoom: the server's own desktop window
+ * in this project's session under its window role, and a viewer on another
+ * machine — a phone, or the desktop app's own window on a server elsewhere — in
+ * its own localStorage, scoped the same way, never writing back. This pins
+ * where each client stores them, that nothing another window does changes this
+ * one, and where a window starts before it has stored anything: what it was
+ * handed (the opener's seed, then what an older build kept for the machine or
+ * the project) is stored as its own, the plain default never is, and a viewer
+ * on another machine never takes the host's choice as its own.
  * @module unit-tests/appearance-prefs-test
  */
 
@@ -27,10 +27,23 @@ import { budgetFor } from '../utilities/test-deadline.js';
  * @property {string[]} errors list of error messages from failing assertions
  */
 
-const THEME = 'juggler-theme';
-const ZOOM = 'juggler-zoom';
-/** Every localStorage cell these cases can write, saved and put back by hand. */
-const CELLS = [THEME, `${THEME}@viewer`, ZOOM, `${ZOOM}@viewer`];
+const THEME = 'juggler-window-theme';
+const ZOOM = 'juggler-window-zoom';
+/** The names an older build kept both under for the whole machine. */
+const MACHINE_THEME = 'juggler-theme';
+const MACHINE_ZOOM = 'juggler-zoom';
+/** The project key these cases pretend the server injected. */
+const PROJECT = 'pk-appearance-a';
+const OTHER_PROJECT = 'pk-appearance-b';
+const BOARD_ROLE = 'pinboard:board_x';
+
+/**
+ * Every localStorage cell these cases can write, saved and put back by hand.
+ * @type {string[]}
+ */
+const CELLS = [THEME, ZOOM, MACHINE_THEME, MACHINE_ZOOM, `${MACHINE_THEME}@viewer`, `${MACHINE_ZOOM}@viewer`]
+  .flatMap((name) => [name, `${name}:${PROJECT}`, `${name}:${OTHER_PROJECT}`,
+    `${name}:${PROJECT}@${BOARD_ROLE}`]);
 
 /**
  * @param {object} _ctx - Test context (unused)
@@ -44,8 +57,9 @@ export async function runTests(_ctx) {
 
   const { setMode, getMode, getPaintedTheme, MODES } = await import('../../js/utils/theme-manager.js');
   const { zoomIn, zoomOut, getCurrentZoom } = await import('../../js/utils/zoom-manager.js');
-  const { startingMachinePref, adoptGlobalSettings, __resetPrefsForTests } =
+  const { startingWindowPref, adoptGlobalSettings, __resetPrefsForTests } =
     await import('../../js/services/prefs.js');
+  const { __setViewModeForTests } = await import('../../js/utils/view-mode.js');
 
   /**
    * @param {string} label
@@ -73,7 +87,7 @@ export async function runTests(_ctx) {
 
   /**
    * Stand in for the server, so a write is seen rather than sent: these cases
-   * would otherwise restyle every lane through the shared settings document.
+   * would otherwise restyle the lane's own session.
    * @param {any} url
    * @param {any} init
    * @returns {Promise<any>} The stubbed response: what services/http.js reads.
@@ -96,6 +110,8 @@ export async function runTests(_ctx) {
   const original = {
     windowMode: root.dataset.windowMode,
     remoteViewer: root.dataset.remoteViewer,
+    projectKey: window.__projectKey,
+    search: window.location.search,
     theme: root.getAttribute('data-theme'),
     background: root.style.background,
     fontSize: root.style.fontSize,
@@ -104,23 +120,31 @@ export async function runTests(_ctx) {
   };
 
   /**
-   * Start a case as one kind of client, with nothing recorded.
+   * Start a case as one kind of client in one window, with nothing recorded.
    * @param {'owner'|'remote-window'} client - The server's own desktop window,
    *   or the desktop app's window on a server on another machine.
+   * @param {object} [where]
+   * @param {string} [where.project] - The project key the page was given.
+   * @param {string} [where.search] - The window's query string (its role).
+   * @param {boolean} [where.keep] - Keep what earlier windows cached, to look at
+   *   two windows in one case.
    */
-  const as = (client) => {
+  const as = (client, { project = PROJECT, search = '', keep = false } = {}) => {
     __resetPrefsForTests();
     calls = [];
     root.dataset.windowMode = '1';
     if (client === 'remote-window') root.dataset.remoteViewer = '1';
     else delete root.dataset.remoteViewer;
+    window.__projectKey = project;
+    __setViewModeForTests(search);
+    if (!keep) for (const key of CELLS) localStorage.removeItem(key);
   };
 
   /** @returns {Array<{url: string, method: string, body: any}>} The writes seen. */
   const puts = () => calls.filter((c) => c.method === 'PUT');
 
   /**
-   * Wait for a write to leave: the machine realm batches them on a short timer.
+   * Wait for a write to leave: the realms batch them on a short timer.
    * @param {string} description
    * @returns {Promise<void>} Resolves once a write has been seen.
    */
@@ -134,93 +158,97 @@ export async function runTests(_ctx) {
 
     // --- where a change is stored ------------------------------------------
 
-    await run('the server\u2019s own window stores its theme for the machine', async () => {
+    await run('the server\u2019s own window stores its theme for itself, not the machine', async () => {
       as('owner');
       setMode(MODES.DARK);
       await aWrite('the theme to be written');
-      eq(puts().map((c) => [c.url, c.body]), [['/api/settings', { ui: { [THEME]: MODES.DARK } }]], 'writes');
-      eq(localStorage.getItem(THEME), '"dark"', 'the machine\u2019s cache');
+      eq(puts().map((c) => [c.url, c.body]),
+        [['/api/session/ui-prefs?role=main', { ui: { [THEME]: MODES.DARK } }]], 'writes');
+      eq(localStorage.getItem(`${THEME}:${PROJECT}`), '"dark"', 'this window\u2019s cache');
     });
 
-    await run('a window on another machine keeps its theme to itself', async () => {
-      as('remote-window');
-      setMode(MODES.LIGHT);
-      await nextTask();
-      eq(puts().length, 0, 'writes sent to the host');
-      eq(localStorage.getItem(`${THEME}@viewer`), '"light"', 'this device\u2019s own copy');
-      eq(getMode(), MODES.LIGHT, 'the mode in use');
-    });
-
-    await run('the server\u2019s own window stores its zoom for the machine', async () => {
+    await run('the server\u2019s own window stores its zoom for itself, not the machine', async () => {
       as('owner');
       const before = getCurrentZoom();
       zoomOut();
       await aWrite('the zoom to be written');
-      eq(puts().map((c) => [c.url, c.body]), [['/api/settings', { ui: { [ZOOM]: before - 10 } }]], 'writes');
+      eq(puts().map((c) => [c.url, c.body]),
+        [['/api/session/ui-prefs?role=main', { ui: { [ZOOM]: before - 10 } }]], 'writes');
     });
 
-    await run('a window on another machine keeps its zoom to itself', async () => {
+    await run('a detached board stores its theme under its own role', async () => {
+      as('owner', { search: '?view=pinboard&board=board_x' });
+      setMode(MODES.LIGHT);
+      await aWrite('the board\u2019s theme to be written');
+      eq(puts().map((c) => c.url), [`/api/session/ui-prefs?role=${encodeURIComponent(BOARD_ROLE)}`], 'writes');
+      eq(localStorage.getItem(`${THEME}:${PROJECT}@${BOARD_ROLE}`), '"light"', 'the board\u2019s cache');
+      eq(localStorage.getItem(`${THEME}:${PROJECT}`), null, 'the main window\u2019s cache');
+    });
+
+    await run('a window on another machine keeps its theme and zoom to itself', async () => {
       as('remote-window');
+      setMode(MODES.LIGHT);
       const before = getCurrentZoom();
       zoomIn();
       await nextTask();
       eq(puts().length, 0, 'writes sent to the host');
-      eq(localStorage.getItem(`${ZOOM}@viewer`), String(before + 10), 'this device\u2019s own copy');
+      eq(localStorage.getItem(`${THEME}:${PROJECT}`), '"light"', 'this window\u2019s own theme');
+      eq(localStorage.getItem(`${ZOOM}:${PROJECT}`), String(before + 10), 'this window\u2019s own zoom');
+      eq(getMode(), MODES.LIGHT, 'the mode in use');
     });
 
-    // --- a change made in another window -----------------------------------
+    // --- what another window does ------------------------------------------
 
-    await run('a theme chosen in another window of this machine is applied here', async () => {
+    await run('another project\u2019s window changing its theme leaves this one alone', async () => {
+      as('owner', { project: OTHER_PROJECT });
+      setMode(MODES.LIGHT);
+      as('owner', { keep: true });
+      setMode(MODES.DARK);
+      eq(localStorage.getItem(`${THEME}:${OTHER_PROJECT}`), '"light"', 'the other window\u2019s');
+      eq(localStorage.getItem(`${THEME}:${PROJECT}`), '"dark"', 'this window\u2019s');
+    });
+
+    await run('a settings broadcast carrying a machine theme and zoom does not restyle this window', async () => {
       as('owner');
       setMode(MODES.DARK);
-      await aWrite('the starting theme to be written');
-      adoptGlobalSettings({ ui: { [THEME]: MODES.LIGHT } });
-      eq(getMode(), MODES.LIGHT, 'the mode after the broadcast');
-      eq(getPaintedTheme(), 'light', 'what is painted');
+      const zoom = getCurrentZoom();
+      adoptGlobalSettings({ ui: { [MACHINE_THEME]: MODES.LIGHT, [MACHINE_ZOOM]: zoom + 20 } });
+      await nextTask();
+      eq(getMode(), MODES.DARK, 'the mode after the broadcast');
+      eq(getPaintedTheme(), 'dark', 'what is painted');
+      eq(getCurrentZoom(), zoom, 'the zoom after the broadcast');
     });
 
-    await run('a host\u2019s theme change does not restyle a window on another machine', async () => {
-      as('remote-window');
-      setMode(MODES.DARK);
-      adoptGlobalSettings({ ui: { [THEME]: MODES.LIGHT } });
-      eq(getMode(), MODES.DARK, 'the mode after the host\u2019s broadcast');
-    });
+    // --- where a window starts ---------------------------------------------
 
-    // --- where a page starts -------------------------------------------------
-
-    await run('the machine\u2019s value wins in its own window, and is not stored again', () => {
-      eq(startingMachinePref({ owner: true, machine: 'dark', inherited: ['light'], device: 'light', fallback: 'system' }),
+    await run('a window\u2019s own value wins, and is not stored again', () => {
+      eq(startingWindowPref({ own: 'dark', inherited: ['light'], host: 'light', fallback: 'system' }),
         { value: 'dark', adopt: false }, 'start');
     });
 
-    await run('a window inheriting a value on a machine with none stores it for the machine', () => {
-      eq(startingMachinePref({ owner: true, machine: null, inherited: [null, 'light'], device: 'dark', fallback: 'system' }),
+    await run('a window with nothing stores what it was handed, best first', () => {
+      eq(startingWindowPref({ own: null, inherited: [null, 'light', 'dark'], fallback: 'system' }),
         { value: 'light', adopt: true }, 'start');
-      // What an older build left in this origin's cache is adopted the same way.
-      eq(startingMachinePref({ owner: true, machine: null, inherited: [null], device: 'dark', fallback: 'system' }),
-        { value: 'dark', adopt: true }, 'from the cache');
     });
 
     await run('the plain default is never stored', () => {
-      eq(startingMachinePref({ owner: true, machine: null, inherited: [110], device: null, fallback: 110 }),
+      eq(startingWindowPref({ own: null, inherited: [110], fallback: 110 }),
         { value: 110, adopt: false }, 'an inherited default');
-      eq(startingMachinePref({ owner: true, machine: null, inherited: [], device: null, fallback: 110 }),
+      eq(startingWindowPref({ own: null, inherited: [], fallback: 110 }),
         { value: 110, adopt: false }, 'nothing anywhere');
     });
 
-    await run('a window on another machine prefers its own value, then what it inherited, then the host\u2019s', () => {
-      eq(startingMachinePref({ owner: false, machine: 'light', inherited: ['dark'], device: 'system', fallback: 'system' }),
-        { value: 'system', adopt: false }, 'its own');
-      eq(startingMachinePref({ owner: false, machine: 'light', inherited: ['dark'], device: null, fallback: 'system' }),
-        { value: 'dark', adopt: true }, 'inherited from the window that opened it');
-      // The host's choice is where it starts, never what it keeps: stored, it
-      // would stop following the host before the user had chosen anything.
-      eq(startingMachinePref({ owner: false, machine: 'light', inherited: [null], device: null, fallback: 'system' }),
+    await run('a window on another machine starts from the host\u2019s value but does not keep it', () => {
+      eq(startingWindowPref({ own: null, inherited: [null], host: 'light', fallback: 'system' }),
         { value: 'light', adopt: false }, 'the host\u2019s');
+      eq(startingWindowPref({ own: null, inherited: ['dark'], host: 'light', fallback: 'system' }),
+        { value: 'dark', adopt: true }, 'inherited from the window that opened it');
     });
   } finally {
     window.fetch = realFetch;
     __resetPrefsForTests();
+    __setViewModeForTests(original.search);
+    window.__projectKey = original.projectKey;
     if (original.windowMode === undefined) delete root.dataset.windowMode;
     else root.dataset.windowMode = original.windowMode;
     if (original.remoteViewer === undefined) delete root.dataset.remoteViewer;

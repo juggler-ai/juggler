@@ -28,8 +28,6 @@
 
 /** The device-wide record of the OS setting, written whenever we paint in 'system'. */
 const SYSTEM_THEME_KEY = 'juggler-system-theme';
-/** Where a viewer that is not the server's own window keeps its mode. */
-const STORED_MODE_KEY = 'juggler-theme@viewer';
 
 /**
  * @param {object} _ctx - Test context (unused)
@@ -43,6 +41,9 @@ export async function runTests(_ctx) {
 
   const { toggleTheme, setMode, getMode, getPaintedTheme, MODES, THEME_MODE_EVENT } =
     await import('../../js/utils/theme-manager.js');
+  const { scopedKey } = await import('../../js/services/prefs.js');
+  /** This window's cache of its mode, which every setMode below writes. */
+  const STORED_MODE_KEY = scopedKey('juggler-window-theme');
 
   /**
    * @param {string} label
@@ -86,9 +87,9 @@ export async function runTests(_ctx) {
   // every later suite under whatever is left there.
   const originalBackground = document.documentElement.style.background;
   const originalSystemRecord = localStorage.getItem(SYSTEM_THEME_KEY);
-  // The mode is a machine preference, which this lane — not a desktop window —
-  // keeps as its own copy. Neither cell is scoped to anything, so both are saved
-  // and put back by hand.
+  // The mode is a window preference, cached in this origin's localStorage
+  // beside the system record. Both cells outlive the page, so both are saved
+  // and put back by hand; the final setMode puts the session's back.
   const originalStoredMode = localStorage.getItem(STORED_MODE_KEY);
   const originalMode = getMode();
 

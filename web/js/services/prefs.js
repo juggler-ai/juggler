@@ -68,11 +68,13 @@
  * kept under a key of its own, so the user realm's mirror writes do not
  * overwrite it.
  *
- * Theme and zoom are machine preferences too, with one difference: they are
- * applied before the page paints (index.html, with the machine's values
- * injected by serveIndex), because a late correction to a root font size
- * reflows everything visibly. So they start from {@link startingMachinePref}
- * rather than waiting for the realm, and reconcile afterwards ({@link reconcilePref}).
+ * Theme and zoom are `Window` preferences: each window of each project keeps
+ * its own, and nothing one window does restyles another. They differ from the
+ * rest in one way: they are applied before the page paints (index.html, with
+ * this window's values injected by serveIndex), because a late correction to a
+ * root font size reflows everything visibly. So they start from
+ * {@link startingWindowPref} rather than waiting for the realm, and reconcile
+ * afterwards ({@link reconcilePref}).
  * @module services/prefs
  */
 
@@ -155,11 +157,11 @@ function home(realm) {
 
 /**
  * Whether this page views the server from another machine (serveIndex marks
- * it), so the session realms' routes will refuse its writes.
+ * it), so the session realms' routes will refuse its writes and it keeps its
+ * own window and project preferences in its own localStorage.
  * @returns {boolean} True in a viewer on another machine.
- * @private
  */
-function isRemoteViewer() {
+export function isRemoteViewer() {
   return typeof document !== 'undefined' && document.documentElement.dataset.remoteViewer === '1';
 }
 
@@ -287,43 +289,41 @@ export function resolvePref({ desktop, session, device, windowScoped = [], fallb
 }
 
 /**
- * Where a machine preference that is applied before first paint starts, and
+ * Where a window preference that is applied before first paint starts, and
  * whether this window should store that value as its own.
  *
  * The theme and the zoom resolve synchronously from what the page was handed —
- * the server-injected machine value, the hints the native host baked into the
- * URL, this device's cache — so they cannot wait for the machine realm.
- * This is the rule they share, and index.html's pre-paint block mirrors it:
+ * this window's value as serveIndex injected it, this window's cache, the hints
+ * the native host baked into the URL — so they cannot wait for the realm. This
+ * is the rule they share, and index.html's pre-paint block mirrors it:
  *
- *   - A value of the client's own wins: the machine's, in the server's own
- *     window; this device's copy, in any other viewer.
- *   - Otherwise a value handed to this window (an inherited seed, and in the
- *     server's own window whatever this origin's cache holds) is used and
- *     stored, so the machine — or the device — has one from now on. The plain
- *     default never is: stored, it would read as a choice nobody made.
- *   - Otherwise a viewer on another machine starts from the host's value but
- *     does not keep it, so it follows the host until the user chooses.
+ *   - This window's own value wins: the session's for this window role, else
+ *     its cache, on this machine; its own copy, in a viewer on another one.
+ *   - Otherwise a value handed to this window (the opener's seed, then what an
+ *     older build kept for the machine or the project) is used and stored, so
+ *     the window has one from now on. The plain default never is: stored, it
+ *     would read as a choice nobody made.
+ *   - Otherwise a viewer on another machine starts from the host's value for
+ *     this window but does not keep it, so it follows the host until the user
+ *     chooses.
  * @param {object} sources - Candidate values, each already validated or null.
- * @param {boolean} sources.owner - True in the server's own desktop window
- *   ({@link ownsServerPrefs}).
- * @param {any} sources.machine - The machine realm's value, as injected.
+ * @param {any} sources.own - This window's own stored value.
  * @param {any[]} [sources.inherited] - Values handed to this window, best first.
- * @param {any} sources.device - This device's cached value.
+ * @param {any} [sources.host] - A remote viewer's starting point: the host's.
  * @param {any} sources.fallback - The default.
  * @returns {{value: any, adopt: boolean}} The value to start from, and whether
  *   to store it.
  */
-export function startingMachinePref({ owner, machine, inherited = [], device, fallback }) {
+export function startingWindowPref({ own, inherited = [], host = null, fallback }) {
   /**
    * @param {any} v
    * @returns {boolean} Whether v is a value.
    */
   const known = (v) => v !== null && v !== undefined;
-  const own = owner ? machine : device;
   if (known(own)) return { value: own, adopt: false };
-  const handed = (owner ? [...inherited, device] : inherited).find(known);
+  const handed = inherited.find(known);
   if (known(handed)) return { value: handed, adopt: handed !== fallback };
-  if (!owner && known(machine)) return { value: machine, adopt: false };
+  if (known(host)) return { value: host, adopt: false };
   return { value: fallback, adopt: false };
 }
 

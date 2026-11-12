@@ -50,11 +50,13 @@ type GlobalSettings struct {
 	UI map[string]json.RawMessage `json:"ui,omitempty"`
 }
 
-// UIThemePref is the UI preference the theme mode is stored under, as the
-// machine's (web/js/utils/theme-manager.js, services/prefs.js).
+// UIThemePref is the UI preference an older build stored the theme mode under
+// for the whole machine. The viewer keeps the theme per window now
+// (web/js/utils/theme-manager.js); this one is read only, as where a window
+// with none of its own starts, and as the sessions page's theme.
 const UIThemePref = "juggler-theme"
 
-// UIThemeMode is the theme mode the user stored for this machine — "system",
+// UIThemeMode is the theme mode stored for this whole machine — "system",
 // "light" or "dark" — or "" when none is stored or what is stored is none of
 // them.
 func (gs GlobalSettings) UIThemeMode() string {

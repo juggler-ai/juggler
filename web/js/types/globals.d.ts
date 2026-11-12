@@ -51,29 +51,44 @@ interface Window {
 	openSettings?(tab?: string, options?: { capability?: { itemType: string; id: string } }): void;
 
 	/**
-	 * The machine's UI zoom (root font-size %) from settings.json, injected
-	 * pre-paint by the server. 0/absent when it has none (see zoom-manager.js).
+	 * This window's UI zoom (root font-size %), stored in the project's session
+	 * under the window's role and injected pre-paint by the server. 0/absent
+	 * when the window has none (see zoom-manager.js).
+	 */
+	__windowZoom?: number;
+
+	/**
+	 * This window's UI theme mode (system|light|dark), stored in the project's
+	 * session under the window's role and injected pre-paint by the server.
+	 * Empty/absent when the window has none (see theme-manager.js).
+	 */
+	__windowThemeMode?: string;
+
+	/**
+	 * The UI zoom an older build kept for the whole machine in settings.json,
+	 * injected pre-paint as a starting point for a window with none. 0/absent
+	 * when there is none.
 	 */
 	__machineZoom?: number;
 
 	/**
-	 * The machine's UI theme mode (system|light|dark) from settings.json,
-	 * injected pre-paint by the server. Empty/absent when it has none (see
-	 * theme-manager.js).
+	 * The UI theme mode an older build kept for the whole machine in
+	 * settings.json, injected pre-paint as a starting point for a window with
+	 * none. Empty/absent when there is none.
 	 */
 	__machineThemeMode?: string;
 
 	/**
-	 * The UI zoom this project's session stored, injected pre-paint so the
-	 * server's own window can adopt it for a machine that has none. 0/absent
-	 * when the session has none.
+	 * The UI zoom an older build kept for this project's session, injected
+	 * pre-paint as a starting point for a window with none while the machine
+	 * has none either. 0/absent when the session has none.
 	 */
 	__projectZoom?: number;
 
 	/**
-	 * The UI theme mode this project's session stored, injected pre-paint so
-	 * the server's own window can adopt it for a machine that has none.
-	 * Empty/absent when the session has none.
+	 * The UI theme mode an older build kept for this project's session,
+	 * injected pre-paint as a starting point for a window with none while the
+	 * machine has none either. Empty/absent when the session has none.
 	 */
 	__projectThemeMode?: string;
 

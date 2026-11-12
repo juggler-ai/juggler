@@ -5,19 +5,20 @@
 /**
  * Zoom Manager - Handles UI zoom via root font-size scaling.
  *
- * The zoom is a machine preference, exactly as the theme is (see
- * theme-manager.js and services/prefs.js): every desktop window on the server's
- * own machine shares one, kept in settings.json, and any viewer on another
- * machine — a phone, or the desktop app's own window on a server elsewhere —
- * keeps one of its own and never writes back.
+ * The zoom is a window preference, exactly as the theme is (see
+ * theme-manager.js and services/prefs.js): every window of every project keeps
+ * its own, so zooming one window leaves every other window as it was. On the
+ * server's own machine it is kept in the project's session under the window's
+ * role; a viewer on another machine — a phone, or the desktop app's own window
+ * on a server elsewhere — keeps its own copy and never writes back.
  *
  * It is applied before first paint (a font-size change reflows everything, so a
  * late correction is a visible jump), by index.html's pre-paint block from the
- * same sources this module reconciles: the machine's zoom (window.__machineZoom,
- * server-injected), a ?zoom= seed from the window that opened this one, the zoom
- * the project session stored before the machine had one (window.__projectZoom,
- * adopted once by the server's own window), and this device's cache. This
- * module is the authoritative reconciler and owns persistence.
+ * same sources this module reconciles: this window's zoom (window.__windowZoom,
+ * server-injected) and cache, a ?zoom= seed from the window that opened this
+ * one, and what an older build kept for the whole machine (window.__machineZoom)
+ * or the project (window.__projectZoom), adopted once by a window that has none.
+ * This module is the authoritative reconciler and owns persistence.
  *
  * One limitation, in the transport rather than here: a Cloudflare quick tunnel
  * hands out a fresh hostname every session, so a viewer reaching a project that
@@ -27,13 +28,17 @@
 import { onDocumentReady } from './document-ready.js';
 import { postWindowControl } from '../../sdk/lib/window-control.js';
 import {
-  ownsServerPrefs, startingMachinePref, cachedMachinePref, setMachinePref, reconcilePref,
+  isRemoteViewer, startingWindowPref, cachedWindowPref, setWindowPref, reconcilePref,
 } from '../services/prefs.js';
 
-/** The zoom's name in the machine realm. */
-const ZOOM_PREF = 'juggler-zoom';
-/** Announces that the machine realm's zoom changed (see prefs.reconcilePref). */
-const ZOOM_PREF_EVENT = 'juggler-zoom-pref-changed';
+/**
+ * The zoom's name in the window realm. Not 'juggler-zoom', which is what an
+ * older build kept for the whole machine in settings.json: that one is still
+ * read, as a starting point for a window with none (serveIndex injects it).
+ */
+const ZOOM_PREF = 'juggler-window-zoom';
+/** Announces that this window's stored zoom was learned late (see prefs.reconcilePref). */
+const ZOOM_PREF_EVENT = 'juggler-window-zoom-pref-changed';
 const ZOOM_STEP = 10;
 const ZOOM_MIN = 60;
 const ZOOM_MAX = 160;
@@ -64,12 +69,11 @@ function parseLevel(raw) {
 }
 
 /**
- * This client's own stored zoom, as known right now: the machine's in the
- * server's own window, this device's copy in any other viewer.
+ * This window's own stored zoom, as known right now.
  * @returns {number|null} The stored level, or null.
  */
 function storedZoom() {
-  return parseLevel(cachedMachinePref(ZOOM_PREF, null));
+  return parseLevel(cachedWindowPref(ZOOM_PREF, null));
 }
 
 /**
@@ -113,15 +117,15 @@ export function getCurrentZoom() {
 }
 
 /**
- * Set zoom level, apply, store it, and report to the native host so new windows
- * inherit it. In the server's own window the level becomes the machine's; in
- * any other viewer it stays on that device and the host is left alone.
+ * Set this window's zoom level, apply, store it, and report to the native host
+ * so the next window it opens starts at it. No other window follows; a viewer
+ * on another machine keeps it on that device and the host is left alone.
  * @param {number} level - Zoom percentage (clamped to min/max).
  */
 function setZoom(level) {
   current = clamp(level);
   applyZoom(current);
-  void setMachinePref(ZOOM_PREF, current);
+  void setWindowPref(ZOOM_PREF, current);
   reportToHost(current);
 }
 
@@ -140,8 +144,9 @@ export function zoomOut() {
 }
 
 /**
- * Adopt the machine realm's zoom when another window of this machine changed it
- * (or, at boot, when the realm knew something the cache did not).
+ * Adopt this window's stored zoom when, at boot, the realm knew something the
+ * cache did not. Nothing announces another window's change: the window realm
+ * is this window's alone.
  * @private
  */
 function followStoredZoom() {
@@ -153,29 +158,33 @@ function followStoredZoom() {
 
 /**
  * Initialize zoom on page load. Resolves the level the pre-paint block applied
- * (prefs.startingMachinePref), stores it when it was handed to this window
+ * (prefs.startingWindowPref), stores it when it was handed to this window
  * rather than chosen here — never the plain default — and reports it to the
- * host. The project session's zoom is offered only to the server's own window:
- * it is that machine's choice from before the machine realm held one.
+ * host. What an older build kept for the machine or the project is offered
+ * only on this machine: a viewer on another one starts from the host's but
+ * keeps its own.
  * @private
  */
 function initZoom() {
-  const owner = ownsServerPrefs();
-  const start = startingMachinePref({
-    owner,
-    machine: parseLevel(window.__machineZoom),
-    inherited: [seedZoom(), owner ? parseLevel(window.__projectZoom) : null],
-    device: storedZoom(),
+  const local = !isRemoteViewer();
+  const injected = parseLevel(window.__windowZoom);
+  const machine = parseLevel(window.__machineZoom);
+  const start = startingWindowPref({
+    own: local ? (injected ?? storedZoom()) : storedZoom(),
+    inherited: local
+      ? [seedZoom(), machine, parseLevel(window.__projectZoom)]
+      : [seedZoom()],
+    host: local ? null : (injected ?? machine),
     fallback: ZOOM_DEFAULT,
   });
   current = start.value;
   applyZoom(current);
   // Report to the host so its inheritance seed tracks this window's size.
   reportToHost(current);
-  if (start.adopt) void setMachinePref(ZOOM_PREF, current);
+  if (start.adopt) void setWindowPref(ZOOM_PREF, current);
 
   window.addEventListener(ZOOM_PREF_EVENT, followStoredZoom);
-  void reconcilePref('machine', ZOOM_PREF, ZOOM_PREF_EVENT);
+  void reconcilePref('window', ZOOM_PREF, ZOOM_PREF_EVENT);
 }
 
 // Auto-initialize when module loads. Zoom is a viewer affordance; onDocumentReady

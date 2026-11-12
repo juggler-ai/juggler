@@ -17,20 +17,20 @@
  * can never strand anyone in a fixed theme, and 'system' stays reachable
  * without ever being an option someone has to understand. See toggleTheme().
  *
- * The mode is a machine preference (services/prefs.js): it describes the screen
- * in front of the user, so every desktop window on the server's own machine
- * shares one, kept in settings.json, and any viewer on another machine — a
- * phone, or the desktop app's own window on a server elsewhere — keeps one of
- * its own and never writes back. A change made in one window of the machine
- * reaches the others through the settings broadcast.
+ * The mode is a window preference (services/prefs.js): every window of every
+ * project keeps its own, so changing it in one window leaves every other window
+ * as it was. On the server's own machine it is kept in the project's session
+ * under the window's role; a viewer on another machine — a phone, or the
+ * desktop app's own window on a server elsewhere — keeps its own copy and never
+ * writes back.
  *
  * It is applied before first paint, so it cannot wait for the realm: the page
- * starts from what it was handed (startingMachinePref, which index.html's
+ * starts from what it was handed (startingWindowPref, which index.html's
  * pre-paint block mirrors) and reconciles when the realm answers. What it can be
- * handed: the machine's mode (window.__machineThemeMode, server-injected), a
- * ?mode= seed from the window that opened this one, the mode the project
- * session stored before the machine had one (window.__projectThemeMode, adopted
- * once by the server's own window), and this device's cache.
+ * handed: this window's mode (window.__windowThemeMode, server-injected) and
+ * cache, a ?mode= seed from the window that opened this one, and what an older
+ * build kept for the whole machine (window.__machineThemeMode) or the project
+ * (window.__projectThemeMode), adopted once by a window that has none.
  *
  * A ?theme= seed is a colour, not a mode: the native host bakes the last colour
  * it painted into every window's URL so the first frame of a 'system' window
@@ -42,14 +42,18 @@ import { windowControlURL } from '../../sdk/lib/window-control.js';
 import { onDocumentReady } from './document-ready.js';
 import { fetchJson } from '../services/http.js';
 import {
-  ownsServerPrefs, startingMachinePref, cachedMachinePref, setMachinePref, reconcilePref,
+  isRemoteViewer, startingWindowPref, cachedWindowPref, setWindowPref, reconcilePref,
 } from '../services/prefs.js';
 
-/** The mode's name in the machine realm. */
-const THEME_PREF = 'juggler-theme';
+/**
+ * The mode's name in the window realm. Not 'juggler-theme', which is what an
+ * older build kept for the whole machine in settings.json: that one is still
+ * read, as a starting point for a window with none (serveIndex injects it).
+ */
+const THEME_PREF = 'juggler-window-theme';
 
-/** Announces that the machine realm's mode changed (see prefs.reconcilePref). */
-const THEME_PREF_EVENT = 'juggler-theme-pref-changed';
+/** Announces that this window's stored mode was learned late (see prefs.reconcilePref). */
+const THEME_PREF_EVENT = 'juggler-window-theme-pref-changed';
 
 /**
  * This device's record of the OS light/dark setting, in localStorage. Not
@@ -170,13 +174,12 @@ function seedMode() {
 }
 
 /**
- * This client's own stored mode, as known right now: the machine's in the
- * server's own window, this device's copy in any other viewer.
+ * This window's own stored mode, as known right now.
  * @returns {string|null} One of MODES, or null.
  * @private
  */
 function storedMode() {
-  const m = cachedMachinePref(THEME_PREF, null);
+  const m = cachedWindowPref(THEME_PREF, null);
   return isMode(m) ? m : null;
 }
 
@@ -222,15 +225,15 @@ function knownSystemTheme() {
 }
 
 /**
- * Store a mode and apply the theme it resolves to. In the server's own window it
- * becomes the machine's, and every desktop window on this computer follows; in
- * any other viewer it stays on that device and the host is left alone.
+ * Store a mode for this window and apply the theme it resolves to. No other
+ * window follows; a viewer on another machine keeps it on that device and the
+ * host is left alone.
  * @param {string} mode - One of MODES.
  */
 export function setMode(mode) {
   if (!isMode(mode)) return;
   current = mode;
-  void setMachinePref(THEME_PREF, mode);
+  void setWindowPref(THEME_PREF, mode);
   applyTheme(mode === MODES.SYSTEM ? systemTheme() : mode, mode);
 }
 
@@ -332,10 +335,9 @@ function settled(theme, mode) {
 }
 
 /**
- * Adopt the machine realm's mode when another window of this machine changed it
- * (or, at boot, when the realm knew something the cache did not). A viewer on
- * another machine reads its own copy here, so the host's changes move it only
- * until it has chosen one.
+ * Adopt this window's stored mode when, at boot, the realm knew something the
+ * cache did not. Nothing announces another window's change: the window realm
+ * is this window's alone.
  * @private
  */
 function followStoredMode() {
@@ -350,23 +352,26 @@ function followStoredMode() {
  */
 function initTheme() {
   // Where this page starts — the rule index.html's pre-paint block has already
-  // painted from (see the module comment and prefs.startingMachinePref). The
-  // project session's mode is offered only to the server's own window: it is
-  // that machine's choice from before the machine realm held one, adopted once.
-  const owner = ownsServerPrefs();
-  const start = startingMachinePref({
-    owner,
-    machine: injectedMode(window.__machineThemeMode),
-    inherited: [seedMode(), owner ? injectedMode(window.__projectThemeMode) : null],
-    device: storedMode(),
+  // painted from (see the module comment and prefs.startingWindowPref). What an
+  // older build kept for the machine or the project is offered only on this
+  // machine: a viewer on another one starts from the host's but keeps its own.
+  const local = !isRemoteViewer();
+  const injected = injectedMode(window.__windowThemeMode);
+  const machine = injectedMode(window.__machineThemeMode);
+  const start = startingWindowPref({
+    own: local ? (injected ?? storedMode()) : storedMode(),
+    inherited: local
+      ? [seedMode(), machine, injectedMode(window.__projectThemeMode)]
+      : [seedMode()],
+    host: local ? null : (injected ?? machine),
     fallback: MODES.SYSTEM,
   });
   current = start.value;
   applyTheme(current === MODES.SYSTEM ? systemTheme() : current, current);
-  if (start.adopt) void setMachinePref(THEME_PREF, current);
+  if (start.adopt) void setWindowPref(THEME_PREF, current);
 
   window.addEventListener(THEME_PREF_EVENT, followStoredMode);
-  void reconcilePref('machine', THEME_PREF, THEME_PREF_EVENT);
+  void reconcilePref('window', THEME_PREF, THEME_PREF_EVENT);
 
   // In 'system' mode, follow OS light/dark changes live. An explicit
   // light/dark mode pins the theme and ignores the OS.

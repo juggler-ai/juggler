@@ -230,11 +230,76 @@ func uiPrefsPatch(t *testing.T, body string) map[string]json.RawMessage {
 }
 
 // serveIndex injects the theme and zoom the page must paint on its very first
-// frame: the machine's, from settings.json, since they describe the screen
-// rather than the project. A late correction would be a visible flash of the
-// wrong colour, or a reflow, on every launch. While the machine has none, the
-// project session's are injected beside them for the server's own window to
-// adopt; once it has one, the session's are not offered at all.
+// frame: the requesting window's own, from this project's session under that
+// window's role, since every window keeps its own. A late correction would be a
+// visible flash of the wrong colour, or a reflow, on every launch. Another
+// window's value is never injected — the main window's must not reach a
+// detached board, nor a board's the main window.
+func TestIndexInjectsTheWindowsOwnAppearance(t *testing.T) {
+	t.Setenv("JUGGLER_CONFIG_DIR", t.TempDir())
+	mgr, err := core.NewSessionManagerForPath(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewSessionManagerForPath: %v", err)
+	}
+	t.Cleanup(mgr.Shutdown)
+
+	s := &Server{router: mux.NewRouter(), settings: newSettingsStore()}
+	s.projectState.Store(&projectState{sessionManager: mgr, projectPath: t.TempDir()})
+	tmpl, err := template.New("index").Parse(`window={{.WindowThemeMode}}/{{.WindowZoom}}`)
+	if err != nil {
+		t.Fatalf("parse stand-in template: %v", err)
+	}
+	s.indexTemplate = tmpl
+
+	serve := func(query string) string {
+		req := httptest.NewRequest(http.MethodGet, "/?window=1"+query, nil)
+		req.RemoteAddr = localViewerAddr
+		rec := httptest.NewRecorder()
+		s.serveIndex(rec, req)
+		return rec.Body.String()
+	}
+
+	if got, want := serve(""), "window=/0"; got != want {
+		t.Fatalf("a window with nothing stored: got %q, want %q", got, want)
+	}
+
+	if err := mgr.MergeWindowUIPrefs(core.WindowRoleMain, map[string]json.RawMessage{
+		windowThemePref: json.RawMessage(`"dark"`),
+		windowZoomPref:  json.RawMessage(`130`),
+	}); err != nil {
+		t.Fatalf("store the main window's: %v", err)
+	}
+	if err := mgr.MergeWindowUIPrefs(core.WindowRolePinboardFor("board_x"), map[string]json.RawMessage{
+		windowThemePref: json.RawMessage(`"light"`),
+		windowZoomPref:  json.RawMessage(`90`),
+	}); err != nil {
+		t.Fatalf("store the board's: %v", err)
+	}
+	if got, want := serve(""), "window=dark/130"; got != want {
+		t.Fatalf("the main window: got %q, want %q", got, want)
+	}
+	if got, want := serve("&view=pinboard&board=board_x"), "window=light/90"; got != want {
+		t.Fatalf("a detached board: got %q, want %q", got, want)
+	}
+	if got, want := serve("&view=pinboard&board=board_y"), "window=/0"; got != want {
+		t.Fatalf("a board with nothing of its own is handed no other window's: got %q, want %q", got, want)
+	}
+
+	if err := mgr.MergeWindowUIPrefs(core.WindowRoleMain, map[string]json.RawMessage{
+		windowThemePref: json.RawMessage(`"mauve"`),
+		windowZoomPref:  json.RawMessage(`"big"`),
+	}); err != nil {
+		t.Fatalf("store unusable values: %v", err)
+	}
+	if got, want := serve(""), "window=/0"; got != want {
+		t.Fatalf("values the page could not use are not injected: got %q, want %q", got, want)
+	}
+}
+
+// A window that has stored nothing of its own starts from what an older build
+// kept: the machine's theme and zoom from settings.json, and failing those the
+// project session's. Both are injected only as that starting point, and the
+// project session's are not offered once the machine has one.
 func TestIndexInjectsTheMachinesAppearance(t *testing.T) {
 	t.Setenv("JUGGLER_CONFIG_DIR", t.TempDir())
 	// A project left by an earlier Juggler, whose session.json holds a theme and

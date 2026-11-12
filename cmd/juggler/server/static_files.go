@@ -367,32 +367,77 @@ func projectStorageKey(projectPath string) string {
 	return hex.EncodeToString(sum[:])[:projectStorageKeyLen]
 }
 
-// The names the viewer stores the theme mode and the UI zoom under in the
-// machine realm of settings.json's ui section (web/js/utils/theme-manager.js,
-// zoom-manager.js). The page applies both before its first paint, so this
-// server reads them to inject them; nothing else in Go does.
+// The names the viewer stores the theme mode and the UI zoom under: per window,
+// in the window's slot of the project session's UI preferences, and — what an
+// older build kept for the whole machine — in settings.json's ui section
+// (web/js/utils/theme-manager.js, zoom-manager.js). The page applies them
+// before its first paint, so this server reads them to inject them; nothing
+// else in Go does.
 const (
+	windowThemePref  = "juggler-window-theme"
+	windowZoomPref   = "juggler-window-zoom"
 	machineThemePref = core.UIThemePref
 	machineZoomPref  = "juggler-zoom"
 )
 
+// themeModeFrom is a stored theme mode the viewer accepts, or "".
+func themeModeFrom(raw json.RawMessage, ok bool) string {
+	var mode string
+	if !ok || json.Unmarshal(raw, &mode) != nil {
+		return ""
+	}
+	switch mode {
+	case "system", "light", "dark":
+		return mode
+	}
+	return ""
+}
+
+// zoomFrom is a stored UI zoom (root font-size %) the viewer accepts, or 0.
+func zoomFrom(raw json.RawMessage, ok bool) int {
+	var z int
+	if !ok || json.Unmarshal(raw, &z) != nil || z <= 0 {
+		return 0
+	}
+	return z
+}
+
 // machineAppearance is the theme mode (system|light|dark) and UI zoom (root
-// font-size %) the viewer stored for this machine, or ""/0 for either it has
-// not stored or stored as something unusable. A server without a settings store
-// (a bare test server) has none.
+// font-size %) an older build stored for this whole machine, or ""/0 for either
+// it has not stored or stored as something unusable. A server without a
+// settings store (a bare test server) has none.
 func (s *Server) machineAppearance() (themeMode string, zoom int) {
 	if s.settings == nil {
 		return "", 0
 	}
 	gs := s.settings.get()
-	themeMode = gs.UIThemeMode()
-	if raw, ok := gs.UI[machineZoomPref]; ok {
-		var z int
-		if json.Unmarshal(raw, &z) == nil && z > 0 {
-			zoom = z
-		}
+	raw, ok := gs.UI[machineZoomPref]
+	return gs.UIThemeMode(), zoomFrom(raw, ok)
+}
+
+// pageWindowRole is the window role a page request is for, read from its query
+// the way the page reads it (windowRole in web/js/utils/view-mode.js): 'main'
+// for the Juggler shell, 'pinboard:<board>' for a detached board, or plain
+// 'pinboard' when the board id is missing or not one the page would accept.
+func pageWindowRole(r *http.Request) string {
+	q := r.URL.Query()
+	if q.Get("view") != core.WindowRolePinboard {
+		return core.WindowRoleMain
 	}
-	return themeMode, zoom
+	if board := sanitiseViewerID(q.Get("board")); board != "" {
+		return core.WindowRolePinboardFor(board)
+	}
+	return core.WindowRolePinboard
+}
+
+// windowAppearance is the theme mode and UI zoom stored for one window role of
+// this project, or ""/0 for either it has not stored or stored as something
+// unusable.
+func (s *Server) windowAppearance(role string) (themeMode string, zoom int) {
+	prefs := s.SessionManager().GetWindowUIPrefs(role)
+	theme, themeOK := prefs[windowThemePref]
+	z, zoomOK := prefs[windowZoomPref]
+	return themeModeFrom(theme, themeOK), zoomFrom(z, zoomOK)
 }
 
 // serveIndex serves the index.html template
@@ -413,20 +458,22 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache, must-revalidate")
 
-	// The machine's UI theme mode and zoom (root font-size %), from the machine
-	// realm of settings.json, or ""/0 when it has none. Injected so the page
-	// paints in the right colour and at the right scale on the very first frame —
-	// a font-size change reflows the whole UI, so a late correction is a visible
-	// jump. They are the settings of this machine's own desktop windows. A
-	// remote viewer is sent them too, so a phone opens the way the desktop looks
-	// rather than at a stock default, but there they rank below the device's own
-	// stored preference and the device never writes back (see
-	// web/js/utils/theme-manager.js and zoom-manager.js).
-	machineThemeMode, machineZoom := s.machineAppearance()
+	// This window's UI theme mode and zoom (root font-size %), from its slot in
+	// the project session, or ""/0 when it has none. Injected so the page paints
+	// in the right colour and at the right scale on the very first frame — a
+	// font-size change reflows the whole UI, so a late correction is a visible
+	// jump. Every window keeps its own. A remote viewer is sent them too, so a
+	// phone opens the way that desktop window looks rather than at a stock
+	// default, but there they rank below the device's own stored preference and
+	// the device never writes back (see web/js/utils/theme-manager.js and
+	// zoom-manager.js).
+	windowThemeMode, windowZoom := s.windowAppearance(pageWindowRole(r))
 
-	// What this project's session stored, offered to the server's own window
-	// only while the machine has nothing: that window adopts it for the machine
-	// once, so the look a project was left in carries over.
+	// What an older build kept for the whole machine, and failing that for the
+	// project's session: where a window that has stored nothing of its own
+	// starts, so the look it was left in carries over. The window adopts it as
+	// its own once.
+	machineThemeMode, machineZoom := s.machineAppearance()
 	var projectThemeMode string
 	var projectZoom int
 	if machineThemeMode == "" {
@@ -464,6 +511,8 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 		CSPNonce         string
 		APIToken         string
 		BasePath         string
+		WindowZoom       int
+		WindowThemeMode  string
 		MachineZoom      int
 		MachineThemeMode string
 		ProjectZoom      int
@@ -481,6 +530,8 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 		// Where the client mounted this server: "" directly, /p/<key> behind
 		// the machine server's proxy.
 		BasePath:         requestBasePath(r),
+		WindowZoom:       windowZoom,
+		WindowThemeMode:  windowThemeMode,
 		MachineZoom:      machineZoom,
 		MachineThemeMode: machineThemeMode,
 		ProjectZoom:      projectZoom,

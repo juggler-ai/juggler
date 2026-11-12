@@ -134,12 +134,10 @@ func MergeUIPrefs(cur, patch map[string]json.RawMessage) (map[string]json.RawMes
 // copy the caller may do as it likes with. Runs on the actor goroutine so it
 // never races a concurrent save.
 //
-// Unlike theme and zoom there is NO project-wide fallback: a window that has
-// stored nothing is answered with nothing. The fallback exists for appearance
-// because a project's windows should look alike, and a board detached today
-// should open wearing what Juggler is wearing. No such argument applies to a
-// column width — a board inheriting the main window's is meaningless — so the
-// realms here stay separate.
+// There is NO project-wide fallback: a window that has stored nothing is
+// answered with nothing. A window that should start from something — a board's
+// theme from the window that opened it — is handed that by its opener, not by
+// this store, so the realms here stay separate.
 func (m *SessionManager) GetWindowUIPrefs(role string) map[string]json.RawMessage {
 	prefs, _ := runRead(m, func(s *sessionState) (map[string]json.RawMessage, error) {
 		if s.session == nil {

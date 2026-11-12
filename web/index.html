@@ -59,21 +59,18 @@
     <script nonce="{{.CSPNonce}}">
         (function() {
             var params = new URLSearchParams(window.location.search);
-            // A native desktop window is opened with ?window=1; remote browsers
-            // never have it.
-            var isWindow = params.has('window');
             // Whether this page views the server from another machine — a phone,
             // or the desktop app's own window on a server elsewhere. Decided by
             // the server, by the same test its preference writes are guarded
             // with. It decides which store wins below: the theme and zoom belong
-            // to the machine the screen is attached to, so the server's own
-            // window uses the machine's (settings.json), and anything else keeps
-            // its own in this origin's localStorage (services/prefs.js).
+            // to this window, so on the server's own machine its value in the
+            // project session wins (injected), and anything else keeps its own in
+            // this origin's localStorage (services/prefs.js).
             var remoteViewer = {{.RemoteViewer}};
             if (remoteViewer) {
                 document.documentElement.dataset.remoteViewer = '1';
             }
-            var owner = isWindow && !remoteViewer;
+            var local = !remoteViewer;
             // Opaque per-project key from the server, namespacing this origin's
             // localStorage. The origin identifies the machine server, not a
             // project — every session it runs is served from it under
@@ -82,28 +79,36 @@
             // hand this project whatever another left behind. A page the
             // server injected none into uses the bare key.
             window.__projectKey = "{{.ProjectKey}}";
-            // This client's cached machine preference: the machine's in the
-            // server's own window, this device's own copy (@viewer) in any other
-            // viewer. JSON, as services/prefs.js writes it.
-            var cachedMachinePref = function(name) {
+            // Which of this project's windows this page is, as windowRole in
+            // utils/view-mode.js reads it: 'main', or a detached board's
+            // 'pinboard:<board>' ('pinboard' when the board id is unusable).
+            var role = 'main';
+            if (params.get('view') === 'pinboard') {
+                var board = params.get('board') || '';
+                role = /^[A-Za-z0-9_-]{1,64}$/.test(board) ? 'pinboard:' + board : 'pinboard';
+            }
+            // This window's cached preference, under the key scopedKey in
+            // services/prefs.js gives it. JSON, as prefs.js writes it.
+            var cachedWindowPref = function(name) {
+                var key = window.__projectKey ? name + ':' + window.__projectKey : name;
+                if (role !== 'main') key += '@' + role;
                 try {
-                    return JSON.parse(localStorage.getItem(owner ? name : name + '@viewer'));
+                    return JSON.parse(localStorage.getItem(key));
                 } catch (e) {
                     return null;
                 }
             };
-            // Where a machine preference starts, mirroring startingMachinePref in
-            // services/prefs.js: the client's own value; else one handed to this
-            // window (and, in the server's own window, the cache); else, for a
-            // viewer on another machine, the host's; else the default.
-            var starting = function(machine, inherited, device, ok, fallback) {
-                var own = owner ? machine : device;
+            // Where a window preference starts, mirroring startingWindowPref in
+            // services/prefs.js: this window's own value (the session's, then
+            // the cache, on this machine; its own copy elsewhere); else one
+            // handed to it, best first; else, for a viewer on another machine,
+            // the host's; else the default.
+            var starting = function(own, inherited, host, ok, fallback) {
                 if (ok(own)) return own;
-                var handed = owner ? inherited.concat([device]) : inherited;
-                for (var i = 0; i < handed.length; i++) {
-                    if (ok(handed[i])) return handed[i];
+                for (var i = 0; i < inherited.length; i++) {
+                    if (ok(inherited[i])) return inherited[i];
                 }
-                if (!owner && ok(machine)) return machine;
+                if (ok(host)) return host;
                 return fallback;
             };
 
@@ -111,25 +116,30 @@
             // strip under the transparent macOS titlebar) is the right colour on
             // the very first frame. What can be handed to this window: a ?mode=
             // seed inherited from the window that opened it (carries 'system'
-            // faithfully, so 'auto' survives the hand-off), and, in the server's
-            // own window, the mode this project's session stored before the
-            // machine had one. theme-manager.js reconciles this at document-ready
-            // and reports to the native host.
+            // faithfully, so 'auto' survives the hand-off), and, on this
+            // machine, what an older build kept for the whole machine or the
+            // project. theme-manager.js reconciles this at document-ready and
+            // reports to the native host.
             // 'system' (and any absent value) follows the OS via
             // prefers-color-scheme so system-light doesn't flash dark — but when a
             // concrete ?theme= seed rode along we paint that instead, so a window
             // opened from an 'auto' parent matches the parent's current colour on
             // its first frame rather than risking a flash from a stale matchMedia.
             // The ?theme= seed is only ever a colour, never a mode.
+            var windowThemeMode = "{{.WindowThemeMode}}";
             var machineThemeMode = "{{.MachineThemeMode}}";
             var projectThemeMode = "{{.ProjectThemeMode}}";
+            window.__windowThemeMode = windowThemeMode;
             window.__machineThemeMode = machineThemeMode;
             window.__projectThemeMode = projectThemeMode;
             var isThemeMode = function(m) { return m === 'system' || m === 'light' || m === 'dark'; };
+            var cachedTheme = cachedWindowPref('juggler-window-theme');
             var seedTheme = params.get('theme');
-            var themeMode = starting(machineThemeMode,
-                [params.get('mode'), owner ? projectThemeMode : null],
-                cachedMachinePref('juggler-theme'), isThemeMode, 'system');
+            var themeMode = starting(
+                local && isThemeMode(windowThemeMode) ? windowThemeMode : cachedTheme,
+                local ? [params.get('mode'), machineThemeMode, projectThemeMode] : [params.get('mode')],
+                local ? null : (isThemeMode(windowThemeMode) ? windowThemeMode : machineThemeMode),
+                isThemeMode, 'system');
             var theme = themeMode === 'light' || themeMode === 'dark'
                 ? themeMode
                 : (seedTheme === 'light' || seedTheme === 'dark') ? seedTheme
@@ -140,15 +150,20 @@
             // paints at the right scale — a font-size change reflows everything,
             // so a late correction is a visible jump. Resolved exactly as the
             // theme is, with an inherited ?zoom= seed in place of ?mode=.
-            // window.__machineZoom is read back by zoom-manager.js.
+            // The injected values are read back by zoom-manager.js.
+            var windowZoom = {{.WindowZoom}};
             var machineZoom = {{.MachineZoom}};
             var projectZoom = {{.ProjectZoom}};
+            window.__windowZoom = windowZoom;
             window.__machineZoom = machineZoom;
             window.__projectZoom = projectZoom;
             var isZoom = function(z) { return typeof z === 'number' && z > 0; };
             var seedZoom = parseInt(params.get('zoom'), 10);
-            var zoom = starting(machineZoom, [seedZoom, owner ? projectZoom : null],
-                cachedMachinePref('juggler-zoom'), isZoom, 110);
+            var zoom = starting(
+                local && isZoom(windowZoom) ? windowZoom : cachedWindowPref('juggler-window-zoom'),
+                local ? [seedZoom, machineZoom, projectZoom] : [seedZoom],
+                local ? null : (isZoom(windowZoom) ? windowZoom : machineZoom),
+                isZoom, 110);
             document.documentElement.style.fontSize = Math.max(60, Math.min(160, zoom)) + '%';
             // A pinboard view shows one thing and none of the conversation
             // shell around it. Recorded synchronously so the reduced layout

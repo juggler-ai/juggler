@@ -151,10 +151,15 @@ func TestDiscoverDoesNotWaitOnADeadAddress(t *testing.T) {
 // address it was announced at, the window's among them, whichever that is.
 func TestDiscoverKeepsTheAddressItListed(t *testing.T) {
 	const v4, v6 = "http://192.168.1.9:3939", "http://[fd00::9]:3939"
-	// first is the address that answers first on each ask; the other answers
-	// only once it has.
+	// first is the address that answers first on each ask; the other is slower,
+	// answering only once the lead's probe has returned. While nothing is
+	// listed (unlisted) the ask has no address to wait for and takes the first
+	// answer to reach it, and a probe's return is not its answer reaching the
+	// ask — so there the slower address answers only once the ask has been
+	// called off, which is the lead's answer taken.
 	var first atomic.Value
 	first.Store(v4)
+	var unlisted atomic.Bool
 	answered := map[string]chan struct{}{}
 	f := &lanFinder{
 		browse: func() (serverSource, error) {
@@ -162,23 +167,29 @@ func TestDiscoverKeepsTheAddressItListed(t *testing.T) {
 		},
 		probe: func(ctx context.Context, u string) (string, bool) {
 			lead := first.Load().(string)
-			if u != lead {
-				select {
-				case <-answered[lead]:
-				case <-ctx.Done():
-					return "", false
-				}
-			} else {
+			if u == lead {
 				defer close(answered[lead])
+				return "v1", true
 			}
-			return "v1", true
+			if unlisted.Load() {
+				<-ctx.Done()
+				return "", false
+			}
+			select {
+			case <-answered[lead]:
+				return "v1", true
+			case <-ctx.Done():
+				return "", false
+			}
 		},
 		localAddrs: func() map[netip.Addr]bool { return nil },
 	}
+	unlisted.Store(true)
 	for i, lead := range []string{v4, v6, v6} {
 		first.Store(lead)
 		answered[lead] = make(chan struct{})
 		got, _, err := f.servers(context.Background())
+		unlisted.Store(false)
 		if err != nil {
 			t.Fatal(err)
 		}

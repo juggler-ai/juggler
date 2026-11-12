@@ -928,7 +928,8 @@ throwaway copy of the tree, a folder inside the project.
 | `renderSetup(container, ctx)` / `getSetupValue()` | Draw the fields in the new-conversation panel, and report what they say |
 | `provision(values, ctx)` | **Headless.** Build the place from those values alone |
 | `status(workspace, ctx)` | How it is doing. **Must be cheap** — asked of every row the panel lists |
-| `finishOptions(workspace)` / `finish(workspace, id, ctx)` | The ways to be done with it, and doing one |
+| `track(workspace, ctx)` | Where its work is on the way back to where it came from, as steps with the next action on them. Asked only for the workspace being looked at, so it may cost more than `status()` |
+| `finishOptions(workspace, known)` / `finish(workspace, id, ctx)` | The ways to be done with it, and doing one; `finish` also runs the track's actions |
 | `status()` does **not** say what kind of place it is | The manifest's `name` and `description` do, from the first draw |
 | `status()` does **not** name it | The `label` on the row does, everywhere. A status is asked for after the first draw and can take a git call to answer, so a name from it would arrive late and change the title under the reader |
 | `reconcile(workspaces, ctx)` | What exists, set against what the session thinks it has. Only looks |
@@ -951,6 +952,51 @@ panel, where the tree can be read first. An option that is *not* a way of being
 done — committing, pushing, reinstalling — sets `keepsWorkspace: true` and
 returns `done: false`; the host shows it apart from the endings, above the
 heading that warns what the rest of them are.
+
+**Put what the user does *while* working there on a track, not in the endings.**
+`track()` answers `{ steps }`, or `null` for no track, which is the default; a
+workspace without one shows its finish options alone. Each step has an `id`,
+a `state` (`done`, `now` for the next thing to do, `wait` for not yet
+possible, `blocked` for stopped on something a person must sort out), a
+`title`, and optionally a `note`, `files`/`fileCount`, `commits`/`commitCount`,
+`groups` (parts with histories of their own, such as submodules) and
+`actions`. An action is `{ id, label, primary? }`, run through
+`finish(workspace, id, ctx)`. One with `input` shows a field inline, whose text
+arrives as `ctx.input.message`; one with `alternative` gets a second button
+that runs it with an empty message. Offer an alternative only when
+`ctx.conversation` is set, since handing the work to a conversation is what it
+is for. Keep `status()` cheap, because it is asked of every row in a list, and
+put what takes several commands in `track()`. The git-worktree provider's track
+is Commit, then Land in the base branch, then Close and delete:
+
+```javascript
+import WorkspaceProvider from 'juggler/workspace-provider';
+
+class TrackedProvider extends WorkspaceProvider {
+  async track(workspace, ctx) {
+    const changed = await ctx.ops.shell({ command: 'git status --porcelain' }, ctx.signal);
+    const dirty = String(changed?.stdout ?? '').trim() !== '';
+    return {
+      steps: [
+        dirty
+          ? { id: 'commit', state: 'now', title: 'Uncommitted changes',
+              actions: [{ id: 'commit', label: 'Commit', primary: true,
+                          input: { placeholder: 'What this work does', multiline: true } }] }
+          : { id: 'commit', state: 'done', title: 'Everything is committed' },
+        { id: 'close', state: dirty ? 'wait' : 'now', title: 'Close and delete',
+          actions: dirty ? [] : [{ id: 'discard', label: 'Close and delete' }] }
+      ]
+    };
+  }
+}
+
+export default TrackedProvider;
+```
+
+`finishOptions(workspace, known)` is handed what the host has already read:
+`known.status` and `known.track`, either of which may be missing. Use them to
+say what an ending would cost, and set `danger` only when it would lose
+something. With nothing known, describe the worst case.
 
 **Setup and provisioning are separate on purpose.** `provision()` runs from
 collected values and never asks a question of its own, which is what makes a

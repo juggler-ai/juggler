@@ -192,6 +192,94 @@ import { t } from './lib/i18n.js';
  */
 
 /**
+ * Where a workspace's work is on its way back to where it came from, step by
+ * step. Returned by {@link WorkspaceProvider#track}.
+ *
+ * A status says how the place is; a track says what to do next. The panel
+ * draws the steps in order and offers each step's actions on it, so an action
+ * that cannot do anything yet is not a button at all — its step says what it
+ * is waiting on.
+ * @typedef {object} WorkspaceTrack
+ * @property {TrackStep[]} steps - In the order they happen
+ */
+
+/**
+ * One step of a {@link WorkspaceTrack}.
+ * @typedef {object} TrackStep
+ * @property {string} id - Stable across reads, so a surface can keep what was
+ *   typed into a step's field while the track is read again
+ * @property {'done'|'now'|'wait'|'blocked'} state - Finished; the one to do
+ *   next; not possible until an earlier step is done; stopped on something that
+ *   needs a person
+ * @property {string} title - What the step is, or what is true of it now
+ * @property {string} [note] - A line under it: what it is waiting on, what
+ *   doing it will involve
+ * @property {WorkspaceFile[]} [files] - Files the step is about, as far as they
+ *   could be listed
+ * @property {number} [fileCount] - How many there really are, when `files` is
+ *   only the first of them
+ * @property {TrackCommit[]} [commits] - Commits the step is about, newest first
+ * @property {number} [commitCount] - How many there really are, when `commits`
+ *   is only the first of them
+ * @property {TrackGroup[]} [groups] - The same, for parts of the workspace with
+ *   histories of their own, such as submodules
+ * @property {TrackAction[]} [actions] - What can be done from here, the
+ *   primary one first
+ */
+
+/**
+ * A commit, as a track lists it.
+ * @typedef {object} TrackCommit
+ * @property {string} sha - Abbreviated
+ * @property {string} subject - Its first line
+ */
+
+/**
+ * A part of a workspace that a step reports on separately.
+ * @typedef {object} TrackGroup
+ * @property {string} name - What it is called, e.g. a submodule's path
+ * @property {string} [note] - What is true of it
+ * @property {TrackCommit[]} [commits] - Its commits, newest first
+ * @property {number} [commitCount] - How many there really are
+ * @property {WorkspaceFile[]} [files] - Its files
+ */
+
+/**
+ * Something a step offers to do.
+ * @typedef {object} TrackAction
+ * @property {string} id - Passed to {@link WorkspaceProvider#finish}, exactly as
+ *   a finish option's is
+ * @property {string} label - What the button says
+ * @property {boolean} [primary] - Whether it is the thing to do next. At most
+ *   one per track
+ * @property {TrackInput} [input] - Ask for text inline before running it; it
+ *   arrives as `ctx.input.message`
+ * @property {FinishAlternative} [alternative] - A second button that runs the
+ *   action with an empty message. A provider offers one only where a
+ *   conversation is there to hand the work to (`ctx.conversation`)
+ */
+
+/**
+ * The field an action shows inline, in its step.
+ * @typedef {object} TrackInput
+ * @property {string} [placeholder] - What the empty field shows
+ * @property {string} [hint] - A line under it
+ * @property {boolean} [multiline] - Whether it takes more than one line
+ * @property {string} [confirmLabel] - What the button that runs it says, when
+ *   that is not the action's own label
+ */
+
+/**
+ * What a provider already knows about a workspace, handed to
+ * {@link WorkspaceProvider#finishOptions} so an ending can describe what it
+ * would cost. Either may be missing: the host passes what it has read, and an
+ * ending that cannot tell must describe the worst case.
+ * @typedef {object} FinishKnown
+ * @property {WorkspaceStatus|null} [status] - The last status read
+ * @property {WorkspaceTrack|null} [track] - The last track read
+ */
+
+/**
  * @typedef {object} FinishResult
  * @property {boolean} done - Whether the workspace is finished with
  * @property {string} [message] - What to tell the user, done or not
@@ -464,7 +552,8 @@ class WorkspaceProvider {
    * **Must be cheap and must honour `ctx.signal`**: a place list calls this
    * speculatively for every workspace it lists the moment it opens, not just for
    * the one in use. The default answers from the row alone, without touching
-   * anything.
+   * anything. What is worth several commands to work out, and only for the
+   * workspace being looked at, belongs in {@link track}.
    * @param {import('../js/model/session.js').Workspace} workspace - The row to report on
    * @param {ProviderContext} ctx - Operations pinned to that workspace, and a signal
    * @returns {Promise<WorkspaceStatus>} What to show for it
@@ -533,22 +622,50 @@ class WorkspaceProvider {
   }
 
   /**
+   * Where this workspace's work is on its way back to where it came from, as
+   * steps with the next thing to do on them.
+   *
+   * Asked only for the workspace somebody is looking at, never for a list, so
+   * it may cost what {@link status} must not: several commands, a fetch into a
+   * private ref. It must still honour `ctx.signal`. Its actions run through
+   * {@link finish}, under their own ids.
+   *
+   * The default is null, which means the workspace has no track and a surface
+   * shows its finish options alone.
+   * @param {import('../js/model/session.js').Workspace} workspace - The row to report on
+   * @param {ProviderContext} ctx - Operations pinned to that workspace, its
+   *   base's, the conversation actions would be carried out for, and a signal
+   * @returns {Promise<WorkspaceTrack|null>} The steps, or null for none
+   */
+  async track(workspace, ctx) {
+    void workspace;
+    void ctx;
+    return null;
+  }
+
+  /**
    * The ways this workspace can be finished with, in the order to offer them.
    *
    * The default is none, and the panel renders that honestly — a provider whose
    * workspaces are simply unbound and forgotten has nothing to put here.
+   *
+   * `known` is whatever the host has already read about the workspace. It is
+   * what lets an ending say what it would lose, and set `danger` only when it
+   * would lose something; with nothing known, describe the worst case.
    * @param {import('../js/model/session.js').Workspace} workspace - The row being finished with
+   * @param {FinishKnown} [known] - Its last status and track, where the host has them
    * @returns {FinishOption[]} Ordered actions
    */
-  finishOptions(workspace) {
+  finishOptions(workspace, known) {
     void workspace;
+    void known;
     return [];
   }
 
   /**
    * Carry out one finish action, then tear down.
    * @param {import('../js/model/session.js').Workspace} workspace - The row being finished with
-   * @param {string} actionId - Which of {@link finishOptions}
+   * @param {string} actionId - Which of {@link finishOptions}, or of a {@link track} step's actions
    * @param {ProviderContext} ctx - Operations pinned to that workspace, and a signal
    * @returns {Promise<FinishResult>} Whether it is finished, and what to say
    */

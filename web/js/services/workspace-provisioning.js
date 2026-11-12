@@ -23,6 +23,7 @@ import { createBoundOps } from '../../sdk/ops.js';
 import { extractErrorMessage, errorText } from '../../sdk/lib/error-utils.js';
 import { t, markForTranslation, formatList } from '../../sdk/lib/i18n.js';
 import workspaceProviderRegistry from '../registries/workspace-provider-registry.js';
+import WorkspaceProvider from '../../sdk/workspace-provider.js';
 import { capabilityLabel } from '../utils/capability-label.js';
 import { registerWorkspace, patchWorkspace, unregisterWorkspace, isWorkspaceUsable } from './workspaces.js';
 import { rebindConversation } from './workspace-rebinding.js';
@@ -109,16 +110,69 @@ export async function workspaceStatus(session, workspace, signal) {
  * The reason is returned rather than the list simply being empty, because
  * "this provider offers no endings" and "the extension that knew how to end
  * this is gone" are different things to tell someone.
+ * What the caller has already read about the workspace is passed on, so an
+ * ending can say what it would cost; a caller that has read nothing gets the
+ * endings as they read with nothing known.
  * @param {any} session - The session the workspace belongs to.
  * @param {import('../model/session.js').Workspace} workspace - The row being finished with.
+ * @param {import('../../sdk/workspace-provider.js').FinishKnown} [known] - Its last status and track.
  * @returns {{options: import('../../sdk/workspace-provider.js').FinishOption[], unavailableReason?: string}} What can be done.
  */
-export function workspaceFinishOptions(session, workspace) {
+export function workspaceFinishOptions(session, workspace, known = {}) {
   const provider = workspaceProviderRegistry.createProvider(workspace.providerId ?? '', session);
   if (!provider) {
     return { options: [], unavailableReason: t(PROVIDER_UNAVAILABLE) };
   }
-  return { options: provider.finishOptions(workspace) };
+  return { options: provider.finishOptions(workspace, { status: known.status ?? null, track: known.track ?? null }) };
+}
+
+/**
+ * Whether a workspace's provider has a track to offer at all.
+ *
+ * Known from the provider class alone, before anything is read, so a surface
+ * can lay itself out for a track from the first draw instead of drawing the
+ * finish options and swapping them out when the read lands.
+ * @param {any} session - The session the workspace belongs to.
+ * @param {import('../model/session.js').Workspace} workspace - The row.
+ * @returns {boolean} True when its provider overrides `track`.
+ */
+export function workspaceHasTrack(session, workspace) {
+  const provider = workspaceProviderRegistry.createProvider(workspace?.providerId ?? '', session);
+  return !!provider && provider.track !== WorkspaceProvider.prototype.track;
+}
+
+/**
+ * Where a workspace's work is on its way back, asked of its provider.
+ *
+ * Only for the workspace somebody is looking at: a provider may spend several
+ * commands on it. A provider with no track answers null and so does a missing
+ * one, since its finish options already carry that reason; one that throws
+ * answers with the reason in `problem`, as {@link workspaceStatus} does.
+ * @param {any} session - The session the workspace belongs to.
+ * @param {import('../model/session.js').Workspace} workspace - The row to report on.
+ * @param {AbortSignal} [signal] - Cancels the read when the view moves on.
+ * @returns {Promise<(import('../../sdk/workspace-provider.js').WorkspaceTrack & {problem?: string}) | null>} The steps, null for none, or `{steps: [], problem}`.
+ */
+export async function workspaceTrack(session, workspace, signal) {
+  const provider = workspaceProviderRegistry.createProvider(workspace.providerId ?? '', session);
+  if (!provider) return null;
+  try {
+    return await provider.track(workspace, {
+      session,
+      // The actions a track offers include handing work to a conversation, so
+      // it is told which one that would be, by the rule the endings use.
+      conversation: workspaceFinishActor(session, workspace),
+      ops: createBoundOps(() => ({ workspaceId: workspace.id })),
+      baseOps: createBoundOps(() => ({ workspaceId: workspace.baseWorkspaceId ?? '' })),
+      baseWorkspaceId: workspace.baseWorkspaceId ?? '',
+      signal: signal ?? new AbortController().signal,
+      rollback: { push: () => {} },
+      checkpoint: async () => {},
+      progress: () => {}
+    }) ?? null;
+  } catch (error) {
+    return { steps: [], problem: errorText(error) };
+  }
 }
 
 /**

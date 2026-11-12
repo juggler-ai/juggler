@@ -240,9 +240,8 @@ export async function runTests() {
           panel.querySelector(`${selector} .workspace-panel-action-name`)?.textContent ?? '';
         assert(panel.querySelector('.workspace-panel-title')?.textContent === 'feat/menu (worktree)',
           `the panel names the place, which is the name on its row, got ${JSON.stringify(text)}`);
-        assert(panel.querySelector('.workspace-panel-eyebrow')?.textContent
-          === `Workspace · ${FixtureProvider.MANIFEST.name}`,
-        `above a line saying what it is and which kind of one, got ${JSON.stringify(text)}`);
+        assert(panel.querySelector('.workspace-panel-kind')?.textContent === FixtureProvider.MANIFEST.name,
+          `beside the kind of place it is, got ${JSON.stringify(text)}`);
         assert(text.includes('/tmp/menu-tree') && text.includes('feat/menu · clean'),
           `then where it is and what its provider says about it, got ${JSON.stringify(text)}`);
         assert(text.split('(worktree)').length - 1 === 1,
@@ -266,9 +265,8 @@ export async function runTests() {
         // changes no class name and nothing else would see it.
         const edge = (/** @type {any} */ element) => element?.getBoundingClientRect().left ?? -1;
         const starts = [
-          panel.querySelector('.workspace-panel-eyebrow'),
           panel.querySelector('.workspace-panel-title'),
-          ...panel.querySelectorAll('.workspace-panel-heading'),
+          panel.querySelector('.workspace-panel-kind-note'),
           ...panel.querySelectorAll('.workspace-panel-action')
         ];
         const gutter = edge(starts[0]);

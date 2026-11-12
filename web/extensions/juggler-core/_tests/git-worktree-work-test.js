@@ -15,7 +15,11 @@
 
 import { waitFor, assert, withTimeout } from '../../../js-tests/utilities/test-helpers.js';
 import { unregisterWorkspace, listWorkspaces } from '../../../js/services/workspaces.js';
-import { provisionWorkspace, workspaceStatus, finishWorkspace } from '../../../js/services/workspace-provisioning.js';
+import {
+  provisionWorkspace,
+  workspaceStatus,
+  finishWorkspace
+} from '../../../js/services/workspace-provisioning.js';
 import GitWorktreeWorkspaceProvider, { defaultLocation } from '../workspaces/git-worktree-workspace-provider.js';
 import api from '../../../js/services/api.js';
 import { underPseudoLocale } from '../../../js-tests/utilities/pseudo-locale.js';
@@ -70,8 +74,6 @@ const CORE_TEXT = [
   'What changed and why, in the words you would use to someone who has not read it.',
   'Let this conversation write it',
   'It has read the work; the commit happens on its next turn.',
-  'Fast-forward {repoTarget, select, named {{repo}} other {the repository}} to {branchTarget, select, named {{branch}} other {this branch}}',
-  "{branchTarget, select, named {Runs git merge --ff-only {branch}} other {Runs git merge --ff-only with this worktree's branch}} in {repoTarget, select, named {{repo}} other {the repository}}, moving the branch it has checked out to this one. Git refuses it if that branch has diverged. The worktree is untouched.",
   'Close the workspace, keep the worktree',
   '{target, select, named {The worktree and {branch} stay on disk, ready to be adopted again. Conversations here go to the bin, which they can be restored from.} other {The worktree and its branch stay on disk, ready to be adopted again. Conversations here go to the bin, which they can be restored from.}}',
   'Close the workspace and delete the worktree',
@@ -87,26 +89,84 @@ const CORE_TEXT = [
   "Couldn't make the commit.",
   "Couldn't make the commit.\n\n{detail}",
   '{target, select, named {Committed on {branch}.} other {Committed on its branch.}}',
-  "Can't fast-forward: {repoTarget, select, named {{repo}} other {the repository}} can't be reached from {baseTarget, select, named {{base}} other {the base workspace}}.",
   "Can't remove the worktree: {repoTarget, select, named {{repo}} other {the repository}} can't be reached from {baseTarget, select, named {{base}} other {the base workspace}}.",
-  "Can't fast-forward: there's no record of which branch this worktree is on.",
-  '{count, plural, one {This worktree has an uncommitted change. Commit it first — a fast-forward moves commits, and it would be left behind.} other {This worktree has {count} uncommitted changes. Commit them first — a fast-forward moves commits, and these would be left behind.}}',
-  "Couldn't find out which branch the repository has checked out.",
-  "Couldn't find out which branch the repository has checked out.\n\n{detail}",
-  "Can't fast-forward: {repo} isn't on a branch (its HEAD is detached).",
-  "{into} has moved on since this worktree was made, so it can't be fast-forwarded to {branch}. Merge or rebase it yourself.",
-  "{into} has moved on since this worktree was made, so it can't be fast-forwarded to {branch}. Merge or rebase it yourself.\n\n{detail}",
-  '{into} is already up to date with {branch}.',
-  'Fast-forwarded {into} to {branch}.',
   "Can't remove the worktree: there's no record of which repository it belongs to.",
   '{target, select, branch {Removed {dir} and {branch}.} other {Removed {dir}.}}',
   '{dir} is still there.',
   '{dir} is not a worktree of {repo} any more.',
   '{target, select, named {{dir} is on {branch} now, not {expected}.} other {{dir} is on no branch now, not {expected}.}}',
   '{dir} — a worktree of {repo} with no workspace',
-  'Nothing was checkpointed, so there is nothing to undo.',
   '{dir} is still there and could not be removed.',
-  'Removed {dir}.'
+  'Removed {dir}.',
+  "A submodule this branch repoints can't be landed in the base checkout.",
+  "Can't land {name}: its copy in the base checkout has uncommitted changes.",
+  "Can't land {name}: this branch repoints it, and its copy in the base checkout has no branch to land those commits on.",
+  "Can't land: there's no record of which branch this worktree is on.",
+  "Can't land: {base} is checked out in another worktree, {dir}, which would be left behind.",
+  "Can't land: {repoTarget, select, named {{repo}} other {the repository}} can't be reached from {baseTarget, select, named {{base}} other {the base workspace}}.",
+  "Can't merge: {base} isn't checked out in {repo}, and a merge needs a checkout to happen in. Land instead.",
+  "Can't merge: {name} has moved on in the base checkout, so its commits have to be rebased. Land instead, which rebases them.",
+  "Close and delete",
+  "Close and delete the worktree",
+  "Continue",
+  "Couldn't merge {name} into {base}, so nothing was changed.",
+  "Couldn't merge {name} into {base}, so nothing was changed.\n\n{detail}",
+  "Couldn't move {base} to the work. {name} has been rebased onto it, so nothing is lost.",
+  "Couldn't move {base} to the work. {name} has been rebased onto it, so nothing is lost.\n\n{detail}",
+  "Couldn't read how the worktree stands against its base.",
+  "Couldn't read how the worktree stands against its base.\n\n{detail}",
+  "Couldn't stop it.",
+  "Couldn't stop it.\n\n{detail}",
+  "Deletes the worktree, and with it what exists only here: {lost}. Conversations here go to the bin, which they can be restored from.",
+  "Everything is committed",
+  "Everything is in {base}",
+  "Have the conversation resolve it",
+  "Land and close",
+  "Land in {base}",
+  "Landed in {base}, but {name} couldn't be moved in the base checkout.",
+  "Landed in {base}, but {name} couldn't be moved in the base checkout.\n\n{detail}",
+  "Merge into {base}",
+  "Merged {name} into {base}.",
+  "No branch to land in",
+  "Nothing here is lost: every commit is in the base branch. Deletes the worktree and the branch {branch}. Conversations here go to the bin, which they can be restored from.",
+  "Nothing here is lost: every commit is in the base branch. Deletes the worktree. Conversations here go to the bin, which they can be restored from.",
+  "Nothing is lost: everything here is in {base}. The branch wasn't made by Juggler, so it stays. Conversations here go to the bin.",
+  "Nothing is lost: {name} and its commits are all in {base}. Conversations here go to the bin.",
+  "Nothing to land: everything here is already in {base}.",
+  "Once everything is in {base}.",
+  "Rebased {name} onto {base}.",
+  "Rebasing {name} onto {onto} stopped. {base} hasn't been touched.",
+  "Rebasing {name} onto {onto} stopped. {base} hasn't been touched.\n\n{detail}",
+  "Submodules that moved on in the base checkout are rebased onto it first.",
+  "The conversation will resolve the conflicts on its next turn.",
+  "The worktree is in the middle of a rebase or a merge. Continue or abort it first.",
+  "There is no conversation here to hand the conflicts to.",
+  "There is no rebase or merge in progress here.",
+  "Update from {base}",
+  "What this work does, and why",
+  "{count, plural, =0 {Submodule commits not yet in {base}} one {# commit not yet in {base}} other {# commits not yet in {base}}}",
+  "{count, plural, one {# commit in a submodule} other {# commits in submodules}}",
+  "{count, plural, one {# commit not in the base branch} other {# commits not in the base branch}}",
+  "{count, plural, one {# file changed, not committed} other {# files changed, not committed}}",
+  "{count, plural, one {# uncommitted file} other {# uncommitted files}}",
+  "{count, plural, one {After the commit: {name} will have # commit not in {base}.} other {After the commit: {name} will have # commits not in {base}.}}",
+  "{count, plural, one {Including the submodule {names}.} other {Including the submodules {names}.}}",
+  "{count, plural, one {Landed # commit in {base}} other {Landed # commits in {base}}}{subs, plural, =0 {.} one {, and # in a submodule.} other {, and # in submodules.}}",
+  "{count, plural, one {Rebasing {name} onto {onto} stopped: {files} conflicts. {base} hasn't been touched.} other {Rebasing {name} onto {onto} stopped: # files conflict ({files}). {base} hasn't been touched.}}",
+  "{count, plural, one {Submodule, # commit not in its {branch}} other {Submodule, # commits not in its {branch}}}",
+  "{count, plural, one {This worktree has an uncommitted change. Commit it first — landing moves commits, and it would be left behind.} other {This worktree has # uncommitted changes. Commit them first — landing moves commits, and these would be left behind.}}",
+  "{count, plural, one {{base} has # commit {name} doesn't have, so {name} is rebased onto it first.} other {{base} has # commits {name} doesn't have, so {name} is rebased onto it first.}}",
+  "{count, plural, one {{base} has # commit {name} doesn't have, so {name} is rebased onto it first: submodules, then this repository.} other {{base} has # commits {name} doesn't have, so {name} is rebased onto it first: submodules, then this repository.}}",
+  "{kind, select, rebase {Abort the rebase} other {Abort the merge}}",
+  "{kind, select, rebase {Finished rebasing {name} onto {onto}.} other {Finished the merge into {name}.}}",
+  "{kind, select, rebase {Stopped the rebase: {name} is back where it was.} other {Stopped the merge: {name} is back where it was.}}",
+  "{kind, select, rebase {{base} hasn't been touched. The worktree is mid-rebase.} other {The worktree is mid-merge.}}",
+  "{kind, select, rebase {{count, plural, =0 {Rebasing {name} onto {onto} stopped} one {Rebasing {name} onto {onto} stopped: # file conflicts} other {Rebasing {name} onto {onto} stopped: # files conflict}}} other {{count, plural, =0 {Merging into {name} stopped} one {Merging into {name} stopped: # file conflicts} other {Merging into {name} stopped: # files conflict}}}}",
+  "{name} already has everything in {base}.",
+  "{repo} isn't on a branch, and this worktree has no record of the branch it came from.",
+  "{target, select, none {Can't land {name}: its copy in the base checkout isn't on a branch any more.} other {Can't land {name}: its copy in the base checkout is on {found} now, not {branch}.}}",
+  "{why, select, detached {Submodule, repointed here, but its copy in the base checkout isn't on a branch to land on.} nobase {Submodule, repointed here, but the base checkout has no copy of it to land in.} other {Submodule, repointed here, but its copy in the base checkout couldn't be read.}}",
+  "{status, select, modified {Modified} added {Added} deleted {Deleted} renamed {Renamed} copied {Copied} typechange {Type changed} other {Conflicted}}"
 ];
 
 /**
@@ -190,127 +250,6 @@ export async function runTests() {
         const branchOf = await mustRun(ops, `git -C ${tree} rev-parse --abbrev-ref HEAD`);
         assert(branchOf.stdout.trim() === BRANCH,
           `on its own branch, not the one the repository is standing on, got ${JSON.stringify(branchOf.stdout)}`);
-      } finally {
-        if (outcome) await unregisterWorkspace(outcome.workspace.id).catch(() => {});
-        await shell(ops, `git -C ${repo} worktree remove --force ../${tree}; rm -rf ${tree} ${repo}`).catch(() => {});
-      }
-    });
-
-    await run('landing moves the repository’s own branch onto the work', async () => {
-      // What "push it back to the repository" really is for a worktree. The
-      // commit is already IN the repository the moment it exists — a worktree
-      // shares the object store and the refs — so nothing is pushed anywhere.
-      // What is missing is the branch the main checkout has out, and moving it
-      // is a fast-forward: the one way of landing work that cannot conflict and
-      // therefore needs no flow around it.
-      const tag = uniqueTag();
-      const repo = `wt-repo-${tag}`;
-      const location = defaultLocation(`${projectPath}${separator}${repo}`, BRANCH);
-      const tree = `${repo}-feat-tunnels`;
-      /** @type {any} */
-      let outcome = null;
-      try {
-        await buildRepo(ops, repo, `hello-${tag}`);
-        outcome = await provisionWorkspace({
-          session,
-          providerId: PROVIDER_ID,
-          values: { repo, branch: BRANCH, base: 'main', location }
-        });
-        await mustRun(ops, `echo the-work > ${tree}/done.txt`);
-
-        // Uncommitted work stays where it is: landing moves commits, and a tree
-        // that quietly left its changes behind would be the worst kind of
-        // success.
-        const early = await finishWorkspace({ session, workspace: outcome.workspace, actionId: 'land' });
-        assert(early.done === false && /commit/i.test(String(early.message)),
-          `a tree still holding work is told to commit it first, got ${JSON.stringify(early.message)}`);
-        const untouched = await mustRun(ops, `git -C ${repo} log -1 --pretty=%s`);
-        assert(!untouched.stdout.includes('the-work'),
-          'and nothing was landed while it said so');
-
-        await finishWorkspace({
-          session,
-          workspace: outcome.workspace,
-          actionId: 'commit',
-          input: { message: 'Did the thing' }
-        });
-
-        const landed = await finishWorkspace({ session, workspace: outcome.workspace, actionId: 'land' });
-        assert(landed.done === false,
-          `landing is something you do while working here, not a way of being finished with it, got ${JSON.stringify(landed)}`);
-        assert(/main/.test(String(landed.message)) && /fast-forward/i.test(String(landed.message)),
-          `and it says which branch moved, and how, got ${JSON.stringify(landed.message)}`);
-
-        const onMain = await mustRun(ops, `git -C ${repo} log -1 --pretty=%s`);
-        assert(onMain.stdout.trim() === 'Did the thing',
-          `the repository's own branch now has the work, which is the whole point, got ${JSON.stringify(onMain.stdout)}`);
-        const here = await mustRun(ops, `git -C ${repo} rev-parse main`);
-        const there = await mustRun(ops, `git -C ${tree} rev-parse HEAD`);
-        assert(here.stdout.trim() === there.stdout.trim(),
-          'with the two exactly level, because a fast-forward is all this does');
-
-        // Nothing left to move, and that is not a failure either.
-        const again = await finishWorkspace({ session, workspace: outcome.workspace, actionId: 'land' });
-        assert(/already/i.test(String(again.message)),
-          `landing what is already landed says so plainly, got ${JSON.stringify(again.message)}`);
-      } finally {
-        if (outcome) await unregisterWorkspace(outcome.workspace.id).catch(() => {});
-        await shell(ops, `git -C ${repo} worktree remove --force ../${tree}; rm -rf ${tree} ${repo}`).catch(() => {});
-      }
-    });
-
-    await run('landing refuses what a fast-forward cannot do, and says what git said', async () => {
-      // The two refusals worth having. A main checkout that has moved on cannot
-      // be fast-forwarded at all — that is a merge, with conflicts in it, which
-      // is a flow rather than a button — and a main checkout on no branch has
-      // nothing to move.
-      const tag = uniqueTag();
-      const repo = `wt-repo-${tag}`;
-      const location = defaultLocation(`${projectPath}${separator}${repo}`, BRANCH);
-      const tree = `${repo}-feat-tunnels`;
-      /** @type {any} */
-      let outcome = null;
-      try {
-        await buildRepo(ops, repo, `hello-${tag}`);
-        outcome = await provisionWorkspace({
-          session,
-          providerId: PROVIDER_ID,
-          values: { repo, branch: BRANCH, base: 'main', location }
-        });
-        await mustRun(ops, `echo the-work > ${tree}/done.txt`);
-        await finishWorkspace({
-          session,
-          workspace: outcome.workspace,
-          actionId: 'commit',
-          input: { message: 'Did the thing' }
-        });
-
-        // The repository carries on while the worktree works, which is what
-        // having a worktree is for — and it is what makes a fast-forward
-        // impossible.
-        await mustRun(ops, chain(
-          `echo meanwhile > ${repo}/other.txt`,
-          `git -C ${repo} add -A`,
-          `git -C ${repo} commit -q -m "Meanwhile, on main"`
-        ));
-
-        const diverged = await finishWorkspace({ session, workspace: outcome.workspace, actionId: 'land' });
-        assert(diverged.done === false,
-          `a land that could not happen is not reported as one that did, got ${JSON.stringify(diverged)}`);
-        assert(/moved on/i.test(String(diverged.message)),
-          `it says why in words before git's own, got ${JSON.stringify(diverged.message)}`);
-        assert(/fast-forward/i.test(String(diverged.message)),
-          `and keeps git's text under them, got ${JSON.stringify(diverged.message)}`);
-        const stillThere = await mustRun(ops, `git -C ${repo} log -1 --pretty=%s`);
-        assert(stillThere.stdout.trim() === 'Meanwhile, on main',
-          `with the repository exactly as it was, got ${JSON.stringify(stillThere.stdout)}`);
-
-        // On no branch at all: there is nothing to land onto, and a merge here
-        // would move a detached HEAD, which is nobody's idea of landing work.
-        await mustRun(ops, `git -C ${repo} checkout -q --detach`);
-        const detached = await finishWorkspace({ session, workspace: outcome.workspace, actionId: 'land' });
-        assert(/branch/i.test(String(detached.message)) && detached.done === false,
-          `a repository on no branch is told as that, got ${JSON.stringify(detached.message)}`);
       } finally {
         if (outcome) await unregisterWorkspace(outcome.workspace.id).catch(() => {});
         await shell(ops, `git -C ${repo} worktree remove --force ../${tree}; rm -rf ${tree} ${repo}`).catch(() => {});
@@ -585,42 +524,156 @@ export async function runTests() {
           shown['committed named'] = (await provider.finish(named, 'commit', commitCtx)).message;
           shown['committed unnamed'] = (await provider.finish({ meta: {} }, 'commit', commitCtx)).message;
 
-          // Land: no branch, the repository out of reach both ways, uncommitted
-          // work, git refusing each step with and without saying why, and success.
-          shown['land no branch'] = (await provider.finish(unnamed, 'land', ctx)).message;
-          shown['land no repository'] = (await provider.finish({ meta: { branch: '4' } }, 'land', ctx)).message;
-          root = '';
-          shown['land no base'] = (await provider.finish(named, 'land', ctx)).message;
-          shown['discard no base'] = (await provider.finish(named, 'discard', ctx)).message;
-          root = '/1';
-          for (const porcelain of [' M 6\n', ' M 6\n M 7\n']) {
-            respond = () => ({ success: true, stdout: porcelain });
-            shown[`land uncommitted ${porcelain.length}`] = (await provider.finish(named, 'land', ctx)).message;
-          }
+          // The track, landing and its neighbours: every step in every state,
+          // every refusal and every outcome, against scripted git. A reading is
+          // what the track's one command prints; `answer` scripts the rest by
+          // the first fragment each command contains.
           /**
-           * Answer each command the land runs.
-           * @param {any} head - What `rev-parse --abbrev-ref` says.
-           * @param {any} merge - What `merge --ff-only` says.
+           * What the track's command prints, from rows of fields.
+           * @param {...string[]} rows - `kind, scope, value…` each.
+           * @returns {string} Its output.
+           */
+          const reading = (...rows) => rows.map((row) => row.join('\t')).join('\n');
+          const base6 = ['base', '', '6'];
+          const sub3 = (/** @type {string} */ behind, /** @type {string} */ ahead) => [
+            ['head', '3', '9'], ['sub', '3', 'ok', '0', '5'], ['counts', '3', behind, ahead], ['commit', '3', '1', '2']
+          ];
+          const readings = {
+            dirty: reading(base6, ['file', '', '?? 7'], ['counts', '', '0', '1'], ['commit', '', '1', '2']),
+            ahead: reading(base6, ['counts', '', '1', '1'], ['commit', '', '1', '2'], ...sub3('0', '1')),
+            plain: reading(base6, ['counts', '', '1', '1'], ['commit', '', '1', '2']),
+            diverged: reading(base6, ['counts', '', '0', '1'], ['commit', '', '1', '2'], ...sub3('1', '1')),
+            subOnly: reading(base6, ['counts', '', '0', '0'], ...sub3('0', '1')),
+            landed: reading(base6, ['counts', '', '1', '0'], ...sub3('0', '0')),
+            rebase: reading(base6, ['state', '', 'rebase'], ['unmerged', '', '7']),
+            merge: reading(base6, ['state', '', 'merge']),
+            subRebase: reading(base6, ...sub3('1', '1'), ['state', '3', 'rebase'], ['unmerged', '3', '8']),
+            noBase: reading(['base', '', '']),
+            unreachable: reading(base6, ['counts', '', '0', '1'],
+              ['sub', '3', 'detached', '1', ''], ['sub', '7', 'nobase', '1', ''], ['sub', '8', 'unfetched', '1', '5'])
+          };
+          /**
+           * A responder: the reading for the track's command, then the first
+           * answer whose fragment the command contains, then success.
+           * @param {string} read - What the track's command prints.
+           * @param {[string, any][]} [answers] - Fragment and result.
            * @returns {(command: string) => any} The responder.
            */
-          const landing = (head, merge) => (command) => {
-            if (command.includes('rev-parse --abbrev-ref')) return head;
-            if (command.includes('merge --ff-only')) return merge;
-            return { success: true, stdout: '' };
+          const answer = (read, answers = []) => (command) => {
+            if (command.startsWith('b=')) return { success: true, stdout: read };
+            const found = answers.find(([fragment]) => command.includes(fragment));
+            return found ? found[1] : { success: true, stdout: '' };
           };
-          const out = { success: true, stdout: '2' };
-          for (const detail of ['1', '']) {
-            respond = landing({ success: false, stdout: detail }, out);
-            shown[`land head failed (${detail || 'silent'})`] = (await provider.finish(named, 'land', ctx)).message;
-            respond = landing(out, { success: false, stdout: detail });
-            shown[`land refused (${detail || 'silent'})`] = (await provider.finish(named, 'land', ctx)).message;
+          const fail = (/** @type {string} */ stdout) => ({ success: false, stdout });
+          const handOff = { rootMessageThread: null, sendMessage: async (/** @type {string} */ text) => { sent.push(text); } };
+          /** @type {Record<string, any>} */
+          const tracks = {};
+          for (const [state, read] of Object.entries(readings)) {
+            respond = answer(read);
+            for (const [who, conversation] of [['alone', null], ['handed', handOff]]) {
+              const track = await provider.track(named, { ...ctx, conversation });
+              tracks[`${state} ${who}`] = track;
+              (track?.steps ?? []).forEach((/** @type {any} */ step) => {
+                const walk = (/** @type {any} */ value, /** @type {string} */ path) => {
+                  if (typeof value === 'string') {
+                    if (/(label|placeholder|hint|title|note)$/.test(path) || /files\.\d+\.state$/.test(path)) shown[`track ${state} ${who} ${path}`] = value;
+                  } else if (value && typeof value === 'object') {
+                    for (const [key, inner] of Object.entries(value)) walk(inner, `${path}.${key}`);
+                  }
+                };
+                walk(step, step.id);
+              });
+            }
           }
-          respond = landing({ success: true, stdout: 'HEAD' }, out);
-          shown['land detached'] = (await provider.finish(named, 'land', ctx)).message;
-          respond = landing(out, { success: true, stdout: 'Already up to date.' });
-          shown['land up to date'] = (await provider.finish(named, 'land', ctx)).message;
-          respond = landing(out, { success: true, stdout: '' });
+          respond = answer(readings.landed);
+          tracks['landed theirs'] = await provider.track({ meta: { ...named.meta, branchCreatedByUs: false } }, ctx);
+          tracks['landed theirs'].steps.forEach((/** @type {any} */ step) => { if (step.note) shown[`theirs ${step.id} note`] = step.note; });
+          for (const detail of ['1', '']) {
+            respond = () => fail(detail);
+            shown[`read failed (${detail || 'silent'})`] = await thrown(() => provider.track(named, ctx));
+          }
+
+          // Deleting, as each track prices it.
+          const theirs = { meta: { ...named.meta, branchCreatedByUs: false } };
+          for (const [which, track] of [['dirty', tracks['dirty alone']], ['ahead', tracks['ahead alone']], ['landed', tracks['landed alone']]]) {
+            for (const [whose, row] of [['ours', named], ['theirs', theirs]]) {
+              const option = provider.finishOptions(row, { track }).find((/** @type {any} */ o) => o.id === 'discard');
+              shown[`discard ${which} ${whose}`] = option?.description;
+            }
+          }
+
+          // Refusals before anything is touched.
+          shown['land no branch'] = (await provider.finish(unnamed, 'land', ctx)).message;
+          for (const [state, read] of Object.entries({ noBase: readings.noBase, stuck: readings.rebase, dirty: readings.dirty, unreachable: readings.unreachable })) {
+            respond = answer(read);
+            shown[`land ${state}`] = (await provider.finish(named, 'land', ctx)).message;
+          }
+          respond = answer(reading(base6, ['file', '', '?? 7'], ['file', '', '?? 8']));
+          shown['land dirty 2'] = (await provider.finish(named, 'land', ctx)).message;
+          respond = answer(readings.plain);
+          shown['land no repository'] = (await provider.finish({ meta: { branch: '4' } }, 'land', ctx)).message;
+          root = '';
+          shown['discard no base'] = (await provider.finish(named, 'discard', ctx)).message;
+          root = '/1';
+          respond = answer(readings.landed.replace('counts\t\t1\t0', 'counts\t\t0\t0'));
+          shown['land nothing'] = (await provider.finish(named, 'land', ctx)).message;
+          respond = answer(readings.diverged);
+          shown['merge diverged'] = (await provider.finish(named, 'land-merge', ctx)).message;
+          const side = (/** @type {string} */ subs) => ['@@subs', { success: true, stdout: `worktree /1\nbranch refs/heads/6\n@@subs\n${subs}` }];
+          const away = ['@@subs', { success: true, stdout: 'worktree /1\nbranch refs/heads/1\n\nworktree /2\nbranch refs/heads/6\n@@subs\n' }];
+          respond = answer(readings.plain, [/** @type {any} */ (away)]);
+          shown['land elsewhere'] = (await provider.finish(named, 'land', ctx)).message;
+          respond = answer(readings.plain, [['@@subs', { success: true, stdout: 'worktree /1\nbranch refs/heads/1\n@@subs\n' }]]);
+          shown['merge not here'] = (await provider.finish(named, 'land-merge', ctx)).message;
+          for (const [what, line] of [['other branch', '3\t1\t0'], ['no branch', '3\t\t0'], ['dirty', '3\t5\t2']]) {
+            respond = answer(readings.ahead, [/** @type {any} */ (side(String(line)))]);
+            shown[`land sub ${what}`] = (await provider.finish(named, 'land', ctx)).message;
+          }
+
+          // Stops on the way, and git refusing the last steps.
+          const ready = side('3\t5\t0');
+          for (const [what, said] of [['conflict', 'stopped\nconflict 8'], ['said', 'stopped\nsaid 1'], ['silent', 'stopped']]) {
+            respond = answer(readings.diverged, [/** @type {any} */ (ready), ['patch-id', { success: true, stdout: said }]]);
+            shown[`sub stopped ${what}`] = (await provider.finish(named, 'land', ctx)).message;
+          }
+          respond = answer(readings.plain, [/** @type {any} */ (ready), ['git rebase -q', fail('1')], ['ls-files -u', { success: true, stdout: '100644 1 1\t7\n100644 2 2\t7\n100644 3 3\t7\n100644 2 2\t8\n100644 3 3\t8' }]]);
+          shown['tree stopped'] = (await provider.finish(named, 'land', ctx)).message;
+          for (const detail of ['1', '']) {
+            respond = answer(readings.plain, [/** @type {any} */ (ready), ['--ff-only', fail(detail)]]);
+            shown[`base refused (${detail || 'silent'})`] = (await provider.finish(named, 'land', ctx)).message;
+            respond = answer(readings.plain, [/** @type {any} */ (ready), ['--no-ff', fail(detail)]]);
+            shown[`merge refused (${detail || 'silent'})`] = (await provider.finish(named, 'land-merge', ctx)).message;
+            respond = answer(readings.subOnly, [/** @type {any} */ (ready), ["printf 'link", { success: true, stdout: 'link\t3\t9\nhead\t\t1' }], ['fetch -q "$t"', fail(detail)]]);
+            shown[`sub refused (${detail || 'silent'})`] = (await provider.finish(named, 'land', ctx)).message;
+          }
+          respond = answer(readings.plain, [/** @type {any} */ (ready)]);
+          shown['merged'] = (await provider.finish(named, 'land-merge', ctx)).message;
+          respond = answer(readings.ahead, [/** @type {any} */ (ready), ["printf 'link", { success: true, stdout: 'link\t3\t9\nhead\t\t1' }]]);
           shown['landed'] = (await provider.finish(named, 'land', ctx)).message;
+
+          // Updating, carrying on, giving up and handing it over.
+          respond = answer(readings.subOnly);
+          shown['update nothing'] = (await provider.finish(named, 'update', ctx)).message;
+          respond = answer(readings.plain);
+          shown['updated'] = (await provider.finish(named, 'update', ctx)).message;
+          respond = answer(readings.plain);
+          shown['continue none'] = (await provider.finish(named, 'continue', ctx)).message;
+          shown['abort none'] = (await provider.finish(named, 'abort', ctx)).message;
+          shown['resolve none'] = (await provider.finish(named, 'resolve', { ...ctx, conversation: handOff })).message;
+          shown['resolve nobody'] = (await provider.finish(named, 'resolve', { ...ctx, conversation: null })).message;
+          for (const [state, read] of [['rebase', readings.rebase], ['merge', readings.merge]]) {
+            respond = answer(String(read));
+            shown[`continued ${state}`] = (await provider.finish(named, 'continue', ctx)).message;
+            shown[`aborted ${state}`] = (await provider.finish(named, 'abort', ctx)).message;
+          }
+          respond = answer(readings.rebase);
+          shown['resolve asked'] = (await provider.finish(named, 'resolve', { ...ctx, conversation: handOff })).message;
+          respond = answer(readings.subRebase, [['--continue', fail('1')]]);
+          shown['continue stopped'] = (await provider.finish(named, 'continue', ctx)).message;
+          for (const detail of ['1', '']) {
+            respond = answer(readings.rebase, [['--abort', fail(detail)]]);
+            shown[`abort failed (${detail || 'silent'})`] = (await provider.finish(named, 'abort', ctx)).message;
+          }
 
           // Discard: no record, removed with and without the branch, still there.
           shown['discard no record'] = (await provider.finish(unnamed, 'discard', ctx)).message;
@@ -664,7 +717,8 @@ export async function runTests() {
       // The model reads what the conversation is sent, so it stays English.
       assert(JSON.stringify(sent) === JSON.stringify([
         'Commit the work in this worktree (branch 4), with a message describing it.',
-        'Commit the work in this worktree, with a message describing it.'
+        'Commit the work in this worktree, with a message describing it.',
+        'The rebase in this worktree (branch 4) stopped on conflicts: 7. Resolve each one, keeping what both sides meant, and stage the result. Then run `GIT_EDITOR=true git rebase --continue`; if it stops again, resolve that too. Do not abort it.'
       ]), `the conversation is asked in English, got ${JSON.stringify(sent)}`);
 
       const english = Object.entries(shown).filter(([, text]) => !isPseudoLocalized(scrub(text)));

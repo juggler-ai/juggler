@@ -113,11 +113,27 @@ export function normalizeRecent(raw) {
 
 /**
  * A Git pin's parameters as they are stored: the scope, omitted when it is the
- * default so a pin that never chose one keeps the config it always had.
+ * default so a pin that never chose one keeps the config it always had, and
+ * the workspace whose tree it shows, omitted for one that follows the visible
+ * conversation.
  * @param {Record<string, unknown>} parameters - What the agent or the user gave.
  * @returns {Record<string, unknown>} The normalized parameters.
  */
 export function normalizeGitPinParameters(parameters) {
   const scope = normalizeScope(parameters?.scope);
-  return scope === DEFAULT_SCOPE ? {} : { scope };
+  const workspace = pinnedWorkspace(parameters);
+  return {
+    ...(workspace ? { workspace } : {}),
+    ...(scope === DEFAULT_SCOPE ? {} : { scope })
+  };
+}
+
+/**
+ * The workspace a Git pin is fixed to.
+ * @param {Record<string, unknown>|null|undefined} parameters - Its config or parameters.
+ * @returns {string} The workspace id, or '' for a pin that follows the visible conversation.
+ */
+export function pinnedWorkspace(parameters) {
+  const workspace = parameters?.workspace;
+  return typeof workspace === 'string' ? workspace.trim() : '';
 }

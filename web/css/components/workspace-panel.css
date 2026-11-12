@@ -41,73 +41,82 @@ workspace-panel {
     display: flex;
     flex: 1;
     flex-direction: column;
-    gap: var(--space-32);
+    gap: var(--space-20);
     min-width: 0;
     overflow-y: auto;
-    padding: var(--space-32) var(--space-24);
+    padding: var(--space-24);
 }
 
+/* The head: the name with its kind beside it, where it came from, and where
+   it is — one block, read in one go. */
 .workspace-panel-head {
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
 }
 
-/* What this is and what kind of one it is — "Workspace · Git Worktree" — above
-   the name. Drawn like a section heading because that is what it is doing:
-   naming what the thing below it is, for someone who clicked a box in the strip
-   to find out. */
-.workspace-panel-eyebrow {
-    margin: 0;
-    color: var(--text-secondary);
+.workspace-panel-title-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-4) var(--space-10);
 }
 
-/* The name of this one, under the two lines that are about its kind. Everything
-   from here down is about this workspace alone. */
+/* A branch name is a name in code, so it is set as one. */
 .workspace-panel-title {
-    margin: var(--space-6) 0 0;
-    font-size: var(--font-size-3xl);
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: var(--font-size-xl);
     font-weight: var(--font-weight-semibold);
+    line-height: var(--leading-snug);
     color: var(--text-primary);
     overflow-wrap: anywhere;
 }
 
-/* What that kind of place is for, in the provider's own words. Quieter than the
-   line it explains, and tight under it: the two belong together, and the gap
-   before the name is what separates the kind from the instance. */
+.workspace-panel-kind {
+    padding: 0 var(--space-6);
+    border-radius: var(--radius-sm);
+    background: var(--wash-2);
+    color: var(--text-secondary);
+    font-size: var(--font-size-xs);
+    white-space: nowrap;
+}
+
+.workspace-panel-origin,
 .workspace-panel-kind-note {
-    margin: var(--space-2) 0 0;
+    margin: 0;
     font-size: var(--font-size-base);
-    color: var(--text-tertiary);
     line-height: var(--leading-normal);
+    color: var(--text-secondary);
+}
+
+/* One line, cut at the end with the whole path in its tooltip: the icons
+   beside it copy, reveal and pin the whole of it. Read-only, so it drops the
+   shared path box's frame: a bordered field reads as one you can type into. */
+.workspace-panel-path-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-6);
+    min-width: 0;
+}
+
+.workspace-panel-path {
+    flex: 0 1 auto;
+    min-width: 0;
+    padding: 0;
+    background: none;
+    border-color: transparent;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    word-break: normal;
+    color: var(--text-secondary);
 }
 
 .workspace-panel-section {
     display: flex;
     flex-direction: column;
-    gap: var(--space-12);
-}
-
-.workspace-panel-heading {
-    margin: 0;
-    color: var(--text-secondary);
-}
-
-.workspace-panel-path-row {
-    display: flex;
-    align-items: center;
     gap: var(--space-8);
-}
-
-/* Read-only, so it drops the shared path box's frame: a bordered field reads
-   as one you can type into. */
-.workspace-panel-path {
-    flex: 1 1 auto;
-    min-width: 0;
-    padding-inline: 0;
-    background: none;
-    border-color: transparent;
-    overflow-wrap: anywhere;
 }
 
 .workspace-panel-detail,
@@ -116,34 +125,28 @@ workspace-panel {
 .workspace-panel-note,
 .workspace-panel-pending {
     margin: 0;
-    font-size: var(--font-size-md);
+    font-size: var(--font-size-base);
     line-height: var(--leading-normal);
     color: var(--text-secondary);
 }
 
-/* The room the status answer lands in, held open from the first draw.
-
-   Two lines, because that is what a workspace with something wrong with it says
-   — what it is doing and what could not be asked — and the answer is a round
-   trip away while the buttons underneath are one click away. Reserving it here
-   is what keeps the explicit line-height above honest: the height of two lines
-   is only knowable if a line has a height. */
+/* The room a status answer lands in, held open from the first draw: two
+   lines, because that is what a workspace with something wrong with it says,
+   and the buttons under it are one click away while the answer is a round
+   trip away. */
 .workspace-panel-state-lines {
     display: flex;
     flex-direction: column;
-    gap: var(--space-6);
-    min-height: calc(2 * 0.875rem * var(--leading-normal) + 0.35rem);
+    gap: var(--space-4);
+    min-height: calc(2 * 0.8125rem * var(--leading-normal) + 0.25rem);
 }
 
-/* Not an answer yet. Quieter than everything it may turn into, so a panel
-   halfway through opening does not read as a panel reporting something. */
+/* Not an answer yet. Quieter than everything it may turn into. */
 .workspace-panel-pending {
     color: var(--text-tertiary);
 }
 
-/* Uncommitted work gets the same yellow it has in the strip: it is what makes
-   a destructive ending cost something. Worn by the status line that accounts for
-   the work, so the colour and the count are the same line. */
+/* Uncommitted work gets the same yellow it has in the strip. */
 .workspace-panel-dirty {
     color: var(--warning);
 }
@@ -153,52 +156,263 @@ workspace-panel {
     color: var(--danger);
 }
 
-.workspace-panel-actions {
+/* ==========================================================================
+   The track: the steps from here to done, in one bordered list.
+   ========================================================================== */
+
+.workspace-panel-track {
     display: flex;
     flex-direction: column;
-    gap: var(--space-8);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border: 0.0625rem solid var(--border-color);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
 }
 
-/* Every one of these does something to the tree, so each says what it will do
-   underneath what it is called. Full width and stacked: they are read down the
-   page, and a row of them would make the shortest label the easiest to hit. */
-.workspace-panel-action {
+.workspace-panel-step {
+    display: grid;
+    grid-template-columns: 1.25rem minmax(0, 1fr);
+    gap: var(--space-10);
+    align-items: start;
+    padding: var(--space-12) var(--space-14);
+    border-top: 0.0625rem solid var(--border-color);
+}
+
+.workspace-panel-step:first-child {
+    border-top: 0;
+}
+
+.workspace-panel-step-dot {
+    display: grid;
+    place-items: center;
+    width: 1.125rem;
+    height: 1.125rem;
+    margin-top: 0.0625rem;
+    border: 0.125rem solid var(--border-color);
+    border-radius: var(--radius-pill);
+    color: var(--text-tertiary);
+    font-size: var(--font-size-2xs);
+    font-weight: var(--font-weight-semibold);
+}
+
+.workspace-panel-step--done .workspace-panel-step-dot {
+    background: var(--success);
+    border-color: var(--success);
+    color: var(--text-on-accent);
+}
+
+/* The one to do next: the only step that stands out. */
+.workspace-panel-step--now {
+    background: color-mix(in srgb, var(--accent-blue) 5%, transparent);
+}
+
+.workspace-panel-step--now .workspace-panel-step-dot {
+    border-color: var(--accent-blue);
+    color: var(--accent-blue);
+}
+
+.workspace-panel-step--blocked .workspace-panel-step-dot {
+    border-color: var(--warning);
+    color: var(--warning);
+}
+
+.workspace-panel-step-body {
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
+    min-width: 0;
+}
+
+.workspace-panel-step-title {
+    margin: 0;
+    font-size: var(--font-size-md);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--leading-snug);
+    color: var(--text-primary);
+}
+
+.workspace-panel-step--now .workspace-panel-step-title {
+    font-weight: var(--font-weight-semibold);
+}
+
+.workspace-panel-step--blocked .workspace-panel-step-title {
+    font-weight: var(--font-weight-semibold);
+    color: var(--warning);
+}
+
+/* A step that cannot run yet reads as later: faint, not hidden. */
+.workspace-panel-step--wait .workspace-panel-step-title {
+    font-weight: var(--font-weight-normal);
+    color: var(--text-tertiary);
+}
+
+.workspace-panel-step-note,
+.workspace-panel-step-hint {
+    margin: 0;
+    font-size: var(--font-size-base);
+    line-height: var(--leading-normal);
+    color: var(--text-secondary);
+}
+
+.workspace-panel-step--wait .workspace-panel-step-note,
+.workspace-panel-step-hint {
+    color: var(--text-tertiary);
+}
+
+/* Files and commits: monospace, one line each, cut rather than wrapped. */
+.workspace-panel-list {
+    display: flex;
+    flex-direction: column;
+    margin: var(--space-4) 0 0;
+    padding: 0;
+    list-style: none;
+    font-family: var(--font-mono);
+    font-size: var(--font-size-sm);
+    line-height: var(--leading-normal);
+    color: var(--text-primary);
+}
+
+.workspace-panel-list > li {
+    display: flex;
+    gap: var(--space-8);
+    min-width: 0;
+    white-space: nowrap;
+}
+
+.workspace-panel-list-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.workspace-panel-list-key {
+    flex: none;
+    color: var(--text-tertiary);
+}
+
+.workspace-panel-list-more {
+    font-family: var(--font-ui);
+    color: var(--text-tertiary);
+}
+
+/* A part of the tree with a history of its own, under the step it belongs to. */
+.workspace-panel-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin-top: var(--space-6);
+    padding-left: var(--space-10);
+    border-left: 0.125rem solid var(--border-color);
+}
+
+.workspace-panel-group-name {
+    font-family: var(--font-mono);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--text-primary);
+}
+
+.workspace-panel-step-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+    margin-top: var(--space-8);
+}
+
+.workspace-panel-step-input {
     width: 100%;
-    padding: var(--space-12) var(--space-14);
-    background: var(--bg-secondary);
-    border: 0.0625rem solid var(--border-color);
-    border-radius: var(--radius-xl);
+    resize: vertical;
+    font-family: var(--font-ui);
+}
+
+.workspace-panel-step-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-8);
+}
+
+/* Everything else, quiet and on one line under the track; "Close…" at the
+   end of it. */
+.workspace-panel-more {
+    flex-flow: row wrap;
+    align-items: center;
+    gap: var(--space-4) var(--space-8);
+    padding-top: var(--space-12);
+    border-top: 0.0625rem solid var(--border-color);
+}
+
+.workspace-panel-more-spacer {
+    flex: 1;
+}
+
+/* The endings under "Close…": each its label over what it does to the tree. */
+.workspace-panel-close-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+}
+
+.workspace-panel-close-label {
+    font-weight: var(--font-weight-medium);
+}
+
+.workspace-panel-close-note {
+    max-width: 22rem;
+    font-size: var(--font-size-sm);
+    line-height: var(--leading-normal);
+    color: var(--text-secondary);
+    white-space: normal;
+}
+
+/* ==========================================================================
+   Without a track: the provider's finish options, as light rows.
+   ========================================================================== */
+
+.workspace-panel-actions {
+    display: flex;
+    flex-direction: column;
+}
+
+/* Each does something to the tree, so each says what underneath what it is
+   called. Rows rather than cards: read down the page, the trashcan and the red
+   are what separate the endings, not a box each. */
+.workspace-panel-action {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    width: 100%;
+    padding: var(--space-8) var(--space-10);
+    background: transparent;
+    border: 0;
+    border-top: 0.0625rem solid var(--border-subtle);
+    border-radius: 0;
     color: var(--text-primary);
     font: inherit;
     text-align: left;
 }
 
-.workspace-panel-action:hover {
-    background: var(--bg-raised);
-    border-color: var(--accent-blue);
+.workspace-panel-actions > .workspace-panel-action:first-child {
+    border-top: 0;
 }
 
-/* A row that does something the app has an icon for carries it here, on the
-   first line, ahead of the name — the trashcan on the ones that end the place,
-   the plus on the one that starts a conversation in it. */
+.workspace-panel-action:where(:hover:not(:disabled)) {
+    background: var(--wash-1);
+}
+
 .workspace-panel-action-name {
     display: flex;
     align-items: center;
     gap: var(--space-6);
-    font-size: var(--font-size-body-lg);
+    font-size: var(--font-size-md);
     font-weight: var(--font-weight-medium);
 }
 
 .workspace-panel-action-note {
     font-size: var(--font-size-base);
     color: var(--text-secondary);
-}
-
-.workspace-panel-action.danger:hover {
-    border-color: var(--danger);
 }
 
 .workspace-panel-action.danger .workspace-panel-action-name {

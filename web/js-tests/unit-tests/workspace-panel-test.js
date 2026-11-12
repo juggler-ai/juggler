@@ -122,6 +122,132 @@ class SaysLittle extends WorkspaceProvider {
   }
 }
 
+const TRACK_PROVIDER_ID = 'tracking-workspace-provider';
+
+/**
+ * The fixture provider with a track: whatever steps the case sets, and the
+ * endings a track-reading provider offers — no commit among them once the
+ * host has passed the track it read, exactly as the git worktree's are.
+ */
+class Tracks extends FixtureProvider {
+  static MANIFEST = {
+    id: TRACK_PROVIDER_ID,
+    name: 'On a track',
+    version: '1.0.0',
+    description: 'Has steps from here to done'
+  };
+
+  /** @type {any[]} What the next track read answers. */
+  static steps = [];
+
+  /** @type {any} The last track `finishOptions` was handed. */
+  static knownTrack = undefined;
+
+  /** @type {{actionId: string, input: any}|null} What the host last ran. */
+  static ran = null;
+
+  /**
+   * @param {any} workspace - The row being reported on.
+   * @param {any} ctx - Operations pinned to it, and a signal.
+   * @returns {Promise<any>} The case's steps.
+   */
+  async track(workspace, ctx) {
+    void workspace;
+    void ctx;
+    return { steps: Tracks.steps };
+  }
+
+  /**
+   * @param {any} workspace - The row being finished with.
+   * @param {any} [known] - What the host has read about it.
+   * @returns {any[]} Commit only while no track has been read, then the two endings.
+   */
+  finishOptions(workspace, known) {
+    void workspace;
+    Tracks.knownTrack = known?.track;
+    return [
+      ...(known?.track ? [] : [{ id: 'commit', label: 'Commit the changes', keepsWorkspace: true, description: 'Commits.' }]),
+      { id: 'unbind', label: 'Close, keep it', description: 'The tree stays on disk.' },
+      { id: 'discard', label: 'Close and delete it', danger: true, description: 'Two commits exist only here.' }
+    ];
+  }
+
+  /**
+   * @param {any} workspace - The row being finished with.
+   * @param {string} actionId - Which action.
+   * @param {any} ctx - What the host handed over.
+   * @returns {Promise<any>} Never finished: every case reads the notice.
+   */
+  async finish(workspace, actionId, ctx) {
+    void workspace;
+    Tracks.ran = { actionId, input: ctx?.input };
+    return { done: false, message: `ran ${actionId}` };
+  }
+}
+
+/**
+ * A workspace row bound to the tracking provider.
+ * @param {string} id - The workspace id.
+ * @returns {any} The row.
+ */
+function trackedWorkspace(id) {
+  return {
+    ...workspace(id),
+    providerId: TRACK_PROVIDER_ID,
+    meta: { branch: id, base: 'develop', repoDir: '/tmp/repos/juggler-pro' }
+  };
+}
+
+/**
+ * Select a tracked workspace and wait for its track to be drawn.
+ * @param {any} panel - The mounted panel.
+ * @param {any} session - Its session.
+ * @param {string} id - Which workspace.
+ * @returns {Promise<void>} When the steps are on screen.
+ */
+async function openTracked(panel, session, id) {
+  session.selection = { kind: 'workspace', id };
+  panel._refresh();
+  await waitFor(() => panel.querySelectorAll('.workspace-panel-step').length === Tracks.steps.length
+    && !panel.querySelector('.workspace-panel-pending'),
+  { description: 'the track to be drawn' });
+}
+
+const XA_TRACK_PROVIDER_ID = 'i18n-workspace-panel-track-provider';
+
+/**
+ * The same, with a track whose every word is a digit: a step with a field, a
+ * list long enough to be cut, a group, and an update to put in the secondary
+ * row — everything around them is the panel's own.
+ */
+class SaysLittleOnTrack extends SaysLittle {
+  static MANIFEST = {
+    id: XA_TRACK_PROVIDER_ID,
+    name: 'Tracked place, for testing',
+    version: '1.0.0',
+    description: 'Says as little as a tracked provider can',
+  };
+
+  /**
+   * @param {any} workspace - The row being reported on.
+   * @returns {Promise<any>} Digits throughout.
+   */
+  async track(workspace) {
+    void workspace;
+    const files = Array.from({ length: 9 }, (_, i) => ({ path: `${i}`, state: '1' }));
+    return {
+      steps: [
+        { id: 'a', state: 'now', title: '1', note: '2', files, fileCount: 20,
+          actions: [{ id: 'keep', label: '3', primary: true, input: { placeholder: '4', hint: '5' }, alternative: { label: '6' } }] },
+        { id: 'b', state: 'blocked', title: '7', commits: [{ sha: '8', subject: '9' }], commitCount: 12,
+          groups: [{ name: '1', note: '2', commits: [{ sha: '3', subject: '4' }], commitCount: 11 }],
+          actions: [{ id: 'update', label: '5' }] },
+        { id: 'c', state: 'done', title: '6' }
+      ]
+    };
+  }
+}
+
 /**
  * Mount a panel over a session.
  * @param {any} session - The session to draw.
@@ -194,6 +320,11 @@ async function pressAndAgree(panel, actionId) {
 export async function runTests() {
   await initializeRegistries();
   ensureFixtureProvider();
+  // Only when the id is free: a lane runs suite after suite in one realm, and
+  // `registerClass` refuses a taken id rather than replacing it.
+  if (!workspaceProviderRegistry.get(TRACK_PROVIDER_ID)) {
+    workspaceProviderRegistry.registerClass(Tracks, { extensionId: 'test', modulePath: '(test)' });
+  }
 
   let passed = 0;
   let failed = 0;
@@ -254,36 +385,38 @@ export async function runTests() {
         'and the tab column stands down, the way it does for the two onboarding overlays');
       assert(panel.querySelector('.workspace-panel-title')?.textContent === 'ws_a',
         `the place is named, got ${JSON.stringify(panel.querySelector('.workspace-panel-title')?.textContent)}`);
-      assert(panel.querySelector('.workspace-panel-eyebrow')?.textContent?.includes(FixtureProvider.MANIFEST.name),
+      assert(panel.querySelector('.workspace-panel-kind')?.textContent === FixtureProvider.MANIFEST.name,
         'and said to be the kind of place whatever made it calls it');
     } finally {
       teardown();
     }
   });
 
-  check('the head says what kind of thing this is, then what that kind is for, then its name', () => {
-    const session = makeSession([workspace('ws_a')]);
+  check('the head names the place, then says where it came from, then where it is', () => {
+    const session = makeSession([workspace('ws_a'), trackedWorkspace('ws_t')]);
     const { panel, teardown } = mountPanel(session);
+    /** @returns {string} The head's lines, by class. */
+    const lines = () => [...(panel.querySelector('.workspace-panel-head')?.children ?? [])]
+      .map((/** @type {any} */ line) => line.classList[0]).join(',');
     try {
       session.selection = { kind: 'workspace', id: 'ws_a' };
       panel._refresh();
 
-      const eyebrow = panel.querySelector('.workspace-panel-eyebrow')?.textContent;
-      assert(eyebrow === `Workspace · ${FixtureProvider.MANIFEST.name}`,
-        'a box is clicked before it is understood, so one line says the word the feature is named for and '
-        + `which kind of one this is, got ${JSON.stringify(eyebrow)}`);
-
+      // The name with its kind beside it, and the kind's own sentence under it
+      // when nothing more particular is known of where this one came from.
       const note = panel.querySelector('.workspace-panel-kind-note')?.textContent;
       assert(note === FixtureProvider.MANIFEST.description,
-        `and under it what that kind is for, which the provider already wrote, got ${JSON.stringify(note)}`);
+        `a place with no recorded origin is described by its kind, got ${JSON.stringify(note)}`);
+      assert(lines() === 'workspace-panel-title-row,workspace-panel-kind-note,workspace-panel-path-row',
+        `the name first, then what it is, then the path, got ${JSON.stringify(lines())}`);
 
-      // Both of those are about the TYPE and both are manifest facts, so they
-      // are right on the first draw. The name is where this one workspace
-      // starts, and nothing above it may be about the instance.
-      const head = [...(panel.querySelector('.workspace-panel-head')?.children ?? [])]
-        .map((/** @type {any} */ line) => line.classList[0]).join(',');
-      assert(head === 'workspace-panel-eyebrow,workspace-panel-kind-note,workspace-panel-title',
-        `the kind is said before the name and each of those once, got ${JSON.stringify(head)}`);
+      session.selection = { kind: 'workspace', id: 'ws_t' };
+      panel._refresh();
+      const origin = panel.querySelector('.workspace-panel-origin')?.textContent;
+      assert(origin === 'Branched from develop in juggler-pro',
+        `one whose record names its base and repository says so instead, got ${JSON.stringify(origin)}`);
+      assert(lines() === 'workspace-panel-title-row,workspace-panel-origin,workspace-panel-path-row',
+        `in the kind note's place, got ${JSON.stringify(lines())}`);
     } finally {
       teardown();
     }
@@ -300,7 +433,7 @@ export async function runTests() {
       panel._refresh();
       const head = panel.querySelector('.workspace-panel-head')?.textContent;
 
-      await panel.refreshStatus();
+      await panel.reread();
 
       assert(panel.textContent?.includes('branch feat/x · clean'),
         'the answer arrived, so this is measuring the redraw that matters');
@@ -327,7 +460,7 @@ export async function runTests() {
       // The status read lands about a second after the panel opens, which is
       // when a pointer is on its way to one of these; a workspace-table event
       // from anywhere in the session redraws it too.
-      await panel.refreshStatus();
+      await panel.reread();
       panel._refresh();
 
       assert(panel.textContent?.includes('branch feat/x · clean'),
@@ -484,25 +617,158 @@ export async function runTests() {
     }
   });
 
-  check('only the section a label tells you anything about has one', () => {
-    const session = makeSession([workspace('ws_a')]);
+  await checkAsync('a track draws its steps, and only the step to do now offers anything', async () => {
+    const session = makeSession([trackedWorkspace('ws_t')]);
     const { panel, teardown } = mountPanel(session);
+    const files = Array.from({ length: 10 }, (_, i) => ({ path: `src/f${i}.js`, state: 'Modified' }));
+    Tracks.steps = [
+      { id: 'commit', state: 'now', title: '12 files changed', files, fileCount: 12,
+        actions: [{ id: 'commit', label: 'Commit', primary: true, input: { placeholder: 'Why' } }] },
+      // A step that cannot run yet says what it waits on, and is not a button —
+      // except that bringing the base in is never the step's own business.
+      { id: 'land', state: 'wait', title: 'Land in develop', note: 'After the commit.',
+        commits: [{ sha: 'abc1234', subject: 'Did a thing' }],
+        actions: [{ id: 'land', label: 'Land in develop', primary: true }, { id: 'update', label: 'Update from develop' }] },
+      { id: 'close', state: 'wait', title: 'Close and delete the worktree' }
+    ];
     try {
-      session.selection = { kind: 'workspace', id: 'ws_a' };
-      panel._refresh();
+      await openTracked(panel, session, 'ws_t');
 
-      const labelled = [...panel.querySelectorAll('.workspace-panel-heading')]
-        .map((/** @type {any} */ heading) => heading.textContent).join(',');
-      // A path with copy and reveal beside it is a path, and a button that says
-      // what it does and what will happen needs nothing over the top of it. What
-      // does need naming is a run of the provider's own words — a branch, a
-      // count, a divergence.
-      assert(labelled === 'Status',
-        `a heading that only names what is plainly below it is a line to read and nothing to know, got ${JSON.stringify(labelled)}`);
-      assert(!panel.querySelector('.workspace-panel-where .workspace-panel-heading')
-        && !panel.querySelector('.workspace-panel-endings .workspace-panel-heading'),
-      'so neither the path nor the endings carry one');
+      const states = [...panel.querySelectorAll('.workspace-panel-step')]
+        .map((/** @type {any} */ step) => `${step.dataset.step}:${['done', 'now', 'wait', 'blocked']
+          .find((state) => step.classList.contains(`workspace-panel-step--${state}`))}`).join(',');
+      assert(states === 'commit:now,land:wait,close:wait', `each step in its state, got ${states}`);
+
+      const offered = actionsIn(panel, '.workspace-panel-track');
+      assert(offered === 'commit',
+        `a step that cannot run yet offers nothing, or it is a button that opens a dead end, got "${offered}"`);
+      const more = actionsIn(panel, '.workspace-panel-more');
+      assert(more.split(',').includes('update'),
+        `updating from the base is a secondary action, wherever the step that offers it stands, got "${more}"`);
+
+      const rows = panel.querySelectorAll('[data-step="commit"] .workspace-panel-list > li:not(.workspace-panel-list-more)');
+      const rest = panel.querySelector('[data-step="commit"] .workspace-panel-list-more')?.textContent;
+      assert(rows.length === 8 && rest === '+4 more',
+        `a long list stops at eight and counts what it left out from the real total, got ${rows.length} rows and ${JSON.stringify(rest)}`);
+      assert(!panel.querySelector('.workspace-panel-state'),
+        'and the track says how the place is doing, so there is no second status line saying it again');
     } finally {
+      Tracks.steps = [];
+      teardown();
+    }
+  });
+
+  await checkAsync('a commit is typed where it is offered, and the alternative sends no message', async () => {
+    const session = makeSession([trackedWorkspace('ws_t')]);
+    const { panel, teardown } = mountPanel(session);
+    const originalShowModal = /** @type {any} */ (window).showModal;
+    /** @type {any[]} */
+    const asked = [];
+    // Every confirmation the panel asks for is recorded and agreed to: a commit
+    // must ask none.
+    /** @type {any} */ (window).showModal = async (/** @type {any} */ options) => { asked.push(options); return true; };
+    Tracks.steps = [
+      { id: 'commit', state: 'now', title: '1 file changed', files: [{ path: 'a.js', state: 'Modified' }],
+        actions: [{ id: 'commit', label: 'Commit', primary: true, input: { placeholder: 'Why', hint: 'Say why' },
+          alternative: { label: 'Let the conversation write it' } }] },
+      { id: 'land', state: 'wait', title: 'Land in develop' },
+      { id: 'close', state: 'wait', title: 'Close' }
+    ];
+    Tracks.ran = null;
+    try {
+      await openTracked(panel, session, 'ws_t');
+      const field = /** @type {HTMLTextAreaElement} */ (panel.querySelector('[data-step="commit"] textarea'));
+      const submit = /** @type {HTMLButtonElement} */ (panel.querySelector('[data-step="commit"] [data-action="commit"]'));
+      assert(!!field && field.placeholder === 'Why', 'the message is asked for in the step, not in a dialog');
+      assert(submit?.disabled === true, 'and there is nothing to commit with until something is typed');
+
+      field.value = 'Fixed the thing';
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+      assert(submit.disabled === false, 'typing is what makes it pressable');
+      submit.click();
+      await waitFor(() => Tracks.ran !== null, { description: 'the commit to run' });
+      assert(Tracks.ran?.actionId === 'commit' && Tracks.ran?.input?.message === 'Fixed the thing',
+        `the provider gets the action and what was typed, got ${JSON.stringify(Tracks.ran)}`);
+      await waitFor(() => !!document.querySelector('modal-dialog.is-notice.is-open .modal-message'),
+        { description: 'the panel to say what happened' });
+      assert(document.querySelector('modal-dialog.is-notice.is-open .modal-message')?.textContent?.includes('ran commit') === true,
+        'what the provider said is shown');
+      assert(asked.length === 0,
+        `and nothing was asked first, got ${JSON.stringify(asked.map((a) => a.message))}`);
+      await waitFor(() => !panel.querySelector('.workspace-panel-step-alternative:disabled'),
+        { description: 'the buttons to come back' });
+
+      Tracks.ran = null;
+      /** @type {HTMLElement} */ (panel.querySelector('[data-step="commit"] .workspace-panel-step-alternative')).click();
+      await waitFor(() => Tracks.ran !== null, { description: 'the alternative to run' });
+      assert(Tracks.ran?.actionId === 'commit' && Tracks.ran?.input?.message === '',
+        `the alternative is the same action with no message, got ${JSON.stringify(Tracks.ran)}`);
+    } finally {
+      /** @type {any} */ (window).showModal = originalShowModal;
+      Tracks.steps = [];
+      neutralizeStrayOverlays();
+      teardown();
+    }
+  });
+
+  await checkAsync('a tree with nothing to commit offers no commit anywhere', async () => {
+    const session = makeSession([trackedWorkspace('ws_t')]);
+    const { panel, teardown } = mountPanel(session);
+    Tracks.steps = [
+      { id: 'commit', state: 'done', title: 'Everything is committed' },
+      { id: 'land', state: 'now', title: '2 commits not yet in develop', actions: [{ id: 'land', label: 'Land in develop', primary: true }] },
+      { id: 'close', state: 'wait', title: 'Close' }
+    ];
+    try {
+      await openTracked(panel, session, 'ws_t');
+      assert(!!panel.querySelector('[data-action="land"]'), 'the step to do now is offered');
+      /** @type {HTMLElement} */ (panel.querySelector('.workspace-panel-close')).click();
+      await waitFor(() => !!document.querySelector('.workspace-panel-close-menu'), { description: 'the Close… menu' });
+      assert(!panel.querySelector('[data-action="commit"]') && !document.querySelector('.workspace-panel-close-menu [data-action="commit"]'),
+        'a commit offered on a clean tree opens a dialog whose only button cannot be pressed, so the endings '
+        + 'are asked for knowing the track, and the provider leaves it out');
+      assert(Array.isArray(Tracks.knownTrack?.steps), 'which means the track it read is handed to finishOptions');
+    } finally {
+      Tracks.steps = [];
+      neutralizeStrayOverlays();
+      document.querySelector('.workspace-panel-close-menu')?.remove();
+      teardown();
+    }
+  });
+
+  await checkAsync('Close… lists the endings and runs the chosen one through its confirmation', async () => {
+    const session = makeSession([trackedWorkspace('ws_t')]);
+    const { panel, teardown } = mountPanel(session);
+    Tracks.steps = [
+      { id: 'commit', state: 'done', title: 'Everything is committed' },
+      { id: 'land', state: 'now', title: '2 commits not yet in develop', actions: [{ id: 'land', label: 'Land', primary: true }] },
+      { id: 'close', state: 'wait', title: 'Close' }
+    ];
+    Tracks.ran = null;
+    try {
+      await openTracked(panel, session, 'ws_t');
+      /** @type {HTMLElement} */ (panel.querySelector('.workspace-panel-close')).click();
+      await waitFor(() => !!document.querySelector('.workspace-panel-close-menu'), { description: 'the Close… menu' });
+      const menu = /** @type {HTMLElement} */ (document.querySelector('.workspace-panel-close-menu'));
+      const ids = [...menu.querySelectorAll('[data-action]')].map((/** @type {any} */ row) => row.dataset.action).join(',');
+      assert(ids === 'unbind,discard', `the provider's endings, in its order, got "${ids}"`);
+      assert(menu.querySelector('[data-action="discard"]')?.classList.contains('menu-item-danger') === true,
+        'the one that loses something says so in red');
+      assert(menu.querySelector('[data-action="discard"]')?.textContent?.includes('Two commits exist only here.') === true,
+        'and what it would lose is on the row, not behind it');
+
+      /** @type {HTMLElement} */ (menu.querySelector('[data-action="unbind"]')).click();
+      const confirmed = 'modal-dialog.is-open:not(.is-notice) .modal-footer .btn-primary, modal-dialog.is-open:not(.is-notice) .modal-footer .btn-danger';
+      await waitFor(() => !!document.querySelector(confirmed), { description: 'the confirmation to appear' });
+      assert(Tracks.ran === null, 'nothing ends before it is agreed to');
+      /** @type {HTMLElement} */ (document.querySelector(confirmed)).click();
+      await waitFor(() => Tracks.ran !== null, { description: 'the ending to run' });
+      assert(Tracks.ran?.actionId === 'unbind', `the chosen ending ran, got ${JSON.stringify(Tracks.ran)}`);
+      assert(!document.querySelector('.workspace-panel-close-menu'), 'and the menu went away when it was chosen');
+    } finally {
+      Tracks.steps = [];
+      neutralizeStrayOverlays();
+      document.querySelector('.workspace-panel-close-menu')?.remove();
       teardown();
     }
   });
@@ -560,7 +826,7 @@ export async function runTests() {
 
       // What the panel does a second or so after it opens, and the moment this
       // case is about: a button under the pointer must not move out from under it.
-      await panel.refreshStatus();
+      await panel.reread();
 
       const after = buttons();
       assert(panel.textContent?.includes('branch feat/x · clean'),
@@ -684,7 +950,9 @@ export async function runTests() {
     const savedPaths = new Map(registry.modulePaths);
     registry.items.clear();
     const added = registry.registerClass(SaysLittle, { extensionId: XA_EXTENSION, modulePath: '(test)' });
+    const addedTrack = registry.registerClass(SaysLittleOnTrack, { extensionId: XA_EXTENSION, modulePath: '(test)' });
     const { MANIFEST } = SaysLittle;
+    const TRACK_MANIFEST = SaysLittleOnTrack.MANIFEST;
     const originalShowModal = /** @type {any} */ (window).showModal;
 
     // Data is digits: labels, roots, conversation names, provider sentences.
@@ -692,7 +960,8 @@ export async function runTests() {
       { id: 'ws_xa', root: '/1/2', label: '8', state: 'ready', available: true, providerId: XA_PROVIDER_ID, baseWorkspaceId: 'ws_xb' },
       { id: 'ws_xb', root: '/1/3', label: '9', state: 'ready', available: true, providerId: XA_PROVIDER_ID },
       { id: 'ws_xc', root: '/1', label: '7', state: 'ready', available: true, providerId: XA_PROVIDER_ID },
-      { id: 'ws_xd', root: '/1/4', label: '6', state: 'ready', available: true, providerId: 'i18n-nobody' }
+      { id: 'ws_xd', root: '/1/4', label: '6', state: 'ready', available: true, providerId: 'i18n-nobody' },
+      { id: 'ws_xe', root: '/1/5', label: '5', state: 'ready', available: true, providerId: XA_TRACK_PROVIDER_ID, meta: { base: '5', repoDir: '/1/6' } }
     ];
     const session = makeSession(table);
     session.projectPath = '/1';
@@ -705,7 +974,8 @@ export async function runTests() {
      * @param {string} where - The state.
      */
     const collect = (where) => {
-      const texts = shownStrings(panel).filter((text) => !/^[\d/\s…]+$/.test(text));
+      // Digits are data; a step's ✓ and ! are glyphs, not words.
+      const texts = shownStrings(panel).filter((text) => !/^[\d/\s…✓!]+$/.test(text));
       assert(texts.length >= 3, `the panel drew something (${where}), got ${JSON.stringify(texts)}`);
       for (const text of texts) shown.push({ where, text });
     };
@@ -724,12 +994,12 @@ export async function runTests() {
     };
 
     try {
-      assert(added.registered, `the stand-in provider registered, got ${JSON.stringify(added)}`);
+      assert(added.registered && addedTrack.registered, `the stand-in providers registered, got ${JSON.stringify([added, addedTrack])}`);
       await underPseudoLocale('workspace-panel-test', async () => {
         // A workspace made from another, holding work it does not describe.
         await select('ws_xa', { dirty: true });
         assert(panel.querySelector('.workspace-panel-dirty'), 'the bare dirty line is drawn');
-        assert(panel.querySelector('.workspace-panel-where .workspace-panel-detail'), 'the base workspace line is drawn');
+        assert(panel.querySelector('.workspace-panel-head .workspace-panel-detail'), 'the base workspace line is drawn');
         assert(panel.querySelector('.workspace-panel-kind-note'), 'the kind note is drawn');
         collect('ws_xa, dirty');
 
@@ -748,13 +1018,13 @@ export async function runTests() {
 
         // A provider with nothing to say.
         SaysLittle.next = {};
-        await panel.refreshStatus();
+        await panel.reread();
         assert(panel.querySelector('.workspace-panel-state .workspace-panel-note'), 'the nothing-to-report line is drawn');
         collect('ws_xa, nothing to report');
 
         // A provider that could not say: the reason is data, the rest is not.
         SaysLittle.next = new Error('5');
-        await panel.refreshStatus();
+        await panel.reread();
         assert(panel.querySelector('.workspace-panel-problem'), 'the problem line is drawn');
         collect('ws_xa, status failed');
 
@@ -783,7 +1053,22 @@ export async function runTests() {
         await select('ws_xd', {});
         assert(panel.querySelector('.workspace-panel-problem'), 'the provider-missing problem is drawn');
         collect('ws_xd, provider missing');
-      }, { [XA_EXTENSION]: [MANIFEST.name, MANIFEST.description] });
+
+        // A tracked workspace: the head's origin line, every kind of step, the
+        // cut-off counts, the secondary row and the Close… menu.
+        await select('ws_xe', {});
+        assert(panel.querySelector('.workspace-panel-origin'), 'the origin line is drawn');
+        assert(panel.querySelector('.workspace-panel-list-more'), 'a cut list is drawn');
+        assert(panel.querySelector('.workspace-panel-group'), 'a group is drawn');
+        assert(panel.querySelector('.workspace-panel-more [data-action="update"]'), 'the update is drawn');
+        collect('ws_xe, tracked');
+        /** @type {HTMLElement} */ (panel.querySelector('.workspace-panel-close')).click();
+        await waitFor(() => !!document.querySelector('.workspace-panel-close-menu'), { description: 'the Close… menu' });
+        const menu = /** @type {HTMLElement} */ (document.querySelector('.workspace-panel-close-menu'));
+        for (const text of shownStrings(menu).filter((text) => !/^[\d/\s…]+$/.test(text))) shown.push({ where: 'close menu', text });
+        /** @type {HTMLElement} */ (panel.querySelector('.workspace-panel-close')).click();
+        assert(!document.querySelector('.workspace-panel-close-menu'), 'a second press closes the menu');
+      }, { [XA_EXTENSION]: [MANIFEST.name, MANIFEST.description, TRACK_MANIFEST.name, TRACK_MANIFEST.description] });
     } finally {
       /** @type {any} */ (window).showModal = originalShowModal;
       SaysLittle.next = {};

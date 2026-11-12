@@ -408,7 +408,7 @@ import { validateManifest } from './lib/manifest.js';
  *   function; the host also drops the subscription when the pin is torn down.
  * @property {() => Promise<void>} refresh - Ask git now. Never rejects: a failure
  *   shows up on `error()`.
- * @property {(options?: {signal?: AbortSignal, scope?: string}) => Promise<PinGitReview>} review -
+ * @property {(options?: {signal?: AbortSignal, scope?: string, workspace?: string}) => Promise<PinGitReview>} review -
  *   Read the whole working tree for review: every repository, every changed file,
  *   nothing skipped for being expensive, and whatever could not be reached named
  *   in `warnings` rather than quietly left out. Ask when a review is opened or
@@ -418,7 +418,9 @@ import { validateManifest } from './lib/manifest.js';
  *   answer about a tree nobody is looking at is not an answer.
  *   `scope` is what to compare (see {@link PinGitScope}); omit it for the working
  *   tree against `HEAD`. A scope the host cannot read rejects, with the reason.
- * @property {(repo: string, path: string, options?: {signal?: AbortSignal, contextLines?: number, scope?: string}) => Promise<PinGitDiff>} diff -
+ *   `workspace` names the workspace whose tree to read; omit it for the tree
+ *   of the workspace the visible conversation works in, or the project's.
+ * @property {(repo: string, path: string, options?: {signal?: AbortSignal, contextLines?: number, scope?: string, workspace?: string}) => Promise<PinGitDiff>} diff -
  *   One file's change, named the way the manifest names it: `repo` is the
  *   repository's path within the project ('' for the root repo) and `path` is the
  *   file's path within that repository. Asked for one file at a time, when

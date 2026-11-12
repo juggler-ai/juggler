@@ -122,26 +122,31 @@ const gitReviewService = {
    * Read the manifest. Concurrent callers share one request, so a board and a
    * detached window opening on the same moment cost one review and not two; each
    * of them may still cancel its own wait without disturbing the other's.
-   * @param {{signal?: AbortSignal, scope?: string}} [options] - Cancellation, and
-   *   what to compare ('' or omitted for the working tree against HEAD).
+   * @param {{signal?: AbortSignal, scope?: string, workspace?: string}} [options] - Cancellation,
+   *   what to compare ('' or omitted for the working tree against HEAD), and
+   *   which workspace's tree (omitted for the visible conversation's). A named
+   *   workspace does not follow the view, so moving between conversations does
+   *   not make its answer stale.
    * @returns {Promise<GitReview>} The manifest, as the server described it.
    */
   async review(options = {}) {
     const generation = _generation;
     const scope = options.scope || '';
-    let pending = _inFlight.get(scope);
+    const named = options.workspace || '';
+    const key = named ? `${named}\u0000${scope}` : scope;
+    let pending = _inFlight.get(key);
     if (!pending) {
-      const request = api.getGitReview({ workspaceId: gitWorkspaceId(), scope }).finally(() => {
+      const request = api.getGitReview({ workspaceId: named || gitWorkspaceId(), scope }).finally(() => {
         // Only if it is still ours: a change of tree in between has already let
         // go of this one, and clearing unconditionally would discard the request
         // that replaced it.
-        if (_inFlight.get(scope) === request) _inFlight.delete(scope);
+        if (_inFlight.get(key) === request) _inFlight.delete(key);
       });
-      _inFlight.set(scope, request);
+      _inFlight.set(key, request);
       pending = request;
     }
     const data = await forCaller(pending, options.signal);
-    if (generation !== _generation) throw staleError();
+    if (!named && generation !== _generation) throw staleError();
     return asReview(data);
   },
 
@@ -155,7 +160,7 @@ const gitReviewService = {
    * a queue of patches nobody will look at behind them.
    * @param {string} repo - Repository relative to the project root, '' for the root repo.
    * @param {string} path - File relative to that repository.
-   * @param {{signal?: AbortSignal, contextLines?: number, scope?: string}} [options] - Cancellation,
+   * @param {{signal?: AbortSignal, contextLines?: number, scope?: string, workspace?: string}} [options] - Cancellation,
    *   and how much of the file around each change to ask for (-1 for the whole
    *   file). The reader chooses that, so it belongs to the request and not to the
    *   endpoint; the patch says which width it came back at. `scope` is what to
@@ -164,11 +169,12 @@ const gitReviewService = {
    */
   async diff(repo, path, options = {}) {
     const generation = _generation;
+    const named = options.workspace || '';
     const data = await api.getGitDiff(repo, path, {
-      signal: options.signal, workspaceId: gitWorkspaceId(), contextLines: options.contextLines,
+      signal: options.signal, workspaceId: named || gitWorkspaceId(), contextLines: options.contextLines,
       scope: options.scope || undefined,
     });
-    if (generation !== _generation) throw staleError();
+    if (!named && generation !== _generation) throw staleError();
     return asDiff(data);
   },
 

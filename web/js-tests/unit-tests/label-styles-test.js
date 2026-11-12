@@ -36,7 +36,6 @@ const EYEBROWS = [
 
 /** Every section heading (`.caps-label-lg`). */
 const HEADINGS = [
-  '.workspace-panel-eyebrow', '.workspace-panel-heading',
   'settings-panel .settings-section-heading', '.properties-panel-subtitle'
 ];
 

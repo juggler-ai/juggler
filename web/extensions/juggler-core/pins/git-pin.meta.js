@@ -3,7 +3,7 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   Apache-2.0 - see LICENSE
 // SPDX-License-Identifier: Apache-2.0
 
-import { DEFAULT_SCOPE, normalizeGitPinParameters, normalizeScope } from '../lib/git-scope.js';
+import { DEFAULT_SCOPE, normalizeGitPinParameters, normalizeScope, pinnedWorkspace } from '../lib/git-scope.js';
 
 /** @type {import('juggler/pinboard-item-type').PinAgentDescriptor} */
 export default {
@@ -18,12 +18,18 @@ export default {
           + '@unstaged, @branch (working tree against where the branch left main/master), @last (the last commit) — '
           + 'or a git diff expression: main...HEAD, main..feature, HEAD~3, --merge-base main, --cached [rev], --worktree.',
       },
+      workspace: {
+        type: 'string',
+        description: 'A workspace id whose tree to show. Omit it to follow the workspace the visible conversation works in.',
+      },
     },
     required: [],
   },
   normalize: normalizeGitPinParameters,
   identity: (parameters) => {
     const scope = normalizeScope(parameters?.scope);
-    return scope === DEFAULT_SCOPE ? '' : scope;
+    const named = scope === DEFAULT_SCOPE ? '' : scope;
+    const workspace = pinnedWorkspace(parameters);
+    return workspace ? `${workspace}\u0000${named}` : named;
   },
 };

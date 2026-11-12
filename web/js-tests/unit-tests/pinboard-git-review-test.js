@@ -298,6 +298,20 @@ export async function runTests() {
       assert(root.files[1].path === 'web/js/app.js', 'the file list is the manifest\'s own order');
     });
 
+    await run('a review of a named workspace reads that tree, not the one in view', async () => {
+      // A pin fixed to a workspace that silently showed the visible
+      // conversation's tree would look exactly like a working one.
+      reviews.length = 0;
+      await service().review({ workspace: 'ws_named', scope: 'develop...feat' });
+      const named = new URLSearchParams(reviews.at(-1)?.split('?')[1] || '');
+      assert(named.get('workspace') === 'ws_named' && named.get('scope') === 'develop...feat',
+        `the named tree and its scope are asked for, got ${JSON.stringify(reviews.at(-1))}`);
+      await service().review({ scope: 'develop...feat' });
+      const followed = new URLSearchParams(reviews.at(-1)?.split('?')[1] || '');
+      assert(reviews.length === 2 && followed.get('workspace') !== 'ws_named',
+        `and the same scope without one is its own read of the tree in view, got ${JSON.stringify(reviews)}`);
+    });
+
     await run('a repository git could not read arrives with its reason', async () => {
       const review = await service().review();
       const nested = review.repos.find((/** @type {any} */ r) => r.path === 'vendor/tool');

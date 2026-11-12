@@ -21,6 +21,7 @@ import {
   SCOPE_PRESETS,
   SCOPE_SYNTAX,
   normalizeGitPinParameters,
+  pinnedWorkspace,
   normalizeRecent,
   normalizeScope,
   scopeName,
@@ -348,10 +349,10 @@ class GitPin extends PinboardItemType {
    * Two Git pins are the same pin when they compare the same thing.
    * @param {Record<string, unknown>} a - One config.
    * @param {Record<string, unknown>} b - The other.
-   * @returns {boolean} True for the same scope.
+   * @returns {boolean} True for the same scope of the same tree.
    */
   isSameConfig(a, b) {
-    return normalizeScope(a?.scope) === normalizeScope(b?.scope);
+    return normalizeScope(a?.scope) === normalizeScope(b?.scope) && pinnedWorkspace(a) === pinnedWorkspace(b);
   }
 
   /**
@@ -397,6 +398,15 @@ class GitPin extends PinboardItemType {
     let config = context.pin?.config || {};
     let scope = normalizeScope(config.scope);
     /**
+     * The tree this pin is fixed to, as an option for the reads, or nothing for
+     * a pin that follows the visible conversation.
+     * @returns {{workspace?: string}} The option.
+     */
+    const workspaceOption = () => {
+      const workspace = pinnedWorkspace(config);
+      return workspace ? { workspace } : {};
+    };
+    /**
      * Scope saves still on their way to the board. Until they land, a context
      * update carries the config from before them, and adopting its scope would
      * undo the choice the user just made.
@@ -408,7 +418,8 @@ class GitPin extends PinboardItemType {
     // it without the panel being rebuilt around the new services.
     const panel = createReviewPanel({
       scopeLabel: t(SCOPE_LABEL),
-      loadPatch: (file, options) => context.services.git.diff(file.repo, file.path, { ...options, scope: reviewScope }),
+      loadPatch: (file, options) => context.services.git.diff(file.repo, file.path,
+        { ...options, scope: reviewScope, ...workspaceOption() }),
       review: {
         draft: () => context.services.review.draft(),
         onChange: (/** @type {() => void} */ listener) => context.services.review.onChange(listener),
@@ -515,7 +526,7 @@ class GitPin extends PinboardItemType {
       const mine = ++generation;
       const asked = scope;
       try {
-        const next = await context.services.git.review({ scope: asked });
+        const next = await context.services.git.review({ scope: asked, ...workspaceOption() });
         if (!live || mine !== generation) return;
         review = next;
         reviewScope = asked;

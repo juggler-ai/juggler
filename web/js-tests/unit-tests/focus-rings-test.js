@@ -161,7 +161,9 @@ export async function runTests() {
     const offenders = rules
       .filter(rule => rule.style.getPropertyValue('outline-style') === 'none')
       .flatMap(rule => rule.selectorText.split(/,\s*/))
-      .filter(part => !/:focus|:has\(|\.is-focused\b/.test(part) && !field.test(part));
+      // A trailing `:not(…)` narrows which element it is, not what kind:
+      // `textarea:not(.field-input)` is still a textarea.
+      .filter(part => !/:focus|:has\(|\.is-focused\b/.test(part) && !field.test(part.replace(/(:not\([^)]*\))+$/, '')));
     assert(offenders.length === 0, `these switch the ring off for good: ${offenders.join(' | ')}`);
   });
 

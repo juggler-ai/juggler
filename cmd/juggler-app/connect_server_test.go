@@ -7,12 +7,14 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -208,10 +210,9 @@ func TestOnlyAnUnreachableServerWindowTakesItsRecoveryActions(t *testing.T) {
 	}
 }
 
-// Opening a window onto a server by URL waits a bounded time for it to answer.
-// A freshly spawned local server needs the retries; a remote one is either
-// listening or it is not, and a host that never answers must not hold the
-// window back for the length of every retry's own timeout.
+// Opening a window onto a server by URL waits a bounded time for it to answer:
+// a host that never answers must not hold the window back for the length of
+// every retry's own timeout.
 func TestReadWindowStateGivesUpOnAServerThatNeverAnswers(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -232,7 +233,7 @@ func TestReadWindowStateGivesUpOnAServerThatNeverAnswers(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	_, _, reached := readWindowState(ctx, "http://"+ln.Addr().String(), roleMain)
+	_, _, reached, _ := readWindowState(ctx, "http://"+ln.Addr().String(), roleMain, untilCtxDone)
 
 	if reached {
 		t.Fatal("a server that never answered was reported reached")
@@ -241,6 +242,34 @@ func TestReadWindowStateGivesUpOnAServerThatNeverAnswers(t *testing.T) {
 		t.Fatalf("gave up after %v; the budget was 300ms", took)
 	}
 }
+
+// A server by URL is asked for the whole of its budget, however fast each ask
+// fails. Just after launch macOS refuses this app's first connections onto the
+// local network at once ("no route to host") until its Local Network grant
+// applies, and a count of quick refusals would give up on a server that is
+// there before the grant does.
+func TestOpeningARemoteWindowKeepsAskingForItsWholeBudget(t *testing.T) {
+	prevHTTP, prevPause := windowStateHTTP, reachRetryPause
+	t.Cleanup(func() { windowStateHTTP, reachRetryPause = prevHTTP, prevPause })
+	reachRetryPause = time.Millisecond
+	refusals := 0
+	windowStateHTTP = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		if refusals < 100 {
+			refusals++
+			return nil, &net.OpError{Op: "dial", Net: "tcp", Err: os.NewSyscallError("connect", syscall.EHOSTUNREACH)}
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"hasState":false}`))}, nil
+	})}
+
+	a := newTestAppState(t)
+	if _, _, reached := a.openingState(windowSpec{url: "http://devbox:3939", connected: true}, "http://devbox:3939", roleMain); !reached {
+		t.Fatalf("gave up after %d refusals, well inside the budget", refusals)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestReadWindowStateReportsARefusedServerUnreached(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -252,7 +281,7 @@ func TestReadWindowStateReportsARefusedServerUnreached(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
-	if _, _, reached := readWindowState(ctx, "http://"+addr, roleMain); reached {
+	if _, _, reached, _ := readWindowState(ctx, "http://"+addr, roleMain, untilCtxDone); reached {
 		t.Fatal("a refused connection was reported reached")
 	}
 }
@@ -263,7 +292,7 @@ func TestReadWindowStateReportsAnAnsweringServerReached(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	ws, has, reached := readWindowState(context.Background(), srv.URL, roleMain)
+	ws, has, reached, _ := readWindowState(context.Background(), srv.URL, roleMain, localServerTries)
 	if !reached || !has || ws.Width != 900 {
 		t.Fatalf("got %+v has=%v reached=%v", ws, has, reached)
 	}

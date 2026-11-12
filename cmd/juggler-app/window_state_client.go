@@ -11,10 +11,12 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"juggler/cmd/juggler/core"
 	"juggler/internal/apipaths"
+	"juggler/internal/lanfind"
 )
 
 // Window geometry lives with the session it applies to, server-side: the server
@@ -53,17 +55,32 @@ func windowStateURL(serverURL, role string) string {
 // on this machine's server, and only after normaliseServerURL — the address the
 // user typed (controlSwitchServer).
 func fetchWindowState(serverURL, role string) (core.WindowState, bool) {
-	ws, ok, _ := readWindowState(context.Background(), serverURL, role)
+	ws, ok, _, _ := readWindowState(context.Background(), serverURL, role, localServerTries)
 	return ws, ok
 }
 
+// localServerTries is how many times fetchWindowState asks a server on this
+// machine, which may still be starting, before taking a default placement.
+const localServerTries = 30
+
+// untilCtxDone is readWindowState's tries for a caller whose ctx alone says
+// when to stop asking.
+const untilCtxDone = 0
+
 // remoteReachBudget is how long opening a window onto a server by URL waits for
-// that server to answer before showing the unreachable-server page instead. A
-// server by URL is already running or it is not — the retries in
-// readWindowState are for a local server still starting — and the budget is
-// what stops a host that never answers from costing every retry's own timeout,
-// with no window on screen.
+// that server to answer before showing the unreachable-server page instead. It
+// is asked for the whole of it, however quickly each ask fails: just after
+// launch macOS refuses this app's connections onto the local network at once,
+// with "no route to host", until its Local Network grant applies, and the
+// server is there all along. The budget is also what stops a host that never
+// answers from costing every retry's own timeout, with no window on screen.
 const remoteReachBudget = 5 * time.Second
+
+// askLocalNetwork asks macOS, once per run, to let this app onto the local
+// network (lanfind.RequestLocalNetwork), before the first ask of a server by
+// URL: the ask starts the grant applying, and brings up the prompt if the user
+// has never answered it. A seam: tests ask nothing.
+var askLocalNetwork = sync.OnceFunc(lanfind.RequestLocalNetwork)
 
 // remoteAnswer is what a server by URL says when the app asks it about the
 // page a window shows there (probeRemote).
@@ -108,32 +125,46 @@ func probeRemote(ctx context.Context, pageURL string) remoteAnswer {
 	}
 }
 
+// reachRetryPause is the pause after an ask that got no response, before the
+// next. A var so tests need not wait it out.
+var reachRetryPause = 100 * time.Millisecond
+
 // readWindowState is fetchWindowState that also says whether the server
-// answered at all, and gives up when ctx does. reached is false only when no
-// response came back; a response of any status is the server answering.
-func readWindowState(ctx context.Context, serverURL, role string) (ws core.WindowState, hasState, reached bool) {
+// answered at all, asking up to tries times (untilCtxDone: until ctx ends), and
+// gives up when ctx does. reached is false only when no response came back; a
+// response of any status is the server answering; when none did, unreached
+// says how the asks went.
+func readWindowState(ctx context.Context, serverURL, role string, tries int) (ws core.WindowState, hasState, reached bool, unreached reachFailure) {
 	url := windowStateURL(serverURL, role)
-	const attempts = 30
-	for i := 0; i < attempts; i++ {
+	for tries == untilCtxDone || unreached.asked < tries {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil) //nolint:gosec // app-owned server URL, see fetchWindowState
 		if err != nil {
-			return core.WindowState{}, false, false
+			return core.WindowState{}, false, false, reachFailure{lastErr: err}
 		}
+		unreached.asked++
 		resp, err := windowStateHTTP.Do(req) //nolint:gosec // app-owned server URL, see fetchWindowState
 		if err != nil {
-			// Server not accepting yet — back off and retry, unless the caller has
-			// stopped waiting.
+			// Server not accepting yet, or this machine not letting the ask out —
+			// back off and retry, unless the caller has stopped waiting.
+			unreached.lastErr = err
 			select {
 			case <-ctx.Done():
-				return core.WindowState{}, false, false
-			case <-time.After(100 * time.Millisecond):
+				return core.WindowState{}, false, false, unreached
+			case <-time.After(reachRetryPause):
 			}
 			continue
 		}
 		ws, ok := decodeWindowState(resp)
-		return ws, ok, true
+		return ws, ok, true, reachFailure{}
 	}
-	return core.WindowState{}, false, false
+	return core.WindowState{}, false, false, unreached
+}
+
+// reachFailure is how readWindowState failed to reach a server: how many asks
+// went out, and why the last got no response.
+type reachFailure struct {
+	asked   int
+	lastErr error
 }
 
 // openingState reads the saved geometry a window onto spec opens with, and
@@ -153,9 +184,13 @@ func (a *appState) openingState(spec windowSpec, serverURL, role string) (ws cor
 		ws, hasState = fetchWindowState(serverURL, role)
 		return ws, hasState, true
 	}
+	askLocalNetwork()
 	ctx, cancel := context.WithTimeout(context.Background(), remoteReachBudget)
 	defer cancel()
-	if _, _, reached = readWindowState(ctx, serverURL, role); !reached {
+	start := time.Now()
+	if _, _, reached, failed := readWindowState(ctx, serverURL, role, untilCtxDone); !reached {
+		logf("server %s: no answer after %d asks in %v; last: %v",
+			serverURL, failed.asked, time.Since(start).Round(time.Millisecond), failed.lastErr)
 		return core.WindowState{}, false, false
 	}
 	ws, hasState = a.remoteFrame(spec, role)

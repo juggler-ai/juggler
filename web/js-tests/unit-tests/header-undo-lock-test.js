@@ -32,7 +32,6 @@ import { pingWorker } from '../utilities/worker-test-hooks.js';
 import { underPseudoLocale } from '../utilities/pseudo-locale.js';
 import { isPseudoLocalized, t } from '../../sdk/lib/i18n.js';
 import { setupHeaderControls } from '../../js/components/header-controls.js';
-import keyShortcutManager from '../../js/services/key-shortcut-manager.js';
 import '../../js/components/conversation-footer.js';
 import { sessionsPageUrl, SESSIONS_PAGE_TARGET } from '../../js/utils/project-open-mode.js';
 
@@ -322,11 +321,11 @@ export async function runTests() {
         /** @type {any} */ (headerListener)({ type: 'session:loaded' });
         assert(pathLabel.textContent === '/1/2', `the chip shows the project's whole path, with room for it, got "${pathLabel.textContent}"`);
         assert(pathChip.title.includes('/1/2'), `the chip's title gives the whole path, got "${pathChip.title}"`);
-        // The switcher's key is no word: it is left out of what is judged, as
-        // the page spells it under this locale (Ctrl is a message, K is not).
-        const key = keyShortcutManager.formatBindings('switch-session')[0] || '';
-        assert(!!key && pathChip.title.includes(key), `the chip's title names its key, got "${pathChip.title}"`);
-        shown.push(...pathChip.title.split('\n').map((line) => line.replace(key, '')));
+        // The switcher's key is shown by the tooltip as a keycap, never in the
+        // title text, so the whole title is judged.
+        assert(pathChip.getAttribute('data-shortcut-id') === 'switch-session',
+          `the chip names the switcher's shortcut for its tooltip, got "${pathChip.getAttribute('data-shortcut-id')}"`);
+        shown.push(...pathChip.title.split('\n'));
         // Named once, as the header is set up: the browser's name was asked
         // for in English then, so it is checked as a message here.
         shown.push(t('Open the server page'));

@@ -403,17 +403,16 @@ export async function runTests(_ctx) {
         el.providers = [{ name: '4', displayName: '4', available: true, spawnsLocalProcess: true,
           modelsWithContext: [entry] }];
 
-        // Nothing selected: the placeholder, and the button title with and
-        // without a cycle key.
-        keyShortcutManager.formatBinding = () => '9';
+        // Nothing selected: the placeholder, the button title, and the note the
+        // tooltip sets beside the cycle key's keycap. The key itself is never
+        // in the title: the button names its shortcut for the tooltip to draw.
         el.render();
         see('placeholder', el._chip?.querySelector('.model-name')?.textContent);
-        const keyed = el._chip?.button?.getAttribute('title');
-        see('button title, key', keyed);
-        assert(String(keyed).includes('9'), `the key cap must be in the title — got "${keyed}"`);
-        keyShortcutManager.formatBinding = () => '';
-        el.render();
-        see('button title, no key', el._chip?.button?.getAttribute('title'));
+        const button = el._chip?.button;
+        see('button title', button?.getAttribute('title'));
+        assert(button?.getAttribute('data-shortcut-id') === 'cycle-model',
+          `the button names the switch-model shortcut for its tooltip — got "${button?.getAttribute('data-shortcut-id')}"`);
+        see('keycap note', button?.getAttribute('data-tooltip-keys-note'));
 
         // The picker at the root, mid-turn, in a workspace that cannot host a
         // local provider: none row, note, footer actions, the refusal hint.

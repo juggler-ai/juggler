@@ -527,7 +527,7 @@ class StrategySelector extends JugglerElement {
   /**
    * Build a prefix fingerprint from cached inputs under a given model: the
    * model signature, the effective strategy's tool-set signature, then one
-   * signature per leading `prefix` context item and per history item. The model
+   * signature per item, each `prefix` context item signed at its row. The model
    * is a parameter because the baseline and the outgoing prefix share every
    * other term and differ only there — the baseline is headed by the model that
    * cached the transcript, the outgoing one by the model that would send it.
@@ -541,15 +541,15 @@ class StrategySelector extends JugglerElement {
     if (!thread || !this._toolsAll) return null;
     const strategy = strategyRegistry.createStrategy(thread.currentStrategyId || 'default', thread);
     const toolsetSig = this._toolSignature(strategy, this._toolsAll);
-    // Leading `prefix` context items (frozen pinned/dropped files) are part of the
-    // cached prefix now, so a change to them busts from their position.
-    const prefixItems = (thread.contextItems || []).filter(
+    // `prefix` context items (pinned/dropped files) render where their rows stand
+    // in thread.items, so they are signed there, weighed by the bytes they keep.
+    const contextItems = (thread.contextItems || []).filter(
       (/** @type {any} */ ci) => contextPositionOf(ci) === 'prefix'
     );
     return buildPrefixFingerprint({
       modelSig,
       toolsetSig,
-      prefixItems,
+      contextItems,
       items: thread.items
     });
   }

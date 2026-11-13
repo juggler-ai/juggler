@@ -231,7 +231,14 @@ class ResponseHandler {
           return;
         }
 
-        messageThread.removeContextItem(id);
+        // A dropped file's bytes exist only in its item, so it is hidden, not
+        // deleted, and restore_dropped_file can still return it — the same rule
+        // as the worker's execDropContextItems.
+        if (contextItem.type === 'dropped-file') {
+          messageThread.updateContextItem(id, { data: { hidden: true } });
+        } else {
+          messageThread.removeContextItem(id);
+        }
         allDroppedIds.push(id);
       });
     });

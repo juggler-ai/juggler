@@ -69,6 +69,7 @@ type wireManifest struct {
 			CompactionAccounting []string `json:"compactionAccounting"`
 			UndoState            []string `json:"undoState"`
 			DisplayData          []string `json:"displayData"`
+			DroppedFile          []string `json:"droppedFile"`
 		} `json:"docKeys"`
 	} `json:"worker"`
 }
@@ -635,6 +636,7 @@ func TestWireParityDocKeys(t *testing.T) {
 		"compactionAccounting": keys.CompactionAccounting,
 		"undoState":            keys.UndoState,
 		"displayData":          keys.DisplayData,
+		"droppedFile":          keys.DroppedFile,
 	}
 	usedOrMeta := stringSet{}
 	maps.Copy(usedOrMeta, used)

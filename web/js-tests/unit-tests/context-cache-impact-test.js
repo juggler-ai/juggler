@@ -203,53 +203,81 @@ export async function runTests(_ctx) {
     assert(impact === 'none', `a restored transcript must clear the caution, got ${impact}`);
   });
 
-  // ── Leading `prefix` context items ───────────────────────────────────────
-  // Dropped files and seeded agents files, which keep their bytes in the
-  // document. These sit between tools+system and the growing history, so they ARE
-  // part of the cached prefix: add/remove/re-snapshot busts from their position.
-  const fpp = (
-    /** @type {string} */ sig,
-    /** @type {any[]} */ prefixItems,
-    /** @type {any[]} */ its
-  ) => buildPrefixFingerprint({ toolsetSig: sig, prefixItems, items: its });
+  // ── `prefix` context items ───────────────────────────────────────────────
+  // Dropped files, pinned files and seeded agents files. Each is a row in the
+  // thread's items array, and the worker renders it WHERE THAT ROW STANDS
+  // (buildMessages), so it is signed at its row's position: one added after the
+  // history appends, and one changed or removed ahead of history busts from there.
   /**
-   * A `prefix` context-item stub that persists its bytes, so the re-read slice
-   * can be sized by content just like history items.
+   * Fingerprint a transcript whose rows include context items. `ctxs` are the
+   * instances `thread.contextItems` would return for the context rows in `its`.
+   * @param {any[]} ctxs - Context-item instances
+   * @param {any[]} its - The items array, context rows included
+   * @returns {string[]} The fingerprint
+   */
+  const fpc = (/** @type {any[]} */ ctxs, /** @type {any[]} */ its) =>
+    buildPrefixFingerprint({ toolsetSig: 'read,write', contextItems: ctxs, items: its });
+  /**
+   * A context item that keeps its bytes in the document (a dropped file, or a
+   * frozen file), as the instance and as the row it stands on.
    * @param {string} id - Context item id
    * @param {number} len - Persisted content length in chars
-   * @returns {{id: string, type: string, data: {content: string}}} A context-item stub
+   * @returns {{ci: object, row: {get: (k: string) => any}}} The instance and its row
    */
-  const pctx = (/** @type {string} */ id, /** @type {number} */ len) =>
-    ({ id, type: 'file-content', data: { content: 'x'.repeat(len) } });
-
+  const ctx = (/** @type {string} */ id, /** @type {number} */ len) => {
+    const data = { content: 'x'.repeat(len) };
+    return {
+      ci: { id, type: 'dropped-file', data },
+      row: item({ itemId: id, type: 'dropped-file', data })
+    };
+  };
   /**
-   * A LIVE pin stub: a `file-content` item with no `seeded` flag persists only a
+   * A LIVE pin: a `file-content` item with no `seeded` flag persists only a
    * path, so there is no `data.content` for the fingerprint to weigh.
    * @param {string} id - Context item id
-   * @returns {{id: string, type: string, data: {path: string}}} A context-item stub
+   * @returns {{ci: object, row: {get: (k: string) => any}}} The instance and its row
    */
-  const livePin = (/** @type {string} */ id) =>
-    ({ id, type: 'file-content', data: { path: 'src/main.go' } });
+  const livePin = (/** @type {string} */ id) => {
+    const data = { path: 'src/main.go' };
+    return {
+      ci: { id, type: 'file-content', data },
+      row: item({ itemId: id, type: 'file-content', data })
+    };
+  };
 
-  test('identical prefix items → none', () => {
-    const b = fpp('read,write', [pctx('FILE_1', 40)], many);
-    const c = fpp('read,write', [pctx('FILE_1', 40)], many);
+  test('identical context items → none', () => {
+    const f = ctx('FILE_1', 40);
+    const b = fpc([f.ci], [f.row, ...many]);
+    const c = fpc([f.ci], [f.row, ...many]);
     const impact = classifyContextCacheImpact({ baseline: b, current: c, anchorTokens: big });
     assert(impact === 'none', `an unchanged pin must not warn, got ${impact}`);
   });
 
-  test('adding a leading prefix item busts the whole history after it → busts-large', () => {
-    const b = fpp('read,write', [], many);
-    const c = fpp('read,write', [pctx('FILE_1', 40)], many);
+  test('dropping a file onto a long conversation appends → none', () => {
+    // The composer writes the dropped-file row before the send, at the end of the
+    // items array; the request renders it there, after everything cached.
+    const f = ctx('DROP_1', 100000);
+    const b = fpc([], many);
+    const c = fpc([f.ci], [...many, f.row]);
     const impact = classifyContextCacheImpact({ baseline: b, current: c, anchorTokens: big });
-    assert(impact === 'busts-large', `a new pin ahead of history re-reads all of it, got ${impact}`);
+    assert(impact === 'none', `a file added after the history is new tail, got ${impact}`);
   });
 
-  test('re-pinning a prefix item to different bytes busts → busts-large', () => {
-    const b = fpp('read,write', [pctx('FILE_1', 40)], many);
-    const c = fpp('read,write', [pctx('FILE_1', 41)], many); // re-snapshot, new length
+  test('a context item is signed once, at its row', () => {
+    const f = ctx('DROP_1', 40);
+    const c = fpc([f.ci], [many[0], f.row, many[1]]);
+    const at = c.filter(s => s.includes('DROP_1'));
+    assert(at.length === 1, `expected one entry for the item, got ${at.length}`);
+    const sig = at[0] ?? '';
+    assert(c.indexOf(sig) === 3, `expected it between its neighbours (index 3), got ${c.indexOf(sig)}`);
+    assert(sig.endsWith('~40'), `expected it weighed by its bytes, got ${sig}`);
+  });
+
+  test('re-snapshotting an early context item busts → busts-large', () => {
+    const b = fpc([ctx('FILE_1', 40).ci], [ctx('FILE_1', 40).row, ...many]);
+    const c = fpc([ctx('FILE_1', 41).ci], [ctx('FILE_1', 41).row, ...many]);
     const impact = classifyContextCacheImpact({ baseline: b, current: c, anchorTokens: big });
-    assert(impact === 'busts-large', `a changed pin snapshot re-reads history after it, got ${impact}`);
+    assert(impact === 'busts-large', `a changed snapshot re-reads history after it, got ${impact}`);
   });
 
   test('a live pin is invisible to the fingerprint (known blind spot)', () => {
@@ -260,22 +288,21 @@ export async function runTests(_ctx) {
     // test that says why it was open, rather than discovering it by surprise.
     // The seeded agents files — the ones nobody chose — are frozen precisely so
     // they cannot drift through this gap; see file-content-context-item.js.
-    const b = fpp('read,write', [livePin('FILE_1')], many);
-    const c = fpp('read,write', [livePin('FILE_1')], many);
+    const p = livePin('FILE_1');
+    const b = fpc([p.ci], [p.row, ...many]);
+    const c = fpc([p.ci], [p.row, ...many]);
     assert(b.join('|') === c.join('|'),
       'a live pin signs identically regardless of the bytes on disk');
     const impact = classifyContextCacheImpact({ baseline: b, current: c, anchorTokens: big });
     assert(impact === 'none', `nothing is detected for a live pin, got ${impact}`);
   });
 
-  test('removing a leading prefix item shifts all history after it → busts-large', () => {
-    // Unpinning a leading item moves every history entry up one position, so the
-    // fingerprint diverges at the pin's slot and re-reads the history after it —
-    // the "add/remove cold-starts once" tradeoff, surfaced as a caution.
-    const b = fpp('read,write', [pctx('FILE_1', 40)], many);
-    const c = fpp('read,write', [], many);
+  test('removing an early context item shifts the history after it → busts-large', () => {
+    const f = ctx('FILE_1', 40);
+    const b = fpc([f.ci], [f.row, ...many]);
+    const c = fpc([], many);
     const impact = classifyContextCacheImpact({ baseline: b, current: c, anchorTokens: big });
-    assert(impact === 'busts-large', `removing a leading pin re-reads the history after it, got ${impact}`);
+    assert(impact === 'busts-large', `removing an early item re-reads the history after it, got ${impact}`);
   });
 
   return { passed, failed, errors };

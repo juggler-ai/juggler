@@ -28,7 +28,7 @@ export function isSystemPositionItem(item) {
 /**
  * The declared injection position for a context item — where its rendered
  * content lands in the LLM request. Reads the class manifest's
- * `contextPosition`, defaulting to `'prefix'` (leading, cached, before history)
+ * `contextPosition`, defaulting to `'prefix'` (cached, placed where the item stands)
  * when unset. One of `'system' | 'prefix' | 'none'`; see the ContextItemManifest
  * typedef for what each means. Single source of truth so the worker-callbacks
  * bucketing and the system-prompt filter can't drift.

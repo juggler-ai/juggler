@@ -1288,9 +1288,9 @@ Juggler distinguishes two ways a file's contents reach the model:
 | Item | Role | Content read | Placement |
 |------|------|--------------|-----------|
 | `ReadFileContextItem` | Immutable record of a `read` tool call | Once, at call time | conversation history (part of the transcript) |
-| `FileContentContextItem` | A user's "keep this file current" pin (the file picker) | Live, every turn | `contextPosition: 'prefix'` (before history) |
-| `FileContentContextItem` with `data.frozen` | An `@`-mention | Once, at the send that carried it | `contextPosition: 'prefix'` (before history) |
-| `FileContentContextItem` with `data.seeded` | An agents file the session added to itself | Once, at the first transaction | `contextPosition: 'prefix'` (before history) |
+| `FileContentContextItem` | A user's "keep this file current" pin (the file picker) | Live, every turn | `contextPosition: 'prefix'` (where it stands) |
+| `FileContentContextItem` with `data.frozen` | An `@`-mention | Once, at the send that carried it | `contextPosition: 'prefix'` (where it stands) |
+| `FileContentContextItem` with `data.seeded` | An agents file the session added to itself | Once, at the first transaction | `contextPosition: 'prefix'` (where it stands) |
 
 A **read** is the model's: it lands in the append-only history as a
 `tool_use`/`tool_result` pair and never moves, so it is inside the byte-stable
@@ -1306,10 +1306,12 @@ agent can work on it, so it must not re-render when the agent does — see
 A **pin** — the file picker — is the deliberate exception, and the only live
 case. It means "this file, kept current." It persists only a `path` in Yjs (no
 bytes), and `createContextText()` resolves the live file every turn. Because a pin
-rides the leading, cached prefix (`contextPosition: 'prefix'`), an *unchanged* file
+rides the cached prefix (`contextPosition: 'prefix'`), an *unchanged* file
 renders byte-identically each turn → the prompt cache hits and the pin is paid for
 once; only a *genuine change* to the file busts the cache from that point — which
-is the price of asking for the file to be kept current. There is no watcher
+is the price of asking for the file to be kept current. The pin renders where it
+stands in the conversation, so adding one mid-conversation appends to the request
+rather than shifting the history. There is no watcher
 (nothing is in flight between sends) and no bytes in the document (pinning a 5 MB
 file doesn't bloat Yjs).
 

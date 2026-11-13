@@ -124,8 +124,8 @@ function itemSignature(item) {
 }
 
 /**
- * A signature for a leading `prefix` context item: its id, type, and the length
- * of whatever bytes it persists. Adding, removing, or re-pinning one changes the
+ * A signature for a `prefix` context item: its id, type, and the length of
+ * whatever bytes it persists. Adding, removing, or re-pinning one changes the
  * id sequence; a re-snapshot with different bytes changes the length. Same
  * `~<len>` tail encoding as {@link itemSignature}, so {@link signatureWeight}
  * sizes its re-read slice too.
@@ -158,30 +158,39 @@ function contextItemSignature(ci) {
 
 /**
  * Build the ordered prefix fingerprint: the model, the tool-set signature, then
- * one signature per leading `prefix` context item, then one per history item.
+ * one signature per item in the thread's items array.
  *
  * The model heads the list because a cache entry is scoped to it (see the module
  * comment): a switch diverges at index 0, so the whole prefix is re-read, which
  * is exactly what happens.
  *
- * Prefix context items (pinned files, dropped files, seeded agents files) sit
- * between tools+system and the growing history, so they ARE part of the cached
- * prefix: adding, removing, or re-pinning one busts the cache from its position,
- * exactly like editing a history item. They precede the history entries here so a
- * divergence in them is measured against everything cached after them.
+ * Context items (pinned files, dropped files, seeded agents files) are rows in
+ * that same items array, and the worker renders each one where its row stands
+ * (buildMessages in llm_request.go). So each is signed at its row: one added
+ * after the history is an append and costs nothing, while adding, removing, or
+ * re-pinning one ahead of history busts the cache from its position, exactly
+ * like editing a history item. A row named in `contextItems` is signed with
+ * {@link contextItemSignature}, so the bytes it keeps in `data.content` weigh
+ * in; any other row (including a context item of another position) is signed
+ * with {@link itemSignature}.
  * @param {object} args
  * @param {string} [args.modelSig] - The `provider/model#thinking` this prefix belongs to (the next send's for the outgoing one, the anchored turn's for a baseline)
  * @param {string} args.toolsetSig - Sorted tool-name signature under the effective strategy
- * @param {Array<{id?: string, type?: string, data?: {content?: unknown}}>} [args.prefixItems] - The thread's leading `prefix`-position context items
- * @param {Array<{get?: (key: string) => any}>} args.items - The thread's history items
+ * @param {Array<{id?: string, type?: string, data?: {content?: unknown}}>} [args.contextItems] - The thread's `prefix`-position context items, matched to their rows by id
+ * @param {Array<{get?: (key: string) => any}>} args.items - The thread's items, context-item rows included
  * @returns {string[]} The prefix fingerprint
  */
-export function buildPrefixFingerprint({ modelSig, toolsetSig, prefixItems = [], items }) {
+export function buildPrefixFingerprint({ modelSig, toolsetSig, contextItems = [], items }) {
   const fp = ['model:' + (modelSig || ''), 'tools:' + (toolsetSig || '')];
-  for (const ci of prefixItems || []) fp.push(contextItemSignature(ci));
+  /** @type {Map<string, string>} */
+  const contextSigs = new Map();
+  for (const ci of contextItems || []) {
+    if (ci?.id) contextSigs.set(String(ci.id), contextItemSignature(ci));
+  }
   for (const item of items || []) {
     if (NON_EMITTING_ITEM_TYPES.has(String(item?.get?.('type') || ''))) continue;
-    fp.push(itemSignature(item));
+    const id = String(item?.get?.('itemId') || '');
+    fp.push(contextSigs.get(id) ?? itemSignature(item));
   }
   return fp;
 }

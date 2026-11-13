@@ -9,7 +9,8 @@
  * Three concerns, all backend-free:
  *  1. DroppedFileContextItem.createContextText — a staged text file must reach
  *     the LLM in the same `<file>`-wrapped, line-numbered form as an `@`-mention;
- *     empty content collapses to '' (nothing injected).
+ *     empty content collapses to '' (nothing injected); a hidden one renders a
+ *     placeholder, and restore_dropped_file hands its content back.
  *  2. normalizeDraft round-trips the new `textFiles` field, so a dropped file
  *     staged in the composer survives the draft save/reload cycle alongside the
  *     text and image attachments (they are one persisted record).
@@ -24,6 +25,7 @@
  */
 
 import DroppedFileContextItem from '../context-items/dropped-file-context-item.js';
+import RestoreDroppedFileContextItem from '../context-items/restore-dropped-file-context-item.js';
 import { normalizeDraft, normalizeTextFiles } from '../../../js/utils/attachments.js';
 import { initializeRegistries, assert, waitFor } from '../../../js-tests/utilities/test-helpers.js';
 import '../../../js/components/composer.js';
@@ -149,6 +151,44 @@ export async function runTests() {
     await item.onToolCall('dropped-file', { filename: 'empty.txt', content: '' });
     const text = await item.createContextText();
     assert(text === '', `empty content must inject nothing, got ${JSON.stringify(text)}`);
+  });
+
+  await test('createContextText says the file is not on disk', async () => {
+    const item = new DroppedFileContextItem(bareItemContext());
+    await item.onToolCall('dropped-file', { filename: '11.js', content: 'let a;' });
+    const text = await item.createContextText();
+    assert(/not on disk/.test(text) && text.indexOf('not on disk') < text.indexOf('<file'),
+      `the model must be told before the <file> block that there is no such path:\n${text}`);
+  });
+
+  await test('a hidden dropped file renders a placeholder naming the restore tool', async () => {
+    const item = new DroppedFileContextItem(bareItemContext());
+    await item.onToolCall('dropped-file', { filename: '11.js', content: 'let secret = 42;' });
+    item.data.hidden = true;
+    const text = await item.createContextText();
+    assert(!text.includes('secret'), `a hidden file's content must not be sent:\n${text}`);
+    assert(text.includes('restore_dropped_file') && text.includes('"DROP_test"') && text.includes('11.js'),
+      `the placeholder must name the tool, the item id and the file:\n${text}`);
+  });
+
+  await test('restore_dropped_file returns a hidden file\'s content from anywhere in the conversation', async () => {
+    const data = { filename: '11.js', content: 'let secret = 42;', hidden: true };
+    /** @type {Record<string, any>} */
+    const rows = {
+      DROP_1: { get: (/** @type {string} */ k) => ({ type: 'dropped-file', data })[k] },
+      RULE_1: { get: (/** @type {string} */ k) => ({ type: 'rule', data: {} })[k] }
+    };
+    const conversation = { findItemById: (/** @type {string} */ id) => rows[id] ?? null };
+    const restore = new RestoreDroppedFileContextItem(/** @type {any} */ (
+      { id: 'ITEM_r', session: {}, conversation, messageThread: {} }));
+    const result = /** @type {any} */ (await restore.execute({ itemId: 'DROP_1' }));
+    assert(result.text.includes('1\tlet secret = 42;') && result.text.includes('not on disk'),
+      `expected the file as first sent, got:\n${result.text}`);
+    for (const missing of ['RULE_1', 'NOPE']) {
+      let threw = false;
+      try { await restore.execute({ itemId: missing }); } catch { threw = true; }
+      assert(threw, `${missing} is not a dropped file, so restoring it must fail`);
+    }
   });
 
   await test('onToolCall rejects a non-string content param', async () => {

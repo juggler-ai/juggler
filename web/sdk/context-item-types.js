@@ -271,10 +271,11 @@
  *   rendered content is injected into the request (default: 'prefix'):
  *   - `'system'`: folded into the system prompt (cached; busts when it changes).
  *     Memory, skills, the system-prompt identity item.
- *   - `'prefix'` (default): leading user-role messages placed BEFORE the
- *     conversation history, so the content rides inside the cached prefix. An
- *     unchanged render is byte-identical each turn → the cache hits; a genuine
- *     change busts from that point (adding/removing one cold-starts once). For
+ *   - `'prefix'` (default): a user-role message placed where the item stands in
+ *     the conversation, so the content rides inside the cached prefix. Adding
+ *     one appends to the request; an unchanged render is byte-identical each
+ *     turn → the cache hits; a genuine change, or removing one, busts from that
+ *     point. For
  *     file contents: a deliberately-current pin, or a frozen snapshot (a dropped
  *     file, an `@`-mention, a seeded agents file).
  *   - `'none'`: not injected into the request at all; the item's state already

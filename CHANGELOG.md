@@ -24,6 +24,8 @@ the current release). The project follows semantic versioning.
 - @-mentioned and tool-read PDFs reach the model as text, instead of a "fake worker" error
 - PDFs dropped into the composer are attached as their text
 - The agent can rename or move its project folder; windows follow it there
+- Dropping a file no longer warns of a cache miss that doesn't happen
+- Dropped files taken out of context or folded by /compact can be restored by the agent
 
 ## [0.8.0] - 2026-11-08
 

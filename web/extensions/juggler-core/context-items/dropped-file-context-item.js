@@ -21,7 +21,35 @@ injectFileContentStyles();
  * @property {boolean} [extracted] - `content` is a file viewer's `extract()`
  *   output for a binary file (a PDF): already model-facing, `<file>` envelope
  *   included, so it is passed through rather than wrapped again
+ * @property {boolean} [hidden] - Taken out of context by drop_context_items.
+ *   The snapshot is kept, since nothing else holds it, and the item renders as
+ *   a one-line placeholder naming restore_dropped_file
  */
+
+/**
+ * The model-facing text of a dropped file's snapshot: a line saying where it
+ * came from, then the same `<file>`-wrapped, line-numbered form as an
+ * `@`-mention or a `read`. The filename is only a label — there is no such path
+ * on disk, and saying so stops the model reaching for it with a file tool.
+ * Shared with restore_dropped_file so a restored file reads as it first did.
+ * @param {DroppedFileData} data - The item's data
+ * @returns {string} Formatted content ('' when the snapshot is empty)
+ */
+export function droppedFileText(data) {
+  const content = data.content || '';
+  if (!content) return '';
+  const name = data.filename || markUntranslated('dropped file');
+  const header = markUntranslated(`The user dropped the file "${name}" into the conversation. It is not on disk, so file tools cannot read it by that name.\n`);
+  if (data.extracted) return header + content;
+  const lineCount = content.split('\n').length;
+  return header + formatFileContentForLLM({
+    content,
+    path: name,
+    lineOffset: 1,
+    lineCount,
+    totalLines: lineCount
+  });
+}
 
 // ============================================================================
 // DroppedFileContextItem
@@ -42,6 +70,9 @@ injectFileContentStyles();
  *  - Created only via the composer's drop handler
  *    (`executeContextItem('dropped-file', {filename, content})`); it is not
  *    user-addable through the picker and exposes no tool for the LLM.
+ *  - Because nothing else holds the bytes, drop_context_items hides it rather
+ *    than deleting it (`data.hidden`), and restore_dropped_file
+ *    (restore-dropped-file-context-item.js) hands the content back.
  * @class
  * @augments ContextItem
  */
@@ -56,9 +87,9 @@ class DroppedFileContextItem extends ContextItem {
     idPrefix: 'DROP',
     userAddable: false,
     watchesFileChanges: false,
-    // 'prefix': the drop is a frozen byte snapshot (never re-read), so place it
-    // in the leading, cached prefix instead of re-billing it at the tail every
-    // turn — same rationale as the pinned FileContentContextItem.
+    // 'prefix': the drop is a frozen byte snapshot (never re-read), rendered
+    // where it stands in the conversation, so it joins the cached prefix once
+    // sent instead of being re-billed every turn.
     contextPosition: /** @type {const} */ ('prefix'),
     exampleData: {
       filename: 'notes.txt',
@@ -123,27 +154,20 @@ class DroppedFileContextItem extends ContextItem {
   }
 
   /**
-   * Create context text for the LLM.
-   *
-   * Emits the same `<file>`-wrapped, line-numbered form as an `@`-mention or a
-   * `read` tool call, so the model sees a dropped file identically to any other
-   * file reference. The filename is used only as the tag label. Extracted
-   * content (a dropped PDF) is already in that form, as the viewer that read it
-   * produced it for an `@`-mention too, so it goes through unchanged.
+   * Create context text for the LLM: the snapshot via {@link droppedFileText},
+   * or, once drop_context_items has hidden the item, a one-line placeholder
+   * that keeps the file findable. Extracted content (a dropped PDF) is already
+   * in `<file>` form, as the viewer that read it produced it for an
+   * `@`-mention too, so it goes through unwrapped.
    * @returns {Promise<string>} Formatted file content for LLM context
    */
   async createContextText() {
-    const content = this.data.content || '';
-    if (!content) return '';
-    if (this.data.extracted) return content;
-    const lineCount = content.split('\n').length;
-    return formatFileContentForLLM({
-      content,
-      path: this.data.filename || markUntranslated('dropped file'),
-      lineOffset: 1,
-      lineCount,
-      totalLines: lineCount
-    });
+    if (!this.data.content) return '';
+    if (this.data.hidden) {
+      const name = this.data.filename || markUntranslated('dropped file');
+      return markUntranslated(`The dropped file "${name}" was removed from context. It is not on disk; call restore_dropped_file with itemId "${this.id}" to see it again.`);
+    }
+    return droppedFileText(this.data);
   }
 
   /**

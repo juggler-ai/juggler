@@ -594,13 +594,51 @@ func buildThreadResultMap(item ConversationItem) map[string]any {
 	// is inert compressed history, not completed sub-thread work: frame it as an
 	// inert record so the model does not treat the summary as instructions.
 	if item.BoundedCompaction {
-		return map[string]any{"type": "user", "content": compactionSummaryWireHeader + result}
+		return map[string]any{"type": "user", "content": compactionSummaryWireHeader + result + foldedDroppedFilesNote(item.Items)}
 	}
 	return map[string]any{
 		"type": "assistant",
 		"content": fmt.Sprintf("[Completed Thread: %s]\nThis work has been completed by a sub-thread — do not repeat it:\n\n%s",
 			item.Goal, result),
 	}
+}
+
+// foldedDroppedFilesNote lists the dropped files a compaction fold swallowed,
+// for appending to its summary. A dropped file has no path on disk, so once
+// folded the summary is the only place left that can tell the model it exists
+// and how to get it back. Derived from the fold's own items, so it is the same
+// on every turn and the summary message stays cache-stable. Empty when the
+// fold holds none.
+func foldedDroppedFilesNote(raw json.RawMessage) string {
+	var lines []string
+	var walk func(json.RawMessage)
+	walk = func(raw json.RawMessage) {
+		if len(raw) == 0 {
+			return
+		}
+		var items []ConversationItem
+		if json.Unmarshal(raw, &items) != nil {
+			return
+		}
+		for _, it := range items {
+			switch it.Type {
+			case ItemTypeDroppedFile:
+				var data struct {
+					Filename string `json:"filename"`
+				}
+				_ = json.Unmarshal(it.Data, &data)
+				lines = append(lines, fmt.Sprintf("- %s: %s", it.ItemID, data.Filename))
+			case ItemTypeThread:
+				walk(it.Items)
+			}
+		}
+	}
+	walk(raw)
+	if len(lines) == 0 {
+		return ""
+	}
+	return "\n\n[Files the user dropped into the conversation before this summary. They are not on disk; call restore_dropped_file with an itemId to see one again.]\n" +
+		strings.Join(lines, "\n")
 }
 
 // buildThreadToolResultMap returns the user-side tool_result for an LLM-spawned

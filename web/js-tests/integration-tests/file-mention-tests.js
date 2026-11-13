@@ -386,7 +386,7 @@ const sendMessageSkipsMentionsInCode = {
 //   (a) reach the LLM with the file's current on-disk bytes (resolved live), and
 //   (b) leave no copy of those bytes in the Yjs document (only the path).
 // A pin is "kept current": it renders live each turn, and because it rides the
-// cached leading prefix, an unchanged file caches (byte-identical render) while a
+// cached prefix, an unchanged file caches (byte-identical render) while a
 // real change busts it — exactly the pin contract. No bytes are ever persisted.
 /** @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition} */
 const pinResolvesLiveAndPersistsNoBytes = {

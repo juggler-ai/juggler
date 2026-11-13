@@ -1284,6 +1284,12 @@ const (
 	// canonical SYSTEM_1 and the fresh-id copies seeded into sub-threads. Used
 	// as the idempotency key for seeding (a thread with one has been seeded).
 	ItemTypeSystemPrompt = "system-prompt"
+	// ItemTypeDroppedFile is a file the user dropped into the composer. Its
+	// bytes live only in the item's data (a browser drop has no path on disk),
+	// so it is the one context item that drop_context_items hides rather than
+	// deletes, and that a /compact fold names in its summary: either way the
+	// model can still get it back with restore_dropped_file.
+	ItemTypeDroppedFile = "dropped-file"
 	// ItemTypeCompactionSummary is the folded product of context-window
 	// recovery: one item replacing a summarized prefix of the conversation.
 	// buildMessages emits it as a single user message with an inert-data

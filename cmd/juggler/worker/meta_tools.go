@@ -42,8 +42,9 @@ func (r *run) executeMetaTool(toolUseID, toolName string, toolInput json.RawMess
 }
 
 // execDropContextItems handles the drop_context_items meta tool: it deletes the
-// context items whose itemId appears in the input set. Returns the log message
-// and an error for malformed input.
+// context items whose itemId appears in the input set, except a dropped file,
+// which it hides (hideDroppedFile). Returns the log message and an error for
+// malformed input.
 func (w *ConversationWorker) execDropContextItems(input map[string]any) (string, error) {
 	rawIDs, ok := input[keyItemIDs].([]any)
 	if !ok {
@@ -60,13 +61,37 @@ func (w *ConversationWorker) execDropContextItems(input map[string]any) (string,
 	}
 
 	var indicesToDelete []int
+	hidden := 0
 	for i, item := range w.doc.GetItems() {
-		if item.ItemID != "" && wanted[item.ItemID] {
-			indicesToDelete = append(indicesToDelete, i)
+		if item.ItemID == "" || !wanted[item.ItemID] {
+			continue
 		}
+		if item.Type == ItemTypeDroppedFile {
+			if err := w.hideDroppedFile(item); err != nil {
+				return fmt.Sprintf("Error: %v", err), err
+			}
+			hidden++
+			continue
+		}
+		indicesToDelete = append(indicesToDelete, i)
 	}
 	if len(indicesToDelete) > 0 {
 		w.tracker.DeleteMessages(indicesToDelete)
 	}
-	return fmt.Sprintf("Dropped %d context items", len(indicesToDelete)), nil
+	return fmt.Sprintf("Dropped %d context items", len(indicesToDelete)+hidden), nil
+}
+
+// hideDroppedFile marks a dropped file hidden instead of deleting it. Its bytes
+// exist nowhere but this item, so deleting it would lose the file for good;
+// hidden, it renders as a one-line placeholder naming restore_dropped_file
+// (dropped-file-context-item.js), which returns the content on request.
+func (w *ConversationWorker) hideDroppedFile(item ConversationItem) error {
+	data := map[string]any{}
+	if len(item.Data) > 0 {
+		if err := json.Unmarshal(item.Data, &data); err != nil {
+			return fmt.Errorf("drop_context_items: unreadable data on %s: %w", item.ItemID, err)
+		}
+	}
+	data[keyHidden] = true
+	return w.doc.UpdateItemByID(item.ItemID, keyData, data)
 }

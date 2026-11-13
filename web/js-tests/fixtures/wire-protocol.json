@@ -51,7 +51,8 @@
 
     "itemTypes": [
       "user", "assistant", "thinking", "provider-state", "tool-action", "error", "meta-tool-result",
-      "thread", "system-reminder", "guidance", "system-prompt", "compaction-summary", "notice"
+      "thread", "system-reminder", "guidance", "system-prompt", "compaction-summary", "notice",
+      "dropped-file"
     ],
 
     "processingStatuses": [
@@ -131,7 +132,8 @@
         "cachedTokens", "cacheWriteTokens"
       ],
       "undoState": ["canUndo", "canRedo", "seq"],
-      "displayData": ["backgroundTask"]
+      "displayData": ["backgroundTask"],
+      "droppedFile": ["hidden"]
     }
   },
 

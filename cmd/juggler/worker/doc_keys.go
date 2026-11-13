@@ -229,3 +229,8 @@ const (
 	keyConvID             = "convId"
 	keyClaimedBy          = "claimedBy"
 )
+
+// Keys of a dropped-file item's data (docKeys.droppedFile).
+const (
+	keyHidden = "hidden"
+)

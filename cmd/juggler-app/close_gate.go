@@ -33,15 +33,24 @@ import (
 //
 // A quit is exempt: confirmThenQuit notifies every window together before
 // quitting, so gating each window again would only repeat it. So is a window no
-// longer in the registry, which has nothing left to settle, and one showing a
-// stand-in, whose static page has no drafts and would never answer.
+// longer in the registry, which has nothing left to settle, and one whose page
+// cannot answer (cannotAnswerFlush).
 func (a *appState) closeReady(e *winEntry) bool {
 	ready := false
 	a.reg(func(st *regState) {
 		w := st.windows[e.id]
-		ready = st.quitting || w == nil || w.settled || w.view.standIn != nil
+		ready = st.quitting || w == nil || cannotAnswerFlush(w)
 	})
 	return ready
+}
+
+// cannotAnswerFlush reports whether w's page would never answer a flush, so
+// announcing one would only spend the whole closeFlushTimeout: a window already
+// settled (by the gate, or by a foreign page's fallback bar), or one showing a
+// stand-in, whose static page has no drafts and no listener. Must run on the
+// registry goroutine, inside a reg op.
+func cannotAnswerFlush(w *winEntry) bool {
+	return w.settled || w.view.standIn != nil
 }
 
 // claimSettle gives exactly one goroutine the right to run the gate for e,

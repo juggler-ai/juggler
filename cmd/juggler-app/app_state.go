@@ -1633,7 +1633,9 @@ func (a *appState) handleWindowClosed(e *winEntry) {
 
 // armFlushWait registers a close-requested handshake for e and returns the token
 // the page must quote back, plus the channel closed when it does. Returns an
-// empty token when the window is no longer registered.
+// empty token, and nothing to wait on, when the window is no longer registered
+// or its page cannot answer (cannotAnswerFlush) — so a quit with a stand-in
+// open costs no timeout.
 //
 // A handshake already awaiting a reply is joined rather than replaced. Two
 // callers can want the same window flushed at once — the gate closing that one
@@ -1648,7 +1650,7 @@ func (a *appState) armFlushWait(e *winEntry) (string, chan struct{}) {
 	var done chan struct{}
 	a.reg(func(st *regState) {
 		w := st.windows[e.id]
-		if w == nil {
+		if w == nil || cannotAnswerFlush(w) {
 			return
 		}
 		if w.flushDone == nil {

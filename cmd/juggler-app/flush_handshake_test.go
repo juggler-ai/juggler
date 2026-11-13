@@ -136,6 +136,25 @@ func TestFlushHandshakeIgnoresStaleTokenAfterANewAnnouncement(t *testing.T) {
 	}
 }
 
+// A stand-in's static page, and a foreign page whose fallback bar already
+// settled the window, never answer a flush. Arming one anyway costs a quit the
+// whole closeFlushTimeout — what a window left on a disconnected remote did.
+func TestFlushHandshakeSkipsAWindowThatCannotAnswer(t *testing.T) {
+	a := newTestAppState(t)
+	standing := registerTestWindow(a, "w1")
+	settled := registerTestWindow(a, "w2")
+	a.reg(func(st *regState) {
+		st.windows["w1"].view.standIn = remoteDisconnectedStandIn("http://remote.example:1234")
+		st.windows["w2"].settled = true
+	})
+
+	for _, e := range []*winEntry{standing, settled} {
+		if token, done := a.armFlushWait(e); token != "" || done != nil {
+			t.Fatalf("window %s cannot answer a flush, so there must be nothing to wait on", e.id)
+		}
+	}
+}
+
 func TestAwaitFlushReturnsWhenPageReplies(t *testing.T) {
 	a := newTestAppState(t)
 	e := registerTestWindow(a, "w1")

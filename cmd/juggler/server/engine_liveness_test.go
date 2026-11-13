@@ -434,6 +434,97 @@ func TestEngineSupervisor_WaitsOutAReloadThatIsGettingSomewhere(t *testing.T) {
 	}
 }
 
+// fakeTier stands in for the engine's scheduling-tier clock, so a test can lay
+// out how much of a stretch the tier was run in.
+type fakeTier struct{ served atomic.Int64 }
+
+func (f *fakeTier) advance(d time.Duration) { f.served.Add(int64(d)) }
+func (f *fakeTier) read() time.Duration     { return time.Duration(f.served.Load()) }
+
+// A hidden engine page runs at the darwin background tier, which a saturated Mac
+// barely runs at all. An engine that was not given the chance to speak has not
+// been silent: evicting it and then reloading it is what threw away the realm
+// holding a running tool's in-flight state, so the reloaded engine ran that
+// tool's command a second time.
+
+// TestEngineSupervisor_StarvedEngineIsNotEvicted: a minute in which the
+// engine's tier was run for a tenth of a second a tick is not a minute of
+// silence. The same silence on a tier that IS being run still evicts.
+func TestEngineSupervisor_StarvedEngineIsNotEvicted(t *testing.T) {
+	s, ts := newEngineSocketServer(t)
+	s.setEngineLivenessWindow(engineLivenessWindow)
+	tier := &fakeTier{}
+	s.setEngineTier(tier.read)
+	conn := dialEngine(t, ts)
+	if !waitUntil(muteDetectionBudget, s.IsEngineConnected) {
+		t.Fatal("engine never registered")
+	}
+	freezeRealm(conn)
+
+	start := time.Now()
+	tick := 0
+	step := func(served time.Duration) {
+		tick++
+		tier.advance(served)
+		s.superviseEngineAt(start.Add(time.Duration(tick) * engineHeartbeatInterval))
+	}
+	for tick < 12 {
+		step(100 * time.Millisecond)
+	}
+	if s.engineEvictedAt.Load() != 0 {
+		t.Fatalf("evicted an engine after %v in which its scheduling tier was run for %v: "+
+			"it had no chance to speak, so its silence is not evidence that it is dead",
+			time.Duration(tick)*engineHeartbeatInterval, tier.read())
+	}
+
+	// The tier is run again and the realm still says nothing: that is silence.
+	for tick < 24 && s.engineEvictedAt.Load() == 0 {
+		step(engineHeartbeatInterval)
+	}
+	if s.engineEvictedAt.Load() == 0 {
+		t.Fatalf("an engine silent for %v of its tier being run was never evicted",
+			tier.read())
+	}
+}
+
+// TestEngineSupervisor_WaitsForAStarvedEngineToReconnect: the reload is the
+// step that destroys a realm, so the grace an evicted engine gets to come back
+// on its own is counted the same way. A realm that is merely starved reconnects
+// once it is run; reloading it first throws away every tool it was running.
+func TestEngineSupervisor_WaitsForAStarvedEngineToReconnect(t *testing.T) {
+	s := newTestServerState(t)
+	tier := &fakeTier{}
+	s.setEngineTier(tier.read)
+	recovered := make(chan struct{}, maxEngineRecoveries+1)
+	s.SetEngineRecovery(func() { recovered <- struct{}{} })
+
+	at := time.Now()
+	s.engineEvictedAt.Store(at.UnixNano())
+	tick := 0
+	step := func(served time.Duration) {
+		tick++
+		tier.advance(served)
+		s.superviseEngineAt(at.Add(time.Duration(tick) * engineHeartbeatInterval))
+	}
+	for tick < 12 {
+		step(100 * time.Millisecond)
+	}
+	if got := len(recovered); got != 0 {
+		t.Fatalf("reloaded an evicted engine %d time(s) in %v in which its tier was run for %v: "+
+			"a starved realm reconnects once it is run, and the reload throws away its running tools",
+			got, time.Duration(tick)*engineHeartbeatInterval, tier.read())
+	}
+
+	// Run again and still not back: the realm is gone, so it is reloaded.
+	for tick < 24 && len(recovered) == 0 {
+		step(engineHeartbeatInterval)
+	}
+	if got := len(recovered); got != 1 {
+		t.Fatalf("an evicted engine that stayed away for %v of its tier being run was reloaded %d time(s); want 1",
+			tier.read(), got)
+	}
+}
+
 // TestEngineSupervisor_IgnoresAnEngineItNeverEvicted: an engine that has simply
 // never connected belongs to startEngineHost's boot check, and a disconnect
 // during shutdown belongs to nobody. The supervisor must only chase engines it

@@ -5,8 +5,10 @@
 package server
 
 import (
+	"sync/atomic"
 	"time"
 
+	"juggler/cmd/juggler/osactivity"
 	"juggler/internal/jlog"
 )
 
@@ -37,6 +39,20 @@ import (
 // individual tool is a separate question with a separate ladder — the engine's
 // own overdue-execution watchdog (web/js/services/action-executor.js) and the
 // worker's tool-command escalation (worker/tool_commands.go).
+//
+// Silence is counted in served time, not wall time. The engine's page is
+// hidden, and WebKit runs a hidden page's web process at the darwin background
+// tier (scheduler priority 4) — the throttling engine_lifecycle.go chooses. A
+// saturated Mac barely runs that tier at all, since every thread at default
+// priority comes first, so a realm that is perfectly healthy can go a minute
+// without one turn of its event loop. Condemning it for that is not harmless:
+// the reload that follows an eviction destroys the realm, and with it every
+// running tool's in-flight state, so the reloaded engine runs those tools again.
+// So a stretch of silence counts only as far as a thread of the server's own,
+// held at that same tier, was being run in it (osactivity.BackgroundTierClock):
+// an engine that was given the chance to speak and said nothing has been
+// silent; one that was never run has not. Where nothing measures the tier,
+// silence is wall time.
 const (
 	// engineHeartbeatInterval is how often the engine announces itself. Kept well
 	// inside engineLivenessWindow so an ordinary scheduling hiccup, a slow
@@ -86,14 +102,94 @@ func (s *Server) livenessWindow() time.Duration {
 	return engineLivenessWindow
 }
 
-// engineSilence reports how long the engine has been silent. Zero when no engine
-// is registered (the caller checks registration first).
+// engineSilence reports how long the engine has been silent, in served time.
+// Zero when no engine is registered (the caller checks registration first).
 func (s *Server) engineSilence() time.Duration {
+	return s.engineSilenceAt(time.Now(), false)
+}
+
+// engineSilenceAt is engineSilence with the clock supplied. commit records the
+// reading, which only the supervisor's tick does; any other caller peeks.
+func (s *Server) engineSilenceAt(now time.Time, commit bool) time.Duration {
 	last := s.engineHeartbeatAt.Load()
 	if last == 0 {
 		return 0
 	}
-	return time.Since(time.Unix(0, last))
+	return s.engineQuiet.silence.count(last, now, s.engineTierClock(), commit)
+}
+
+// setEngineTier installs the reader of the engine's scheduling-tier clock.
+func (s *Server) setEngineTier(served func() time.Duration) {
+	s.engineTier.Store(&served)
+}
+
+// engineTierClock is the installed tier clock, or nil.
+func (s *Server) engineTierClock() func() time.Duration {
+	if p := s.engineTier.Load(); p != nil {
+		return *p
+	}
+	return nil
+}
+
+// engineQuietClock holds the served-time counts for the two waits the
+// supervisor makes on the engine.
+type engineQuietClock struct {
+	// silence counts from the engine's last word.
+	silence quietCount
+	// grace counts from an eviction, a reload, or the reloaded engine's last
+	// step further in its boot.
+	grace quietCount
+}
+
+// quietCount is one served-time count. The supervisor's tick is its only
+// writer, publishing each reading whole; any other caller works from the last
+// one published and records nothing.
+type quietCount struct{ last atomic.Pointer[quietSpan] }
+
+// count returns the time since the moment from, up to now, in served time,
+// publishing the reading when commit is set.
+func (c *quietCount) count(from int64, now time.Time, tier func() time.Duration, commit bool) time.Duration {
+	var prev quietSpan
+	if p := c.last.Load(); p != nil {
+		prev = *p
+	}
+	next := prev.through(from, now, tier)
+	if commit {
+		c.last.Store(&next)
+	}
+	return next.served
+}
+
+// quietSpan is a reading of the time since a moment, counting only the time in
+// which the engine's scheduling tier was being run.
+type quietSpan struct {
+	from   int64         // the moment counted from, unix nanoseconds
+	at     time.Time     // when the reading was taken
+	tier   time.Duration // the tier clock's reading then
+	served time.Duration // the count as of at
+}
+
+// through brings the reading up to now for the moment from.
+//
+// The first look at a moment counts the wall time since it: there is no
+// earlier reading of the tier to measure against. The supervisor looks once a
+// tick, so that is at most a tick's worth. After that, each stretch counts as
+// its wall time or as the time the tier was run in it, whichever is less. A
+// nil tier counts wall time throughout.
+func (sp quietSpan) through(from int64, now time.Time, tier func() time.Duration) quietSpan {
+	var reading time.Duration
+	if tier != nil {
+		reading = tier()
+	}
+	served := now.Sub(time.Unix(0, from))
+	if from == sp.from && !sp.at.IsZero() {
+		stretch := now.Sub(sp.at)
+		if tier != nil {
+			stretch = min(stretch, reading-sp.tier)
+		}
+		served = sp.served + max(stretch, 0)
+	}
+	return quietSpan{from: from, at: now, tier: reading, served: max(served, 0)}
 }
 
 // engineLive reports whether a registered engine has proved itself within the
@@ -209,9 +305,10 @@ func (s *Server) SetEngineRecovery(fn EngineRecovery) {
 
 const (
 	// engineReconnectGrace is how long an evicted engine is given to come back on
-	// its own before the recovery hook is called. The client reconnects on a 1s
-	// tiered backoff, so this is many attempts' worth: if it has not returned by
-	// now, the realm itself is gone rather than the link.
+	// its own before the recovery hook is called, in served time like its
+	// silence. The client reconnects on a 1s tiered backoff, so this is many
+	// attempts' worth: if a realm that was run for this long has not returned,
+	// the realm itself is gone rather than the link.
 	engineReconnectGrace = 20 * time.Second
 
 	// maxEngineRecoveries caps how many times the recovery hook fires before the
@@ -230,6 +327,9 @@ const (
 // realm) in about a second and costing nothing else. Only if nothing comes back
 // is the realm itself presumed dead and the recovery hook called to reload it.
 func (s *Server) startEngineSupervisor() {
+	if tier := osactivity.BackgroundTierClock(); tier != nil {
+		s.setEngineTier(tier)
+	}
 	go func() {
 		tick := time.NewTicker(engineHeartbeatInterval)
 		defer tick.Stop()
@@ -254,14 +354,15 @@ func (s *Server) superviseEngine() {
 // lay out a reconnect grace without sleeping through one.
 func (s *Server) superviseEngineAt(now time.Time) {
 	if s.engineClient.Load() != nil {
-		if s.engineLive() {
+		silence := s.engineSilenceAt(now, true)
+		if silence <= s.livenessWindow() {
 			// Healthy: forget any eviction we were tracking.
 			s.engineEvictedAt.Store(0)
 			s.engineRecoveries.Store(0)
-			s.noteTestEngineQuiet(s.engineSilence() > s.livenessWindow()/2)
+			s.noteTestEngineQuiet(silence > s.livenessWindow()/2)
 			return
 		}
-		s.evictSilentEngine()
+		s.evictSilentEngine(now, silence)
 		return
 	}
 
@@ -271,7 +372,9 @@ func (s *Server) superviseEngineAt(now time.Time) {
 	// The grace runs from the eviction or last reload, or from the reloaded
 	// engine's last step further, whichever came last: a reload's boot is as
 	// long as the machine is slow, and a reload on a wall-time grace cuts off
-	// the boot of the one before it.
+	// the boot of the one before it. It is counted in served time, as silence
+	// is: an evicted realm the tier was not run for has had no chance to
+	// reconnect, and reloading it destroys the tools it is running.
 	evictedAt := s.engineEvictedAt.Load()
 	if evictedAt == 0 {
 		return
@@ -280,7 +383,8 @@ func (s *Server) superviseEngineAt(now time.Time) {
 	if step := s.engineBootStepAt(); step.After(quietSince) {
 		quietSince = step
 	}
-	if now.Sub(quietSince) < engineReconnectGrace {
+	waited := s.engineQuiet.grace.count(quietSince.UnixNano(), now, s.engineTierClock(), true)
+	if waited < engineReconnectGrace {
 		return
 	}
 
@@ -309,7 +413,7 @@ func (s *Server) superviseEngineAt(now time.Time) {
 // the worker's engineAttached — which gates every tool-command dispatch — stops
 // claiming an engine that cannot act. The client's own reconnect backoff brings
 // a live realm straight back.
-func (s *Server) evictSilentEngine() {
+func (s *Server) evictSilentEngine(now time.Time, silence time.Duration) {
 	client := s.engineClient.Load()
 	if client == nil {
 		return
@@ -317,9 +421,10 @@ func (s *Server) evictSilentEngine() {
 	if s.engineEvictedAt.Load() != 0 {
 		return // already evicted this one; waiting out the reconnect grace
 	}
-	s.engineEvictedAt.Store(time.Now().UnixNano())
-	jlog.Error("[engine] evicting a silent engine after %v with no word from its realm "+
-		"(client=%s, queued writes: %d); closing the socket so it reconnects",
-		s.engineSilence().Round(time.Second), client.ClientID(), client.QueuedWrites())
+	s.engineEvictedAt.Store(now.UnixNano())
+	jlog.Error("[engine] evicting a silent engine after %v with no word from its realm, counted while its "+
+		"scheduling tier was run (%v by the clock; client=%s, queued writes: %d); closing the socket so it reconnects",
+		silence.Round(time.Second), now.Sub(time.Unix(0, s.engineHeartbeatAt.Load())).Round(time.Second),
+		client.ClientID(), client.QueuedWrites())
 	client.Close()
 }

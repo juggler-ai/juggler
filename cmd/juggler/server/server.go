@@ -175,6 +175,13 @@ type wsFleet struct {
 	// engineLivenessWindowNs overrides engineLivenessWindow when non-zero.
 	// Test-only seam, so a test need not wait out the production window.
 	engineLivenessWindowNs atomic.Int64
+	// engineTier reads how long the engine's scheduling tier has been run in
+	// all (osactivity.BackgroundTierClock), or is nil where nothing measures it.
+	// See engine_liveness.go for why silence is counted in it.
+	engineTier atomic.Pointer[func() time.Duration]
+	// engineQuiet counts the engine's silence, and an evicted engine's
+	// reconnect grace, in that tier's served time.
+	engineQuiet engineQuietClock
 	// engineBoot records how far the engine has got towards connecting, so its
 	// startup is given up on for a lack of progress rather than of time.
 	engineBoot engineBootProgress

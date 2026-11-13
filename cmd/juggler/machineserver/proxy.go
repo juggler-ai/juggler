@@ -187,7 +187,8 @@ func (s *Server) callerKind(r *http.Request) string {
 
 // serveOpener answers a page load of a project's link while the project has
 // no running child: the sessions page, set to open the project — the
-// session's own (sess, when found), else the recent project the key names —
+// session's own (sess, when found), else where the project the key names has
+// moved to (movedToKey), else the recent project the key names —
 // which it does through the control API, so the load itself starts nothing. A
 // key that names neither is the page saying so, as a 404.
 //
@@ -199,7 +200,11 @@ func (s *Server) serveOpener(w http.ResponseWriter, r *http.Request, key string,
 	project := sess.Project
 	if !found {
 		var ok bool
-		if project, ok = s.recentForKey(key); !ok {
+		project, ok = s.movedToKey(key)
+		if !ok {
+			project, ok = s.recentForKey(key)
+		}
+		if !ok {
 			s.servePage(w, r, http.StatusNotFound, pageConfig{OpenMissing: true})
 			return
 		}

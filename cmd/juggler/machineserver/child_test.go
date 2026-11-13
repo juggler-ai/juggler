@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"juggler/internal/apipaths"
 	"juggler/internal/ingress"
 )
 
@@ -31,6 +32,13 @@ const helperChildEnv = "JUGGLER_MACHINESERVER_HELPER_CHILD"
 // The test listening there knows from the connection that the child is inside
 // spawnChild's handshake, and from the connection closing that it has died.
 const helperHangEnv = "JUGGLER_MACHINESERVER_HELPER_HANG"
+
+// helperRetireEnv, set to a file's path, makes the stand-in child answer a
+// retirement request as a real child does: refused (409) while that file
+// exists, and otherwise accepted (202), after which it exits. Each refusal
+// appends a line to the file, so a test can tell it was asked. Unset, a
+// retirement request is answered like any other, which refuses it.
+const helperRetireEnv = "JUGGLER_MACHINESERVER_HELPER_RETIRE"
 
 // TestHelperSessionChild is not a test: it is the session child that
 // spawnHelperChildren execs, this test binary run again with helperChildEnv
@@ -59,6 +67,21 @@ func TestHelperSessionChild(t *testing.T) {
 	}
 	fmt.Printf("JUGGLER_ADDR=%s\n", ln.Addr())
 	_ = http.Serve(ln, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if hold := os.Getenv(helperRetireEnv); hold != "" && r.URL.Path == apipaths.HealthRetire {
+			if f, err := os.OpenFile(hold, os.O_APPEND|os.O_WRONLY, 0); err == nil {
+				_, _ = f.WriteString("asked\n")
+				_ = f.Close()
+				w.WriteHeader(http.StatusConflict)
+				return
+			}
+			w.WriteHeader(http.StatusAccepted)
+			w.(http.Flusher).Flush()
+			go func() {
+				time.Sleep(20 * time.Millisecond)
+				os.Exit(0)
+			}()
+			return
+		}
 		if code, ok := strings.CutPrefix(r.URL.Path, "/exit/"); ok {
 			n, _ := strconv.Atoi(code)
 			w.WriteHeader(http.StatusAccepted)

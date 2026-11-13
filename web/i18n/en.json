@@ -1898,6 +1898,8 @@
   "there is already something called {name} in {parent}": "there is already something called {name} in {parent}",
   "thinking effort\u0004Default": "Default",
   "thinking effort\u0004Default ({level})": "Default ({level})",
+  "this project has not moved": "this project has not moved",
+  "this project is already being moved": "this project is already being moved",
   "this server answers no WebRTC offers": "this server answers no WebRTC offers",
   "this window": "this window",
   "thousands, in a compact count\u0004{n}k": "{n}k",

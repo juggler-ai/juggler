@@ -119,6 +119,9 @@ type Server struct {
 	// attachments are the held POST /api/server/attach requests, by id
 	// (*attachment; see checkAttachments).
 	attachments sync.Map
+	// relocations are the projects asked to move, by the folder they moved
+	// from (*relocation; see relocate.go).
+	relocations sync.Map
 	// build is what this server reports as its build (BuildOf its own
 	// binary); "" reports its version alone.
 	build string
@@ -204,6 +207,8 @@ func (s *Server) routes() http.Handler {
 	api.HandleFunc("/sessions", s.handleListSessions).Methods("GET")
 	api.HandleFunc("/sessions", s.handleOpenSession).Methods("POST")
 	api.HandleFunc("/sessions/{id}", s.handleStopSession).Methods("DELETE")
+	api.HandleFunc("/sessions/{id}/relocate", s.localOnly(s.handleRelocateSession)).Methods("POST")
+	api.HandleFunc("/relocations", s.handleRelocation).Methods("GET")
 	api.HandleFunc("/recents", s.handleRecents).Methods("GET")
 	api.HandleFunc("/events", s.handleEvents).Methods("GET")
 	api.HandleFunc("/folders", s.handleCreateFolder).Methods("POST")

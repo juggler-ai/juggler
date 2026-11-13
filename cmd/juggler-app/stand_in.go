@@ -504,7 +504,9 @@ func (a *appState) controlRestartServer(w http.ResponseWriter, _ *http.Request, 
 //   - onto this machine's server, the session must be missing from the list of
 //     the server process the window's page is served by (windowView.server),
 //     or that process gone: no server there, one on its way out, or another in
-//     its place. A server that is there but does not answer has not gone.
+//     its place. A server that is there but does not answer has not gone. A
+//     session missing because its project's folder was moved is followed
+//     instead: the window shows the project where it went (followMove).
 //
 // With ?now, it is the user stopping the reconnect (the overlay's Stop
 // trying), and the window shows its stand-in whatever the check finds — a
@@ -560,6 +562,9 @@ func (a *appState) controlServerLost(w http.ResponseWriter, r *http.Request, e *
 		if !gone {
 			running, answered := a.sessionRunning(c, v.serverURL)
 			switch {
+			case answered && !running && a.followMove(e, v, c):
+				writeJSON(w, http.StatusOK, map[string]bool{"replaced": true})
+				return
 			case answered && !running:
 				lost = lostSessionStandIn(spec.project, !v.server.appStarted)
 			case !now:
@@ -576,6 +581,29 @@ func (a *appState) controlServerLost(w http.ResponseWriter, r *http.Request, e *
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"replaced": true})
+}
+
+// followMove shows, in local window e, the project v's session was on where
+// that project has moved to, when it has: the machine server retired the
+// session to move the project's folder, and opened it again at the new path
+// (machineserver/relocate.go). A move still under way is waited for. Reports
+// whether the window was moved on; false leaves it to its stand-in.
+func (a *appState) followMove(e *winEntry, v windowView, c *machineserver.Client) bool {
+	if v.spec.project == "" {
+		return false
+	}
+	dest, moved, err := c.MovedTo(v.spec.project)
+	if err != nil || !moved {
+		return false
+	}
+	sess, _, err := c.OpenSession(dest)
+	if err != nil {
+		logf("window %s: %s moved to %s, which could not be opened: %v", e.id, v.spec.project, dest, err)
+		return false
+	}
+	logf("window %s: %s moved to %s; following it", e.id, v.spec.project, dest)
+	next := windowView{spec: windowSpec{project: dest}, serverURL: strings.TrimSuffix(c.SessionURL(sess), "/"), server: v.server}
+	return a.showView(e, showing(v), next, windowOpts{}) != ""
 }
 
 // serverOfWindow finds proc, the server process a local window's page is

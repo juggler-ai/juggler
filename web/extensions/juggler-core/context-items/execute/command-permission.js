@@ -12,7 +12,7 @@
  * @module juggler-core/context-items/execute/command-permission
  */
 
-import { isCommandAutoApproved, isCatastrophicDeletion } from './command-approval.js';
+import { isCommandAutoApproved, isCatastrophicDeletion, projectRootMove } from './command-approval.js';
 
 /**
  * Is this shell command already permitted by the conversation's `execute`
@@ -131,4 +131,29 @@ export function isShellCommandCatastrophic(command, { messageThread, session }) 
   const projectPath = session?.projectPath || '';
   const roots = cwd && cwd !== projectPath ? [cwd, projectPath] : [projectPath];
   return roots.some(root => !!root && isCatastrophicDeletion(command, { ...base, projectRoot: root }));
+}
+
+/**
+ * Does this shell command move the project's own folder? The bash tool never
+ * runs one: the session — every conversation in the project — is rooted in that
+ * folder. A plain `mv <project> <destination>` is scheduled with the machine
+ * server instead (`projectRelocate`), which moves the folder once the project
+ * is idle and reopens it there; any other command that moves it is refused.
+ * Only the project counts: a conversation's workspace is not where the session
+ * is rooted.
+ * @param {string} command - The shell command to judge
+ * @param {object} opts - Conversation state
+ * @param {any} opts.messageThread - Owning message thread (source of the working root)
+ * @param {any} opts.session - Owning session (platform, home, project path)
+ * @returns {{dest: string|null}|null} See {@link projectRootMove}
+ */
+export function shellProjectMove(command, { messageThread, session }) {
+  const projectRoot = session?.projectPath || '';
+  if (!command || !projectRoot) return null;
+  return projectRootMove(command, {
+    platform: session?.platform || 'darwin',
+    home: session?.home || '',
+    projectRoot,
+    cwd: workingRootOf(messageThread, session)
+  });
 }

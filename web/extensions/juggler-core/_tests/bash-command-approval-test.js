@@ -20,7 +20,7 @@
  * @module unit-tests/bash-command-approval-unit-test
  */
 
-import { isCommandAutoApproved, isCatastrophicDeletion, suggestApprovalPatterns, matchesGlob } from '../context-items/execute/command-approval.js';
+import { isCommandAutoApproved, isCatastrophicDeletion, projectRootMove, suggestApprovalPatterns, matchesGlob } from '../context-items/execute/command-approval.js';
 import { tokenize } from '../context-items/execute/shell-tokenizer.js';
 import { posixNormalize, isGrantableRoot, isPathInsideAllowedRoots } from 'juggler/utils/path-containment';
 import ExecuteContextItem, { describeTaskStatus } from '../context-items/execute-context-item.js';
@@ -2341,6 +2341,93 @@ export async function runTests() {
     const got = isCatastrophicDeletion('rm -rf /', { platform: 'linux', home: CATASTROPHIC_HOME, projectRoot: '' });
     if (got !== false) { failed++; errors.push(`catastrophic/no-root: want false with empty projectRoot, got ${got}`); }
     else passed++;
+  }
+
+  // === projectRootMove: an mv of the project folder is scheduled, never run ===
+  // `dest` is what the machine server is handed; null means the command moves
+  // the project but cannot be scheduled (it is refused); a missing entry means
+  // the command moves no project at all.
+  /** @type {Array<{name: string, command: string, want: {dest: string|null}|null, platform?: string, cwd?: string}>} */
+  const MOVE_CASES = [
+    { name: 'absolute to absolute', command: 'mv /home/crem/tmp/juggler /home/crem/tmp/juggler2', want: { dest: '/home/crem/tmp/juggler2' } },
+    { name: 'trailing slashes', command: 'mv /home/crem/tmp/juggler/ /home/crem/tmp/new/', want: { dest: '/home/crem/tmp/new' } },
+    { name: 'cd up, then a rename by name', command: 'cd .. && mv juggler renamed', want: { dest: '/home/crem/tmp/renamed' } },
+    { name: 'the cwd, to a sibling', command: 'mv . ../renamed', want: { dest: '/home/crem/tmp/renamed' } },
+    { name: 'plain options and --', command: 'mv -fv -- . ~/elsewhere', want: { dest: '/home/crem/elsewhere' } },
+    { name: 'into itself is refused', command: 'mv /home/crem/tmp/juggler inner', want: { dest: null } },
+    { name: 'anything after it is refused', command: 'mv . ../renamed && ls', want: { dest: null } },
+    { name: 'anything but cd before it is refused', command: 'git status; mv . ../renamed', want: { dest: null } },
+    { name: 'two sources are refused', command: 'mv . other ../dest', want: { dest: null } },
+    { name: 'an ancestor of the project is refused', command: 'mv /home/crem/tmp /home/crem/tmp2', want: { dest: null } },
+    { name: 'mv -t is refused', command: 'mv -t ../dest .', want: { dest: null } },
+    { name: 'an unresolvable destination is refused', command: 'mv . $DEST', want: { dest: null } },
+    { name: 'a file in the project is no move of it', command: 'mv a.txt b.txt', want: null },
+    { name: 'a subfolder is no move of it', command: 'mv /home/crem/tmp/juggler/sub /tmp/x', want: null },
+    { name: 'a sibling is no move of it', command: 'mv /home/crem/tmp/other /home/crem/tmp/x', want: null },
+    { name: 'from a workspace, its own root is no move of the project', command: 'mv . ../x', cwd: '/tmp/work-tree', want: null },
+    { name: 'windows: native destination kept as written', platform: 'windows', command: 'mv D:/a/juggler/juggler "D:\\a\\renamed"', want: { dest: 'D:\\a\\renamed' } },
+    { name: 'windows: a sibling by its name', platform: 'windows', command: 'cd .. && mv juggler renamed', cwd: 'D:\\a\\juggler\\juggler', want: { dest: 'renamed' } },
+    // The shell eats unquoted backslashes, but the model is shown the project
+    // in this spelling: each word is also read as written.
+    { name: 'windows: unquoted native paths', platform: 'windows', command: 'mv D:\\a\\juggler\\juggler D:\\a\\renamed', cwd: 'D:\\a\\juggler\\juggler', want: { dest: 'D:\\a\\renamed' } },
+    { name: 'windows: unquoted relative destination', platform: 'windows', command: 'mv . ..\\renamed', cwd: 'D:\\a\\juggler\\juggler', want: { dest: 'renamed' } },
+    { name: 'windows: unquoted native cd, then a rename', platform: 'windows', command: 'cd D:\\a\\juggler && mv juggler renamed', cwd: '/tmp/work-tree', want: { dest: 'renamed' } },
+    { name: 'windows: case does not hide the project', platform: 'windows', command: 'mv d:\\A\\JUGGLER\\juggler D:\\a\\renamed', cwd: 'D:\\a\\juggler\\juggler', want: { dest: 'D:\\a\\renamed' } },
+  ];
+  for (const c of MOVE_CASES) {
+    const windows = c.platform === 'windows';
+    try {
+      const got = projectRootMove(c.command, {
+        platform: windows ? 'windows' : 'linux',
+        home: windows ? WIN_HOME : CATASTROPHIC_HOME,
+        projectRoot: windows ? WIN_ROOT : CATASTROPHIC_ROOT,
+        cwd: c.cwd
+      });
+      if (JSON.stringify(got) !== JSON.stringify(c.want)) {
+        failed++;
+        errors.push(`project-move/${c.name}: want ${JSON.stringify(c.want)} for "${c.command}", got ${JSON.stringify(got)}`);
+      } else passed++;
+    } catch (e) {
+      failed++;
+      errors.push(`project-move/${c.name}: threw ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  // The bash tool never runs a move of the project: a plain one is scheduled,
+  // any other refused, and either asks the user every time.
+  {
+    const session = { platform: 'linux', home: CATASTROPHIC_HOME, projectPath: CATASTROPHIC_ROOT };
+    const mt = { getAllowedPaths: () => [], getRulesFor: () => [{ kind: 'glob', value: 'mv *', enabled: true }], items: [] };
+    const item = probeItem('mv1', session, mt);
+    /** @type {string[]} */
+    const ran = [];
+    /** @type {string[]} */
+    const scheduled = [];
+    /** @type {any} */ (item)._ops = {
+      shellStreaming: async (/** @type {any} */ p) => { ran.push(p.command); return { command: p.command, stdout: '', exitCode: 0, success: true }; },
+      shellBackground: async (/** @type {any} */ p) => { ran.push(p.command); return { task_id: 't' }; },
+    };
+    /** @type {any} */ (item)._relocateProject = async (/** @type {string} */ dest) => { scheduled.push(dest); return { project: dest, link: '/p/x/' }; };
+    const check = (/** @type {string} */ name, /** @type {boolean} */ ok) => { if (ok) passed++; else { failed++; errors.push(`project-move/tool: ${name}`); } };
+
+    const move = { command: 'cd .. && mv juggler renamed', run_in_background: true };
+    check('a project move is never permitted by a rule', item.isPermitted(move) === false);
+    check('a project move is never approved silently', item.autoApprovable(move) === false);
+    check('its approval says what it does', String((await item.getApprovalConfig(move))?.message).includes('/home/crem/tmp/renamed'));
+    const done = /** @type {any} */ (await item.execute(move));
+    check(`a plain move is scheduled, not run (ran ${JSON.stringify(ran)}, scheduled ${JSON.stringify(scheduled)})`,
+      ran.length === 0 && scheduled.join() === '/home/crem/tmp/renamed' && done.relocated === true && done.exitCode === 0);
+
+    const refused = /** @type {any} */ (await item.execute({ command: 'mv . ../renamed && ls' }));
+    check('any other move is refused, not run', ran.length === 0 && scheduled.length === 1 && refused.blocked === true);
+
+    /** @type {any} */ (item)._relocateProject = async () => { throw new Error('/home/crem/tmp/renamed already exists'); };
+    const failedMove = /** @type {any} */ (await item.execute({ command: 'mv . ../renamed' }));
+    check('a move the server refuses says why', failedMove.blocked === true && String(failedMove.error).includes('already exists'));
+
+    check('an ordinary mv is left alone', item.autoApprovable({ command: 'mv a b' }) === true);
+    await item.execute({ command: 'mv a b' });
+    check('an ordinary mv runs', ran.join() === 'mv a b');
   }
 
   // === A background run's way to the Running tasks pin ===

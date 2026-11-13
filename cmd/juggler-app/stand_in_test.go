@@ -197,6 +197,40 @@ func TestALocalWindowWhoseSessionIsLostBecomesItsStandIn(t *testing.T) {
 	}
 }
 
+// TestALocalWindowWhoseProjectMovedFollowsIt: a window whose session went
+// because its project's folder was moved (machineserver/relocate.go) is not
+// given its stand-in but shown the project where it went, on the session the
+// server opened there.
+func TestALocalWindowWhoseProjectMovedFollowsIt(t *testing.T) {
+	a := newTestAppState(t)
+	lost := lostWindows(t)
+	srv := newStubMachineServer(t, a, core.Version)
+	base := "http://" + srv.addr()
+	srv.moved.Store(&map[string]string{"/old": "/new"})
+	c, err := a.serverClient(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: "/old"}, serverURL: base + strings.TrimSuffix(stubLink("/old"), "/"), server: procOf(c)}})
+
+	if !replaced(t, controlRequest(a, http.MethodPost, "/win/w1/server-lost")) {
+		t.Fatal("a window whose project moved was left reconnecting to where it was")
+	}
+	if got := <-srv.opened; got != "/new" {
+		t.Fatalf("opened %q, want the project where it went", got)
+	}
+	var view windowView
+	a.reg(func(*regState) { view = e.view })
+	if view.spec.project != "/new" || view.serverURL != base+strings.TrimSuffix(stubLink("/new"), "/") || view.standIn != nil {
+		t.Fatalf("the window shows %+v on %s; want /new on its link", view.spec, view.serverURL)
+	}
+	select {
+	case id := <-lost:
+		t.Fatalf("a stand-in was opened for %s, whose project had moved", id)
+	default:
+	}
+}
+
 // TestAWindowWhoseUserStopsReconnectingBecomesItsStandIn: Stop trying
 // (server-lost?now) replaces the window even where the app's own check finds
 // the server answering — the case that leaves a page stuck reconnecting to a

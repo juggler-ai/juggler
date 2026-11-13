@@ -1898,6 +1898,8 @@
   "there is already something called {name} in {parent}": "[ţĥéŕé îš åļŕéåðý šöɱéţĥîñĝ çåļļéð {name} îñ {parent} ···········]",
   "thinking effort\u0004Default": "[Ðéƒåûļţ ··]",
   "thinking effort\u0004Default ({level})": "[Ðéƒåûļţ ({level}) ··]",
+  "this project has not moved": "[ţĥîš þŕöĵéçţ ĥåš ñöţ ɱöṽéð ········]",
+  "this project is already being moved": "[ţĥîš þŕöĵéçţ îš åļŕéåðý ƀéîñĝ ɱöṽéð ···········]",
   "this server answers no WebRTC offers": "[ţĥîš šéŕṽéŕ åñšŵéŕš ñö ŴéƀŔŢÇ öƒƒéŕš ···········]",
   "this window": "[ţĥîš ŵîñðöŵ ····]",
   "thousands, in a compact count\u0004{n}k": "[{n}ķ ·]",

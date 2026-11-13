@@ -33,6 +33,7 @@ import (
 	"juggler/cmd/juggler/providers/builtin"
 	"juggler/cmd/juggler/providers/customprovider"
 	"juggler/cmd/juggler/providers/streamidle"
+	"juggler/cmd/juggler/server"
 	"juggler/internal/enginehost"
 	"juggler/internal/srcroot"
 	"juggler/internal/webviewenv"
@@ -186,6 +187,7 @@ func Run(cfg Config) int {
 		fmt.Fprintf(os.Stderr, "failed to register extension config: %v\n", err)
 		return 1
 	}
+	server.RegisterProjectOps(spawner.supervisor)
 	registerProviders()
 
 	// Self-terminate if our parent dies, so a server spawned by `juggler run`

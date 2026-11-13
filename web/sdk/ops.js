@@ -109,6 +109,8 @@ export {
   projectEnvGet,
   projectEnvApprove,
   projectEnvSet,
+  // Moving the folder of the project itself, once the session is idle
+  projectRelocate,
   // MCP (Model Context Protocol) client
   mcpListServers,
   mcpListTools,

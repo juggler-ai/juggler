@@ -53,6 +53,9 @@ type stubMachineServer struct {
 	// 400).
 	refuseOpen   atomic.Pointer[string]
 	refuseStatus atomic.Int32
+	// moved, set, is where GET /relocations says each project in it has moved
+	// to; any other project has not moved.
+	moved atomic.Pointer[map[string]string]
 	// shutdownAsked is told of each shutdown asked for; linger, set, holds the
 	// stand-in up after one until it closes, as a server slow to drain is.
 	shutdownAsked chan struct{}
@@ -222,6 +225,13 @@ func (s *stubMachineServer) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusCreated, machineserver.Session{ID: "s1", Project: req.Project, Link: stubLink(req.Project), State: machineserver.SessionRunning})
+	case r.Method == http.MethodGet && path == "/relocations":
+		project := r.URL.Query().Get("project")
+		if m := s.moved.Load(); m != nil && (*m)[project] != "" {
+			writeJSON(w, http.StatusOK, map[string]string{"project": (*m)[project], "link": stubLink((*m)[project])})
+			return
+		}
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "this project has not moved"})
 	case r.Method == http.MethodPost && path == "/shutdown":
 		var req struct {
 			Expect *machineserver.Occupancy `json:"expect"`

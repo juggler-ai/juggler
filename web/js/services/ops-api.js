@@ -1708,6 +1708,21 @@ export async function projectEnvSet(params, signal) {
   return callOp('projectEnv', 'set', params, signal);
 }
 
+/**
+ * Ask for the project's folder to be moved to `path`: absolute, or a bare
+ * name for a folder beside the current one. The move is made once nothing
+ * holds the session — every conversation idle, no approval waiting — by the
+ * machine server, which retires this session and opens one where the project
+ * went. Resolves as soon as the move is scheduled, with where it will be.
+ * @param {{path: string}} params
+ * @param {AbortSignal} [signal]
+ * @returns {Promise<{project: string, link: string}>} The project's new folder and link.
+ */
+export async function projectRelocate(params, signal) {
+  requireParam(params, 'path');
+  return callOp('project', 'relocate', params, signal);
+}
+
 // ============================================================================
 // MCP (Model Context Protocol) Operations
 // ============================================================================

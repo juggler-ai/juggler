@@ -65,6 +65,7 @@ import {
 } from 'juggler/utils/path-containment';
 import { checkedAt, tokenize, SUBST_SENTINEL, TOP_LEVEL_SPLIT_OPS } from './shell-tokenizer.js';
 import { untildeify } from '../path-approval.js';
+import { parentOf, baseName } from '../../lib/workspace-paths.js';
 import { COMMAND_HANDLERS, pathAllowed } from './command-handlers.js';
 
 /**
@@ -766,6 +767,58 @@ function resolveDeletionTarget(text, { home, cwd, fold = (p) => p }) {
 }
 
 /**
+ * The comparable form of a path for the floors below: on Windows every
+ * spelling of a directory — native `C:\proj`, forward-slash `C:/proj`, MSYS
+ * `/c/proj` — folds to one `/c/proj`, case included (Windows filesystems are
+ * case-insensitive), so a command matches the tree it names however either
+ * side was written, and a drive path arrives rooted rather than looking
+ * relative. Elsewhere a path is left as it is.
+ * @param {string} platform 'darwin' | 'linux' | 'windows'
+ * @returns {(p: string) => string} The fold for that platform
+ */
+function foldFor(platform) {
+  return (p) => (platform === 'windows' ? windowsToComparable(p) : p);
+}
+
+/**
+ * A directory path in comparable form ({@link foldFor}), normalised and
+ * without a trailing slash.
+ * @param {string} p a path
+ * @param {string} platform 'darwin' | 'linux' | 'windows'
+ * @returns {string} the comparable path
+ */
+function comparableDir(p, platform) {
+  const folded = foldFor(platform)(p);
+  return posixNormalize(folded.endsWith('/') && folded !== '/' ? folded.slice(0, -1) : folded);
+}
+
+/**
+ * The paths a word could be naming. Ordinarily the one the shell will pass to
+ * the command — but a POSIX shell eats an unquoted backslash, so on Windows
+ * `rm -rf C:\proj` arrives as the meaningless word `C:proj` and the tree it
+ * plainly names would be measured against nothing. The word as written is read
+ * as a second spelling, every `\` taken for a separator.
+ *
+ * The bias is the floors': a spelling that was never a path costs one approval
+ * prompt, and the model is told the project path in that native form, so it is
+ * the spelling a command on the project is most likely to arrive in.
+ *
+ * Order decides which reading a `cd` walks, so it goes by what the word opens
+ * with. A drive letter makes it a path and nothing else — the shell's reading
+ * of `C:\proj` is `C:proj`, which names nowhere. Anything else keeps the
+ * shell's reading first: `my\ file` is an escaped space far more often than a
+ * directory called `my/ file`.
+ * @param {WordToken} w word token
+ * @param {string} platform 'darwin' | 'linux' | 'windows'
+ * @returns {string[]} the paths to judge this word as, best reading first
+ */
+function wordSpellings(w, platform) {
+  if (platform !== 'windows' || !w.raw.includes('\\')) return [w.text];
+  const written = w.raw.replace(/^(['"])([\s\S]*)\1$/, '$2');
+  return /^[A-Za-z]:[\\/]/.test(written) ? [written, w.text] : [w.text, written];
+}
+
+/**
  * Detect a recursive/forced `rm` whose resolved target is a *catastrophic
  * radius*: the project root itself, an ancestor of it, the user's home dir (or
  * an ancestor of it), or a filesystem root / bare top-level (`/`, `/usr`, …).
@@ -804,43 +857,11 @@ export function isCatastrophicDeletion(command, opts = {}) {
   const tokens = tokenize(command);
   if (!tokens || tokens.length === 0) return false;
 
-  // Every Windows spelling of a directory — native `C:\proj`, forward-slash
-  // `C:/proj`, MSYS `/c/proj` — folds to one comparable `/c/proj`, case included
-  // (Windows filesystems are case-insensitive). Both sides go through it, so a
-  // delete matches the tree it names however either was written, and a drive
-  // path arrives rooted rather than looking relative.
-  const fold = (/** @type {string} */ p) =>
-    platform === 'windows' ? windowsToComparable(p) : p;
-  const stripSlash = (/** @type {string} */ p) =>
-    p.endsWith('/') && p !== '/' ? p.slice(0, -1) : p;
-  const canon = (/** @type {string} */ p) => posixNormalize(stripSlash(fold(p)));
+  const fold = foldFor(platform);
+  const canon = (/** @type {string} */ p) => comparableDir(p, platform);
   const R = canon(projectRoot);
   const H = home ? canon(home) : '';
-
-  /**
-   * The paths a word could be naming. Ordinarily the one the shell will pass to
-   * `rm` — but a POSIX shell eats an unquoted backslash, so on Windows
-   * `rm -rf C:\proj` arrives here as the meaningless word `C:proj` and the tree
-   * it plainly names would be measured against nothing. The word as written is
-   * read as a second spelling, every `\` taken for a separator.
-   *
-   * The bias is the floor's: a spelling that was never a path costs one approval
-   * prompt, and the model is told the project path in that native form, so it is
-   * the spelling a delete of the project is most likely to arrive in.
-   *
-   * Order decides which reading a `cd` walks, so it goes by what the word opens
-   * with. A drive letter makes it a path and nothing else — the shell's reading
-   * of `C:\proj` is `C:proj`, which names nowhere. Anything else keeps the
-   * shell's reading first: `my\ file` is an escaped space far more often than a
-   * directory called `my/ file`.
-   * @param {WordToken} w word token
-   * @returns {string[]} the paths to judge this word as, best reading first
-   */
-  const spellingsOf = (w) => {
-    if (platform !== 'windows' || !w.raw.includes('\\')) return [w.text];
-    const written = w.raw.replace(/^(['"])([\s\S]*)\1$/, '$2');
-    return /^[A-Za-z]:[\\/]/.test(written) ? [written, w.text] : [w.text, written];
-  };
+  const spellingsOf = (/** @type {WordToken} */ w) => wordSpellings(w, platform);
 
   /**
    * Is `anc` at or above `desc` in the tree (equal, or a strict ancestor)?
@@ -909,6 +930,110 @@ export function isCatastrophicDeletion(command, opts = {}) {
     }
   }
   return false;
+}
+
+/**
+ * Detect an `mv` that moves the project root — or a folder above it — out from
+ * under the session. Run as written, it would leave every conversation in the
+ * project rooted in a folder that no longer exists, so the bash tool never runs
+ * one: a move it can hand to the machine server (`projectRelocate`) is
+ * scheduled there instead, and any other is refused.
+ *
+ * Only one shape is scheduled: nothing but `cd`s before it, then
+ * `mv [-f|-i|-n|-v]… <project root> <destination>`, and nothing after. Its
+ * destination is returned as the server takes it: an absolute path, or — on
+ * Windows, for a folder beside the project — the bare new name. Any other
+ * command that moves the project (more than one source, a folder above the
+ * project, `mv -t`, further commands after it, a destination that cannot be
+ * pinned down) is reported with `dest: null`.
+ *
+ * Paths resolve as for {@link isCatastrophicDeletion}: against the effective
+ * cwd after any leading `cd`s, with `~`/`$HOME` expanded and any other expansion
+ * or glob left unresolved — a source that cannot be resolved is not taken for
+ * the project. On Windows a backslash path the shell would mangle is also read
+ * as written (wordSpellings), the spelling the model is shown the project in.
+ * @param {string} command the command string
+ * @param {object} [opts] options
+ * @param {string} [opts.platform] 'darwin' | 'linux' | 'windows' (default 'darwin')
+ * @param {string} [opts.home] backend user-home dir
+ * @param {string} [opts.projectRoot] absolute project root
+ * @param {string} [opts.cwd] effective cwd (default: projectRoot)
+ * @returns {{dest: string|null}|null} null when the command moves no project
+ *   root; otherwise where to move it, or `dest: null` when it cannot be scheduled
+ */
+export function projectRootMove(command, opts = {}) {
+  if (!command || typeof command !== 'string') return null;
+  const platform = opts.platform || 'darwin';
+  const projectRoot = opts.projectRoot || '';
+  if (!projectRoot) return null;
+  const tokens = tokenize(command);
+  if (!tokens || tokens.length === 0) return null;
+
+  const fold = foldFor(platform);
+  const R = comparableDir(projectRoot, platform);
+  const home = opts.home ? comparableDir(opts.home, platform) : '';
+  let cwd = opts.cwd ? comparableDir(opts.cwd, platform) : R;
+  const inProject = (/** @type {string} */ p) => p === R || p.startsWith(R + '/');
+  /**
+   * Every location a word could be naming, best reading first (wordSpellings),
+   * each with the spelling it was read from.
+   * @param {WordToken} w word token
+   * @returns {Array<{path: string, spelling: string}>} the resolvable readings
+   */
+  const readings = (w) => wordSpellings(w, platform).flatMap((spelling) => {
+    const path = resolveDeletionTarget(spelling, { home, cwd, fold });
+    return path ? [{ path, spelling }] : [];
+  });
+
+  const segments = splitOnOps(tokens, TOP_LEVEL_SPLIT_OPS)
+    .map((seg) => /** @type {WordToken[]} */ (seg.filter((t) => t.type === 'word')))
+    .filter((words) => words.length > 0);
+  let onlyCdsSoFar = true;
+  for (let i = 0; i < segments.length; i++) {
+    const words = checkedAt(segments, i);
+    const head = checkedAt(words, 0).text;
+    if (head === 'cd') {
+      const arg = words.slice(1).find((w) => !w.text.startsWith('-'));
+      const to = arg ? readings(arg)[0] : undefined;
+      if (to) cwd = to.path;
+      continue;
+    }
+    if (head !== 'mv') { onlyCdsSoFar = false; continue; }
+
+    let optionsEnded = false;
+    let plain = true;
+    /** @type {WordToken[]} */
+    const operands = [];
+    for (const word of words.slice(1)) {
+      const w = word.text;
+      if (!optionsEnded && w === '--') { optionsEnded = true; continue; }
+      if (!optionsEnded && w.length > 1 && w.startsWith('-')) {
+        if (!/^-[finv]+$/.test(w)) plain = false;
+        continue;
+      }
+      operands.push(word);
+    }
+    const sources = plain ? operands.slice(0, -1) : operands;
+    const movesProject = sources.some((s) =>
+      readings(s).some(({ path }) => path === R || R.startsWith(path === '/' ? '/' : path + '/')));
+    if (!movesProject) { onlyCdsSoFar = false; continue; }
+
+    const last = i === segments.length - 1;
+    const isSource = operands.length === 2 && readings(checkedAt(operands, 0)).some(({ path }) => path === R);
+    if (!plain || !onlyCdsSoFar || !last || !isSource) return { dest: null };
+    // The first reading of the destination that lands outside the project: a
+    // backslash path the shell would mangle into a name inside it is read as
+    // the path it was written as.
+    const dest = readings(checkedAt(operands, 1)).find(({ path }) => !inProject(path));
+    if (!dest) return { dest: null };
+    if (platform !== 'windows') return { dest: dest.path };
+    // A folded Windows path is no path to hand back: keep a native absolute
+    // spelling as written, and name a folder beside the project by its name.
+    if (/^[A-Za-z]:[\\/]/.test(dest.spelling)) return { dest: dest.spelling };
+    if (parentOf(dest.path) === parentOf(R)) return { dest: baseName(dest.path) };
+    return { dest: null };
+  }
+  return null;
 }
 
 /**

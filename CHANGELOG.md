@@ -21,6 +21,7 @@ the current release). The project follows semantic versioning.
 - Serving Juggler under a reverse proxy's path works again; `--base-path` for proxies without `X-Forwarded-Prefix`
 - @-mentioned and tool-read PDFs reach the model as text, instead of a "fake worker" error
 - PDFs dropped into the composer are attached as their text
+- The agent can rename or move its project folder; windows follow it there
 
 ## [0.8.0] - 2026-11-08
 

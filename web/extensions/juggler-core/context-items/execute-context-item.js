@@ -5,11 +5,11 @@
 
 import ContextItem from 'juggler/context-item';
 import { translator, markUntranslated } from 'juggler/i18n';
-import { shellKill, shellStopProcess, MAX_EXEC_TIMEOUT_MS, DEFAULT_EXEC_TIMEOUT_MS } from 'juggler/ops';
+import { shellKill, shellStopProcess, projectRelocate, MAX_EXEC_TIMEOUT_MS, DEFAULT_EXEC_TIMEOUT_MS } from 'juggler/ops';
 import { createHighlightedCode, createSummaryWithSubtitle, renderLiveTaskOutput, pinSource, canPinSource } from 'juggler/ui';
 import { resolveAgainstCwd, posixNormalize, canonicalRoot, isGrantableRoot } from 'juggler/utils/path-containment';
 import { isCommandAutoApproved, suggestApprovalPatterns, MAX_SUGGESTED_PATTERN_LENGTH } from './execute/command-approval.js';
-import { isShellCommandPermitted, isShellCommandCatastrophic, shellApprovalContext, workingRootOf } from './execute/command-permission.js';
+import { isShellCommandPermitted, isShellCommandCatastrophic, shellProjectMove, shellApprovalContext, workingRootOf } from './execute/command-permission.js';
 import { renderExecutePermissionSection } from './execute/permission-section.js';
 import { homeBase, tildeify, untildeify } from './path-approval.js';
 import { inputText, toolActionDisplayData } from '../lib/tool-action-result.js';
@@ -386,6 +386,9 @@ class ExecuteContextItem extends ContextItem {
    */
   isPermitted(toolInput) {
     const mt = this.messageThread;
+    // A move of the project folder is each time the user's own decision: no
+    // saved rule (`mv *`) answers for it.
+    if (this._projectMove(toolInput)) return false;
     return isShellCommandPermitted(/** @type {string} */ (toolInput.command || ''), {
       messageThread: mt,
       session: this.conversation.session,
@@ -408,10 +411,35 @@ class ExecuteContextItem extends ContextItem {
    * @returns {boolean} False only for a catastrophic-radius recursive delete
    */
   autoApprovable(toolInput) {
+    if (this._projectMove(toolInput)) return false;
     return !isShellCommandCatastrophic(
       /** @type {string} */ (toolInput?.command || ''),
       { messageThread: this.messageThread, session: this.conversation.session }
     );
+  }
+
+  /**
+   * Whether this command moves the project's own folder, and where to: see
+   * {@link shellProjectMove}. Such a command is never run, never approved by a
+   * rule or silently, and asks in words of its own.
+   * @param {Record<string, unknown>} toolInput - Tool input with command
+   * @returns {{dest: string|null}|null} Null for any other command
+   */
+  _projectMove(toolInput) {
+    return shellProjectMove(/** @type {string} */ (toolInput?.command || ''), {
+      messageThread: this.messageThread,
+      session: this.conversation?.session
+    });
+  }
+
+  /**
+   * Schedule the move of the project folder to dest with the machine server.
+   * A seam for tests.
+   * @param {string} dest - Where the project goes
+   * @returns {Promise<{project: string, link: string}>} Where it will be
+   */
+  _relocateProject(dest) {
+    return projectRelocate({ path: dest }, this.signal);
   }
 
   /**
@@ -719,6 +747,13 @@ class ExecuteContextItem extends ContextItem {
   async getApprovalConfig(params) {
     const command = /** @type {string} */ (params.command);
     const description = params.description ? String(params.description) : '';
+    const move = this._projectMove(params);
+    if (move?.dest) {
+      return {
+        title: t('Move the project folder?'),
+        message: t('{command}\n\nThis moves the project folder to {dest}. Juggler does it once every conversation here is idle; the session then restarts there and its windows follow.', { command, dest: move.dest })
+      };
+    }
 
     return {
       message: description
@@ -747,6 +782,35 @@ class ExecuteContextItem extends ContextItem {
 
     const command = /** @type {string} */ (params.command || '');
     const runInBackground = Boolean(params.run_in_background);
+
+    // A command that moves the project folder never runs: the session is
+    // rooted there. A plain move is scheduled with the machine server instead.
+    const move = this._projectMove(params);
+    if (move) {
+      const blocked = (/** @type {string} */ error) => ({ command, stdout: '', stderr: '', exitCode: 1, success: false, blocked: true, error });
+      if (!move.dest) {
+        return blocked(markUntranslated(
+          'This command moves the project folder, which the session is rooted in. Juggler moves it for you, but only from a command that does nothing else: ' +
+          '`mv <project folder> <new path>` on its own (a leading `cd` is fine), to a path outside the project.'
+        ));
+      }
+      try {
+        const where = await this._relocateProject(move.dest);
+        return {
+          command,
+          stdout: markUntranslated(
+            `Scheduled, not run: Juggler moves the project to ${where.project} once every conversation in it is idle, and the session restarts there. ` +
+            'End your turn now; do not touch the folder or rely on its current path.'
+          ),
+          stderr: '',
+          exitCode: 0,
+          success: true,
+          relocated: true
+        };
+      } catch (err) {
+        return blocked(markUntranslated(`The project folder cannot be moved there: ${err instanceof Error ? err.message : String(err)}`));
+      }
+    }
 
     // Handle background execution
     if (runInBackground) {

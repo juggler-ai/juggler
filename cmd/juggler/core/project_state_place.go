@@ -245,11 +245,34 @@ func copyEntry(src, dst string) error {
 
 // rewriteSandboxRoots repoints the workspace rows in session.json whose trees
 // were under from/sandboxes at the same place under to/sandboxes: a
-// scratch-copy sandbox is a folder of the state, and moved with it. Only
-// strings that name a path in there change — the row's root and its
-// provider's meta (dir, work, pristine) — and the rest of the document is
-// written back as it was read.
+// scratch-copy sandbox is a folder of the state, and moved with it.
 func rewriteSandboxRoots(sessionPath, from, to string) error {
+	return repointWorkspacePaths(sessionPath, folderMove{filepath.Join(from, "sandboxes"), filepath.Join(to, "sandboxes")})
+}
+
+// folderMove is a folder that has moved: from is where it was, to where it is.
+type folderMove struct{ from, to string }
+
+// repoint returns s with the moved folder's path swapped for its new one, when
+// s is that folder or a path inside it.
+func (m folderMove) repoint(s string) (string, bool) {
+	if s == m.from {
+		return m.to, true
+	}
+	prefix := m.from + string(filepath.Separator)
+	if strings.HasPrefix(s, prefix) {
+		return filepath.Join(m.to, strings.TrimPrefix(s, prefix)), true
+	}
+	return s, false
+}
+
+// repointWorkspacePaths rewrites the workspace rows in session.json that name
+// a path in a folder that has moved, so they name the same place where it is
+// now. Only strings that name such a path change — the row's root and the
+// strings of its provider's meta (a worktree's dir and repoDir, a sandbox's
+// baseDir, work and pristine) — and the rest of the document is written back
+// as it was read. The first move that matches a string is the one applied.
+func repointWorkspacePaths(sessionPath string, moves ...folderMove) error {
 	data, err := os.ReadFile(sessionPath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -269,14 +292,17 @@ func rewriteSandboxRoots(sessionPath, from, to string) error {
 	if err := json.Unmarshal(raw, &rows); err != nil {
 		return err
 	}
-	oldPrefix := filepath.Join(from, "sandboxes") + string(filepath.Separator)
-	newPrefix := filepath.Join(to, "sandboxes") + string(filepath.Separator)
 	repoint := func(v any) (any, bool) {
 		s, ok := v.(string)
-		if !ok || !strings.HasPrefix(s, oldPrefix) {
+		if !ok {
 			return v, false
 		}
-		return newPrefix + strings.TrimPrefix(s, oldPrefix), true
+		for _, m := range moves {
+			if moved, ok := m.repoint(s); ok {
+				return moved, true
+			}
+		}
+		return v, false
 	}
 	changed := false
 	for _, row := range rows {

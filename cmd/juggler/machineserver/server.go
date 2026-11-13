@@ -104,6 +104,10 @@ type Server struct {
 	// serves this server under (serve --allow-host and the saved setting).
 	// See hostGuard and callerKind.
 	allowedHosts hostcheck.AllowList
+	// fixedBase is the path a reverse proxy on this machine mounts this server
+	// under when it cannot say so itself (serve --base-path); "" for none.
+	// See requestBase.
+	fixedBase string
 	// starter holds startup until this pid attaches or dies; zero holds nothing.
 	starter     int
 	starterGone atomic.Bool
@@ -394,8 +398,8 @@ func (s *Server) handleVersion(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-func (s *Server) handleListSessions(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, s.reg.snapshot())
+func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, sessionsUnder(s.requestBase(r), s.reg.snapshot()))
 }
 
 // awaitingSpawn is called as an open with "wait" starts waiting for the spawn
@@ -428,7 +432,9 @@ func (s *Server) handleOpenSession(w http.ResponseWriter, r *http.Request) {
 	case res.refusal != nil:
 		writeMessageError(w, res.status, *res.refusal)
 	default:
-		writeJSON(w, res.status, res.sess)
+		sess := res.sess
+		sess.Link = linkUnder(s.requestBase(r), sess.Link)
+		writeJSON(w, res.status, sess)
 	}
 }
 
@@ -576,12 +582,13 @@ type recentsResponse struct {
 // folders that no longer exist dropped (RecentsStore.Prune), and how many of
 // each one's conversations its saved attention summary has waiting.
 // GET /api/server/recents.
-func (s *Server) handleRecents(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, s.recentsNow())
+func (s *Server) handleRecents(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.recentsNow().under(s.requestBase(r)))
 }
 
-// recentsNow is the recents as handleRecents serves them. A summary that
-// cannot be read counts as none waiting.
+// recentsNow is the recents as handleRecents serves them to a caller at this
+// server's root (recentsResponse.under puts them below another). A summary
+// that cannot be read counts as none waiting.
 func (s *Server) recentsNow() recentsResponse {
 	paths := append([]string{}, s.knownRecents()...)
 	out := recentsResponse{Paths: paths, Links: make(map[string]string, len(paths)), Waiting: map[string]int{}, Used: map[string]time.Time{}}

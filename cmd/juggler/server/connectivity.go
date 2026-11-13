@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"juggler/cmd/juggler/server/handlers"
+	"juggler/internal/basepath"
 	"juggler/internal/jlog"
 
 	"github.com/gorilla/mux"
@@ -77,7 +78,7 @@ func (s *Server) machineRoute(path func(*http.Request) string) http.Handler {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), supervisorCallTimeout)
 		defer cancel()
-		resp, err := s.callSupervisor(ctx, r.Method, path(r), http.MaxBytesReader(w, r.Body, maxExposureBody))
+		resp, err := s.callSupervisor(ctx, r.Method, path(r), http.MaxBytesReader(w, r.Body, maxExposureBody), basepath.MachineFromRequest(r))
 		if err != nil {
 			http.Error(w, "The machine server could not be reached.", http.StatusBadGateway)
 			return
@@ -111,7 +112,7 @@ func (s *Server) machineStopRoute() http.Handler {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), supervisorCallTimeout)
 			defer cancel()
-			resp, err := s.callSupervisor(ctx, http.MethodDelete, "/api/server/sessions/"+url.PathEscape(id), http.NoBody)
+			resp, err := s.callSupervisor(ctx, http.MethodDelete, "/api/server/sessions/"+url.PathEscape(id), http.NoBody, "")
 			if err != nil {
 				jlog.Error("[server] stopping its own session %s: %v", id, err)
 				return
@@ -122,14 +123,16 @@ func (s *Server) machineStopRoute() http.Handler {
 }
 
 // callSupervisor sends one call to the machine server's path with the control
-// token.
-func (s *Server) callSupervisor(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
+// token, naming machineBase, the path the viewer reached the machine server
+// under, when there is one (withMachineBase).
+func (s *Server) callSupervisor(ctx context.Context, method, path string, body io.Reader, machineBase string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, method, "http://"+s.supervisor.Addr+path, body)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("X-Juggler-Token", s.supervisor.Token)
 	req.Header.Set("Content-Type", "application/json")
+	withMachineBase(req, machineBase)
 	return http.DefaultClient.Do(req) //nolint:gosec // loopback machine server named by our spawner
 }
 
@@ -168,6 +171,7 @@ func (s *Server) handleMachineEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Header.Set("X-Juggler-Token", s.supervisor.Token)
 	req.Header.Set("Accept", "text/event-stream")
+	withMachineBase(req, basepath.MachineFromRequest(r))
 	resp, err := http.DefaultClient.Do(req) //nolint:gosec // loopback machine server named by our spawner
 	if err != nil {
 		http.Error(w, "The machine server could not be reached.", http.StatusBadGateway)
@@ -196,6 +200,19 @@ func (s *Server) handleMachineEvents(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return
 		}
+	}
+}
+
+// withMachineBase names, on a call passed on to the machine server for the
+// page's switcher, the path the viewer reached the machine server under
+// (machineBase, which the machine server's proxy told this child in
+// basepath.MachineHeader), so the project links it answers with are
+// addressed as the viewer reaches them. "" names none: the viewer reached it
+// at its root. The calls for LAN access and tunnels never name it — the links
+// those answer with reach the machine server directly, not through a proxy.
+func withMachineBase(req *http.Request, machineBase string) {
+	if machineBase != "" {
+		req.Header.Set(basepath.Header, machineBase)
 	}
 }
 

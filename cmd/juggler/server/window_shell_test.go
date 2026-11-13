@@ -15,6 +15,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"juggler/cmd/juggler/core"
+	"juggler/internal/basepath"
 	"juggler/web"
 )
 
@@ -43,7 +44,7 @@ func TestSessionPageWearsTheWindowShell(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, target, nil)
 			req.RemoteAddr = localViewerAddr
 			if prefix != "" {
-				req.Header.Set(forwardedPrefixHeader, prefix)
+				req.Header.Set(basepath.Header, prefix)
 			}
 			rec := httptest.NewRecorder()
 			s.serveIndex(rec, req)

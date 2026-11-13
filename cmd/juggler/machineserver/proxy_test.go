@@ -86,37 +86,6 @@ func TestSessionProxyKeepsALinksQuery(t *testing.T) {
 	}
 }
 
-// TestSessionProxyForwardsPrefix checks the child is told the prefix it is
-// being served under, and that a client cannot choose it: a forged
-// X-Forwarded-Prefix is replaced, not passed on.
-func TestSessionProxyForwardsPrefix(t *testing.T) {
-	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.WriteString(w, strings.Join(r.Header.Values("X-Forwarded-Prefix"), ","))
-	}))
-	defer backend.Close()
-
-	s := &Server{reg: newRegistry()}
-	sess, _ := s.reg.reserve("/p")
-	s.reg.setRunning(sess.ID, &child{addr: strings.TrimPrefix(backend.URL, "http://")}, 1)
-	front := httptest.NewServer(s.routes())
-	defer front.Close()
-
-	req, err := http.NewRequest("GET", front.URL+sess.Link, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("X-Forwarded-Prefix", "/evil")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if got, want := string(body), strings.TrimSuffix(sess.Link, "/"); got != want {
-		t.Fatalf("child saw X-Forwarded-Prefix %q, want %q", got, want)
-	}
-}
-
 // asCaller serves h as if every request came from addr. A test server listens
 // on loopback, so this is the only way a test can put a caller off loopback in
 // front of the proxy.

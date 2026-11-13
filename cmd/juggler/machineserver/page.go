@@ -105,6 +105,9 @@ type pageConfig struct {
 	// Confirm has the page ask before it opens Open: the visitor was sent
 	// from another site (serveOpener).
 	Confirm bool `json:"confirm,omitempty"`
+	// Base is the path the page was reached under behind a reverse proxy
+	// (requestBase), which its control-API calls go below; "" at the root.
+	Base string `json:"base"`
 }
 
 // handlePage serves the sessions page. GET /.
@@ -137,6 +140,7 @@ func (s *Server) servePage(w http.ResponseWriter, r *http.Request, status int, c
 		catalog = webui.LoadCatalog(func(p string) ([]byte, error) { return fs.ReadFile(s.assets, p) }, locale)
 	}
 	host, _ := os.Hostname()
+	base := s.requestBase(r)
 
 	nonce := mintNonce()
 	h := w.Header()
@@ -185,8 +189,9 @@ func (s *Server) servePage(w http.ResponseWriter, r *http.Request, status int, c
 		UICatalog map[string]string
 		Config    pageConfig
 	}{
-		AssetBase: "/v" + assetVersion,
+		AssetBase: base + "/v" + assetVersion,
 		IsWindow:  r.URL.Query().Has("window") && !embed,
+		WailsBase: base,
 		Embed:     embed,
 		ThemeMode: s.pageThemeMode(),
 		CSPNonce:  nonce,
@@ -194,7 +199,7 @@ func (s *Server) servePage(w http.ResponseWriter, r *http.Request, status int, c
 		UILocale:  locale,
 		UICatalog: catalog,
 		Config: pageConfig{Token: s.token, Version: core.Version, Host: host, Local: s.callerKind(r) == "",
-			Open: cfg.Open, OpenMissing: cfg.OpenMissing, Confirm: cfg.Confirm},
+			Open: cfg.Open, OpenMissing: cfg.OpenMissing, Confirm: cfg.Confirm, Base: base},
 	}
 	w.WriteHeader(status)
 	if err := tmpl.Execute(w, data); err != nil {

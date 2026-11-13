@@ -32,6 +32,8 @@ export const TOKEN_HEADER = 'X-Juggler-Token';
  *   that names no project the server knows of.
  * @property {boolean} [confirm] - Ask before opening `open`: another site sent
  *   the visitor here.
+ * @property {string} [base] - The path a reverse proxy mounts the server
+ *   under, which the control API is reached below; '' or absent at the root.
  */
 
 /**
@@ -65,6 +67,7 @@ export function readPageConfig(doc = document) {
     open: typeof raw.open === 'string' ? raw.open : '',
     openMissing: raw.openMissing === true,
     confirm: raw.confirm === true,
+    base: typeof raw.base === 'string' ? raw.base : '',
   };
 }
 
@@ -89,6 +92,8 @@ export class ControlApiError extends Error {
  * A client for the control API under /api/server.
  * @param {object} options
  * @param {string} options.token - The control-API credential.
+ * @param {string} [options.base] - The path the server is mounted under
+ *   (PageConfig.base); '' at the root.
  * @param {typeof fetch} [options.fetchImpl] - Fetch to send with.
  * @returns {{
  *   listSessions: () => Promise<Session[]>,
@@ -106,7 +111,7 @@ export class ControlApiError extends Error {
  *   events: (onSnapshot: (snapshot: Snapshot) => void, signal: AbortSignal) => Promise<void>,
  * }} The calls the sessions page makes.
  */
-export function createControlApi({ token, fetchImpl = (input, init) => fetch(input, init) }) {
+export function createControlApi({ token, base = '', fetchImpl = (input, init) => fetch(input, init) }) {
   /**
    * @param {string} method
    * @param {string} path - Under /api/server.
@@ -119,7 +124,7 @@ export function createControlApi({ token, fetchImpl = (input, init) => fetch(inp
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     let resp;
     try {
-      resp = await fetchImpl(`/api/server${path}`, {
+      resp = await fetchImpl(`${base}/api/server${path}`, {
         method,
         headers,
         body: body === undefined ? undefined : JSON.stringify(body),
@@ -181,7 +186,7 @@ export function createControlApi({ token, fetchImpl = (input, init) => fetch(inp
     events: async (onSnapshot, signal) => {
       let resp;
       try {
-        resp = await fetchImpl('/api/server/events', {
+        resp = await fetchImpl(`${base}/api/server/events`, {
           method: 'GET',
           headers: { [TOKEN_HEADER]: token, Accept: 'text/event-stream' },
           credentials: 'omit',

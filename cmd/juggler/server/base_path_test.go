@@ -14,39 +14,8 @@ import (
 	"github.com/gorilla/mux"
 
 	"juggler/cmd/juggler/core"
+	"juggler/internal/basepath"
 )
-
-// TestRequestBasePath pins which forwarded prefixes a page may be served
-// under: nothing for a direct request, a well-formed path of plain segments
-// from a proxy, and nothing for anything else — so a forged header can at
-// worst mis-address the forger's own page, never inject into it.
-func TestRequestBasePath(t *testing.T) {
-	cases := []struct {
-		header string
-		want   string
-	}{
-		{"", ""},
-		{"/p/myapp-81fb48e2", "/p/myapp-81fb48e2"},
-		{"/a/b_c-d", "/a/b_c-d"},
-		{"p/myapp-81fb48e2", ""},   // not rooted
-		{"/p/myapp-81fb48e2/", ""}, // trailing slash
-		{"//evil.example", ""},     // protocol-relative
-		{"/s/../x", ""},
-		{"/s/a b", ""},
-		{"/s/x'", ""},
-		{"/s/<script>", ""},
-		{"/" + strings.Repeat("a", maxBasePathLen), ""},
-	}
-	for _, c := range cases {
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		if c.header != "" {
-			req.Header.Set(forwardedPrefixHeader, c.header)
-		}
-		if got := requestBasePath(req); got != c.want {
-			t.Errorf("requestBasePath(%q) = %q, want %q", c.header, got, c.want)
-		}
-	}
-}
 
 // pageBasePattern finds the base path a served page hands its scripts. The
 // index is rendered by html/template, which escapes '/' inside a JS string.
@@ -89,7 +58,7 @@ func TestServedPagesCarryTheBasePath(t *testing.T) {
 				req := httptest.NewRequest(http.MethodGet, target, nil)
 				req.RemoteAddr = localViewerAddr
 				if prefix != "" {
-					req.Header.Set(forwardedPrefixHeader, prefix)
+					req.Header.Set(basepath.Header, prefix)
 				}
 				rec := httptest.NewRecorder()
 				serve(rec, req)

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"juggler/internal/basepath"
 )
 
 // streamingSupervisor is a stand-in machine server whose events stream sends
@@ -31,7 +33,7 @@ func newStreamingSupervisor(t *testing.T) *streamingSupervisor {
 	t.Helper()
 	sup := &streamingSupervisor{calls: make(chan supervisorCall, 4), gone: make(chan struct{})}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sup.calls <- supervisorCall{method: r.Method, path: r.URL.Path, query: r.URL.RawQuery, token: r.Header.Get("X-Juggler-Token")}
+		sup.calls <- supervisorCall{method: r.Method, path: r.URL.Path, query: r.URL.RawQuery, token: r.Header.Get("X-Juggler-Token"), prefix: r.Header.Get(basepath.Header)}
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(relayedFrame))

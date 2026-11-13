@@ -13,11 +13,16 @@ import (
 	"testing"
 
 	"github.com/gorilla/mux"
+
+	"juggler/internal/basepath"
 )
 
 // supervisorCall is one request a stand-in machine server received.
 type supervisorCall struct {
 	method, path, query, token, body string
+	// prefix is the X-Forwarded-Prefix the call carried: where the viewer
+	// reached the machine server.
+	prefix string
 }
 
 // standInSupervisor serves the machine server's /api/server/lan and
@@ -27,7 +32,7 @@ func standInSupervisor(t *testing.T) (addr string, calls *[]supervisorCall) {
 	var got []supervisorCall
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
-		got = append(got, supervisorCall{r.Method, r.URL.Path, r.URL.RawQuery, r.Header.Get("X-Juggler-Token"), string(b)})
+		got = append(got, supervisorCall{r.Method, r.URL.Path, r.URL.RawQuery, r.Header.Get("X-Juggler-Token"), string(b), r.Header.Get(basepath.Header)})
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusTeapot)
 		_, _ = io.WriteString(w, `{"from":"`+r.URL.Path+`"}`)
@@ -89,7 +94,7 @@ func TestSessionExposureIsTheMachineServers(t *testing.T) {
 		if rec.Code != http.StatusTeapot || !strings.Contains(rec.Body.String(), c.want) {
 			t.Fatalf("%s %s from this machine: %d %s, want the machine server's answer", c.method, c.path, rec.Code, rec.Body)
 		}
-		want := supervisorCall{c.method, c.want, "session=sess-1", "control-token", c.body}
+		want := supervisorCall{method: c.method, path: c.want, query: "session=sess-1", token: "control-token", body: c.body}
 		if len(*calls) != 1 || (*calls)[0] != want {
 			t.Fatalf("%s %s: machine server got %+v, want %+v", c.method, c.path, *calls, want)
 		}

@@ -28,11 +28,12 @@ type TerminalOptions struct {
 	// Project is the folder to open a session for; "" opens none, pointing
 	// the terminal at the sessions page instead.
 	Project string
-	// Port, AllowHosts and the developer flags (Dev, AssetsFromDisk; see
-	// ServeOptions) apply when this run starts the server. Port 0 is
-	// DefaultPort.
+	// Port, AllowHosts, BasePath and the developer flags (Dev,
+	// AssetsFromDisk; see ServeOptions) apply when this run starts the
+	// server. Port 0 is DefaultPort.
 	Port                int
 	AllowHosts          []string
+	BasePath            string
 	Dev, AssetsFromDisk bool
 	// Assets is the web tree the sessions page is served from, and Peer what
 	// answers a tunnel's WebRTC offers, when this run serves.
@@ -69,7 +70,7 @@ func RunTerminal(opts TerminalOptions) int {
 	opts.Ready = withKeys(opts, in)
 	for attempt := 0; attempt < terminalAttempts; attempt++ {
 		err := Serve(ServeOptions{
-			Port: cmp.Or(opts.Port, DefaultPort), Implicit: true, AllowHosts: opts.AllowHosts, Assets: opts.Assets, Peer: opts.Peer, Signals: opts.Signals,
+			Port: cmp.Or(opts.Port, DefaultPort), Implicit: true, AllowHosts: opts.AllowHosts, BasePath: opts.BasePath, Assets: opts.Assets, Peer: opts.Peer, Signals: opts.Signals,
 			Dev: opts.Dev, AssetsFromDisk: opts.AssetsFromDisk,
 			Foreground: &Foreground{Project: opts.Project, Out: opts.Stdout, Ready: opts.Ready},
 		})
@@ -77,7 +78,7 @@ func RunTerminal(opts TerminalOptions) int {
 		switch {
 		case err == nil:
 			return 0
-		case errors.As(err, new(badAllowHostError)):
+		case errors.As(err, new(badFlagError)):
 			fmt.Fprintf(opts.Stderr, "juggler: %v\n", err)
 			return 2
 		case !errors.As(err, &held):
@@ -165,8 +166,8 @@ func attachTo(c *Client, opts TerminalOptions, in *bufio.Reader) (code int, agai
 	}
 
 	fmt.Fprintf(opts.Stdout, "Using the Juggler server at %s\n", page)
-	if opts.Port != 0 || len(opts.AllowHosts) > 0 {
-		fmt.Fprintln(opts.Stderr, "juggler: --port and --allow-host apply only when juggler starts the server; it was already running.")
+	if opts.Port != 0 || len(opts.AllowHosts) > 0 || opts.BasePath != "" {
+		fmt.Fprintln(opts.Stderr, "juggler: --port, --allow-host and --base-path apply only when juggler starts the server; it was already running.")
 	}
 	if opts.Project == "" {
 		fmt.Fprintln(opts.Stdout, "Open a project from its page.")

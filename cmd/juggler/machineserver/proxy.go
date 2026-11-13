@@ -15,6 +15,7 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"juggler/internal/basepath"
 	"juggler/internal/ingress"
 )
 
@@ -54,6 +55,7 @@ func (s *Server) handleProjectProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := sess.ID
+	base := s.requestBase(r)
 	kind := s.callerKind(r)
 	remote := kind != ""
 	if remote && secret == "" {
@@ -106,9 +108,14 @@ func (s *Server) handleProjectProxy(w http.ResponseWriter, r *http.Request) {
 			// loopback address would reject every proxied WebSocket upgrade.
 			pr.Out.Host = pr.In.Host
 			// Tell the child where it is mounted, so the pages it serves
-			// address it through this proxy (the child's requestBasePath).
-			// Set, never appended: a client's own value must not reach it.
-			pr.Out.Header.Set("X-Forwarded-Prefix", prefix)
+			// address it through this proxy (the child's requestBasePath),
+			// and where this server is (base_path.go). Set, never appended:
+			// a client's own value of either must not reach it.
+			pr.Out.Header.Set(basepath.Header, base+prefix)
+			pr.Out.Header.Del(basepath.MachineHeader)
+			if base != "" {
+				pr.Out.Header.Set(basepath.MachineHeader, base)
+			}
 			// Only this proxy speaks for the caller: a client's own ingress
 			// headers are dropped whoever sent them.
 			pr.Out.Header.Del(ingress.Header)
@@ -213,13 +220,14 @@ func sentFromElsewhere(r *http.Request) bool {
 	return true
 }
 
-// redirectProjectLink normalizes a bare /p/<key> to /p/<key>/ so the child
+// redirectProjectLink normalizes a bare /p/<key> to /p/<key>/, below the base
+// the caller reached this server under (requestBase), so the child
 // sees "/" and relative asset URLs resolve under the link, keeping the query (a
 // link to a conversation, ?c=). The target is rebuilt — its path from the
 // escaped key, never the raw request path, and its query re-encoded from the
 // parsed one, so it can carry no fragment or second path — and so can only ever
 // be a local link. GET /p/{key}.
 func (s *Server) redirectProjectLink(w http.ResponseWriter, r *http.Request) {
-	target := url.URL{Path: "/p/" + mux.Vars(r)["key"] + "/", RawQuery: r.URL.Query().Encode()}
+	target := url.URL{Path: s.requestBase(r) + "/p/" + mux.Vars(r)["key"] + "/", RawQuery: r.URL.Query().Encode()}
 	http.Redirect(w, r, target.String(), http.StatusMovedPermanently)
 }

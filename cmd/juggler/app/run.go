@@ -312,6 +312,7 @@ func parseFlags(hasTerminal bool) (appFlags, bool) {
 		allowHosts = append(allowHosts, v)
 		return nil
 	})
+	basePath := flag.String("base-path", "", machineserver.BasePathUsage)
 	flag.Func("updates-managed-by", "For packagers: the package manager (`name`, e.g. Nix) that installs Juggler's updates. Juggler then never updates itself, and points its update notices there. Same as setting "+core.UpdatesManagedByEnv, core.SetUpdatesManagedBy)
 	sessionChild := flag.Bool("session-child", false, "Run as a machine-server session child (spawned by `juggler serve`; not a user-facing mode)")
 	exitWithParent := flag.Bool("exit-with-parent", false, "Self-terminate if the parent process dies (set by `juggler run` for the session child it spawns)")
@@ -352,6 +353,7 @@ func parseFlags(hasTerminal bool) (appFlags, bool) {
 		testIframes:    *testIframes,
 		testWindowURL:  *testWindowURL,
 		allowHosts:     allowHosts,
+		basePath:       *basePath,
 		sessionChild:   *sessionChild,
 		exitWithParent: *exitWithParent,
 		logFile:        *logFile,

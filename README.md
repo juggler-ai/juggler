@@ -61,7 +61,7 @@ Juggler runs one server per machine, on port 3939 (or the next free one). `juggl
 
 The server accepts connections from your machine only until you turn on LAN access: Start LAN access on the sessions page or in any session's Settings → Connectivity, `juggler server lan on`, or `juggler serve --lan`. It is off whenever the server starts, unless you tick "Start whenever Juggler starts" beside it. LAN access has no password, so turn it on only on networks you trust. While it is on, both show each address with a QR code for a phone; in a session's Settings → Connectivity the code opens that session.
 
-To serve it through a reverse proxy on the same machine, such as `tailscale serve`, launch with `--allow-host <name>` for the name the proxy publishes. The flag is repeatable. Requests under that name count as remote viewers; see [SECURITY.md](SECURITY.md).
+To serve it through a reverse proxy on the same machine, such as `tailscale serve`, launch with `--allow-host <name>` for the name the proxy publishes. The flag is repeatable. Requests under that name count as remote viewers; see [SECURITY.md](SECURITY.md). To serve it under a path rather than at the root, have the proxy strip the path and name it in an `X-Forwarded-Prefix` header (nginx: `proxy_set_header X-Forwarded-Prefix /juggler;`). For a proxy on the same machine that does not send that header, launch with `--base-path /juggler` as well.
 
 A build made from this repository supports local and LAN access. The official binaries from [juggler.studio](https://juggler.studio) also include WAN modes for reaching your server over the internet; see [LICENSING.md](LICENSING.md) for the boundary between this repository and those additional components.
 

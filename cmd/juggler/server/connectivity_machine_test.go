@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"juggler/internal/basepath"
 )
 
 // TestSessionRelaysOpenStopAndFolders: a project page's switcher opens and
@@ -60,7 +62,7 @@ func TestStoppingItsOwnSessionAnswersAtOnce(t *testing.T) {
 	release := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
-		asked <- supervisorCall{r.Method, r.URL.Path, r.URL.RawQuery, r.Header.Get("X-Juggler-Token"), string(b)}
+		asked <- supervisorCall{r.Method, r.URL.Path, r.URL.RawQuery, r.Header.Get("X-Juggler-Token"), string(b), r.Header.Get(basepath.Header)}
 		<-release
 		w.WriteHeader(http.StatusNoContent)
 	}))

@@ -68,6 +68,7 @@ func runBare(flags appFlags) int {
 		Project:        project,
 		Port:           flags.port,
 		AllowHosts:     flags.allowHosts,
+		BasePath:       flags.basePath,
 		Dev:            flags.dev,
 		AssetsFromDisk: flags.assetsFromDisk,
 		Stdout:         os.Stdout,

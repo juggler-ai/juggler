@@ -43,6 +43,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
+	base := s.requestBase(r)
 	life := s.lifetime()
 	keepAlive := time.NewTicker(eventsKeepAlive)
 	defer keepAlive.Stop()
@@ -50,7 +51,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	for {
 		// Watched before reading, so a change between the two is not missed.
 		changed := s.reg.changes()
-		data, err := json.Marshal(eventsPayload{Sessions: s.reg.snapshot(), Recents: s.recentsNow()})
+		data, err := json.Marshal(eventsPayload{Sessions: sessionsUnder(base, s.reg.snapshot()), Recents: s.recentsNow().under(base)})
 		if err != nil {
 			jlog.Error("[machineserver] encoding a sessions event: %v", err)
 			return

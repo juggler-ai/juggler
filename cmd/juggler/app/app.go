@@ -28,6 +28,7 @@ type appFlags struct {
 	testIframes    int      // --test-iframes N: open viewer at /test-pool?n=N (tiled iframe lanes)
 	testWindowURL  string   // --test-window-url: the page the test window loads, in place of this server's own (a machine server's proxy for its test children)
 	allowHosts     []string // --allow-host (repeatable): extra Host names the machine server bare juggler starts accepts, added to the saved connectivity.allowedHosts
+	basePath       string   // --base-path: the path the reverse proxy on this machine serves the machine server bare juggler starts under
 	sessionChild   bool     // --session-child: supervised child of a machine server (`juggler serve`), or of `juggler run`; binds loopback only
 	exitWithParent bool     // --exit-with-parent: self-terminate if the parent process dies (set by `juggler run` for the child it spawns)
 	logFile        string   // --log-file: explicit log file path, overriding the centrally-derived one (set by the machine server per child)

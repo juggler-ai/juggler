@@ -32,10 +32,13 @@ import (
 // projectSlugMax caps the readable half of a key.
 const projectSlugMax = 40
 
+// projectHashBytes is how much of the path's hash a key carries, as hex.
+const projectHashBytes = 4
+
 // projectKey is project's key: <slug of its folder's name>-<8 hex digits>.
 func projectKey(project string) string {
 	sum := sha256.Sum256([]byte(project))
-	return projectSlug(filepath.Base(project)) + "-" + hex.EncodeToString(sum[:4])
+	return projectSlug(filepath.Base(project)) + "-" + hex.EncodeToString(sum[:projectHashBytes])
 }
 
 // projectSlug is name as lowercase ASCII letters and digits, every other run of

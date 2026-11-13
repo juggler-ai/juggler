@@ -81,7 +81,7 @@ function start() {
   const root = document.getElementById('sessions-root');
   if (root) {
     mountSessionsPage(root, {
-      api: createControlApi({ token: config.token }),
+      api: createControlApi({ token: config.token, base: config.base }),
       config,
       host,
       notice: query.get('notice') || '',

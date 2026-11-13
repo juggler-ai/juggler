@@ -91,6 +91,7 @@ func RunCommand(args []string, assets fs.FS, peer Peer, startupNotes ...string) 
 		allowHosts = append(allowHosts, v)
 		return nil
 	})
+	basePath := fs.String("base-path", "", BasePathUsage)
 	// Exported to the environment, which every session child inherits.
 	fs.Func("updates-managed-by", "For packagers: the package manager (`name`, e.g. Nix) that installs Juggler's updates. Juggler then never updates itself, and points its update notices there. Same as setting "+core.UpdatesManagedByEnv, core.SetUpdatesManagedBy)
 	if err := fs.Parse(args); err != nil {
@@ -109,7 +110,7 @@ func RunCommand(args []string, assets fs.FS, peer Peer, startupNotes ...string) 
 	}
 
 	err := Serve(ServeOptions{Port: *port, Implicit: *implicit, StartedBy: *startedBy, TestChildren: *testChildren,
-		Dev: *dev, AssetsFromDisk: *assetsFromDisk, AllowHosts: allowHosts, LAN: *lan, Tunnel: tunnel.Mode(*openTunnel), Assets: assets, Peer: peer})
+		Dev: *dev, AssetsFromDisk: *assetsFromDisk, AllowHosts: allowHosts, BasePath: *basePath, LAN: *lan, Tunnel: tunnel.Mode(*openTunnel), Assets: assets, Peer: peer})
 	var held *LockHeldError
 	switch {
 	case err == nil:
@@ -122,7 +123,7 @@ func RunCommand(args []string, assets fs.FS, peer Peer, startupNotes ...string) 
 			fmt.Fprintln(os.Stderr, "A machine server is already running (holder unknown).")
 		}
 		return 1
-	case errors.As(err, new(badAllowHostError)):
+	case errors.As(err, new(badFlagError)):
 		fmt.Fprintf(os.Stderr, "serve: %v\n", err)
 		return 2
 	default:
@@ -165,6 +166,11 @@ type ServeOptions struct {
 	Dev, AssetsFromDisk bool
 	// AllowHosts are extra Host names to accept, beside the saved ones.
 	AllowHosts []string
+	// BasePath is the path the reverse proxy on this machine mounts the
+	// server under, for a proxy that cannot say so (serve --base-path); ""
+	// for none. It needs an allowed host, by which that proxy's callers are
+	// told apart (Server.requestBase).
+	BasePath string
 	// LAN starts the server with LAN access on (serve --lan), whatever the
 	// saved setting (launchExposure).
 	LAN bool
@@ -234,11 +240,11 @@ type LockHeldError struct {
 
 func (e *LockHeldError) Error() string { return "a machine server is already running" }
 
-// badAllowHostError is an allowed-host name Serve refused.
-type badAllowHostError struct{ err error }
+// badFlagError is an option Serve refused: an allowed-host name, or a base path.
+type badFlagError struct{ err error }
 
-func (e badAllowHostError) Error() string { return e.err.Error() }
-func (e badAllowHostError) Unwrap() error { return e.err }
+func (e badFlagError) Error() string { return e.err.Error() }
+func (e badFlagError) Unwrap() error { return e.err }
 
 // Serve runs the machine server until it is stopped — by a signal, the
 // control API, or (implicit) losing its last local client — and returns nil once it has shut
@@ -248,7 +254,14 @@ func Serve(opts ServeOptions) error {
 	tunnel.Seal()
 	allowed, err := resolveAllowedHosts(opts.AllowHosts, opts.TestChildren)
 	if err != nil {
-		return badAllowHostError{err}
+		return badFlagError{err}
+	}
+	fixedBase, err := checkBasePath(opts.BasePath)
+	if err != nil {
+		return badFlagError{err}
+	}
+	if fixedBase != "" && len(allowed.Names()) == 0 {
+		return badFlagError{errors.New("--base-path applies to a reverse proxy on this machine, and needs an allowed host (--allow-host) naming the host that proxy serves Juggler under")}
 	}
 
 	token := mintToken()
@@ -293,6 +306,7 @@ func Serve(opts ServeOptions) error {
 		childDev:            opts.Dev,
 		childAssetsFromDisk: opts.AssetsFromDisk,
 		allowedHosts:        allowed,
+		fixedBase:           fixedBase,
 		build:               ownBuild(),
 		peer:                opts.Peer,
 	}

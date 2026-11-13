@@ -441,6 +441,31 @@ export async function runTests() {
     assert(recents.waiting?.['/work/old'] === 1, `recents() lost the waiting counts: ${JSON.stringify(recents)}`);
   });
 
+  // Behind a reverse proxy that mounts the machine server under a path, the
+  // page is handed that path (config.base), and every control-API call and the
+  // events stream are addressed under it; with none, at the root.
+  await test('the control API is addressed under the base the page was served at', async () => {
+    for (const base of ['', '/juggler']) {
+      /** @type {string[]} */
+      const asked = [];
+      const api = createControlApi({
+        token: 'tok',
+        base,
+        fetchImpl: async (input) => {
+          asked.push(String(input));
+          if (String(input).endsWith('/events')) {
+            return new window.Response(new window.ReadableStream({ start(c) { c.close(); } }), { status: 200 });
+          }
+          return /** @type {any} */ ({ ok: true, status: 200, text: async () => '[]' });
+        },
+      });
+      await api.listSessions();
+      await api.events(() => {}, new AbortController().signal);
+      const want = [`${base}/api/server/sessions`, `${base}/api/server/events`];
+      assert(JSON.stringify(asked) === JSON.stringify(want), `under ${JSON.stringify(base)} asked ${JSON.stringify(asked)}, want ${JSON.stringify(want)}`);
+    }
+  });
+
   // With the events stream open, what it pushes is drawn at once, and the
   // page's poll stops asking for the sessions; while it is down, the poll asks
   // as it always has, and the page reconnects. Disposing the page closes it.
@@ -2210,6 +2235,9 @@ export async function runTests() {
     doc.head.appendChild(el);
     const cfg = readPageConfig(doc);
     assert(cfg.token === 'tok' && cfg.version === 'v9' && cfg.host === 'box' && cfg.local === true, `config ${JSON.stringify(cfg)}`);
+    assert(cfg.base === '', `a page served at the root read the base ${JSON.stringify(cfg.base)}`);
+    el.textContent = JSON.stringify({ token: 'tok', base: '/juggler' });
+    assert(readPageConfig(doc).base === '/juggler', `base read as ${JSON.stringify(readPageConfig(doc).base)}`);
     el.textContent = JSON.stringify({ token: 'tok', local: 'yes' });
     assert(readPageConfig(doc).local === false, 'anything but true read as a viewer on this machine');
     assert(readPageConfig(doc).open === '' && readPageConfig(doc).openMissing === false, 'a plain page read as a project link');

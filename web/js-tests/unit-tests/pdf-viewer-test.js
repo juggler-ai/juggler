@@ -14,8 +14,7 @@
  *    obvious failure mode;
  *  - teardown being safe to call twice.
  *
- * The fixture is a hand-built single-page PDF containing the literal text
- * "Juggler PDF spike", small enough to inline as base64.
+ * The fixture is utilities/pdf-fixture.js.
  * @module unit-tests/pdf-viewer-test
  */
 
@@ -23,20 +22,11 @@ import PdfFileViewer from '../../extensions/juggler-core/viewers/pdf-file-viewer
 import { createFileSource } from '../../sdk/file-source.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
 import { underPseudoLocale, shownStrings } from '../utilities/pseudo-locale.js';
+import { budgetFor, deadlineTimer } from '../utilities/test-deadline.js';
+import { PDF_BASE64, pdfBytes } from '../utilities/pdf-fixture.js';
 
 /** The viewer's English messages, registered pseudo-localised under its extension id. */
 const CORE_TEXT = ['{count, plural, one {{count} page} other {{count} pages}}'];
-
-/** A minimal one-page PDF whose only text is "Juggler PDF spike". */
-const PDF_BASE64 =
-  'JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2JqCjIgMCBvYmoKPDwgL1R5cGUg' +
-  'L1BhZ2VzIC9LaWRzIFszIDAgUl0gL0NvdW50IDEgPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAg' +
-  'UiAvTWVkaWFCb3ggWzAgMCAyMDAgMjAwXSAvUmVzb3VyY2VzIDw8IC9Gb250IDw8IC9GMSA1IDAgUiA+PiA+PiAvQ29udGVudHMg' +
-  'NCAwIFIgPj4KZW5kb2JqCjQgMCBvYmoKPDwgL0xlbmd0aCA0OCA+PgpzdHJlYW0KQlQgL0YxIDE4IFRmIDIwIDEwMCBUZCAoSnVn' +
-  'Z2xlciBQREYgc3Bpa2UpIFRqIEVUCmVuZHN0cmVhbQplbmRvYmoKNSAwIG9iago8PCAvVHlwZSAvRm9udCAvU3VidHlwZSAvVHlw' +
-  'ZTEgL0Jhc2VGb250IC9IZWx2ZXRpY2EgPj4KZW5kb2JqCnhyZWYKMCA2CjAwMDAwMDAwMDAgNjU1MzUgZiAKMDAwMDAwMDAwOSAw' +
-  'MDAwMCBuIAowMDAwMDAwMDU4IDAwMDAwIG4gCjAwMDAwMDAxMTUgMDAwMDAgbiAKMDAwMDAwMDI0MSAwMDAwMCBuIAowMDAwMDAw' +
-  'MzM5IDAwMDAwIG4gCnRyYWlsZXIKPDwgL1NpemUgNiAvUm9vdCAxIDAgUiA+PgpzdGFydHhyZWYKNDA5CiUlRU9GCg==';
 
 /**
  * @param {boolean} cond - Assertion condition
@@ -54,7 +44,7 @@ function check(cond, msg, errors) {
  * @returns {import('../../sdk/file-source.js').FileSource} A source backed by the inline fixture
  */
 function pdfSource() {
-  const bytes = Uint8Array.from(atob(PDF_BASE64), (c) => c.charCodeAt(0));
+  const bytes = pdfBytes();
   return createFileSource({
     path: 'docs/spike.pdf',
     absPath: '/proj/docs/spike.pdf',
@@ -77,6 +67,39 @@ function pdfSourceWithDeadURL() {
   return createFileSource({
     ...source,
     url: () => '/api/session/files/content?path=%2Fnowhere%2Fout-of-project.pdf',
+  });
+}
+
+/**
+ * Run `extract()` on the fixture inside a module worker set up as the engine is
+ * (see utilities/pdf-extract-worker.js).
+ * @returns {Promise<{result?: any, error?: string}>} What the worker reported
+ */
+function extractInEngineWorker() {
+  const worker = new Worker(new URL('../utilities/pdf-extract-worker.js', import.meta.url), { type: 'module' });
+  const bytes = pdfBytes();
+  return new Promise((resolve, reject) => {
+    const cancel = deadlineTimer(() => {
+      worker.terminate();
+      reject(new Error('the engine-worker extraction never answered'));
+    }, budgetFor(10000));
+    worker.onmessage = (/** @type {MessageEvent} */ event) => {
+      if (!event.data?.done) return;
+      cancel();
+      worker.terminate();
+      resolve(event.data);
+    };
+    worker.onerror = (/** @type {ErrorEvent} */ event) => {
+      cancel();
+      worker.terminate();
+      reject(new Error(`worker error: ${event.message}`));
+    };
+    worker.postMessage({
+      assetPrefix: /** @type {any} */ (globalThis).__assetPrefix || '',
+      viewerPath: '/extensions/juggler-core/viewers/pdf-file-viewer.js',
+      path: 'docs/spike.pdf',
+      bytes: bytes.buffer,
+    }, [bytes.buffer]);
   });
 }
 
@@ -123,6 +146,21 @@ export async function runTests() {
     'extracted text should be wrapped in a <file> tag naming the path', errors));
   tally(check(extracted.truncated === false,
     'a one-page document within budget should not report truncation', errors));
+
+  // The same extraction in the realm that actually runs it: the engine is a
+  // module worker that loads extensions through /worker-module, so the viewer's
+  // import.meta.url is the loader URL. A vendored-asset URL resolved naively
+  // against it drops the versioned prefix and 404s, and PDF.js reports that as
+  // "Setting up fake worker failed" — the main-thread case above cannot see it.
+  try {
+    const inWorker = await extractInEngineWorker();
+    tally(check(!inWorker.error && !inWorker.result?.warning,
+      `extract() should produce text in the engine worker, but got: ${inWorker.error || inWorker.result?.warning}`, errors));
+    tally(check(!!inWorker.result?.text && inWorker.result.text.includes('Juggler PDF spike'),
+      `engine-worker extraction should contain the document's text, got ${JSON.stringify(inWorker.result?.text)}`, errors));
+  } catch (err) {
+    tally(check(false, `engine-worker extraction failed: ${/** @type {any} */ (err)?.message || err}`, errors));
+  }
 
   // A budget smaller than the first page must still yield that whole page —
   // extraction stops at a page boundary rather than cutting mid-word.

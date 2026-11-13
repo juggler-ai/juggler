@@ -18,6 +18,9 @@ injectFileContentStyles();
  * @typedef {object} DroppedFileData
  * @property {string} filename - Display name captured from the drop (File.name)
  * @property {string} content - Full text captured at drop time (the snapshot)
+ * @property {boolean} [extracted] - `content` is a file viewer's `extract()`
+ *   output for a binary file (a PDF): already model-facing, `<file>` envelope
+ *   included, so it is passed through rather than wrapped again
  */
 
 // ============================================================================
@@ -93,6 +96,7 @@ class DroppedFileContextItem extends ContextItem {
       throw new Error(markUntranslated('Missing required parameter: content'));
     }
     this.data.content = params.content;
+    if (params.extracted === true) this.data.extracted = true;
     this.data.filename = typeof params.filename === 'string' && params.filename
       ? params.filename
       // Stored with the snapshot and used as the model's `<file>` label: data.
@@ -123,12 +127,15 @@ class DroppedFileContextItem extends ContextItem {
    *
    * Emits the same `<file>`-wrapped, line-numbered form as an `@`-mention or a
    * `read` tool call, so the model sees a dropped file identically to any other
-   * file reference. The filename is used only as the tag label.
+   * file reference. The filename is used only as the tag label. Extracted
+   * content (a dropped PDF) is already in that form, as the viewer that read it
+   * produced it for an `@`-mention too, so it goes through unchanged.
    * @returns {Promise<string>} Formatted file content for LLM context
    */
   async createContextText() {
     const content = this.data.content || '';
     if (!content) return '';
+    if (this.data.extracted) return content;
     const lineCount = content.split('\n').length;
     return formatFileContentForLLM({
       content,

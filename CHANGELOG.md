@@ -19,6 +19,8 @@ the current release). The project follows semantic versioning.
 - A window on another computer's server shows that computer's name, not its IP
 - Claude Opus, Sonnet and Haiku 5.5 no longer fail on Continue or forced tool calls
 - Serving Juggler under a reverse proxy's path works again; `--base-path` for proxies without `X-Forwarded-Prefix`
+- @-mentioned and tool-read PDFs reach the model as text, instead of a "fake worker" error
+- PDFs dropped into the composer are attached as their text
 
 ## [0.8.0] - 2026-11-08
 

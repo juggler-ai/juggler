@@ -69,7 +69,10 @@ export function normalizeAttachments(raw) {
 }
 
 /**
- * @typedef {{filename:string, content:string, bytes:number}} TextFileSnapshot
+ * @typedef {{filename:string, content:string, bytes:number, extracted?:boolean}} TextFileSnapshot
+ * `extracted` marks content a file viewer's `extract()` produced from a binary
+ * file (a dropped PDF): it is already the model-facing text, `<file>` envelope
+ * included, rather than the file's own text.
  */
 
 /**
@@ -98,7 +101,7 @@ export function normalizeAttachments(raw) {
  */
 export function normalizeTextFiles(raw) {
   return toPlainList(raw).flatMap((entry) => {
-    const file = entryFields(entry, ['filename', 'content', 'bytes']);
+    const file = entryFields(entry, ['filename', 'content', 'bytes', 'extracted']);
     const content = file?.content;
     if (typeof content !== 'string') return [];
     const filename = file?.filename;
@@ -106,7 +109,8 @@ export function normalizeTextFiles(raw) {
     return [{
       filename: typeof filename === 'string' ? filename : markUntranslated('dropped file'),
       content,
-      bytes: typeof bytes === 'number' ? bytes : 0
+      bytes: typeof bytes === 'number' ? bytes : 0,
+      ...(file?.extracted === true ? { extracted: true } : {})
     }];
   });
 }

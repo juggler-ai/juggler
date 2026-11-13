@@ -197,7 +197,7 @@ class Composer extends JugglerElement {
     // their content inline and become `dropped-file` context items at send
     // time. Kept in a separate array precisely because they are NOT AssetRefs
     // and must never leak into the `attachments` send field.
-    /** @type {Array<{filename:string,content:string,bytes:number}>} @private */
+    /** @type {import('../utils/attachments.js').TextFileSnapshot[]} @private */
     this._pendingTextFiles = [];
 
     // Paste-placeholder side table: token id → captured blob. APPEND-ONLY for
@@ -1072,7 +1072,8 @@ class Composer extends JugglerElement {
     this._messageThread.draft = {
       text: value,
       attachments: this._resolvedAttachments(),
-      textFiles: this._pendingTextFiles.map(({ filename, content, bytes }) => ({ filename, content, bytes })),
+      textFiles: this._pendingTextFiles.map(({ filename, content, bytes, extracted }) =>
+        (extracted ? { filename, content, bytes, extracted } : { filename, content, bytes })),
       // The append-only paste-blob table, so an inline placeholder survives a
       // reload / thread switch / remote client and resolves at send time.
       pasteBlobs: Array.from(this._pasteBlobs, ([id, b]) => ({ id, content: b.content, bytes: b.bytes }))

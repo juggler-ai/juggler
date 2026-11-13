@@ -23,6 +23,8 @@ import apiService from '../services/api.js';
 import { createImageThumb } from '../utils/image-lightbox.js';
 import { errorText } from '../../sdk/lib/error-utils.js';
 import { t, formatNumber, markUntranslated } from '../../sdk/lib/i18n.js';
+import { createFileSource, mimeForPath } from '../../sdk/file-source.js';
+import fileViewerRegistry from '../registries/file-viewer-registry.js';
 
 /**
  * Fallback per-image byte ceiling — a generous upload-safety limit used when
@@ -221,6 +223,11 @@ export function handleFiles(composer, fileList) {
  */
 export function handleTextFiles(composer, fileList) {
   for (const file of Array.from(fileList)) {
+    const Viewer = extractingViewer(file);
+    if (Viewer) {
+      void stageExtractedFile(composer, file, Viewer);
+      continue;
+    }
     // Gate 1: size, on metadata, before reading a single byte.
     if (file.size > MAX_TEXT_DROP_BYTES) {
       composer.showWarning(t(
@@ -257,6 +264,78 @@ export function handleTextFiles(composer, fileList) {
     reader.onerror = () => composer.showWarning(t('Couldn\'t read "{name}".', { name: file.name }));
     reader.readAsText(file);
   }
+}
+
+/**
+ * The file viewer that can turn a dropped binary file into text — a PDF — or
+ * undefined for a file that is read as text (or not at all).
+ *
+ * Only a viewer that claims the file by its MIME type or extension counts: the
+ * `matchAll` viewers (plain text, the binary fallback) are what every file falls
+ * back to, and the text path already does their job. A viewer's `maxBytes` is
+ * honoured by resolution, so an oversized PDF falls through to the text path's
+ * size refusal.
+ * @param {File} file - The dropped file
+ * @returns {typeof import('../../sdk/file-viewer.js').default|undefined} The viewer to extract with
+ */
+function extractingViewer(file) {
+  if (file.type.startsWith('text/')) return undefined;
+  const Viewer = fileViewerRegistry.resolve({
+    path: file.name,
+    mime: file.type || mimeForPath(file.name),
+    size: file.size,
+    isBinary: true,
+  });
+  return Viewer && !Viewer.MANIFEST?.matchAll ? Viewer : undefined;
+}
+
+/**
+ * Stage a dropped binary file as the text its viewer extracts — what the model
+ * would get from `@`-mentioning the same file. A drop carries bytes and no
+ * path, so extraction runs here, on the bytes, in the realm that received
+ * them; the result is a frozen snapshot like any dropped text file. The text is
+ * held to the per-file text budget (the viewer stops at a page boundary) and
+ * counts against the per-message one.
+ * @param {any} composer - Composer instance
+ * @param {File} file - The dropped file
+ * @param {typeof import('../../sdk/file-viewer.js').default} Viewer - The viewer that claims it
+ * @returns {Promise<void>}
+ */
+async function stageExtractedFile(composer, file, Viewer) {
+  const source = createFileSource({
+    path: file.name,
+    mime: file.type || mimeForPath(file.name),
+    size: file.size,
+    isBinary: true,
+    // A dropped file has no server URL; extraction reads the bytes.
+    url: () => '',
+    bytes: async () => new Uint8Array(await file.arrayBuffer()),
+  });
+  /** @type {import('../../sdk/file-viewer.js').ExtractResult} */
+  let result;
+  try {
+    result = await new Viewer().extract(source, { maxChars: MAX_TEXT_DROP_BYTES });
+  } catch {
+    result = {};
+  }
+  const content = result.text || '';
+  if (!content) {
+    composer.showWarning(t('Couldn\'t read "{name}".', { name: file.name }));
+    return;
+  }
+  const stagedTotal = composer._pendingTextFiles.reduce(
+    (/** @type {number} */ sum, /** @type {any} */ staged) => sum + (staged.bytes || 0), 0);
+  if (stagedTotal + content.length > MAX_TEXT_DROP_TURN_BYTES) {
+    composer.showWarning(t(
+      'Dropped text files exceed the {max} MB per-message limit.',
+      { max: formatLimit(MAX_TEXT_DROP_TURN_BYTES / 1024 / 1024) }
+    ));
+    return;
+  }
+  // `bytes` is what the snapshot inlines, which is what the budgets measure.
+  composer._pendingTextFiles.push({ filename: file.name, content, bytes: content.length, extracted: true });
+  renderAttachmentChips(composer);
+  composer._persistDraft();
 }
 
 /**
@@ -395,7 +474,7 @@ export function stagePendingAttachments(composer, refs) {
  * called from the draft-restore path that is reading FROM the persisted draft.
  * Clones down to the persistable fields so no stray UI state carries over.
  * @param {any} composer - Composer instance
- * @param {Array<{filename:string,content:string,bytes:number}>} entries
+ * @param {import('../utils/attachments.js').TextFileSnapshot[]} entries
  * @returns {number} Count of text files actually staged.
  */
 export function stagePendingTextFiles(composer, entries) {
@@ -407,7 +486,8 @@ export function stagePendingTextFiles(composer, entries) {
     // label, which the model reads.
     filename: entry.filename || markUntranslated('dropped file'),
     content: entry.content,
-    bytes: entry.bytes || 0
+    bytes: entry.bytes || 0,
+    ...(entry.extracted ? { extracted: true } : {})
   }));
   renderAttachmentChips(composer);
   return composer._pendingTextFiles.length;

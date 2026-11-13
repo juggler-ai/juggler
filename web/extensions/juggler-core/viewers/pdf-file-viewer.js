@@ -40,12 +40,27 @@ const STYLES = `
 /**
  * Resolve a vendored asset next to this module. Static assets are served under a
  * versioned prefix (`/v<hash>/…`) for cache busting, so an absolute `/js/…` path
- * would 404 — everything must resolve RELATIVE to this module's own URL.
+ * would 404 — everything must resolve RELATIVE to this module's own path.
+ *
+ * In the engine worker that path is not `import.meta.url`: modules there are
+ * loaded through the server's `/worker-module?url=<path>` loader, so resolving
+ * against the loader URL lands on an unversioned `/js/vendor/…` that 404s (and
+ * PDF.js reports the missing worker as "Setting up fake worker failed"). There
+ * the module's real path is the `url` parameter, which the loader may also have
+ * stripped of its version prefix, so the realm's asset prefix is put back.
  * @param {string} rel - Path relative to this module
  * @returns {string} Absolute URL of the vendored asset
  */
 function vendorURL(rel) {
-  return new URL(rel, import.meta.url).href;
+  const here = new URL(import.meta.url);
+  const modulePath = here.pathname.endsWith('/worker-module') ? here.searchParams.get('url') : null;
+  if (!modulePath) return new URL(rel, here).href;
+  const resolved = new URL(rel, new URL(modulePath, here.origin));
+  const assetPrefix = /** @type {any} */ (globalThis).__assetPrefix || '';
+  if (assetPrefix && !resolved.pathname.startsWith(`${assetPrefix}/`)) {
+    resolved.pathname = assetPrefix + resolved.pathname;
+  }
+  return resolved.href;
 }
 
 /**

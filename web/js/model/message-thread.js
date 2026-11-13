@@ -1872,7 +1872,7 @@ export default class MessageThread {
    * A mention is frozen: the model gets the file as it stands at this send, so
    * an edit afterwards does not cold-start the cached prefix it sits in. A
    * dropped file is a snapshot too, carrying its bytes inline.
-   * @param {{paths?: string[], droppedFiles?: Array<{filename: string, content: string}>, queue?: boolean}} reads - What to read.
+   * @param {{paths?: string[], droppedFiles?: Array<{filename: string, content: string, extracted?: boolean}>, queue?: boolean}} reads - What to read.
    * @returns {Promise<void>} Resolves once every read is written.
    */
   async addSendContext({ paths = [], droppedFiles = [], queue = false }) {
@@ -1882,7 +1882,8 @@ export default class MessageThread {
       : (/** @type {string} */ type, /** @type {Record<string, any>} */ params) => this.executeContextItem(type, params);
     await Promise.all([
       ...paths.map((path) => write('file-content', { path, frozen: true })),
-      ...droppedFiles.map(({ filename, content }) => write('dropped-file', { filename, content })),
+      ...droppedFiles.map(({ filename, content, extracted }) =>
+        write('dropped-file', extracted ? { filename, content, extracted } : { filename, content })),
     ]);
   }
 

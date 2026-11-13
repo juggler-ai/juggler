@@ -17,6 +17,9 @@ import {
   handleFiles, handleTextFiles, uploadAndAdd, renderAttachmentChips,
 } from '../../js/components/composer-attachments.js';
 import apiService from '../../js/services/api.js';
+import fileViewerRegistry from '../../js/registries/file-viewer-registry.js';
+import { normalizeTextFiles } from '../../js/utils/attachments.js';
+import { pdfBytes, PDF_TEXT } from '../utilities/pdf-fixture.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
 import { assert, waitFor } from '../utilities/test-helpers.js';
 import { underPseudoLocale, assertPseudoLocalized } from '../utilities/pseudo-locale.js';
@@ -78,6 +81,26 @@ export async function runTests() {
       errors.push(`${name}: ${e instanceof Error ? `${e.message}\n${e.stack}` : String(e)}`);
     }
   };
+
+  // A drop delivers bytes and no path, so a binary file a viewer can read — a
+  // PDF — is extracted in the composer and staged as that viewer's model-facing
+  // text, the same text an @-mention of the file gives the model. Read as text,
+  // it would be refused as "doesn't look like a text file".
+  await run('a dropped PDF is staged as its extracted text', async () => {
+    await fileViewerRegistry.ensureInitialized();
+    const { composer, warnings } = fakeComposer();
+    handleTextFiles(composer, [new window.File([pdfBytes()], '1.pdf', { type: 'application/pdf' })]);
+    await waitFor(() => composer._pendingTextFiles.length === 1 || warnings.length > 0,
+      () => `nothing staged; warnings ${JSON.stringify(warnings)}`);
+    assert(warnings.length === 0, `the drop was refused: ${JSON.stringify(warnings)}`);
+    const [staged] = composer._pendingTextFiles;
+    assert(staged.extracted === true, `the snapshot should be marked extracted: ${JSON.stringify(staged)}`);
+    assert(staged.content.includes(PDF_TEXT) && staged.content.includes('<file path="1.pdf">'),
+      `the snapshot should be the viewer's extraction: ${JSON.stringify(staged.content)}`);
+    // The mark survives the draft round-trip, or a reload would wrap the text twice.
+    const [restored] = normalizeTextFiles([{ ...staged }]);
+    assert(restored?.extracted === true, `the draft dropped the extracted mark: ${JSON.stringify(restored)}`);
+  });
 
   await run('en-XA: every notice and chip draws no plain English', async () => {
     await underPseudoLocale('composer-attachments-test', async () => {

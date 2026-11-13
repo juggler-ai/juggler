@@ -56,6 +56,14 @@ const STYLES = `
   border-radius: var(--radius-md);
   background: var(--document-canvas);
 }
+
+/* In a pin, whose <file-view> is a column at least as tall as the pin
+   (file-pin.js), the frame takes the height that is left rather than a share
+   of the window's. */
+.file-pin .html-view-frame {
+  flex: 1 0 auto;
+  height: auto;
+}
 `;
 
 /**

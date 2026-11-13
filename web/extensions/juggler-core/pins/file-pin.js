@@ -24,6 +24,19 @@ injectStylesOnce('file-pin-styles', `
   height: 100%;
 }
 
+/* The view is at least as tall as the pin, so a viewer whose content has no
+   height of its own (the HTML viewer's frame) can fill it; content longer than
+   the pin grows past it and the pinboard body scrolls. */
+.file-pin > file-view {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+}
+
+.file-pin > file-view > .file-view-content {
+  flex: 1 0 auto;
+}
+
 .file-pin__note {
   color: var(--text-tertiary);
   font-size: var(--font-size-sm);

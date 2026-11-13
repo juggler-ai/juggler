@@ -66,13 +66,19 @@ class FileViewerRegistry extends BaseRegistry {
    *    (extension load order, as established by the base registry).
    * 4. First wins. No candidate means the caller renders its "no viewer"
    *    fallback.
+   *
+   * An `extracted` descriptor is text derived from the file, still labelled
+   * with the file's path and mime: only `matchAll` viewers are candidates, and
+   * `claims()` can veto but not force one in — a match on the file's type would
+   * hand that format's viewer text it cannot parse.
    * @param {import('juggler/file-viewer').FileDescriptor} descriptor - File metadata
    * @returns {typeof import('juggler/file-viewer').default|undefined} The winning viewer class, if any
    */
   resolve(descriptor) {
     if (!descriptor) return undefined;
-    const mime = (descriptor.mime || '').toLowerCase();
-    const ext = extensionOf(descriptor.path || '');
+    const extracted = !!descriptor.extracted;
+    const mime = extracted ? '' : (descriptor.mime || '').toLowerCase();
+    const ext = extracted ? '' : extensionOf(descriptor.path || '');
 
     /** @type {{ViewerClass: typeof import('juggler/file-viewer').default, priority: number, order: number}[]} */
     const candidates = [];
@@ -109,7 +115,7 @@ class FileViewerRegistry extends BaseRegistry {
 
       if (verdict === false) continue;
       if (!withinSize) continue;
-      if (verdict !== true && !declarative) continue;
+      if ((verdict !== true || extracted) && !declarative) continue;
 
       candidates.push({
         ViewerClass,

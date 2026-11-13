@@ -20,6 +20,7 @@ import { apiUrl } from '../js/utils/api-url.js';
  * @property {string} mime - Server-reported mime ('' when unknown)
  * @property {number} size - Bytes on disk
  * @property {boolean} isBinary - Server's byte-sniff result (advisory, NOT a verdict)
+ * @property {boolean} [extracted] - `text` is what a viewer's `extract()` derived from the file, not its contents (see {@link fileSourceFromText})
  * @property {string} [text] - Body, when the transport already carried it
  * @property {string} [language] - Server-detected language, when the transport carried one
  * @property {number} [lineOffset] - 1-indexed first line of `text`
@@ -328,9 +329,15 @@ export function fileSourceFromReadResult(result, absPath, opts = {}) {
  * construction: `url()`/`bytes()` resolve against the carried text rather than
  * the content endpoint, so what is shown is these bytes even when a file of the
  * same name exists on disk.
- * @param {{path: string, text: string, size?: number, lineOffset?: number}} file - The
- *   text, the path it is attributed to, and the 1-indexed line it starts at when
- *   it is a slice of a longer file.
+ *
+ * The text is taken to be the file's contents, so it resolves to the viewer for
+ * the path's type — a written `.svg` previews as an image. Text that is instead
+ * a viewer's `extract()` of the file (a PDF's pages) is marked `extracted`: it
+ * keeps the path as its label but resolves only to a fallback viewer, as no
+ * format's own viewer can read another's extraction of it.
+ * @param {{path: string, text: string, size?: number, lineOffset?: number, extracted?: boolean}} file - The
+ *   text, the path it is attributed to, the 1-indexed line it starts at when it
+ *   is a slice of a longer file, and whether it was extracted from that file.
  * @returns {FileSource} A text-backed file source
  */
 export function fileSourceFromText(file) {
@@ -340,6 +347,7 @@ export function fileSourceFromText(file) {
     absPath: file.path,
     size: file.size ?? text.length,
     isBinary: false,
+    ...(file.extracted ? { extracted: true, mime: 'text/plain' } : {}),
     text,
     exists: true,
     totalLines: text ? text.split('\n').length : 0,
@@ -360,5 +368,6 @@ export function toDescriptor(source) {
     mime: source.mime,
     size: source.size,
     isBinary: source.isBinary,
+    extracted: !!source.extracted,
   };
 }

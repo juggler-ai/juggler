@@ -35,6 +35,10 @@
  * @property {string} mime - Server-reported mime type ('' when unknown)
  * @property {number} size - Bytes on disk
  * @property {boolean} isBinary - Server's byte-sniff observation (advisory, NOT a verdict)
+ * @property {boolean} [extracted] - The content is text a viewer's `extract()`
+ *   derived from the file, not the file's bytes. `path` and `mime` still name the
+ *   original, so only `matchAll` viewers are candidates for it — the viewer for
+ *   the file's own type would be handed text in a format it cannot parse.
  */
 
 /**

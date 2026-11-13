@@ -166,11 +166,13 @@ class DroppedFileContextItem extends ContextItem {
 
     // A dropped file is never server-backed — there is no path on disk and no
     // server-detected language — so the source carries the text the drop
-    // captured and only ever resolves to the text viewer.
+    // captured. Text extracted from a binary file is marked so, which keeps the
+    // viewer for the file's own type from being handed it.
     const view = /** @type {any} */ (document.createElement('file-view'));
     view.setSource(fileSourceFromText({
       path: this.data.filename || t('Dropped file'),
       text: content,
+      extracted: !!this.data.extracted,
     }));
     container.appendChild(view);
     return container;

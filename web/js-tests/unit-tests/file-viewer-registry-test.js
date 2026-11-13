@@ -13,12 +13,13 @@
  *  - `maxBytes` declining an oversized file;
  *  - the `claims()` veto (how the text viewer refuses binary content) and the
  *    `claims()` force-include for a file no manifest field matches;
- *  - empty resolution, which is what lands a file on the "no viewer" fallback.
+ *  - empty resolution, which is what lands a file on the "no viewer" fallback;
+ *  - extracted text, which resolves past the viewer for the file it came from.
  * @module unit-tests/file-viewer-registry-test
  */
 
 import fileViewerRegistry from '../../js/registries/file-viewer-registry.js';
-import { fileSourceFromReadResult, mimeForPath, toDescriptor } from '../../sdk/file-source.js';
+import { fileSourceFromReadResult, fileSourceFromText, mimeForPath, toDescriptor } from '../../sdk/file-source.js';
 
 /**
  * @param {boolean} cond - Assertion condition
@@ -138,6 +139,14 @@ export async function runTests() {
     tally(check(
       fileViewerRegistry.resolve(descriptor({ path: 'a.png', mime: 'image/png', size: 10, isBinary: true })) === IMAGE,
       'a binary image should still resolve to the image viewer', errors));
+
+    // Extracted text keeps the name of the file it came from, but it is not that
+    // file's bytes: a PDF's extracted text must reach the fallback, not the PDF
+    // viewer, which would try to parse it as a PDF.
+    const extractedPdf = fileSourceFromText({ path: 'doc.pdf', text: 'page one', extracted: true });
+    tally(check(
+      fileViewerRegistry.resolve(toDescriptor(extractedPdf)) === TEXT,
+      'extracted text should resolve to the text fallback, not the viewer for its file type', errors));
   } finally {
     restore();
   }
@@ -183,6 +192,9 @@ export async function runTests() {
     tally(check(
       fileViewerRegistry.resolve(descriptor({ path: 'a.txt' })) === undefined,
       'claims() returning undefined should leave a non-matching viewer out', errors));
+    tally(check(
+      fileViewerRegistry.resolve(descriptor({ path: 'a.weird', extracted: true })) === undefined,
+      'claims() should not force a viewer onto text extracted from its file type', errors));
   } finally {
     restore();
   }
@@ -241,10 +253,10 @@ export async function runTests() {
   tally(check(legacyImage.url() === '/api/assets/abc123',
     'a legacy image should stream from its stored asset, not the content endpoint', errors));
 
-  // toDescriptor must expose exactly the four fields resolution matches on.
+  // toDescriptor must expose exactly the fields resolution matches on.
   const desc = toDescriptor(legacyText);
   tally(check(
-    Object.keys(desc).sort().join(',') === 'isBinary,mime,path,size',
+    Object.keys(desc).sort().join(',') === 'extracted,isBinary,mime,path,size',
     'toDescriptor should expose exactly the resolution fields', errors));
 
   tally(check(mimeForPath('a.pdf') === 'application/pdf' && mimeForPath('a.unknown') === '',

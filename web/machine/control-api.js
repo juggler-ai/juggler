@@ -128,7 +128,10 @@ export function createControlApi({ token, base = '', fetchImpl = (input, init) =
         method,
         headers,
         body: body === undefined ? undefined : JSON.stringify(body),
-        credentials: 'omit',
+        // The server reads only the token, but a reverse proxy in front of it
+        // may sign its users in (basic auth, a cookie): that credential goes
+        // too, as it did on the page load, or the proxy refuses the call.
+        credentials: 'same-origin',
         cache: 'no-store',
       });
     } catch (err) {
@@ -189,7 +192,7 @@ export function createControlApi({ token, base = '', fetchImpl = (input, init) =
         resp = await fetchImpl(`${base}/api/server/events`, {
           method: 'GET',
           headers: { [TOKEN_HEADER]: token, Accept: 'text/event-stream' },
-          credentials: 'omit',
+          credentials: 'same-origin', // a signing-in proxy's, as request() sends
           cache: 'no-store',
           signal,
         });

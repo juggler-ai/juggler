@@ -433,6 +433,7 @@ export async function runTests() {
     await api.events((snap) => { got.push(snap); }, new AbortController().signal);
     assert(String(asked?.input) === '/api/server/events', `asked ${asked?.input}`);
     assert(asked?.init?.headers?.[TOKEN_HEADER] === 'tok', 'the stream was not asked for with the token');
+    assert(asked?.init?.credentials === 'same-origin', `the stream was asked for with credentials '${asked?.init?.credentials}', want 'same-origin' (a signing-in proxy's)`);
     assert(got.length === 2, `${got.length} snapshots, want 2`);
     assert(got[0].sessions[0]?.id === 'aaa' && got[1].sessions.length === 0, `snapshots ${JSON.stringify(got)}`);
     assert(got[0].recents.waiting['/work/old'] === 1, `the stream's recents lost their waiting counts: ${JSON.stringify(got[0].recents)}`);
@@ -1331,7 +1332,10 @@ export async function runTests() {
     for (const { url, init } of sent) {
       assert(url.startsWith('/api/server/'), `request to ${url}`);
       assert(init.headers[TOKEN_HEADER] === 'secret-1', `request to ${url} without the credential`);
-      assert(init.credentials === 'omit', `request to ${url} sends cookies`);
+      // A reverse proxy that signs its users in (basic auth, a cookie) stands
+      // between the page and the server: its credential must ride along, as it
+      // did on the page load, or the proxy refuses the call.
+      assert(init.credentials === 'same-origin', `request to ${url} sends credentials '${init.credentials}', want 'same-origin'`);
     }
     assert(JSON.parse(sent[1].init.body).project === '/p', 'open sent no project');
   });

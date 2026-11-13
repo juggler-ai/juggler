@@ -15,7 +15,10 @@
  * conversation that ran out of things to say would just vanish. "Seen" only
  * picks where a mount starts: the first tip the user has not yet learnt by
  * doing, searching on from where the previous mount began, so consecutive new
- * conversations open on different tips.
+ * conversations open on different tips — unless a `lead` tip applies (the
+ * project has no AGENTS.md), which opens the strip every time. Which tips
+ * apply is the engine's to say, from the `context` the conversation area
+ * hands over.
  *
  * On a touch composer the keyboard-shortcut tips teach keys there are none of,
  * so only the feature tips rotate — keyed off the same `(hover: none) and
@@ -33,9 +36,11 @@
 import JugglerElement from './juggler-element.js';
 import keyShortcutManager from '../services/key-shortcut-manager.js';
 import { allTips, isTipLearnt, guidanceShown, GUIDANCE_CHANGED_EVENT } from '../services/guidance/nudge-engine.js';
+import { FACTS_CHANGED_EVENT } from '../services/guidance/facts.js';
 import { t } from '../../sdk/lib/i18n.js';
 
 /** @typedef {import('../services/guidance/nudge-engine.js').Tip} Tip */
+/** @typedef {import('../services/guidance/nudge-catalogue.js').NudgeContext} NudgeContext */
 
 /**
  * Rotate to the next tip this often (ms): long enough to read the longest tip,
@@ -66,11 +71,21 @@ function chevron(dir) {
 }
 
 /**
+ * @param {NudgeContext} ctx - Where the strip is.
  * @returns {Tip[]} The tips this composer can use, in priority order.
  */
-function rotation() {
+function rotation(ctx) {
   const touch = typeof window.matchMedia === 'function' && window.matchMedia(TOUCH_QUERY).matches;
-  return touch ? allTips().filter((tip) => tip.kind !== 'shortcut') : allTips();
+  const tips = allTips(ctx);
+  return touch ? tips.filter((tip) => tip.kind !== 'shortcut') : tips;
+}
+
+/**
+ * @param {Tip[]} tips
+ * @returns {string} What identifies a rotation: its ids, in order.
+ */
+function rotationKey(tips) {
+  return tips.map((tip) => tip.id).join('\n');
 }
 
 class EmptyHintTips extends JugglerElement {
@@ -82,12 +97,18 @@ class EmptyHintTips extends JugglerElement {
     this._index = 0;
     /** @type {ReturnType<typeof setInterval>|null} @private */
     this._timer = null;
+    /** @type {NudgeContext} @private */
+    this._context = {};
   }
 
   connectedCallback() {
-    const onPrefChanged = () => this._sync();
-    window.addEventListener(GUIDANCE_CHANGED_EVENT, onPrefChanged);
-    this.addCleanup(() => window.removeEventListener(GUIDANCE_CHANGED_EVENT, onPrefChanged));
+    const onChanged = () => this._sync();
+    window.addEventListener(GUIDANCE_CHANGED_EVENT, onChanged);
+    window.addEventListener(FACTS_CHANGED_EVENT, onChanged);
+    this.addCleanup(() => {
+      window.removeEventListener(GUIDANCE_CHANGED_EVENT, onChanged);
+      window.removeEventListener(FACTS_CHANGED_EVENT, onChanged);
+    });
     this.addCleanup(() => this._stopRotation());
     // Every mount starts afresh: a re-attached strip opens on the next tip, and
     // the rotation its last disconnect stopped is started again by the build.
@@ -95,13 +116,31 @@ class EmptyHintTips extends JugglerElement {
     this._sync();
   }
 
+  /** @returns {NudgeContext} What the surface last said about where it is. */
+  get context() { return this._context; }
+
   /**
-   * Build the strip, or take it down, to match the Settings › Defaults switch.
-   * Switched off, the element stays in the stack but empty and `hidden`, with
-   * no rotation running — a strip that is not there has nothing to tick.
+   * Where the strip is: the conversation decides which `when` tips are in the
+   * rotation. Set as often as the surface likes; the strip rebuilds only when
+   * that changes which tips there are.
+   * @param {NudgeContext} ctx
+   */
+  set context(ctx) {
+    this._context = ctx || {};
+    this._sync();
+  }
+
+  /**
+   * Build the strip, or take it down, to match the Settings › Defaults switch
+   * and the tips that apply here. Switched off, the element stays in the stack
+   * but empty and `hidden`, with no rotation running — a strip that is not
+   * there has nothing to tick. A change to which tips apply (a fact arriving,
+   * a different conversation) rebuilds it, so a `lead` tip that has just become
+   * true opens it; anything else leaves the tip on show alone.
    * @private
    */
   _sync() {
+    if (!this.isConnected) return;
     const shown = guidanceShown();
     this.hidden = !shown;
     if (!shown) {
@@ -109,16 +148,23 @@ class EmptyHintTips extends JugglerElement {
       this.replaceChildren();
       return;
     }
-    if (this.childElementCount > 0) return;
-    this._build();
+    const tips = rotation(this._context);
+    if (this.childElementCount > 0 && rotationKey(tips) === rotationKey(this._tips)) return;
+    this._stopRotation();
+    this.replaceChildren();
+    this._build(tips);
   }
 
   /**
    * Fill the strip and start it rotating.
+   * @param {Tip[]} tips - The rotation.
    * @private
    */
-  _build() {
-    this._tips = rotation();
+  _build(tips) {
+    this._tips = tips;
+    // A tip with buttons stands taller than the rest; every tip gets its height
+    // while one is in the rotation, so stepping never resizes the stack.
+    this.classList.toggle('empty-hint-tips--tall', tips.some((tip) => (tip.actions?.length ?? 0) > 0));
     if (this._tips.length === 0) return;
     this._index = this._startIndex();
 
@@ -141,13 +187,15 @@ class EmptyHintTips extends JugglerElement {
   }
 
   /**
-   * The first unseen tip at or after the shared cursor (wrapping), or the
-   * cursor's own tip once every one is seen. Moves the cursor on for the next
-   * mount.
+   * A `lead` tip (the rotation puts them first), or else the first unseen tip
+   * at or after the shared cursor (wrapping), or the cursor's own tip once every
+   * one is seen. The cursor moves on only when it chose, so a lead tip does not
+   * cost the next conversation its turn through the others.
    * @returns {number} The index to open on.
    * @private
    */
   _startIndex() {
+    if (this._tips[0]?.lead) return 0;
     const n = this._tips.length;
     const from = startCursor % n;
     startCursor = from + 1;
@@ -268,8 +316,34 @@ class EmptyHintTips extends JugglerElement {
     body.textContent = t(tip.body);
 
     slot.append(title, body);
+    if (tip.actions?.length) {
+      const actions = document.createElement('div');
+      actions.className = 'empty-hint-tips__actions';
+      for (const action of tip.actions) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-sm btn-secondary empty-hint-tips__action';
+        btn.textContent = t(action.label);
+        btn.addEventListener('click', () => { void this._run(action); });
+        actions.appendChild(btn);
+      }
+      slot.appendChild(actions);
+    }
     slot.setAttribute('data-tip-id', tip.id);
     return slot;
+  }
+
+  /**
+   * Carry out a tip's button: its command, sent exactly as if typed into the
+   * conversation the strip is in, so it shows and records itself as one.
+   * @param {import('../services/guidance/nudge-catalogue.js').NudgeAction} action
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _run(action) {
+    const thread = this._context.thread;
+    if (!action.command || !thread) return;
+    await thread.conversation?.sendMessage?.(`/${action.command}`, thread.threadItemId ?? null, thread);
   }
 
   /**

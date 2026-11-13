@@ -129,40 +129,34 @@ function seedDefaultStrategy(session, conversation) {
 }
 
 /**
- * Add AI assistant files that exist in the user's global instruction folders,
- * in the probed tree, and in whatever wider places its provider says also hold
- * instructions for work done there. Folders below the tree's root are not
- * probed here: their files load when the agent first works in them
- * (`services/instruction-files.js`).
- * Checks each file exists before adding, prevents duplicates via FileContentContextItem.mergeOrReplace
- * @param {import('./session.js').default} session - The session whose preferences and workspaces apply
- * @param {import('./conversation.js').default} conversation - Conversation to add files to
- * @param {import('./message-thread.js').default|null} [messageThread] - Target thread; null means root thread
- * @param {{workspaceId?: string}} [options] - Which tree to probe; defaults to the conversation's own binding
- * @returns {Promise<number>} Number of files added
+ * Conversations whose instruction-file fact this page has reported.
+ * @type {Set<string>}
  */
-async function addAIAssistantFiles(session, conversation, messageThread = null, options = {}) {
-  // This is a best-effort optional operation - log and continue if prerequisites aren't met
-  if (!conversation) {
-    console.debug('[ConversationSeeder] Skipping AI assistant file detection: conversation not ready');
-    return 0;
-  }
+const instructionFilesReported = new Set();
 
-  const mt = messageThread || conversation.rootMessageThread;
-
+/**
+ * Look for AI assistant files: the user's global folders, the places above the
+ * tree, then the tree itself.
+ * @param {import('./session.js').default} session
+ * @param {import('./conversation.js').default} conversation
+ * @param {string} [workspaceId] - Which tree to probe; defaults to the conversation's own binding
+ * @returns {Promise<{candidates: ({filename: string, contentHash: string|undefined}|null)[], globalCount: number}>}
+ *   One entry per probed path (null where none), and how many leading entries are global.
+ */
+async function probeAssistantFiles(session, conversation, workspaceId) {
   // Which tree to look in is the caller's to say, because a conversation is
   // offered its assistant files before it is bound to anything: the tree on
   // offer in a place list is a workspace this conversation does not work in
   // yet, and may never. A bound conversation asks about its own tree by
   // passing nothing.
   //
-  // What is seeded below survives that gap without knowing about it. A seeded
+  // What is seeded from this survives that gap without knowing about it. A seeded
   // file-content item persists a path and no bytes, and takes its snapshot at
   // the first transaction through its own scoped ops — by then the
   // conversation is bound, so the file that is READ is the one in the tree it
   // ended up working in. The probe here decides only WHICH names exist, which
   // is why it is worth doing against the tree currently on offer.
-  const where = options.workspaceId ?? conversation.workspaceId;
+  const where = workspaceId ?? conversation.workspaceId;
   const ops = createBoundOps(() => ({ workspaceId: where }));
 
   // The root is not always the only place whose instructions apply: a folder
@@ -170,7 +164,7 @@ async function addAIAssistantFiles(session, conversation, messageThread = null, 
   // under instructions written above them. Which other place counts is the
   // provider's to say — no path walk can tell those two from a worktree of
   // the project itself, whose parent is the user's home directory — while the
-  // list of names, the dedup and the skip below stay here.
+  // list of names stays here, and the dedup and the skip with the seeder.
   //
   // Widest first, so a tree's own files are probed last and read closest: the
   // user's global folders, then the places above the tree, then the tree. The
@@ -206,12 +200,59 @@ async function addAIAssistantFiles(session, conversation, messageThread = null, 
     })
   );
 
+  return { candidates, globalCount: globalProbes.length };
+}
+
+/**
+ * Report whether a conversation's project has instruction files of its own,
+ * for a conversation this page has not seeded (one created before a reload):
+ * the same probe and the same fact as seeding, adding nothing. Once per
+ * conversation per page; a later call is free.
+ * @param {import('./session.js').default} session
+ * @param {import('./conversation.js').default} conversation
+ * @returns {Promise<void>} Never rejects.
+ */
+export async function reportInstructionFiles(session, conversation) {
+  if (!session || !conversation?.id || instructionFilesReported.has(conversation.id)) return;
+  instructionFilesReported.add(conversation.id);
+  try {
+    const { candidates, globalCount } = await probeAssistantFiles(session, conversation);
+    reportFact('instruction-files', conversation.id, candidates.slice(globalCount).filter(Boolean).length);
+  } catch (err) {
+    instructionFilesReported.delete(conversation.id);
+    console.warn('[ConversationSeeder] Could not check for instruction files:', err);
+  }
+}
+
+/**
+ * Add AI assistant files that exist in the user's global instruction folders,
+ * in the probed tree, and in whatever wider places its provider says also hold
+ * instructions for work done there. Folders below the tree's root are not
+ * probed here: their files load when the agent first works in them
+ * (`services/instruction-files.js`).
+ * Checks each file exists before adding, prevents duplicates via FileContentContextItem.mergeOrReplace
+ * @param {import('./session.js').default} session - The session whose preferences and workspaces apply
+ * @param {import('./conversation.js').default} conversation - Conversation to add files to
+ * @param {import('./message-thread.js').default|null} [messageThread] - Target thread; null means root thread
+ * @param {{workspaceId?: string}} [options] - Which tree to probe; defaults to the conversation's own binding
+ * @returns {Promise<number>} Number of files added
+ */
+async function addAIAssistantFiles(session, conversation, messageThread = null, options = {}) {
+  // This is a best-effort optional operation - log and continue if prerequisites aren't met
+  if (!conversation) {
+    console.debug('[ConversationSeeder] Skipping AI assistant file detection: conversation not ready');
+    return 0;
+  }
+
+  const mt = messageThread || conversation.rootMessageThread;
+  const { candidates, globalCount } = await probeAssistantFiles(session, conversation, options.workspaceId);
+
   // What was found is a fact guidance may act on (a project with no
   // instruction file at all is offered help writing one); nothing else here
   // knows or decides anything about that. The user's global files are not the
   // project's, so they do not count.
-  reportFact('instruction-files', conversation.id,
-    candidates.slice(globalProbes.length).filter(Boolean).length);
+  reportFact('instruction-files', conversation.id, candidates.slice(globalCount).filter(Boolean).length);
+  instructionFilesReported.add(conversation.id);
 
   // Add discovered files sequentially so each executeContextItem sees a
   // stable thread state (avoids racing duplicate inserts of the same

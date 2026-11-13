@@ -97,6 +97,7 @@ const BACK_OFF_AFTER = 2;
  * @property {() => boolean} shown - Whether tips and teaching hints are on.
  * @property {(on: boolean) => void} setShown - Switch them on or off.
  * @property {(id: string) => boolean} isTipLearnt - Whether a tip has been learnt by doing.
+ * @property {(ctx: NudgeContext) => NudgeEntry[]} tips - The tips in the rotation here, lead ones first.
  */
 
 /**
@@ -341,6 +342,17 @@ export function createNudgeEngine({ catalogue, usage: u, user, project, facts = 
       const entry = catalogue.find((e) => e.id === id);
       return !!entry && retired(entry);
     },
+
+    /**
+     * The tips in the rotation here: every tip whose `when` (if any) holds, the
+     * `lead` ones first, otherwise in catalogue order.
+     * @param {NudgeContext} ctx
+     * @returns {NudgeEntry[]} The tip entries.
+     */
+    tips(ctx) {
+      const live = catalogue.filter((e) => e.kind === 'tip' && (!e.when || e.when(ctx, /** @type {any} */ (u), facts)));
+      return [...live.filter((e) => e.lead), ...live.filter((e) => !e.lead)];
+    },
   };
 }
 
@@ -408,21 +420,28 @@ export function isTipLearnt(id) { return appEngine.isTipLearnt(id); }
  * @property {string} title - English; the view translates it.
  * @property {string} body - English; the view translates it.
  * @property {string} [shortcutId] - The KeyShortcutManager id, formatted live by the view.
+ * @property {true} [lead] - The strip opens on it.
+ * @property {NudgeAction[]} [actions] - Its buttons; each runs a `command`.
  */
 
 /**
- * Every tip in priority order, with shortcut titles read live from the
- * shortcut table. A tip for a shortcut not bound on this platform is dropped:
- * it exists to teach a keystroke, and there is none to teach.
+ * Every tip in the rotation for a context, in priority order, with shortcut
+ * titles read live from the shortcut table. A tip for a shortcut not bound on
+ * this platform is dropped: it exists to teach a keystroke, and there is none
+ * to teach.
+ * @param {NudgeContext} [ctx] - Where the strip is; a tip with a `when` needs one.
  * @returns {Tip[]} The tips.
  */
-export function allTips() {
+export function allTips(ctx = {}) {
   /** @type {Tip[]} */
   const tips = [];
-  for (const entry of NUDGES) {
-    if (entry.kind !== 'tip') continue;
+  for (const entry of appEngine.tips(ctx)) {
     if (!entry.shortcutId) {
-      tips.push({ id: entry.id, kind: 'feature', title: entry.title ?? '', body: entry.body });
+      tips.push({
+        id: entry.id, kind: 'feature', title: entry.title ?? '', body: entry.body,
+        ...(entry.lead ? { lead: true } : {}),
+        ...(entry.actions?.length ? { actions: entry.actions } : {}),
+      });
       continue;
     }
     const def = keyShortcutManager.all().find((d) => d.id === entry.shortcutId);

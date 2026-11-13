@@ -47,6 +47,8 @@ import '../../js/components/conversation-tab.js';
 import { setGuidanceShown } from '../../js/services/guidance/nudge-engine.js';
 import { setReplySuggestionsEnabledCached } from '../../js/services/reply-suggestions-setting.js';
 import { isolatePrefs } from '../utilities/pref-isolation.js';
+import { facts } from '../../js/services/guidance/facts.js';
+import { reportInstructionFiles } from '../../js/model/conversation-seeder.js';
 
 /**
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Aggregated test results.
@@ -114,6 +116,18 @@ export async function runTests() {
       `deemed not to fit (the column holds ${conversation.rootItems.length} seeded item(s))`);
     assert(!hint.classList.contains('no-room-for-tips'),
       'the 1000px-tall test column should have room for the rolling tip, but it was shed');
+
+    // --- A conversation this page never seeded still learns its instruction files ---
+    // One created before a reload has had no seeding here, so nothing reported
+    // whether its project has an AGENTS.md, and the strip's AGENTS.md tip would
+    // silently never appear. Showing its hint asks.
+    const unseeded = { id: `unseeded-${Date.now()}`, workspaceId: conversation.workspaceId };
+    assert(facts.get('instruction-files', unseeded.id) === undefined, 'test setup: nothing known yet');
+    await reportInstructionFiles(session, /** @type {any} */ (unseeded));
+    assert(typeof facts.get('instruction-files', unseeded.id) === 'number',
+      'reportInstructionFiles should report how many instruction files the project has');
+    await waitFor(() => typeof facts.get('instruction-files', conversation.id) === 'number',
+      { description: 'the conversation on show to have its instruction-file fact reported' });
 
     // --- The rolling tip shows a tip, and its buttons step through them ---
 

@@ -287,15 +287,23 @@ export async function runTests() {
   await run('12: instruction-file', () => {
     const regular = { days: { 'composer:send': 2 } };
     const none = { 'instruction-files': { c1: 0 } };
-    eq(id(real({ ...regular, facts: none }).nudgeFor('empty-hint', { conversationId: 'c1', thread: root })), 'instruction-file', 'none found');
-    eq(id(real({ ...regular, facts: { 'instruction-files': { c1: 1 } } }).nudgeFor('empty-hint', { conversationId: 'c1', thread: root })), null, 'one found');
-    eq(id(real({ ...regular }).nudgeFor('empty-hint', { conversationId: 'c1', thread: root })), null, 'not before the seeder has looked');
-    eq(id(real({ days: { 'composer:send': 1 }, facts: none }).nudgeFor('empty-hint', { conversationId: 'c1', thread: root })), null, 'not on the first day');
+    const newcomer = real({ days: { 'composer:send': 0 }, facts: none });
+    eq(newcomer.tips({ conversationId: 'c1' })[0]?.id, 'instruction-file', 'only a file existing takes it out: even on the first day');
+    const c1 = { conversationId: 'c1' };
+    /**
+     * @param {ReturnType<typeof createNudgeEngine>} e
+     * @param {any} ctx
+     * @returns {boolean} Whether the AGENTS.md tip is in the rotation.
+     */
+    const has = (e, ctx) => e.tips(ctx).some((tip) => tip.id === 'instruction-file');
     const e = real({ ...regular, facts: none });
-    const n = e.nudgeFor('empty-hint', { conversationId: 'c1', thread: root });
-    eq(n?.actions.map((a) => a.command ?? a.run), ['init', 'dismiss'], 'create one, or not for this project');
-    e.dismiss('instruction-file', {});
-    eq(id(e.nudgeFor('empty-hint', { conversationId: 'c1', thread: root })), null, 'dismissed for the project');
+    eq(e.tips(c1)[0]?.id, 'instruction-file', 'none found: it opens the strip');
+    eq(e.tips(c1).filter((tip) => tip.lead).length, 1, 'the only lead tip');
+    eq(has(real({ ...regular, facts: { 'instruction-files': { c1: 1 } } }), c1), false, 'one found');
+    eq(has(real({ ...regular }), c1), false, 'not before the seeder has looked');
+    eq(has(e, {}), false, 'not without a conversation to ask about');
+    eq(e.tips({}).length, e.tips(c1).length - 1, 'the rest of the rotation is the same either way');
+    eq(id(e.nudgeFor('empty-hint', c1)), null, 'a tip, never a nudge');
   });
 
   await run('9: the real catalogue is well-formed', async () => {

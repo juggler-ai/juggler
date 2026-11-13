@@ -54,6 +54,7 @@ import JugglerElement from './juggler-element.js';
 import { StatusMessageBuilder } from '../services/status-message-builder.js';
 import { guarded } from '../utils/fault-report.js';
 import { emptyHintStackMarkup } from './empty-hint-stack.js';
+import { reportInstructionFiles } from '../model/conversation-seeder.js';
 import { isFileDrag, installFileDropGuard, markFileDropAccepted } from '../utils/file-drop.js';
 import { ReplySuggestionsController } from '../services/reply-suggestions-controller.js';
 import { STARTER_PROMPTS } from '../utils/starter-prompts.js';
@@ -1627,14 +1628,16 @@ class ConversationArea extends JugglerElement {
 
     const hasHistory = this._hasConversationalHistory(items);
     hint.classList.toggle('hidden', hasHistory);
-    // The hint's guidance slot learns where it is; the engine decides the rest.
+    // The tip strip learns where it is; the engine decides which tips apply.
+    // Whether the project has instruction files is known for a conversation
+    // seeded on this page; one created before a reload is asked here (once).
+    const tips = /** @type {any} */ (hint.querySelector('empty-hint-tips'));
     const conversation = this._messageThread?.conversation;
-    for (const nudge of /** @type {NodeListOf<any>} */ (hint.querySelectorAll('juggler-nudge'))) {
-      nudge.context = hasHistory ? { turnActive: true } : {
-        conversationId: conversation?.id,
-        thread: this._messageThread,
-        turnActive: false,
-      };
+    if (tips && !hasHistory) {
+      if (tips.context?.conversationId !== conversation?.id || tips.context?.thread !== this._messageThread) {
+        tips.context = { conversationId: conversation?.id, thread: this._messageThread };
+      }
+      if (conversation && !conversation.awaitingSetup) void reportInstructionFiles(conversation.session, conversation);
     }
     if (hasHistory) {
       // Retired: drop the band measurements too, so a later re-show starts from
@@ -1714,7 +1717,7 @@ class ConversationArea extends JugglerElement {
     // the tip back.
     hint.classList.remove('no-room-for-tips');
     let fits = bandHeight - stack.offsetHeight >= EMPTY_HINT_CLEARANCE_PX;
-    if (!fits && stack.querySelector('.empty-hint-tips:not([hidden]), juggler-nudge:not([hidden])')) {
+    if (!fits && stack.querySelector('.empty-hint-tips:not([hidden])')) {
       hint.classList.add('no-room-for-tips');
       fits = bandHeight - stack.offsetHeight >= EMPTY_HINT_CLEARANCE_PX;
     }

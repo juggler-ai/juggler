@@ -96,8 +96,16 @@ conversation-empty-hint.no-room {
 
 /* The hint's content as one block, so the fit test measures a single height.
    flex-shrink:0 keeps it content-sized — a frame too short for it must be
-   detectable from JS, not absorbed as a silent clip. */
+   detectable from JS, not absorbed as a silent clip.
+
+   Colour is how it reads at a glance: the heading at full strength, each key
+   cap tinted by its group (--empty-hint-accent: blue for what the composer
+   does, purple for moving between conversations) so the key column scans as
+   two sets, the labels a step brighter than the incidental lines, and the
+   tip strip lit by its amber bulb. */
 .empty-hint-stack {
+    --empty-hint-accent: var(--accent-blue);
+
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -109,6 +117,15 @@ conversation-empty-hint.no-room {
 .empty-hint-lead {
     margin: 0;
     padding: var(--space-16) 0;
+}
+
+.empty-hint-lead--title {
+    color: var(--text-primary);
+    font-weight: var(--font-weight-medium);
+}
+
+.empty-hint-label {
+    color: var(--text-secondary);
 }
 
 .empty-hint-keys {
@@ -125,18 +142,34 @@ conversation-empty-hint.no-room {
     display: contents;
 }
 
+.empty-hint-row--nav {
+    --empty-hint-accent: var(--accent-purple);
+}
+
 .empty-hint-key {
     justify-self: end;
     min-width: 2rem;
     padding: var(--space-2) var(--space-8);
-    border: 1px solid var(--border-color);
+    border: 1px solid color-mix(in srgb, var(--empty-hint-accent) 45%, transparent);
+    border-bottom-width: 0.125rem;
     border-radius: var(--radius-lg);
-    background: var(--bg-primary);
-    color: var(--text-secondary);
+    background: color-mix(in srgb, var(--empty-hint-accent) 12%, var(--bg-primary));
+
+    /* Toward the page's own text colour: lighter on dark, darker on light, so
+       the glyph holds its contrast in both themes. */
+    color: color-mix(in srgb, var(--empty-hint-accent) 75%, var(--text-primary));
     text-align: center;
 
     /* System UI stack: reliably carries the ↵ ⇧ glyphs (unlike the mono font). */
     font-family: -apple-system, system-ui, var(--font-ui), sans-serif;
+}
+
+/* Two keys sharing one row's key cell (Page Up / Page Down), right-aligned
+   with the single keys above them. */
+.empty-hint-key-pair {
+    display: flex;
+    gap: var(--space-4);
+    justify-self: end;
 }
 
 /* A touch composer sends with a button and takes Enter as a newline, and has
@@ -181,12 +214,13 @@ conversation-empty-hint.no-room {
     content: '';
     width: 1.5rem;
     height: 0.0625rem;
-    background: var(--border-color);
+    background: color-mix(in srgb, var(--accent-yellow) 45%, transparent);
 }
 
 .empty-hint-tips__badge .icon-lightbulb {
     width: 1.125rem;
     height: 1.125rem;
+    color: var(--accent-yellow);
 }
 
 .empty-hint-tips__row {
@@ -220,14 +254,37 @@ conversation-empty-hint.no-room-for-tips .empty-hint-tips {
     line-height: var(--leading-tight);
 }
 
+/* A rotation holding a tip with buttons: room for its copy and its button
+   row on every tip, so a step never changes the strip's height. */
+.empty-hint-tips--tall .empty-hint-tips__tip {
+    min-height: 9.5rem;
+}
+
 .empty-hint-tips__tip--leaving {
     position: absolute;
     inset: 0 0 auto;
 }
 
 .empty-hint-tips__title {
-    color: var(--text-secondary);
+    color: var(--text-primary);
     font-weight: var(--font-weight-semibold);
+}
+
+.empty-hint-tips__body {
+    color: var(--text-secondary);
+}
+
+/* A tip's own buttons, under its copy; they take back the clicks the hint
+   passes through. */
+.empty-hint-tips__actions {
+    display: flex;
+    justify-content: center;
+    gap: var(--space-8);
+    margin-top: var(--space-6);
+}
+
+.empty-hint-tips__action {
+    pointer-events: auto;
 }
 
 /* The same keycap as the rows above, inline so the title wraps around it. */
@@ -253,9 +310,7 @@ conversation-empty-hint.no-room-for-tips .empty-hint-tips {
 
 /* Guidance (juggler-nudge.js): one hint at a time — its copy, then its buttons
    and ×. Quieter than the Undo offer: a suggestion, not news. Compact, it is its
-   buttons alone, sitting in the footer like any other control. In the starting
-   hint it takes the tip strip's width and gives way with it when the band is
-   short, and takes back the clicks the hint passes through. */
+   buttons alone, sitting in the footer like any other control. */
 .juggler-nudge {
     display: flex;
     flex-wrap: wrap;
@@ -265,7 +320,6 @@ conversation-empty-hint.no-room-for-tips .empty-hint-tips {
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
     font-size: var(--font-size-sm);
-    pointer-events: auto;
 }
 
 .juggler-nudge--compact {
@@ -299,16 +353,6 @@ conversation-empty-hint.no-room-for-tips .empty-hint-tips {
     width: 1.75rem;
     height: 1.75rem;
     padding: 0;
-}
-
-.empty-hint-nudge {
-    width: 31rem;
-    max-width: 100%;
-    text-align: left;
-}
-
-conversation-empty-hint.no-room-for-tips .empty-hint-nudge {
-    display: none;
 }
 
 /* Subtle jump-to-top / jump-to-bottom controls, overlaid top-right of the

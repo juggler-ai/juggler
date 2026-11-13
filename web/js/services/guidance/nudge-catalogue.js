@@ -9,7 +9,10 @@
  * ({@link module:services/guidance/nudge-engine}) applies:
  * - `tip` — a feature someone is unlikely to stumble on, in the rolling strip
  *   under a new conversation's starting hint. Every tip stays in the rotation;
- *   one whose `retireOn` usage has happened is just not opened on.
+ *   one whose `retireOn` usage has happened is just not opened on. A tip with a
+ *   `when` is in the rotation only while that holds, and a `lead` tip opens the
+ *   strip whenever it is in it. A tip may carry `actions` (a `command`
+ *   only); it never has a ×.
  * - `teach` — a hint about the person ("you haven't found X"). At most one new
  *   one a day, it lapses after a few days, never shown to someone who used the
  *   app before usage was recorded, and silenced by the off switch.
@@ -96,6 +99,7 @@ function isLong(tokens) {
  * @property {string} [title] - English headline. A shortcut tip reads its title from the shortcut table.
  * @property {string} body - English, one or two sentences.
  * @property {string} [shortcutId] - For a tip teaching a key: the KeyShortcutManager id.
+ * @property {boolean} [lead] - For a tip: open the strip on it whenever it applies.
  * @property {string[]} [retireOn] - Usage events any of which retire it for good (`slash:*`: any command).
  * @property {(ctx: NudgeContext, usage: import('./usage-signals.js').UsageView, facts: import('./facts.js').FactsView) => boolean} [when] - Whether it applies now.
  * @property {(usage: import('./usage-signals.js').UsageView) => boolean} [compactWhen] - Show only the actions.
@@ -119,14 +123,29 @@ function shortcutTip(id, body) {
  * Every entry. Order is priority: tips rotate in this order, and a surface
  * shows the first nudge whose rules allow it.
  *
- * Tips lead with what makes Juggler different (several conversations at once,
+ * After any `lead` tip, tips lead with what makes Juggler different (several conversations at once,
  * and moving between them), then the composer controls reached for every turn,
  * then the occasional ones. None repeats what the starting hint already says
  * above the strip (send, new line, @ to reference a file, / for commands,
- * drag-and-drop), and a pair of twin commands gets one tip, not two.
+ * switching conversations, drag-and-drop), and a pair of twin commands gets one tip, not two.
  * @type {ReadonlyArray<NudgeEntry>}
  */
 export const NUDGES = Object.freeze([
+  // A project with no agent instruction file at all (none of AGENTS.md,
+  // CLAUDE.md, … found) opens the strip on how to get one, in every new
+  // conversation there, until it has one — that file existing is the only thing
+  // that takes it out of the rotation. Never retired: /init in one project says
+  // nothing about the next.
+  {
+    id: 'instruction-file',
+    kind: 'tip',
+    surface: 'empty-hint',
+    lead: true,
+    title: markForTranslation('This project has no AGENTS.md'),
+    body: markForTranslation('Let the agent draft one: it reads the project and writes down how it builds, tests and is laid out.'),
+    when: (ctx, usage, facts) => facts.get('instruction-files', ctx.conversationId) === 0,
+    actions: [{ label: markForTranslation('Draft one'), command: 'init' }],
+  },
   shortcutTip('new-conversation', markForTranslation('Spin up another conversation and switch to it — run several in parallel.')),
   shortcutTip('jump-to-attention', markForTranslation('Jump straight to whichever conversation is waiting on you, landing on its pending approval.')),
   shortcutTip('strategy-switch', markForTranslation('Flip the active strategy from the composer; hold to open the full strategy menu.')),
@@ -142,7 +161,6 @@ export const NUDGES = Object.freeze([
   },
   shortcutTip('toggle-file-editing', markForTranslation('Flip between letting the agent edit files freely and asking you first.')),
   shortcutTip('pause-conversation', markForTranslation('Pause after the current step finishes — a non-destructive stop, instead of a hard cancel.')),
-  shortcutTip('next-tab', markForTranslation('Step through your conversation list without leaving the keyboard; Previous conversation steps back.')),
   shortcutTip('cycle-thinking', markForTranslation('Nudge the current model\u2019s thinking level up or down; hold to open the level popover.')),
   shortcutTip('find-in-conversation', markForTranslation('Search the text of whatever you\u2019re reading — the conversation, a properties panel, a pin.')),
   {
@@ -202,25 +220,6 @@ export const NUDGES = Object.freeze([
     when: (ctx, usage) => !ctx.thread?.threadItemId
       && usage.count('composer:send') >= 10 && usage.days('composer:send') >= 2,
     actions: [{ label: markForTranslation('Show commands'), run: 'open-slash-menu' }],
-  },
-
-  // A project with no agent instruction file at all (the seeder found none of
-  // AGENTS.md, CLAUDE.md, …) is offered help writing one — not on someone's
-  // first day, and "not for this project" means exactly that. Not retired by
-  // /init: drafting one here says nothing about the next project.
-  {
-    id: 'instruction-file',
-    kind: 'situational',
-    surface: 'empty-hint',
-    scope: 'project',
-    title: markForTranslation('No AGENTS.md in this project.'),
-    body: markForTranslation('An AGENTS.md tells the agent how this project builds, tests and is laid out, so you don\u2019t have to say it again in every conversation.'),
-    when: (ctx, usage, facts) => facts.get('instruction-files', ctx.conversationId) === 0
-      && usage.days('composer:send') >= 2,
-    actions: [
-      { label: markForTranslation('Draft one'), command: 'init' },
-      { label: markForTranslation('Not for this project'), run: 'dismiss' },
-    ],
   },
 
   {

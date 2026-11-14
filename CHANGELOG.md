@@ -31,6 +31,7 @@ the current release). The project follows semantic versioning.
 - OpenAI Responses tool calls no longer lose their arguments and run empty
 - A long OpenAI reasoning stream cut off by the server is retried instead of failing
 - An OpenAI conversation interrupted mid-reasoning can be continued instead of failing every request
+- Images a tool showed the model appear in that call's properties panel
 
 ## [0.8.0] - 2026-11-08
 

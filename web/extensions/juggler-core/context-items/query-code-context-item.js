@@ -378,6 +378,18 @@ class QueryCodeContextItem extends ContextItem {
   }
 
   /**
+   * Each image a program attached is named by what it showed: the path given
+   * to `image()`, or the tool call that handed it over.
+   * @override
+   * @param {unknown} storedResult - The run's stored result
+   * @returns {Record<string, string>} Labels keyed by asset id
+   */
+  static attachmentLabels(storedResult) {
+    const labels = /** @type {any} */ (storedResult)?.imageLabels;
+    return labels && typeof labels === 'object' ? labels : {};
+  }
+
+  /**
    * @override
    * @param {HTMLElement} wrapper
    * @param {import('juggler/context-item').ToolActionRenderContext} ctx

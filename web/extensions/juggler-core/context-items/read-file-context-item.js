@@ -463,7 +463,7 @@ class ReadFileContextItem extends ContextItem {
    * @override
    * @param {HTMLElement} wrapper
    * @param {import('juggler/context-item').ToolActionRenderContext} ctx
-   * @returns {{ skipResultSection?: boolean } | void} Render result; set skipResultSection when output is rendered inline
+   * @returns {{ skipResultSection?: boolean, skipAttachments?: boolean } | void} Render result; set skipResultSection when output is rendered inline, skipAttachments when the image read is
    */
   renderToolActionDetails(wrapper, ctx) {
     const { toolAction, input, helpers } = ctx;
@@ -486,7 +486,8 @@ class ReadFileContextItem extends ContextItem {
       contentSection.className = 'context-item-expanded-content';
       contentSection.appendChild(panelEl);
       wrapper.appendChild(contentSection);
-      return { skipResultSection: true };
+      // An image read is drawn by its file view, from the same stored asset.
+      return { skipResultSection: true, skipAttachments: true };
     }
 
     helpers.addFilePath(wrapper, inputText(input, 'file_path') || inputText(input, 'path'));

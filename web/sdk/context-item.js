@@ -1066,6 +1066,10 @@ class ContextItem {
    * panel's controls block, ahead of the framework's Re-run and Delete — for
    * an action on what the call produced rather than on the call itself.
    *
+   * Return `{ skipAttachments: true }` if your details already draw the images
+   * the result attached (those in the tool-action's `attachments`) — the
+   * framework otherwise shows them in an Attachments section of their own.
+   *
    * IMPORTANT: this is the polymorphism boundary that keeps tool-name
    * branching out of generic UI code. If you find yourself adding
    * `if (toolName === 'foo')` to a component, override this method instead.
@@ -1073,7 +1077,7 @@ class ContextItem {
    * [Context: viewer]
    * @param {HTMLElement} wrapper - Section wrapper to append details into
    * @param {ToolActionRenderContext} ctx
-   * @returns {{ skipResultSection?: boolean, controls?: HTMLElement[] }|void} Render result; set skipResultSection to true when output is rendered inline, and controls to add buttons to the controls block
+   * @returns {{ skipResultSection?: boolean, skipAttachments?: boolean, controls?: HTMLElement[] }|void} Render result; set skipResultSection to true when output is rendered inline, skipAttachments when the attached images are, and controls to add buttons to the controls block
    */
   renderToolActionDetails(wrapper, ctx) {
     const inputText = JSON.stringify(ctx.input ?? {}, null, 2);
@@ -1107,6 +1111,18 @@ class ContextItem {
    */
   static resultSectionLanguage(_toolName) {
     return '';
+  }
+
+  /**
+   * What to call each image this tool attached to its result, in the
+   * properties panel's Attachments section. An image with no label here is
+   * named by its filename, or failing that its asset id. Default: no labels.
+   * @param {unknown} _storedResult - The stored result (what
+   *   {@link ContextItem.storedResult} kept, under `result.fullResult.result`)
+   * @returns {Record<string, string>} Labels keyed by asset id
+   */
+  static attachmentLabels(_storedResult) {
+    return {};
   }
 
   /**

@@ -46,7 +46,7 @@ import { t, markForTranslation, formatDate } from '../../../sdk/lib/i18n.js';
  * Normalise a Yjs Y.Map result (or already-plain object) to a plain JS object.
  * Centralises the `r.get ? r.get(k) : r[k]` pattern used throughout this module.
  * @param {any} r - Raw result value from toolAction.get('result')
- * @returns {{isError?: boolean, cancelled?: boolean, content?: string, output?: string, fullResult?: {error?: string, durationMs?: number}}} Normalised plain-object view of the result
+ * @returns {{isError?: boolean, cancelled?: boolean, content?: string, output?: string, fullResult?: {error?: string, durationMs?: number, result?: unknown}}} Normalised plain-object view of the result
  */
 function resolveResult(r) {
   return plain(r) || {};
@@ -294,7 +294,7 @@ export function renderMessage(host, container, message) {
   // User messages carry image attachments as a single unit with their text;
   // surface them (with whatever metadata the AssetRef holds) below the body.
   if (isUser) {
-    renderMessageAttachments(host, wrapper, message);
+    renderAttachments(host, wrapper, message.get('attachments'));
     // A chunk injected by a background-task output pump (e.g. Monitor) carries a
     // `taskSource` provenance ref. Render the shared status + Stop control so the
     // monitor can be killed from any of its output messages, not just its
@@ -338,16 +338,18 @@ function renderTaskSourceControl(host, wrapper, message) {
 }
 
 /**
- * Append an "Attachments" subsection listing each AssetRef on a user message:
+ * Append an "Attachments" subsection listing each AssetRef an item carries —
+ * a user message's images, or those a tool call's result showed the model:
  * an image thumbnail (click → lightbox) alongside whatever details we know —
- * filename, type, intrinsic dimensions and byte size. No-op when the message
- * carries no attachments.
+ * label or filename, type, intrinsic dimensions and byte size. No-op when
+ * there are no attachments.
  * @param {PanelHost} host
  * @param {HTMLElement} wrapper - The section wrapper to append into.
- * @param {any} message - The user message Y.Map.
+ * @param {unknown} raw - The item's `attachments` field.
+ * @param {(id: string) => string|undefined} [labelOf] - What to call each, by asset id
  */
-function renderMessageAttachments(host, wrapper, message) {
-  const attachments = normalizeAttachments(message.get('attachments'));
+function renderAttachments(host, wrapper, raw, labelOf) {
+  const attachments = normalizeAttachments(raw);
   if (attachments.length === 0) return;
 
   const section = panelHelpers.labeledSubsection(
@@ -360,6 +362,7 @@ function renderMessageAttachments(host, wrapper, message) {
   const conversationId = host._conversation?.id || '';
 
   for (const ref of attachments) {
+    const label = labelOf?.(ref.id) || ref.filename;
     const isImage = typeof ref.mime === 'string' && ref.mime.startsWith('image/');
     const src = conversationId && ref.id ? apiService.assetURL(conversationId, ref.id) : '';
 
@@ -369,7 +372,7 @@ function renderMessageAttachments(host, wrapper, message) {
     if (isImage && src) {
       figure.appendChild(createImageThumb({
         src,
-        alt: ref.filename || t('attachment'),
+        alt: label || t('attachment'),
         className: 'properties-panel-attachment-thumb',
         width: ref.width,
         height: ref.height,
@@ -381,7 +384,7 @@ function renderMessageAttachments(host, wrapper, message) {
 
     const name = document.createElement('span');
     name.className = 'properties-panel-attachment-name text-truncate';
-    name.textContent = ref.filename || ref.id || t('attachment');
+    name.textContent = label || ref.id || t('attachment');
     name.title = name.textContent;
     caption.appendChild(name);
 
@@ -535,7 +538,7 @@ export function renderToolAction(host, container, toolAction) {
   // Tool-specific input section via plugin polymorphism. Tool-name branching
   // belongs INSIDE plugin classes — see ContextItem.renderToolActionDetails.
 
-  /** @type {{ skipResultSection?: boolean, controls?: HTMLElement[] } | void} */
+  /** @type {{ skipResultSection?: boolean, skipAttachments?: boolean, controls?: HTMLElement[] } | void} */
   let renderResult = undefined;
   if (actionInstance) {
     renderResult = /** @type {any} */ (actionInstance).renderToolActionDetails(wrapper, {
@@ -665,6 +668,14 @@ export function renderToolAction(host, container, toolAction) {
     }
 
     wrapper.appendChild(resultSection);
+  }
+
+  // The images the result showed the model (image() in a program, an MCP
+  // screenshot, a fetched image) ride the item as AssetRefs beside it.
+  if (!renderResult?.skipAttachments) {
+    const stored = resolveResult(toolAction.get('result')).fullResult?.result;
+    const labels = ActionClass ? /** @type {any} */ (ActionClass).attachmentLabels?.(stored) || {} : {};
+    renderAttachments(host, wrapper, toolAction.get('attachments'), (id) => labels[id]);
   }
 
   const instructionsText = plainList(yGet(toolAction, 'instructions'))

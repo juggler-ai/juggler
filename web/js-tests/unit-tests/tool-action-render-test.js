@@ -300,6 +300,56 @@ export async function runTests() {
     passed++;
   } catch (e) { failed++; errors.push(`approval-source badge: ${e.message}`); }
 
+  // E2 — the images a tool call attached to its result (what the model saw)
+  // show in its panel, captioned with what the plugin calls each one; a plugin
+  // whose own details already draw them opts out, so they show once.
+  try {
+    const attachments = [
+      { id: 'a1', mime: 'image/png', filename: '', bytes: 10, width: 4, height: 5 },
+      { id: 'a2', mime: 'image/png', filename: '', bytes: 10, width: 4, height: 5 },
+    ];
+    class LabelledTool {
+      renderToolActionDetails() {}
+      static getResultSectionLabel() { return 'Output'; }
+      static attachmentLabels(/** @type {any} */ stored) { return stored?.imageLabels || {}; }
+    }
+    class SelfDrawingTool {
+      renderToolActionDetails() { return { skipResultSection: true, skipAttachments: true }; }
+    }
+    contextItemRegistry.getByToolName = (name) => ({ labelled: LabelledTool, selfdrawing: SelfDrawingTool })[name];
+    const host = /** @type {any} */ ({
+      _conversation: { id: 'conv1' },
+      _messageThread: { items: [] },
+      _selectedItemId: '1',
+      _createSectionWithControls: () => document.createElement('properties-panel-section'),
+      _renderToolActionControls: () => document.createElement('properties-panel-controls'),
+    });
+    const render = (/** @type {string} */ toolName) => {
+      const box = document.createElement('div');
+      // The result as a plain object: how a locally completed call holds it
+      // (fakeItem's get-only stand-in has no toJSON, so plain() can't read it).
+      const fields = /** @type {Record<string, any>} */ ({
+        toolName, toolInput: {}, state: TOOL_STATES.COMPLETED, attachments,
+        result: { content: 'done', fullResult: { success: true, result: { imageLabels: { a1: 'frames/fire-1.png' } } } },
+      });
+      renderToolAction(host, box, /** @type {any} */ ({ get: (/** @type {string} */ k) => fields[k] }));
+      return box;
+    };
+
+    const shown = render('labelled');
+    const thumbs = shown.querySelectorAll('.properties-panel-attachment-thumb');
+    if (thumbs.length !== 2) throw new Error(`expected two thumbnails, got ${thumbs.length}`);
+    const names = [...shown.querySelectorAll('.properties-panel-attachment-name')].map((n) => n.textContent);
+    if (names.join('|') !== 'frames/fire-1.png|a2')
+      throw new Error(`expected the label, then the id for the unlabelled one, got ${names.join('|')}`);
+
+    const own = render('selfdrawing');
+    if (own.querySelector('.properties-panel-attachments'))
+      throw new Error('a plugin that draws its own images must not get them twice');
+    passed++;
+  } catch (e) { failed++; errors.push(`tool-action attachments: ${e.message}`); }
+  finally { contextItemRegistry.getByToolName = realGetByToolName; }
+
   // F — en-XA: every word the properties panel's item renderers draw follows
   // the UI language, in every state. The data (provider, model, ids, results,
   // hook notes) is digits, so a string with no letter at all is data and is

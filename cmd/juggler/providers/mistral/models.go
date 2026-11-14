@@ -20,16 +20,19 @@ import (
 // Both the versioned id the API returns and the -latest alias that resolves to
 // it are listed, since either can be the id a conversation was configured with.
 //
-// Mistral publishes these as a rounded "256k", never an exact token count, so
-// 256000 is used rather than 262144: the window decides when a conversation
-// compacts and when admission refuses, and of the two readings the smaller is
-// the one that cannot overrun.
+// Mistral publishes these as a rounded "256k" or "1M", never an exact token
+// count, so 256000 and 1000000 are used rather than 262144 and 1048576: the
+// window decides when a conversation compacts and when admission refuses, and
+// of the two readings the smaller is the one that cannot overrun.
 // Source: https://docs.mistral.ai/models
 var ModelContextWindows = map[string]int{
 	"mistral-medium-3-5":    256000,
+	"mistral-medium-2604":   256000,
 	"mistral-medium-latest": 256000,
+	"mistral-large-4":       1000000,
+	"mistral-large-4-0-8":   1000000,
+	"mistral-large-latest":  1000000,
 	"mistral-large-2512":    256000,
-	"mistral-large-latest":  256000,
 	"mistral-small-2603":    256000,
 	"mistral-small-latest":  256000,
 	"ministral-14b-2512":    256000,
@@ -46,9 +49,12 @@ var ModelContextWindows = map[string]int{
 	// own figure whenever it is reachable.
 	"codestral-2508":   128000,
 	"codestral-latest": 128000,
-	// A third-party model Mistral hosts, and the only one on the platform with
-	// a published output ceiling.
-	"zai-glm-5-2": 1000000,
+	// Third-party models Mistral hosts, the only ones on the platform with a
+	// published output ceiling.
+	"zai-glm-5-2":              1000000,
+	"zai-glm-5-3":              1000000,
+	"zai-glm-5-3-flash":        1000000,
+	"deepseek-v4-1-flash-1017": 1000000,
 }
 
 // DefaultContextWindow is used for unknown Mistral models. Deliberately half
@@ -57,12 +63,15 @@ var ModelContextWindows = map[string]int{
 // fails the turn.
 const DefaultContextWindow = 131072
 
-// ModelMaxOutputTokens holds the only output ceiling Mistral publishes at all —
-// for the third-party model it hosts. Every Mistral-built model's page omits
+// ModelMaxOutputTokens holds the only output ceilings Mistral publishes at all —
+// for the third-party models it hosts. Every Mistral-built model's page omits
 // the field entirely, so their cap is DefaultMaxOutputTokens: a number of ours
 // chosen to be accepted, not a limit read off the vendor.
 var ModelMaxOutputTokens = map[string]int{
-	"zai-glm-5-2": 128000,
+	"zai-glm-5-2":              128000,
+	"zai-glm-5-3":              128000,
+	"zai-glm-5-3-flash":        128000,
+	"deepseek-v4-1-flash-1017": 128000,
 }
 
 // DefaultMaxOutputTokens is the per-request output cap for Mistral models.

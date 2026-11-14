@@ -102,7 +102,7 @@
     --chrome-pattern-strength: 0.06;
 
     /* The properties panel's dot-grid strength (see tokens/theme-dark.css). */
-    --properties-pattern-strength: 0.09;
+    --properties-pattern-strength: 0.07;
 
     /* ANSI foreground palette (light) — tuned to read well on the light
        --bg-primary. Mirrors GitHub's light ANSI colours. Backgrounds use the

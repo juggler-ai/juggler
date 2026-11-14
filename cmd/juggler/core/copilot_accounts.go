@@ -231,7 +231,7 @@ func resolveCopilotCredential(accountID string) (ProviderCredential, error) {
 		return errorAuthHint(err), err
 	}
 	if accountID != "" || hasExtraCopilotAccounts() {
-		go learnCopilotLabel(a, login)
+		go learnCopilotLabel(a, login, copilotUserEndpoint(login.host))
 	}
 	return ProviderCredential{
 		BearerToken: token,
@@ -320,11 +320,25 @@ var copilotUserURL = ""
 // copilotUserTimeout bounds the one-off lookup of who a login belongs to.
 const copilotUserTimeout = 5 * time.Second
 
-// learnCopilotLabel asks GitHub which GitHub login an account's login is, once
-// per token (again after copilotLabelRetry when the lookup failed), and shows
-// it on the account. Display only, never identity. Run in the background: it
-// is never on the path of a turn.
-func learnCopilotLabel(a copilotAccount, login copilotLogin) {
+// copilotUserEndpoint is the GitHub user endpoint for a login on host. It is
+// read by the caller of learnCopilotLabel, not by the goroutine, so the lookup
+// never reads copilotUserURL concurrently with whoever sets it.
+func copilotUserEndpoint(host string) string {
+	if copilotUserURL != "" {
+		return copilotUserURL
+	}
+	if host == copilotDefaultHost {
+		return "https://api.github.com/user"
+	}
+	return "https://api." + host + "/user"
+}
+
+// learnCopilotLabel asks GitHub (at endpoint, from copilotUserEndpoint) which
+// GitHub login an account's login is, once per token (again after
+// copilotLabelRetry when the lookup failed), and shows it on the account.
+// Display only, never identity. Run in the background: it is never on the path
+// of a turn.
+func learnCopilotLabel(a copilotAccount, login copilotLogin, endpoint string) {
 	copilotStateGate <- struct{}{}
 	known := copilotLabels[a.id]
 	ask := known.token != login.token || (known.login == "" && time.Since(known.askedAt) >= copilotLabelRetry)
@@ -334,13 +348,6 @@ func learnCopilotLabel(a copilotAccount, login copilotLogin) {
 	<-copilotStateGate
 	if !ask {
 		return
-	}
-	endpoint := copilotUserURL
-	if endpoint == "" {
-		endpoint = "https://api." + login.host + "/user"
-		if login.host == copilotDefaultHost {
-			endpoint = "https://api.github.com/user"
-		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), copilotUserTimeout)
 	defer cancel()

@@ -8,25 +8,25 @@ require (
 	github.com/buger/jsonparser v1.6.1
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/godbus/dbus/v5 v5.2.4
-	github.com/gofrs/flock v0.13.1
+	github.com/gofrs/flock v0.13.2
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/laurent22/go-trash v0.0.0-20250304161307-725f51160fe4
 	github.com/mattn/go-ieproxy v0.0.12
 	github.com/mattn/go-isatty v0.0.24
 	github.com/modelcontextprotocol/go-sdk v1.8.0
-	github.com/openai/openai-go/v3 v3.86.0
+	github.com/openai/openai-go/v3 v3.99.0
 	github.com/pion/logging v0.2.4
 	github.com/pion/mdns/v2 v2.2.2
-	github.com/pion/webrtc/v4 v4.2.25
+	github.com/pion/webrtc/v4 v4.2.26
 	github.com/skyterra/y-crdt v0.0.0-20260605035931-e8e6d95bd5ff
 	github.com/wailsapp/wails/v3 v3.2.0-nightly.20261103
-	golang.org/x/image v0.47.0
-	golang.org/x/net v0.61.0
-	golang.org/x/sys v0.49.0
-	golang.org/x/term v0.47.0
-	golang.org/x/text v0.43.0
-	google.golang.org/genai v1.76.0
+	golang.org/x/image v0.48.0
+	golang.org/x/net v0.62.0
+	golang.org/x/sys v0.50.0
+	golang.org/x/term v0.48.0
+	golang.org/x/text v0.44.0
+	google.golang.org/genai v1.77.0
 	rsc.io/qr v0.2.0
 )
 
@@ -64,7 +64,7 @@ require (
 	github.com/pion/sdp/v3 v3.0.20 // indirect
 	github.com/pion/srtp/v3 v3.1.3 // indirect
 	github.com/pion/stun/v4 v4.0.1 // indirect
-	github.com/pion/transport/v5 v5.1.1 // indirect
+	github.com/pion/transport/v5 v5.1.4 // indirect
 	github.com/pion/turn/v5 v5.1.3 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect
@@ -83,7 +83,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
-	golang.org/x/sync v0.24.0 // indirect
+	golang.org/x/sync v0.25.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
 	google.golang.org/api v0.308.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20261019180522-ce908d29299b // indirect

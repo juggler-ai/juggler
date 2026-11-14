@@ -15,7 +15,9 @@ func TestMistralContextWindow(t *testing.T) {
 		model string
 		want  int
 	}{
-		{"mistral-large-latest", 256000},
+		// The docs' "1M", read as the smaller 10^6.
+		{"mistral-large-latest", 1000000},
+		{"mistral-large-4", 1000000},
 		{"mistral-large-2512", 256000},
 		{"mistral-medium-latest", 256000},
 		// The docs say 256k; the endpoint is reported to serve 131072. The

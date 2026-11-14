@@ -264,7 +264,9 @@ const foreignPageScriptTemplate = `(function (bar) {
   });
   el.addEventListener("dblclick", function (e) {
     if (e.clientY < strip) return;
-    send("wails:drag:doubleclick");
+    // The runtime's double-click message acts only on macOS (where it honours
+    // the system's title-bar setting); a frameless window asks for maximise.
+    if (bar.frameless) press("maximise"); else send("wails:drag:doubleclick");
     maximised = !maximised;
     showMaximised();
   });

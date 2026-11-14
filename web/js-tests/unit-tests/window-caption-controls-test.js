@@ -83,5 +83,42 @@ export async function runTests() {
     assert(failures.length === 0, failures.join(' | '));
   });
 
+  // The frameless windows have no native caption, so the platform's
+  // "double-click the title bar to maximise" is ours to supply — only on the
+  // drag region, never on a no-drag control inside it.
+  await run('double-clicking the drag region toggles maximise', async () => {
+    const root = document.documentElement;
+    const { windowMode, windowPlatform } = root.dataset;
+    const header = document.createElement('div');
+    header.style.setProperty('--wails-draggable', 'drag');
+    const button = document.createElement('button');
+    button.style.setProperty('--wails-draggable', 'no-drag');
+    header.appendChild(button);
+    document.body.appendChild(header);
+    try {
+      for (const platform of ['windows', 'linux']) {
+        root.dataset.windowMode = '1';
+        root.dataset.windowPlatform = platform;
+        const el = /** @type {any} */ (document.createElement('window-caption-controls'));
+        /** @type {string[]} */
+        const actions = [];
+        el._control = (/** @type {string} */ action) => { actions.push(action); };
+        header.appendChild(el);
+        try {
+          button.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+          header.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+          assert(actions.join() === 'state,maximise',
+            `${platform}: expected one maximise from the drag region only, got ${actions.join()}`);
+        } finally {
+          el.remove();
+        }
+      }
+    } finally {
+      header.remove();
+      if (windowMode === undefined) delete root.dataset.windowMode; else root.dataset.windowMode = windowMode;
+      if (windowPlatform === undefined) delete root.dataset.windowPlatform; else root.dataset.windowPlatform = windowPlatform;
+    }
+  });
+
   return { passed, failed, errors };
 }

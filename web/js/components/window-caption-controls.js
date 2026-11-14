@@ -24,8 +24,9 @@
  * Buttons drive the native window through the window-control endpoint (see
  * _control / window-control.js). The maximise glyph flips to a "restore" glyph
  * while the window is maximised, kept in sync with the native state via the
- * runtime's maximise events (which also fire when the user double-clicks the
- * drag region or uses Win+Up).
+ * runtime's maximise events (which also fire on Win+Up or a snap). A
+ * double-click on the header's drag region toggles maximise, as a native title
+ * bar does on both platforms.
  */
 
 import { windowControlURL } from '../../sdk/lib/window-control.js';
@@ -75,8 +76,21 @@ class WindowCaptionControls extends JugglerElement {
       if (action) this._control(action);
     });
 
-    // Best-effort: reflect OS-driven maximise changes (snap, Win+Up,
-    // double-click drag region) onto the glyph. These inbound events are
+    // Double-clicking a title bar maximises/restores on Windows and on the
+    // usual Linux desktops (GNOME, KDE). A frameless window has no native
+    // caption to do that, and the Wails runtime only forwards the gesture on
+    // macOS, so the drag region (`--wails-draggable: drag`, which no-drag
+    // controls inside it override) gets it here.
+    this.on(document, 'dblclick', (e) => {
+      const target = /** @type {MouseEvent} */ (e).target;
+      if (!(target instanceof Element) || /** @type {MouseEvent} */ (e).button !== 0) return;
+      if (getComputedStyle(target).getPropertyValue('--wails-draggable').trim() !== 'drag') return;
+      e.preventDefault();
+      this._control('maximise');
+    });
+
+    // Best-effort: reflect OS-driven maximise changes (snap, Win+Up, the
+    // double-click above) onto the glyph. These inbound events are
     // injected by the native side and work even though the outbound
     // Window.* RPC does not, so we keep the subscription when present.
     if (wails.Events?.On) {

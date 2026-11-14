@@ -335,6 +335,43 @@ func TestCallLLMWithRetryChargesSilentAttemptInFull(t *testing.T) {
 	}
 }
 
+// TestCallLLMWithRetryChargesFromTheStreamsLastEvent: a reasoning model
+// thinking with no summary streams events but no output a chunk carries, for
+// minutes. When the server then resets the stream, the attempt was alive until
+// its last event; charging it from its last visible output instead let one
+// cut-off of a long silent think spend the budget and surface unretried.
+func TestCallLLMWithRetryChargesFromTheStreamsLastEvent(t *testing.T) {
+	w := NewConversationWorker("test-conv", "user:test")
+	defer w.doc.Destroy()
+
+	fastRetries(w)
+
+	// Less budget left than the first attempt spends thinking.
+	const thinking = 2 * time.Second
+	w.turn.retrySpent = MaxLLMRetryWindow - 500*time.Millisecond
+
+	calls := 0
+	w.SetLLMCaller(func(_ context.Context, _ json.RawMessage, _ func(StreamChunk)) (*LLMResponse, error) {
+		calls++
+		if calls == 1 {
+			time.Sleep(thinking)
+			return nil, &provider.StreamInterruptedError{
+				Err:       errors.New("stream error: stream ID 263; INTERNAL_ERROR; received from peer"),
+				Text:      "stream error: stream ID 263; INTERNAL_ERROR; received from peer (the stream ran for 2s; its last event came 0s before the failure)",
+				LastEvent: time.Now(),
+			}
+		}
+		return &LLMResponse{Blocks: []LLMResponseBlock{{Type: provider.ContentBlockTypeText, Content: "recovered"}}}, nil
+	})
+
+	if _, err := w.currentRun().callLLMWithRetry(nil); err != nil {
+		t.Fatalf("callLLMWithRetry: %v — the attempt was charged for the time it spent thinking", err)
+	}
+	if calls != 2 {
+		t.Fatalf("provider calls = %d, want 2", calls)
+	}
+}
+
 // TestRetryingStatusClearedOnlyByContent: the "retrying" spinner must survive
 // into the next attempt and be cleared only by real content. Clearing it on
 // anything weaker is what let the UI report "Receiving" for minutes while the

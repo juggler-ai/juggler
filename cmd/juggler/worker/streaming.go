@@ -755,7 +755,7 @@ func (r *run) waitForLLMResponse(turnID string, timeout time.Duration) (*LLMResp
 				return nil, ErrCancelled
 			}
 		case <-timer.C:
-			if left := timeout - time.Since(r.failingSince(start)); left > 0 {
+			if left := timeout - time.Since(r.failingSince(start, nil)); left > 0 {
 				timer.Reset(left)
 				continue
 			}

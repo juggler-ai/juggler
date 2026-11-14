@@ -92,6 +92,45 @@ func TestResponsesReplaysReasoningItem(t *testing.T) {
 	}
 }
 
+// TestResponsesDropsUnfollowedReasoning: a reasoning item is replayable only
+// with the output it led to. A stream cut off (or stopped) after a reasoning
+// item finished but before its call or message did leaves that item in history
+// with nothing after it, and the API rejects every later request carrying it —
+// "provided without its required following item" — so the conversation could
+// never go on.
+func TestResponsesDropsUnfollowedReasoning(t *testing.T) {
+	reasoning := func(id string) provider.Message {
+		return provider.Message{Type: "provider-state", ProviderData: map[string]any{
+			"provider": "openai-responses", "itemType": "reasoning",
+			"reasoningItemId": id, "encryptedContent": "blob-" + id,
+		}}
+	}
+	items := responsesInputItems(t, []provider.Message{
+		{Type: "user", Content: "review this"},
+		reasoning("rs_kept_call"),
+		reasoning("rs_kept_chain"),
+		{Type: "tool-use", ToolUseID: "call_1", ToolName: "bash", ToolInput: map[string]any{"command": "ls"}},
+		{Type: "tool-result", ToolUseID: "call_1", Content: "a.go"},
+		reasoning("rs_kept_text"),
+		{Type: "assistant", Content: "Looking further."},
+		reasoning("rs_cut_before_user"),
+		{Type: "user", Content: "carry on"},
+		reasoning("rs_cut_at_end"),
+	})
+
+	var got []string
+	for _, item := range items {
+		if item["type"] == "reasoning" {
+			id, _ := item["id"].(string)
+			got = append(got, id)
+		}
+	}
+	want := []string{"rs_kept_call", "rs_kept_chain", "rs_kept_text"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("reasoning items sent = %v, want %v", got, want)
+	}
+}
+
 // TestResponsesSkipsUnreplayableThinking pins the skip rule. Reasoning stored
 // before this round trip existed has no id or blob, and thinking carried over
 // from another provider after a mid-conversation switch has someone else's

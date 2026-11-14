@@ -27,6 +27,9 @@ the current release). The project follows semantic versioning.
 - The agent can rename or move its project folder; windows follow it there
 - Dropping a file no longer warns of a cache miss that doesn't happen
 - Dropped files taken out of context or folded by /compact can be restored by the agent
+- OpenAI Responses tool calls no longer lose their arguments and run empty
+- A long OpenAI reasoning stream cut off by the server is retried instead of failing
+- An OpenAI conversation interrupted mid-reasoning can be continued instead of failing every request
 
 ## [0.8.0] - 2026-11-08
 

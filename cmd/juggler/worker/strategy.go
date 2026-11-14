@@ -781,11 +781,11 @@ func (r *run) callLLMWithRetry(req json.RawMessage) (*LLMResponse, error) {
 
 		// Only time spent FAILING is charged to the budget, so a long healthy
 		// turn followed by a single blip still gets its full allowance. That
-		// holds within an attempt too: one that streamed output for fifteen
-		// minutes before the server cut it off was failing only from its last
-		// output onwards, and charging the whole attempt would let that single
-		// cut-off spend the budget and never be retried.
-		r.t.retrySpent += time.Since(r.failingSince(attemptStart))
+		// holds within an attempt too: one that streamed for fifteen minutes
+		// before the server cut it off was failing only from its last output or
+		// stream event onwards, and charging the whole attempt would let that
+		// single cut-off spend the budget and never be retried.
+		r.t.retrySpent += time.Since(r.failingSince(attemptStart, err))
 
 		var rErr retryableError
 		if !errors.As(err, &rErr) {
@@ -879,15 +879,24 @@ func (r *run) discardAttemptOutput() {
 	r.t.attemptOutput = nil
 }
 
-// failingSince returns when the attempt that began at attemptStart started
-// failing: its last streamed model output, or its start if it produced none.
-func (r *run) failingSince(attemptStart time.Time) time.Time {
+// failingSince returns when the attempt that began at attemptStart, and ended
+// in err, started failing: the later of its last streamed model output and its
+// stream's last event (provider.StreamInterruptedError), or its start if it had
+// neither. A stream event counts because it comes from the response itself: a
+// reasoning model thinking with no summary sends events and no output for
+// minutes, and is working all the while.
+func (r *run) failingSince(attemptStart time.Time, err error) time.Time {
+	since := attemptStart
 	if ns := r.t.lastOutputAt.Load(); ns != 0 {
-		if last := time.Unix(0, ns); last.After(attemptStart) {
-			return last
+		if last := time.Unix(0, ns); last.After(since) {
+			since = last
 		}
 	}
-	return attemptStart
+	var interrupted *provider.StreamInterruptedError
+	if errors.As(err, &interrupted) && interrupted.LastEvent.After(since) {
+		since = interrupted.LastEvent
+	}
+	return since
 }
 
 // isModelOutputChunk reports whether a stream chunk is something the model

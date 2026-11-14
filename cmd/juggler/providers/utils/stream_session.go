@@ -123,6 +123,9 @@ func (s *StreamSession) StallError() error {
 // "after " (the worker's parseRetryWaitFromMsg reads a number of seconds
 // following either as a server-stated wait).
 //
+// The result is a *provider.StreamInterruptedError, which also carries the last
+// event's time for the worker's retry budget.
+//
 // A caller's own cancel is returned untouched: it is not a stream failure, and
 // callers compare it against context.Canceled. So is a watchdog stall, which
 // StallError reports in its own words.
@@ -132,10 +135,17 @@ func (s *StreamSession) Annotate(err error) error {
 	}
 	elapsed := time.Since(s.started).Round(100 * time.Millisecond)
 	if s.lastEvent.IsZero() {
-		return fmt.Errorf("%w (no event arrived; the stream ran for %s)", err, elapsed)
+		return &provider.StreamInterruptedError{
+			Err:  err,
+			Text: fmt.Sprintf("%v (no event arrived; the stream ran for %s)", err, elapsed),
+		}
 	}
 	gap := time.Since(s.lastEvent).Round(100 * time.Millisecond)
-	return fmt.Errorf("%w (the stream ran for %s; its last event came %s before the failure)", err, elapsed, gap)
+	return &provider.StreamInterruptedError{
+		Err:       err,
+		Text:      fmt.Sprintf("%v (the stream ran for %s; its last event came %s before the failure)", err, elapsed, gap),
+		LastEvent: s.lastEvent,
+	}
 }
 
 // Close stops the watchdog and releases the derived context, in that order.

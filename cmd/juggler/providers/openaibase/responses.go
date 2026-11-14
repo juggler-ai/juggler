@@ -8,6 +8,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	"juggler/cmd/juggler/providers/provider"
@@ -173,8 +175,40 @@ func transformMessagesToResponsesInput(messages []provider.Message) responses.Re
 	flushToolImages()
 
 	return responses.ResponseNewParamsInputUnion{
-		OfInputItemList: inputItems,
+		OfInputItemList: dropUnfollowedReasoning(inputItems),
 	}
+}
+
+// dropUnfollowedReasoning removes each reasoning item that no output follows:
+// one with neither an assistant message nor a function call after it before
+// the next input item or the end. That is what a stream cut off or stopped
+// between a finished reasoning item and the output it led to leaves in
+// history, and the API rejects every request carrying one ("provided without
+// its required following item") — the conversation could never go on. A run
+// of reasoning items shares the output that ends it.
+func dropUnfollowedReasoning(items responses.ResponseInputParam) responses.ResponseInputParam {
+	followed := func(rest responses.ResponseInputParam) bool {
+		for _, next := range rest {
+			switch {
+			case next.OfReasoning != nil:
+				continue
+			case next.OfOutputMessage != nil, next.OfFunctionCall != nil:
+				return true
+			default:
+				return false
+			}
+		}
+		return false
+	}
+	kept := make(responses.ResponseInputParam, 0, len(items))
+	for i, item := range items {
+		if item.OfReasoning != nil && !followed(items[i+1:]) {
+			jlog.Debug("[openai-responses] not replaying reasoning item %s: no output follows it", item.OfReasoning.ID)
+			continue
+		}
+		kept = append(kept, item)
+	}
+	return kept
 }
 
 // defaultResponsesInstructions is injected when ForceResponsesAPI is set and
@@ -312,8 +346,19 @@ func (c *Client) streamMessageResponses(ctx context.Context, req provider.Messag
 		return err
 	}
 
-	// Track function calls being assembled (keyed by item ID)
-	functionCalls := make(map[string]*toolCallAccumulator)
+	// Function calls being assembled, keyed by output_index: the one key every
+	// event about an output item carries. Item ids are not relied on to agree
+	// between the added event and the deltas — when they differ, keying by id
+	// drops every delta and the call runs with `{}`.
+	functionCalls := make(map[int64]*responsesFunctionCall)
+	callAt := func(outputIndex int64) *responsesFunctionCall {
+		fc := functionCalls[outputIndex]
+		if fc == nil {
+			fc = &responsesFunctionCall{}
+			functionCalls[outputIndex] = fc
+		}
+		return fc
+	}
 
 	// Stop reason reported by a response.incomplete event, applied to a
 	// text-only turn below. Empty until such an event arrives.
@@ -336,10 +381,9 @@ func (c *Client) streamMessageResponses(ctx context.Context, req provider.Messag
 			item := evt.AsResponseOutputItemAdded()
 			if item.Item.Type == "function_call" {
 				fc := item.Item.AsFunctionCall()
-				functionCalls[item.Item.ID] = &toolCallAccumulator{
-					id:   fc.CallID,
-					name: fc.Name,
-				}
+				acc := callAt(item.OutputIndex)
+				acc.identify(fc.CallID, fc.Name)
+				acc.initial = fc.Arguments
 			}
 
 		case "response.output_text.delta":
@@ -360,16 +404,30 @@ func (c *Client) streamMessageResponses(ctx context.Context, req provider.Messag
 		case "response.function_call_arguments.delta":
 			// Function call arguments delta
 			delta := evt.AsResponseFunctionCallArgumentsDelta()
-			if fc, exists := functionCalls[delta.ItemID]; exists {
-				fc.argsBuilder.WriteString(delta.Delta)
-				sess.Progress(delta.Delta)
+			callAt(delta.OutputIndex).deltas.WriteString(delta.Delta)
+			sess.Progress(delta.Delta)
+
+		case "response.function_call_arguments.done":
+			done := evt.AsResponseFunctionCallArgumentsDone()
+			if done.Arguments != "" {
+				callAt(done.OutputIndex).final = done.Arguments
 			}
 
 		case "response.output_item.done":
+			done := evt.AsResponseOutputItemDone()
+			// A finished function call carries its complete arguments — the
+			// authoritative value, whatever the deltas did or did not deliver.
+			if done.Item.Type == "function_call" {
+				fc := done.Item.AsFunctionCall()
+				acc := callAt(done.OutputIndex)
+				acc.identify(fc.CallID, fc.Name)
+				if fc.Arguments != "" {
+					acc.final = fc.Arguments
+				}
+			}
 			// A finished reasoning item is durable hidden continuation state. Keep
 			// it ordered at the point the backend emitted it rather than attaching
 			// it to a visible/transient summary.
-			done := evt.AsResponseOutputItemDone()
 			if done.Item.Type == "reasoning" {
 				reasoning := done.Item.AsReasoning()
 				if reasoning.EncryptedContent != "" && reasoning.ID != "" {
@@ -511,9 +569,13 @@ func (c *Client) streamMessageResponses(ctx context.Context, req provider.Messag
 	jlog.Trace("[openai-responses RESPONSE] text=%d chars, thinking=%d chars, tools=%d, input_tokens=%d, output_tokens=%d",
 		textContent.Len(), thinkingContent.Len(), len(functionCalls), inputTokens, outputTokens)
 
-	// Stream tool_use blocks to frontend
-	for _, fc := range functionCalls {
-		if err := emitToolCall(fc, callback); err != nil {
+	// Stream tool_use blocks to frontend, in the order the model emitted them.
+	for _, idx := range slices.Sorted(maps.Keys(functionCalls)) {
+		acc, ok := functionCalls[idx].accumulator(idx)
+		if !ok {
+			continue
+		}
+		if err := emitToolCall(acc, callback); err != nil {
 			return nil, err
 		}
 	}
@@ -621,4 +683,50 @@ func mapResponsesIncompleteReason(reason string) provider.StopReason {
 		jlog.Trace("[openai-responses] unmapped incomplete reason %q", reason)
 		return ""
 	}
+}
+
+// responsesFunctionCall is one streamed function call being assembled. Its
+// arguments can arrive three ways — on the added item, as deltas, and whole on
+// the done events — and a backend need not use all of them.
+type responsesFunctionCall struct {
+	callID, name string
+	initial      string          // arguments on the output_item.added item
+	deltas       strings.Builder // function_call_arguments.delta, in order
+	final        string          // the complete arguments from a done event
+}
+
+// identify fills in the call id and name, keeping any already known.
+func (fc *responsesFunctionCall) identify(callID, name string) {
+	if fc.callID == "" {
+		fc.callID = callID
+	}
+	if fc.name == "" {
+		fc.name = name
+	}
+}
+
+// accumulator resolves the call's arguments — the complete value from a done
+// event, else the deltas, else what the added item carried — into the
+// accumulator emitToolCall takes. A call never identified cannot be emitted:
+// with no call id its result could not be matched back to it.
+func (fc *responsesFunctionCall) accumulator(outputIndex int64) (*toolCallAccumulator, bool) {
+	if fc.callID == "" || fc.name == "" {
+		jlog.Info("[openai-responses] dropping function call at output %d: no call id or name ever arrived (call id %q, name %q)", outputIndex, fc.callID, fc.name)
+		return nil, false
+	}
+	args := fc.final
+	if args == "" {
+		args = fc.deltas.String()
+	}
+	if args == "" {
+		args = fc.initial
+	}
+	if args == "" {
+		// emitToolCall runs it as `{}`; a tool with required parameters will
+		// then refuse it, and this line says the arguments never streamed.
+		jlog.Info("[openai-responses] function call %s (%s) streamed no arguments", fc.name, fc.callID)
+	}
+	acc := &toolCallAccumulator{id: fc.callID, name: fc.name}
+	acc.argsBuilder.WriteString(args)
+	return acc, true
 }

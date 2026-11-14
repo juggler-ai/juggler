@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"juggler/cmd/juggler/core"
+	"juggler/cmd/juggler/providers/accounts"
 	"juggler/cmd/juggler/providers/claudecode"
 	"juggler/cmd/juggler/providers/provider"
 	"juggler/cmd/juggler/server"
@@ -249,6 +250,13 @@ func (a *App) initServer() error {
 	// first result event; rebroadcast the provider list when it does so the UI's
 	// context gauge fills in (it stays blank until then rather than guessing).
 	claudecode.SetModelInfoChangedHook(srv.RefreshProviders)
+	// Who is signed in to an account, and whether it is, is learned after it
+	// is registered; once known it is on the account's card, and a label tells
+	// a default account apart in the picker from the type's other accounts.
+	provider.OnAccountChanged(func() {
+		accounts.ApplyDefaultNames()
+		srv.RefreshProviders()
+	})
 	a.pushCleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), serverShutdownTimeout)
 		defer cancel()

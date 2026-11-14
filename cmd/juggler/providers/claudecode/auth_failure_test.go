@@ -95,9 +95,9 @@ func TestClassifyClaudeAuthFailure(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := classifyClaudeAuthFailure(tt.status, tt.text)
+			got := classifyClaudeAuthFailure(account{}, tt.status, tt.text)
 			if (got != nil) != tt.want {
-				t.Fatalf("classifyClaudeAuthFailure(%d, %q) = %v, want auth-failure=%v", tt.status, tt.text, got, tt.want)
+				t.Fatalf("classifyClaudeAuthFailure(account{}, %d, %q) = %v, want auth-failure=%v", tt.status, tt.text, got, tt.want)
 			}
 			if got == nil {
 				return
@@ -149,7 +149,7 @@ func TestResultEventAuthFailureIsTyped(t *testing.T) {
 	if want := "OAuth access token has expired"; !strings.Contains(authErr.Message, want) {
 		t.Errorf("Message = %q, want it to still contain %q", authErr.Message, want)
 	}
-	if got := currentClaudeLoginState(); got != loginExpired {
+	if got := currentClaudeLoginState(defaultAccountID); got != loginExpired {
 		t.Errorf("login state = %v, want loginExpired", got)
 	}
 }
@@ -173,7 +173,7 @@ func TestErrorEventAuthFailureIsTyped(t *testing.T) {
 	if authErr.Status != 0 {
 		t.Errorf("Status = %d, want 0 for a failure reported without one", authErr.Status)
 	}
-	if got := currentClaudeLoginState(); got != loginExpired {
+	if got := currentClaudeLoginState(defaultAccountID); got != loginExpired {
 		t.Errorf("login state = %v, want loginExpired", got)
 	}
 }
@@ -196,7 +196,7 @@ func TestNonAuthResultErrorStaysGeneric(t *testing.T) {
 	if errors.As(err, &authErr) {
 		t.Fatalf("a bad request was misclassified as an auth failure: %#v", authErr)
 	}
-	if got := currentClaudeLoginState(); got != loginConfirmed {
+	if got := currentClaudeLoginState(defaultAccountID); got != loginConfirmed {
 		t.Errorf("login state = %v, want the confirmed sign-in left alone", got)
 	}
 }
@@ -212,7 +212,7 @@ func TestCleanResultClearsExpiry(t *testing.T) {
 	if _, _, _, _, err := feedLines(t, &Client{}, []string{line}); err != nil {
 		t.Fatalf("clean result returned an error: %v", err)
 	}
-	if got := currentClaudeLoginState(); got != loginConfirmed {
+	if got := currentClaudeLoginState(defaultAccountID); got != loginConfirmed {
 		t.Errorf("login state = %v, want loginConfirmed", got)
 	}
 }

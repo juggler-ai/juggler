@@ -3,25 +3,21 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 /**
- * Custom providers: the user's own named endpoints, each registered as its own
- * provider id.
+ * Provider accounts on the Providers tab, custom endpoints among them: every
+ * account is a provider registered under its own id, so a conversation picks
+ * an account by picking one of its models.
  *
  * Two halves of one story. The first is what a conversation does when the
- * provider it names has been deleted — a state only custom providers can reach,
- * since a built-in never disappears. The second is the card that configures one,
- * which sits in the Providers tab among the built-in providers because that is
- * what an endpoint is.
+ * provider it names has gone — an account removed. The second is the tab
+ * itself: one card per account and none for a type with no account, no on/off
+ * switch anywhere, the logins found on this machine offered rather than added,
+ * and the add flow.
  * @module unit-tests/custom-providers-test
  */
 
 import { assert, waitFor, nextTask } from '../utilities/test-helpers.js';
 import { budgetFor } from '../utilities/test-deadline.js';
 import '../../js/components/model-selector.js';
-import {
-  deriveEndpointId,
-  buildEndpointCard,
-  buildAddEndpointForm,
-} from '../../js/components/settings/custom-endpoint-card.js';
 import { ProvidersTab } from '../../js/components/settings/providers-tab.js';
 import wsService from '../../js/services/websocket.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
@@ -34,8 +30,7 @@ import { underPseudoLocale, assertPseudoLocalized, shownStrings } from '../utili
  * @property {string[]} errors - Failure messages.
  */
 
-/** The id rule the server enforces, restated so the tests check against it. */
-const SERVER_ID_PATTERN = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
+const ENDPOINT_TYPE = 'openai-compatible';
 
 /**
  * A connected selector holding one live custom endpoint, with network and
@@ -102,84 +97,74 @@ function stubModal(answer) {
 }
 
 /**
- * One endpoint as the list operation reports it, overridable per test.
+ * An endpoint account as the list operation reports it, overridable per test.
  * @param {object} [over] - Fields to change.
- * @returns {any} The endpoint row.
+ * @returns {any} The account.
  */
 function endpoint(over = {}) {
   return {
-    id: 'acme',
-    providerId: 'custom-acme',
+    id: 'custom-acme',
+    type: ENDPOINT_TYPE,
+    typeDisplayName: 'OpenAI-compatible endpoint',
     displayName: 'Acme Gateway',
-    url: 'https://gateway.acme.test/v1',
-    headers: {},
-    enabled: true,
-    registered: true,
-    hasKey: false,
+    category: 'custom',
+    isDefault: false,
     keySource: '',
     envVarName: 'CUSTOM_ACME_API_KEY',
+    settings: { baseURL: 'https://gateway.acme.test/v1', headers: {} },
+    registered: true,
     ...over,
   };
 }
 
 /**
- * Mount a card with the ops layer stubbed at fetch, so what is asserted is the
- * request the card actually posts.
- * @param {any} row - The endpoint to draw.
- * @param {object} [opts] - Scenario knobs.
- * @param {any} [opts.provider] - The published provider status, when it registered.
- * @returns {{card: HTMLElement, ops: any[], applied: any[], restore: () => void}}
- *   The mounted card, the operations posted, the lists handed back to the tab.
+ * A type's default account, as the list operation reports it.
+ * @param {string} id - The type, and so the id.
+ * @param {string} name - Its name.
+ * @param {object} [over] - Fields to change.
+ * @returns {any} The account.
  */
-function mountCard(row, { provider } = {}) {
-  /** @type {any[]} */
-  const ops = [];
-  /** @type {any[]} */
-  const applied = [];
-  const originalFetch = window.fetch;
-  window.fetch = /** @type {any} */ (async (/** @type {any} */ url, /** @type {any} */ init) => {
-    const body = init && init.body ? JSON.parse(String(init.body)) : null;
-    if (String(url).includes('/api/ops/call')) ops.push(body);
-    return { ok: true, status: 200, json: async () => ({ success: true, data: { endpoints: [] } }) };
-  });
-
-  const built = buildEndpointCard(row, {
-    providerFor: () => provider,
-    // Stands in for the shared model list every provider card gets — what
-    // matters here is that the card asks for it, not what it builds.
-    modelRow: (p) => {
-      const el = document.createElement('div');
-      el.className = 'settings-model-visibility';
-      el.dataset.provider = p.name;
-      return el;
-    },
-    applyEndpoints: (endpoints) => { applied.push({ endpoints }); },
-    refreshProviders: async () => {},
-    onRemoved: (endpoints) => { applied.push({ endpoints, removed: true }); },
-    reportError: () => {},
-  });
-  const card = built.element;
-  document.body.appendChild(card);
-
+function defaultAccount(id, name, over = {}) {
   return {
-    card,
-    ops,
-    applied,
-    restore: () => {
-      window.fetch = originalFetch;
-      card.remove();
-    },
+    id, type: id, typeDisplayName: name, displayName: name, category: 'api_key', isDefault: true, registered: true, ...over,
   };
 }
 
+/** @returns {any[]} The types the add menu is offered. */
+function types() {
+  return [
+    { name: 'anthropic', displayName: 'Anthropic', category: 'api_key', hasDefaultAccount: true, acceptsExtra: true },
+    { name: 'claudecode', displayName: 'Claude Code', category: 'subscription', hasDefaultAccount: true, acceptsExtra: false },
+    { name: 'ollama', displayName: 'Ollama', category: 'local', hasDefaultAccount: true, acceptsExtra: false },
+    { name: ENDPOINT_TYPE, displayName: 'OpenAI-compatible endpoint', category: 'custom', hasDefaultAccount: false, acceptsExtra: true },
+  ];
+}
+
+/** @returns {any[]} The published provider list the tab is handed. */
+function providers() {
+  return [
+    { name: 'anthropic', displayName: 'Anthropic', authType: 'api_key', configKeyName: 'anthropic_api_key', envVarName: 'ANTHROPIC_API_KEY', modelsWithContext: [] },
+    { name: 'claudecode', displayName: 'Claude Code', authType: 'toggle', configKeyName: '', credentialed: true, available: true, modelsWithContext: [] },
+    { name: 'ollama', displayName: 'Ollama', authType: 'toggle', configKeyName: '', credentialed: false, modelsWithContext: [] },
+    { name: 'custom-acme', type: ENDPOINT_TYPE, displayName: 'Acme Gateway', configKeyName: 'custom_acme_api_key', available: true, modelsWithContext: [{ id: 'm1', contextWindow: 1000, maxOutputTokens: 100 }] },
+    { name: 'custom-lab', type: ENDPOINT_TYPE, displayName: 'Lab box', configKeyName: 'custom_lab_api_key', available: true, modelsWithContext: [] },
+  ];
+}
+
 /**
- * Mount a real ProvidersTab over a fake host, with the ops layer stubbed at
- * fetch and a scroller whose position can be read back.
- * @param {any[]} endpoints - What the list operation answers with.
- * @returns {{tab: any, host: any, scrollWrites: number[], ops: any[], restore: () => void}}
- *   The tab, its host, anything written to the scroller, and the operations posted.
+ * Mount a real ProvidersTab over a fake host, with the accounts ops served from
+ * an in-memory list, and a scroller whose position can be read back.
+ * @param {object} [opts] - Scenario knobs.
+ * @param {any[]} [opts.accounts] - The accounts there are.
+ * @param {any[]} [opts.candidates] - The logins offered.
+ * @param {any[]} [opts.providers] - The published provider list.
+ * @param {number} [opts.usage] - How many conversations use any account.
+ * @param {any[]} [opts.catalog] - What the models.dev catalogue lists.
+ * @param {(params: any) => Promise<any>} [opts.preview] - Answers the add form's preview.
+ * @returns {{tab: any, host: any, scrollWrites: number[], ops: any[], state: any, restore: () => void}}
+ *   The tab, its host, anything written to the scroller, the operations posted, and the list.
  */
-function mountTab(endpoints) {
+function mountTab(opts = {}) {
   const host = /** @type {any} */ (document.createElement('div'));
   const scroller = document.createElement('div');
   scroller.className = 'settings-content';
@@ -187,8 +172,7 @@ function mountTab(endpoints) {
   /** @type {number[]} */
   const scrollWrites = [];
   // Records anything written to the scroll offset. Nothing should be: a save
-  // that replaces no DOM has no position to save and restore, and code that felt
-  // the need to would be evidence it had torn something down.
+  // that replaces no DOM has no position to save and restore.
   Object.defineProperty(scroller, 'scrollTop', {
     get: () => top,
     set: (/** @type {number} */ v) => { top = v; scrollWrites.push(v); },
@@ -198,50 +182,77 @@ function mountTab(endpoints) {
   host.appendChild(scroller);
   document.body.appendChild(host);
 
-  const providers = [
-    { name: 'anthropic', displayName: 'Anthropic', configKeyName: 'anthropic_api_key', modelsWithContext: [] },
-    { name: 'custom-acme', displayName: 'Acme Gateway', configKeyName: 'custom_acme_api_key', available: true, modelsWithContext: [{ id: 'm1', contextWindow: 1000, maxOutputTokens: 100 }] },
-  ];
-
+  const published = opts.providers || providers();
+  const state = {
+    accounts: opts.accounts || [defaultAccount('claudecode', 'Claude Code', { category: 'subscription' }), endpoint()],
+    candidates: opts.candidates || [],
+  };
   /** @type {any[]} */
   const ops = [];
-  let listed = endpoints;
   const originalFetch = window.fetch;
+  const ok = (/** @type {any} */ data) => ({ ok: true, status: 200, json: async () => ({ success: true, data }) });
   window.fetch = /** @type {any} */ (async (/** @type {any} */ url, /** @type {any} */ init) => {
-    const body = init && init.body ? JSON.parse(String(init.body)) : null;
-    if (String(url).includes('/api/ops/call')) {
-      ops.push(body);
-      if (body.operation === 'remove') listed = listed.filter(e => e.id !== body.params.id);
-      if (body.operation === 'save') {
-        // What the server answers with: the entry as stored, and — since an
-        // endpoint that is switched off is unregistered — whether it registered.
-        listed = listed.map(e => (e.id === body.params.id
-          ? { ...e, ...body.params, registered: (body.params.enabled ?? e.enabled) !== false }
-          : e));
+    if (!String(url).includes('/api/ops/call')) return { ok: true, status: 200, json: async () => ({}) };
+    const body = JSON.parse(String(init.body));
+    ops.push(body);
+    const p = body.params || {};
+    if (body.toolId === 'customProviders') return ok({ providers: opts.catalog || [] });
+    const list = () => ({ accounts: state.accounts, candidates: state.candidates });
+    switch (body.operation) {
+      case 'types': return ok({ types: types() });
+      case 'preview': {
+        if (opts.preview) return ok(await opts.preview(p));
+        const type = types().find(ty => ty.name === p.type);
+        const isDefault = !!type?.hasDefaultAccount && !state.accounts.some(a => a.id === p.type);
+        if (isDefault) return ok({ id: p.type, displayName: type.displayName, isDefault });
+        return ok({ id: p.type === ENDPOINT_TYPE ? 'custom-new' : `${p.type}-2`, displayName: `${type?.displayName} (2)`, isDefault });
       }
-      if (body.operation === 'setKey') {
-        listed = listed.map(e => ({ ...e, hasKey: !!body.params.apiKey, keySource: body.params.apiKey ? 'credentials' : '' }));
+      case 'usage': return ok({ conversations: opts.usage || 0 });
+      case 'save': {
+        if (p.id) {
+          state.accounts = state.accounts.map(a => (a.id === p.id
+            ? { ...a, ...(p.displayName !== undefined ? { displayName: p.displayName } : {}), settings: { ...a.settings, ...p.settings } }
+            : a));
+          return ok({ id: p.id, ...list() });
+        }
+        const id = p.type === ENDPOINT_TYPE ? 'custom-new' : p.type;
+        state.accounts = [...state.accounts, { ...defaultAccount(id, p.displayName), type: p.type, settings: p.settings }];
+        return ok({ id, ...list() });
       }
-      return { ok: true, status: 200, json: async () => ({ success: true, data: { endpoints: listed } }) };
+      case 'remove':
+        state.accounts = state.accounts.filter(a => a.id !== p.id);
+        return ok(list());
+      case 'setKey':
+        state.accounts = state.accounts.map(a => (a.id === p.id ? { ...a, keySource: p.apiKey ? 'credentials' : '' } : a));
+        return ok({ id: p.id, ...list() });
+      case 'addCandidate': {
+        const c = state.candidates.find(x => x.key === p.key);
+        state.candidates = state.candidates.filter(x => x.key !== p.key);
+        state.accounts = [...state.accounts, defaultAccount(c.accountId, c.displayName)];
+        return ok({ id: c.accountId, ...list() });
+      }
+      default: return ok(list());
     }
-    return { ok: true, status: 200, json: async () => ({ success: true, data: {} }) };
   });
 
   const tab = new ProvidersTab(host);
   // The shell's own loadConfig: re-reads config and providers, and rebuilds the
   // fields only when asked to.
   host.loadConfig = async (/** @type {boolean} */ renderFields = true) => {
-    tab.onConfigLoaded({ config: { keys: {} }, providers }, renderFields);
+    tab.onConfigLoaded({ config: { keys: {} }, providers: published }, renderFields);
     return true;
   };
-  tab.onConfigLoaded({ config: { keys: {} }, providers }, true);
+  tab.onConfigLoaded({ config: { keys: {} }, providers: published }, true);
+  host.tab = tab;
 
   return {
     tab,
     host,
     scrollWrites,
     ops,
+    state,
     restore: () => {
+      tab.dispose();
       window.fetch = originalFetch;
       host.remove();
     },
@@ -249,19 +260,40 @@ function mountTab(endpoints) {
 }
 
 /**
- * @param {HTMLElement} root - Where to look.
+ * @param {Element} root - Where to look.
+ * @param {string} id - The account id.
+ * @returns {HTMLElement|null} Its card.
+ */
+const cardOf = (root, id) => /** @type {HTMLElement|null} */ (root.querySelector(`.account-card[data-provider="${id}"]`));
+
+/**
+ * Wait for the account list to have been drawn, over the cards the tab draws
+ * from the provider list while it asks, and return one account's card.
+ * @param {any} root - The mounted host.
+ * @param {string} id - The account.
+ * @returns {Promise<HTMLElement>} Its card.
+ */
+async function drawn(root, id) {
+  await waitFor(() => !!root.tab?.accountList && !!cardOf(root, id), {
+    timeoutMs: budgetFor(2000), description: `the account list, and the card of ${id}`,
+  });
+  return /** @type {HTMLElement} */ (cardOf(root, id));
+}
+
+/**
+ * @param {Element} root - Where to look.
  * @param {string} className - The input's hook class.
  * @returns {HTMLInputElement} The input.
  */
 function input(root, className) {
   const el = /** @type {HTMLInputElement|null} */ (root.querySelector(`.${className}`));
-  assert(!!el, `no .${className} on the card`);
+  assert(!!el, `no .${className}`);
   return el;
 }
 
 /**
- * Type into a field and leave it, which is when the card saves.
- * @param {HTMLElement} root - Where to look.
+ * Type into a field and leave it, which is when a card saves.
+ * @param {Element} root - Where to look.
  * @param {string} className - The input's hook class.
  * @param {string} value - What to type.
  */
@@ -284,6 +316,27 @@ async function awaitOp(ops, operation) {
     description: `a ${operation} operation to be posted`,
   });
   return ops.find(c => c.operation === operation);
+}
+
+/**
+ * Open a card's ⋯ menu and pick a row.
+ * @param {HTMLElement} card - The card.
+ * @param {'Rename'|'Remove'} label - The row.
+ */
+function pickFromMenu(card, label) {
+  /** @type {HTMLElement} */ (card.querySelector('.account-menu-button')).click();
+  // By position, not by its words, which a locale changes: Rename, then Remove.
+  const rows = [...document.querySelectorAll('.account-menu .menu-item')];
+  const row = label === 'Rename' ? rows[0] : rows.find(el => el.classList.contains('menu-item-danger'));
+  assert(rows.length === 2 && !!row, `the ⋯ menu has no ${label}`);
+  // The menu is appended to <body> while the settings panel covers the window
+  // at --z-modal: anything lower paints behind it, and the ⋯ button does nothing
+  // a user can see.
+  const menu = /** @type {HTMLElement} */ (document.querySelector('.account-menu'));
+  const modal = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--z-modal'), 10);
+  const z = parseInt(getComputedStyle(menu).zIndex, 10);
+  assert(z > modal, `the ⋯ menu paints behind the settings panel (z-index ${getComputedStyle(menu).zIndex}, panel ${modal})`);
+  /** @type {HTMLElement} */ (row).click();
 }
 
 /**
@@ -341,852 +394,388 @@ export async function runTests(_ctx) {
     }
   });
 
-  await run('an endpoint is configured in one card, in the same grammar as every other provider', () => {
-    const { card, restore } = mountCard(endpoint(), {
-      provider: { name: 'custom-acme', displayName: 'Acme Gateway', available: true, modelsWithContext: [{ id: 'm1' }] },
-    });
+  await run('the page has a card per account, none for a type with no account, and no on/off switch', async () => {
+    const { host, restore } = mountTab();
     try {
-      // The same card as a built-in provider's, or it does not belong in the tab
-      // it now sits in.
-      assert(card.classList.contains('provider-field') && card.classList.contains('settings-group'),
-        `the card is ${card.className} — a provider card is a settings-group provider-field`);
-      assert(!card.querySelector('[class*="mcp-"]'),
-        'the card is wearing MCP server-manager classes, which is what made it look like a different app');
+      const acme = await drawn(host, 'custom-acme');
+      assert(!!cardOf(host, 'claudecode'), 'a detected default account has no card');
+      // Every built-in is registered, so all of them are in the provider list,
+      // and a page that drew one card each was eighteen cards long.
+      assert(!cardOf(host, 'anthropic') && !cardOf(host, 'ollama'),
+        'a type with no account has a card of its own; it belongs under Add an account');
+      assert(!host.querySelector('.provider-toggle, .toggle-switch, input[type="checkbox"]:not(.settings-model-visibility-check)'),
+        'an account has an on/off switch; there are only Add and Remove');
+      assert(acme.classList.contains('provider-field') && acme.classList.contains('settings-group'),
+        `the card is ${acme.className}, not the settings card shell`);
+      assert(!!acme.querySelector('.account-menu-button'), 'the card has no ⋯ menu');
+      // The id is shown, and is not a field: every conversation names it.
+      const id = acme.querySelector('.account-id');
+      assert(!!id && id.textContent === 'custom-acme' && id.tagName !== 'INPUT', `the account id reads "${id?.textContent}"`);
+      // The way to add one is on the page, not behind a button.
+      await waitFor(() => !!host.querySelector('.account-add .account-type[data-type="anthropic"]'), {
+        timeoutMs: budgetFor(2000), description: 'the kinds of account, shown without being asked for',
+      });
+    } finally {
+      restore();
+    }
+  });
 
-      assert(input(card, 'custom-endpoint-url-input').value === 'https://gateway.acme.test/v1',
-        'the base URL is not on the card');
-      assert(input(card, 'custom-endpoint-name-input').value === 'Acme Gateway', 'the name is not on the card');
-      assert(!!card.querySelector('.custom-endpoint-key-input'), 'the API key is not on the card');
+  await run('an endpoint is configured on its card: base URL, headers, key and models', async () => {
+    const { host, restore } = mountTab();
+    try {
+      const card = await drawn(host, 'custom-acme');
+      assert(input(card, 'account-url-input').value === 'https://gateway.acme.test/v1', 'the base URL is not on the card');
+      assert(!!card.querySelector('.account-header-add'), 'the headers cannot be edited');
+      assert(!!card.querySelector('.account-key-input'), 'the API key is not on the card');
       assert(!!card.querySelector('.settings-model-visibility'),
-        'the models, and their limits, are configured somewhere other than the endpoint they belong to');
-      assert(!!card.querySelector('.custom-endpoint-remove'), 'there is no way to remove the endpoint');
-
-      // The model list spans the card, like every provider card's, rather than
-      // squeezing long model ids into the control column; Remove stays under it.
+        'the models, and their limits, are configured somewhere other than the account they belong to');
+      // The model list spans the card, after the two columns.
       const children = Array.from(card.children).map(c => c.className);
       const at = (/** @type {string} */ cls) => children.findIndex(c => c.split(' ').includes(cls));
-      assert(at('custom-endpoint-models') > at('provider-control') && at('provider-control') >= 0
-        && at('custom-endpoint-actions') > at('custom-endpoint-models'),
-      `the card's children are ${JSON.stringify(children)} — want the model list, then Remove, after the two columns`);
-
-      // The provider id is shown, and is not a field: it cannot be edited,
-      // because every conversation and every stored model choice names it.
-      const id = card.querySelector('.custom-endpoint-id');
-      assert(!!id && id.textContent === 'custom-acme', `the provider id reads "${id?.textContent}"`);
-      assert(id?.tagName !== 'INPUT', 'the permanent provider id is offered as an editable field');
-      assert(card.querySelectorAll('input[type="text"]:not([disabled])').length >= 2,
-        'the card has no editable fields at all');
+      assert(at('account-models') > at('provider-control') && at('provider-control') > at('provider-info'),
+        `the card's children are ${JSON.stringify(children)}`);
     } finally {
       restore();
     }
   });
 
-  await run('an endpoint is configured in one place, not two', async () => {
-    const host = /** @type {any} */ (document.createElement('div'));
-    host.innerHTML = '<div id="provider-fields-container"></div>';
-    host.loadConfig = async () => {};
-    document.body.appendChild(host);
-
-    const originalFetch = window.fetch;
-    window.fetch = /** @type {any} */ (async (/** @type {any} */ url) => ({
-      ok: true,
-      status: 200,
-      json: async () => (String(url).includes('/api/ops/call')
-        ? { success: true, data: { endpoints: [endpoint()] } }
-        : { success: true, data: {} }),
-    }));
-
+  await run('editing the base URL saves that setting and no other', async () => {
+    const { host, ops, restore } = mountTab();
     try {
-      const tab = new ProvidersTab(host);
-      tab.onConfigLoaded({
-        config: { keys: {} },
-        providers: [
-          { name: 'anthropic', displayName: 'Anthropic', configKeyName: 'anthropic_api_key', modelsWithContext: [] },
-          // The endpoint registers as a provider, so it is in this list too.
-          { name: 'custom-acme', displayName: 'Acme Gateway', configKeyName: 'custom_acme_api_key', available: true, modelsWithContext: [{ id: 'm1', contextWindow: 1000, maxOutputTokens: 100 }] },
-        ],
-      }, true);
-
-      await waitFor(() => !!host.querySelector('.custom-endpoint'), {
-        timeoutMs: budgetFor(2000),
-        description: 'the endpoint section to be drawn',
-      });
-
-      assert(!!host.querySelector('#anthropic-key'), 'the built-in providers stopped being rendered');
-      // The whole point of the fold-in: the endpoint had a card here AND a row
-      // in a tab of its own, with the key settable in both and the models only
-      // in one.
-      assert(!host.querySelector('#custom-acme-key'),
-        'the endpoint has a second, half-furnished card among the built-in providers');
-      const cards = host.querySelectorAll('.custom-endpoint[data-endpoint-id="acme"]');
-      assert(cards.length === 1, `the endpoint has ${cards.length} cards, want exactly one`);
-      assert(!!host.querySelector('.custom-endpoint-add-open'), 'there is no way to add an endpoint');
-    } finally {
-      window.fetch = originalFetch;
-      host.remove();
-    }
-  });
-
-  await run('saving a key on an endpoint rebuilds nothing else', async () => {
-    const { host, ops, restore } = mountTab([endpoint()]);
-    try {
-      await waitFor(() => !!host.querySelector('.custom-endpoint'), {
-        timeoutMs: budgetFor(2000),
-        description: 'the endpoint section to be drawn',
-      });
-      // Held by identity, not by selector: a rebuild would replace these nodes
-      // even though the same markup came back.
-      const builtIn = host.querySelector('#anthropic-key');
-      const card = host.querySelector('.custom-endpoint');
-      const key = input(host, 'custom-endpoint-key-input');
-
-      key.value = 'sk-typed';
-      key.dispatchEvent(new Event('input', { bubbles: true }));
-      /** @type {HTMLElement} */ (host.querySelector('.custom-endpoint-key-save')).click();
-      await awaitOp(ops, 'setKey');
-      await waitFor(() => {
-        const badge = /** @type {HTMLElement|null} */ (host.querySelector('.custom-endpoint .provider-active-badge'));
-        return !!badge && badge.style.display !== 'none';
-      }, { timeoutMs: budgetFor(2000), description: 'the key to be reported as active' });
-
-      // The whole page used to be rebuilt for this, which threw the pane back to
-      // the top and shut every model list on it.
-      assert(host.querySelector('#anthropic-key') === builtIn,
-        'saving one endpoint’s key rebuilt the built-in providers above it');
-      assert(host.querySelector('.custom-endpoint') === card,
-        'saving a key rebuilt the card it was typed into');
-    } finally {
-      restore();
-    }
-  });
-
-  await run('removing an endpoint takes out its card and leaves the page alone', async () => {
-    const { host, ops, scrollWrites, restore } = mountTab([endpoint(), endpoint({ id: 'lab', providerId: 'custom-lab', displayName: 'Lab box' })]);
-    try {
-      await waitFor(() => host.querySelectorAll('.custom-endpoint').length === 2, {
-        timeoutMs: budgetFor(2000),
-        description: 'both endpoint cards to be drawn',
-      });
-      const builtIn = host.querySelector('#anthropic-key');
-      const kept = host.querySelector('.custom-endpoint[data-endpoint-id="lab"]');
-
-      const confirmed = stubModal(true);
-      try {
-        /** @type {HTMLElement} */ (host.querySelector('.custom-endpoint[data-endpoint-id="acme"] .custom-endpoint-remove')).click();
-        await awaitOp(ops, 'remove');
-      } finally {
-        confirmed.restore();
-      }
-
-      await waitFor(() => !host.querySelector('.custom-endpoint[data-endpoint-id="acme"]'), {
-        timeoutMs: budgetFor(2000),
-        description: 'the removed endpoint’s card to go',
-      });
-      assert(host.querySelector('#anthropic-key') === builtIn,
-        'removing an endpoint rebuilt the built-in providers above it');
-      assert(host.querySelector('.custom-endpoint[data-endpoint-id="lab"]') === kept,
-        'removing one endpoint rebuilt another');
-      assert(!!host.querySelector('.custom-endpoint-add-open'), 'the way to add another went with it');
-      assert(scrollWrites.length === 0, `something scrolled the pane: ${JSON.stringify(scrollWrites)}`);
-    } finally {
-      restore();
-    }
-  });
-
-  await run('switching an endpoint off changes that card and nothing around it', async () => {
-    const { host, ops, scrollWrites, restore } = mountTab([endpoint()]);
-    try {
-      await waitFor(() => !!host.querySelector('.custom-endpoint .settings-model-visibility'), {
-        timeoutMs: budgetFor(2000),
-        description: 'the endpoint card and its model list to be drawn',
-      });
-      const builtIn = host.querySelector('#anthropic-key');
-      const card = host.querySelector('.custom-endpoint');
-      const url = input(host, 'custom-endpoint-url-input');
-
-      const toggle = /** @type {HTMLInputElement} */ (host.querySelector('.custom-endpoint-toggle'));
-      toggle.checked = false;
-      toggle.dispatchEvent(new Event('change'));
-      await awaitOp(ops, 'save');
-      // Switched off means unregistered, so the models it can no longer serve go.
-      await waitFor(() => !host.querySelector('.custom-endpoint .settings-model-visibility'), {
-        timeoutMs: budgetFor(2000),
-        description: 'the model list to go with the endpoint',
-      });
-
-      // Every one of these is the same object it was: nothing was torn down and
-      // rebuilt, which is the only reason the pane cannot move under the user.
-      assert(host.querySelector('#anthropic-key') === builtIn,
-        'switching an endpoint off rebuilt the built-in providers above it');
-      assert(host.querySelector('.custom-endpoint') === card, 'the card was rebuilt around its own switch');
-      assert(host.querySelector('.custom-endpoint-url-input') === url, 'the fields on the card were rebuilt');
-      assert(host.querySelector('.custom-endpoint-toggle') === toggle,
-        'the switch was replaced by a copy of itself, so it loses focus on every click');
-      // Nothing needs its scroll position saving and restoring, because nothing
-      // it could be measured against was replaced.
-      assert(scrollWrites.length === 0,
-        `something scrolled the pane: ${JSON.stringify(scrollWrites)}`);
-    } finally {
-      restore();
-    }
-  });
-
-  await run('an endpoint that did not register still has a card, and says why', () => {
-    const { card, restore } = mountCard(endpoint({
-      registered: false,
-      url: 'nope',
-      error: 'base URL "nope" must start with http:// or https://',
-    }));
-    try {
-      const problem = card.querySelector('.custom-endpoint-problem');
-      assert(!!problem && String(problem.textContent).includes('http://'),
-        `the reason it isn’t working must be on the card — got "${problem?.textContent}"`);
-      // The card exists precisely so this can be corrected.
-      assert(input(card, 'custom-endpoint-url-input').value === 'nope', 'the offending URL is not editable');
-      assert(!card.querySelector('.settings-model-visibility'),
-        'an endpoint that never registered is offering a model list it cannot have');
-    } finally {
-      restore();
-    }
-  });
-
-  await run('a registered endpoint that will not answer reports what the provider said', () => {
-    const { card, restore } = mountCard(endpoint(), {
-      provider: {
-        name: 'custom-acme',
-        available: false,
-        authHint: 'Couldn’t load the model list from Acme Gateway.',
-        modelsWithContext: [],
-      },
-    });
-    try {
-      // The old status dot went green for any enabled endpoint with a URL that
-      // parsed. Whether the endpoint answers is the only health an arbitrary
-      // endpoint offers, and it is the model list that reports it.
-      const problem = card.querySelector('.custom-endpoint-problem');
-      assert(!!problem && String(problem.textContent).includes('model list'),
-        `a registered endpoint that cannot serve must say so — got "${problem?.textContent}"`);
-    } finally {
-      restore();
-    }
-  });
-
-  await run('a switched-off endpoint keeps its card, its URL and its key row', () => {
-    const { card, restore } = mountCard(endpoint({ enabled: false, registered: false, hasKey: true, keySource: 'credentials' }));
-    try {
-      const toggle = /** @type {HTMLInputElement} */ (card.querySelector('.custom-endpoint-toggle'));
-      assert(!!toggle && !toggle.checked, 'the switch does not report the endpoint as off');
-      assert(input(card, 'custom-endpoint-url-input').value === 'https://gateway.acme.test/v1',
-        'switching an endpoint off lost its URL');
-      // The key is stored against the endpoint id, not the registry, so it stays
-      // reachable while the endpoint is unregistered.
-      assert(!input(card, 'custom-endpoint-key-input').disabled,
-        'the key of a switched-off endpoint cannot be changed');
-      assert(card.querySelector('.custom-endpoint-problem')?.textContent === '',
-        'a deliberately switched-off endpoint is being reported as a problem');
-    } finally {
-      restore();
-    }
-  });
-
-  await run('the id is derived from the name, and never asked for', () => {
-    assert(deriveEndpointId('Acme Gateway', []) === 'acme-gateway',
-      `“Acme Gateway” derived ${deriveEndpointId('Acme Gateway', [])}`);
-    assert(deriveEndpointId('Acme', ['acme']) === 'acme-2', 'a name already in use must take the next free id');
-    assert(deriveEndpointId('Acme', ['acme', 'acme-2']) === 'acme-3', 'the next free id was not free');
-    for (const name of ['', '   ', '…', '3rd party', 'Ω', 'a'.repeat(80), 'Acme -- EU (2)']) {
-      const derived = deriveEndpointId(name, []);
-      assert(SERVER_ID_PATTERN.test(derived) && derived.length <= 40,
-        `“${name}” derived “${derived}”, which the server would refuse`);
-    }
-    assert(SERVER_ID_PATTERN.test(deriveEndpointId('Acme', Array.from({ length: 12 }, (_, i) => (i ? `acme-${i + 1}` : 'acme')))),
-      'a long run of clashes derived an id the server would refuse');
-  });
-
-  await run('the add form asks for a name and a URL, and shows the id those become', () => {
-    const form = buildAddEndpointForm({ takenIds: [], onAdded: () => {}, onCancel: () => {} });
-    document.body.appendChild(form);
-    try {
-      const name = input(form, 'custom-endpoint-add-name');
-      assert(!!form.querySelector('.custom-endpoint-add-url'), 'the form does not ask for a URL');
-      // One name field. The id used to be a second one, called "Name", which
-      // could never be changed afterwards.
-      assert(form.querySelectorAll('input[type="text"]').length === 2,
-        `the form has ${form.querySelectorAll('input[type="text"]').length} fields, want a name and a URL`);
-      assert(!form.querySelector('.custom-endpoint-transport-input, select'),
-        'the form offers a transport choice, but an endpoint is only ever a URL');
-      assert(!form.querySelector('[class*="scope"]'),
-        'the form offers a scope, and endpoints are global only');
-
-      name.value = 'Acme Gateway';
-      name.dispatchEvent(new Event('input', { bubbles: true }));
-      const shown = form.querySelector('.custom-endpoint-add-id');
-      assert(!!shown && String(shown.textContent).includes('custom-acme-gateway'),
-        `the id it will register as must be shown before it is fixed — got "${shown?.textContent}"`);
-    } finally {
-      form.remove();
-    }
-  });
-
-  await run('adding writes one endpoint under the derived id', async () => {
-    /** @type {any[]} */
-    const ops = [];
-    /** @type {any[]} */
-    const applied = [];
-    const originalFetch = window.fetch;
-    window.fetch = /** @type {any} */ (async (/** @type {any} */ url, /** @type {any} */ init) => {
-      const body = init && init.body ? JSON.parse(String(init.body)) : null;
-      if (String(url).includes('/api/ops/call')) ops.push(body);
-      return { ok: true, status: 200, json: async () => ({ success: true, data: { endpoints: [] } }) };
-    });
-    const form = buildAddEndpointForm({
-      takenIds: ['acme'],
-      onAdded: (endpoints) => { applied.push({ endpoints }); },
-      onCancel: () => {},
-    });
-    document.body.appendChild(form);
-    try {
-      const name = input(form, 'custom-endpoint-add-name');
-      name.value = 'Acme';
-      name.dispatchEvent(new Event('input', { bubbles: true }));
-      input(form, 'custom-endpoint-add-url').value = 'https://second.acme.test/v1';
-      /** @type {HTMLElement} */ (form.querySelector('.custom-endpoint-add-save')).click();
-
+      const card = await drawn(host, 'custom-acme');
+      typeAndLeave(card, 'account-url-input', 'https://other.acme.test/v1');
       const call = await awaitOp(ops, 'save');
-      assert(call.params.id === 'acme-2',
-        `the id clashed with one in use and was not moved on — sent ${JSON.stringify(call.params.id)}`);
-      assert(call.params.displayName === 'Acme' && call.params.url === 'https://second.acme.test/v1',
-        `the endpoint was sent as ${JSON.stringify(call.params)}`);
-      assert(call.params.enabled === true, 'a new endpoint should be switched on');
-      await waitFor(() => applied.length > 0, {
-        timeoutMs: budgetFor(2000),
-        description: 'the new list to reach the tab',
-      });
-      assert(Array.isArray(applied[0].endpoints), 'the new list must reach the tab that holds the section');
-    } finally {
-      window.fetch = originalFetch;
-      form.remove();
-    }
-  });
-
-  await run('adding with no URL is refused before anything is written', async () => {
-    /** @type {any[]} */
-    const ops = [];
-    const originalFetch = window.fetch;
-    window.fetch = /** @type {any} */ (async (/** @type {any} */ url, /** @type {any} */ init) => {
-      if (String(url).includes('/api/ops/call')) ops.push(init && init.body ? JSON.parse(String(init.body)) : null);
-      return { ok: true, status: 200, json: async () => ({ success: true, data: { endpoints: [] } }) };
-    });
-    const form = buildAddEndpointForm({ takenIds: [], onAdded: () => {}, onCancel: () => {} });
-    document.body.appendChild(form);
-    try {
-      const name = input(form, 'custom-endpoint-add-name');
-      name.value = 'Acme';
-      name.dispatchEvent(new Event('input', { bubbles: true }));
-      /** @type {HTMLElement} */ (form.querySelector('.custom-endpoint-add-save')).click();
-      await new Promise(r => setTimeout(r, 0));
-      // The form reads the provider catalogue as it opens; only a write counts.
-      assert(!ops.some(c => c && c.operation === 'save'), 'an endpoint with no URL was written anyway');
-      const status = form.querySelector('.provider-subfield-status[data-kind="error"]');
-      assert(!!status && String(status.textContent).length > 0, 'the form gave no reason for refusing');
-    } finally {
-      window.fetch = originalFetch;
-      form.remove();
-    }
-  });
-
-  await run('naming a provider the catalogue knows fills in its base URL', async () => {
-    /** @type {any[]} */
-    const ops = [];
-    const originalFetch = window.fetch;
-    window.fetch = /** @type {any} */ (async (/** @type {any} */ url, /** @type {any} */ init) => {
-      const body = init && init.body ? JSON.parse(String(init.body)) : null;
-      if (String(url).includes('/api/ops/call')) ops.push(body);
-      const data = body && body.operation === 'catalog'
-        ? { providers: [
-          { id: 'baseten', name: 'Baseten', api: 'https://inference.baseten.co/v1' },
-          { id: 'chutes', name: 'Chutes', api: 'https://llm.chutes.ai/v1' },
-        ] }
-        : { endpoints: [] };
-      return { ok: true, status: 200, json: async () => ({ success: true, data }) };
-    });
-    const form = buildAddEndpointForm({ takenIds: [], onAdded: () => {}, onCancel: () => {} });
-    document.body.appendChild(form);
-    try {
-      const name = input(form, 'custom-endpoint-add-name');
-      const url = input(form, 'custom-endpoint-add-url');
-      await waitFor(() => (name.list?.options.length ?? 0) === 2, {
-        timeoutMs: budgetFor(2000),
-        description: 'the name field to offer the catalogued providers',
-      });
-
-      const type = (/** @type {string} */ value) => {
-        name.value = value;
-        name.dispatchEvent(new Event('input', { bubbles: true }));
-      };
-      type('baseten');
-      assert(url.value === 'https://inference.baseten.co/v1',
-        `naming Baseten filled the URL with ${JSON.stringify(url.value)}`);
-      type('Chutes');
-      assert(url.value === 'https://llm.chutes.ai/v1',
-        `a URL the form filled in must follow the name — got ${JSON.stringify(url.value)}`);
-      type('Chutes Lab');
-      assert(url.value === '',
-        `a filled-in URL must not outlive the name that chose it — got ${JSON.stringify(url.value)}`);
-
-      // A URL the user typed is theirs: naming a known provider afterwards
-      // never replaces it.
-      url.value = 'https://proxy.internal/v1';
-      url.dispatchEvent(new Event('input', { bubbles: true }));
-      type('Baseten');
-      assert(url.value === 'https://proxy.internal/v1',
-        `a typed URL was replaced by the catalogue's — got ${JSON.stringify(url.value)}`);
-    } finally {
-      window.fetch = originalFetch;
-      form.remove();
-    }
-  });
-
-  await run('the add form works as before when the catalogue cannot be read', async () => {
-    const originalFetch = window.fetch;
-    window.fetch = /** @type {any} */ (async () => ({
-      ok: false, status: 500, json: async () => ({ success: false, error: 'boom' }),
-    }));
-    const form = buildAddEndpointForm({ takenIds: [], onAdded: () => {}, onCancel: () => {} });
-    document.body.appendChild(form);
-    try {
-      await new Promise(r => setTimeout(r, 0));
-      const name = input(form, 'custom-endpoint-add-name');
-      name.value = 'Baseten';
-      name.dispatchEvent(new Event('input', { bubbles: true }));
-      assert(input(form, 'custom-endpoint-add-url').value === '', 'a URL appeared from nowhere');
-      assert(!form.querySelector('.provider-subfield-status[data-kind="error"]'),
-        'an unreadable catalogue was reported as an error on a form that does not need it');
-    } finally {
-      window.fetch = originalFetch;
-      form.remove();
-    }
-  });
-
-  await run('editing the base URL saves that field and no other', async () => {
-    const { card, ops, restore } = mountCard(endpoint());
-    try {
-      typeAndLeave(card, 'custom-endpoint-url-input', 'https://eu.acme.test/v1');
-      const call = await awaitOp(ops, 'save');
-      assert(call.params.id === 'acme' && call.params.url === 'https://eu.acme.test/v1',
-        `the edit was sent as ${JSON.stringify(call.params)}`);
-      // A card that saves a field at a time cannot overwrite the rest of the
-      // endpoint with whatever it happened to be showing.
-      assert(!('displayName' in call.params) && !('headers' in call.params),
-        `the URL edit carried the whole endpoint with it: ${JSON.stringify(call.params)}`);
-      assert(ops.filter(c => c.operation === 'save').length === 1,
-        'one edit posted more than one write');
+      assert(call.toolId === 'accounts' && call.params.id === 'custom-acme', `saved through ${JSON.stringify(call)}`);
+      assert(JSON.stringify(call.params.settings) === JSON.stringify({ baseURL: 'https://other.acme.test/v1' }),
+        `sent settings ${JSON.stringify(call.params.settings)}, want the URL alone`);
+      assert(!('displayName' in call.params), 'a URL edit also wrote the name');
     } finally {
       restore();
     }
   });
 
   await run('leaving a field untouched saves nothing', async () => {
-    const { card, ops, restore } = mountCard(endpoint());
+    const { host, ops, restore } = mountTab();
     try {
-      input(card, 'custom-endpoint-url-input').dispatchEvent(new Event('blur'));
-      input(card, 'custom-endpoint-name-input').dispatchEvent(new Event('blur'));
-      await new Promise(r => setTimeout(r, 0));
-      assert(ops.length === 0, `passing through a field wrote to the server: ${JSON.stringify(ops)}`);
+      const card = await drawn(host, 'custom-acme');
+      typeAndLeave(card, 'account-url-input', 'https://gateway.acme.test/v1');
+      await nextTask();
+      assert(!ops.some(c => c.operation === 'save'), 'an unchanged field was written');
     } finally {
       restore();
     }
   });
 
-  await run('the key is stored through the endpoint’s own operation, never with its definition', async () => {
-    const { card, ops, restore } = mountCard(endpoint());
+  await run('an endpoint’s key is stored through the account’s own operation', async () => {
+    const { host, ops, restore } = mountTab();
     try {
-      const key = input(card, 'custom-endpoint-key-input');
+      const card = await drawn(host, 'custom-acme');
+      const key = input(card, 'account-key-input');
       key.value = 'sk-typed';
       key.dispatchEvent(new Event('input', { bubbles: true }));
-      const save = /** @type {HTMLElement} */ (card.querySelector('.custom-endpoint-key-save'));
-      assert(save.style.display !== 'none', 'a typed key offers no way to save it');
-      save.click();
-
+      /** @type {HTMLElement} */ (card.querySelector('.account-key-save')).click();
       const call = await awaitOp(ops, 'setKey');
-      assert(call.params.id === 'acme' && call.params.apiKey === 'sk-typed',
-        `setKey was sent ${JSON.stringify(call.params)}`);
-      assert(!ops.some(c => c.operation === 'save'),
-        'the key was written into the definitions, which are not where a secret belongs');
-    } finally {
-      restore();
-    }
-  });
-
-  await run('a stored key shows as active and can be deleted', async () => {
-    const { card, ops, restore } = mountCard(endpoint({ hasKey: true, keySource: 'credentials' }));
-    try {
-      const badge = /** @type {HTMLElement} */ (card.querySelector('.provider-active-badge'));
-      assert(!!badge && badge.style.display !== 'none', 'a stored key is not reported as active');
-      const del = /** @type {HTMLElement} */ (card.querySelector('.custom-endpoint-key-delete'));
-      assert(del.style.display !== 'none', 'a stored key offers no way to delete it');
-      del.click();
-      const call = await awaitOp(ops, 'setKey');
-      assert(call.params.apiKey === '', `deleting sent ${JSON.stringify(call.params)}`);
-    } finally {
-      restore();
-    }
-  });
-
-  await run('a key coming from the environment says so, and is not editable here', () => {
-    const { card, restore } = mountCard(endpoint({ hasKey: true, keySource: 'env' }));
-    try {
-      const key = input(card, 'custom-endpoint-key-input');
-      assert(key.disabled, 'a key set in the environment can be typed over, which would do nothing');
-      assert(String(key.placeholder).includes('CUSTOM_ACME_API_KEY'),
-        `the field must name where the key is coming from — got "${key.placeholder}"`);
-      const hint = card.querySelector('.key-source-hint');
-      assert(!!hint && String(hint.textContent).includes('CUSTOM_ACME_API_KEY'),
-        'the key source is not explained');
-    } finally {
-      restore();
-    }
-  });
-
-  await run('removing asks first, and names what it will forget', async () => {
-    const { card, ops, applied, restore } = mountCard(endpoint());
-    try {
-      const remove = /** @type {HTMLElement} */ (card.querySelector('.custom-endpoint-remove'));
-      const cancelled = stubModal(false);
-      try {
-        remove.click();
-        await waitFor(() => cancelled.asked !== null, {
-          timeoutMs: budgetFor(2000),
-          description: 'the removal confirmation to be presented',
-        });
-      } finally {
-        cancelled.restore();
-      }
-      const asked = cancelled.asked;
-      assert(String(asked.message).includes('Acme Gateway'), 'the confirmation must name what is being removed');
-      assert(String(asked.message).includes('limits'),
-        'the confirmation must say that the models’ limits and hiding go with it');
-      assert(ops.length === 0, 'a cancelled removal wrote anyway');
-
-      const confirmed = stubModal(true);
-      try {
-        remove.click();
-        await awaitOp(ops, 'remove');
-      } finally {
-        confirmed.restore();
-      }
-      const call = ops.find(c => c.operation === 'remove');
-      assert(call.params.id === 'acme', `remove was sent ${JSON.stringify(call.params)}`);
-      await waitFor(() => applied.length > 0, {
-        timeoutMs: budgetFor(2000),
-        description: 'the new list to reach the tab',
+      assert(call.params.id === 'custom-acme' && call.params.apiKey === 'sk-typed', `sent ${JSON.stringify(call.params)}`);
+      assert(!ops.some(c => c.operation === 'save'), 'the key went out with the endpoint definition');
+      await waitFor(() => !/** @type {HTMLElement} */ (card.querySelector('.provider-active-badge')).hidden, {
+        timeoutMs: budgetFor(2000), description: 'the key to be reported as active',
       });
-      assert(applied.some(a => a.removed), 'the tab was never told the endpoint had gone');
+      assert(!/** @type {HTMLElement} */ (card.querySelector('.account-key-delete')).hidden,
+        'a stored key cannot be deleted, though an endpoint may need none');
     } finally {
       restore();
     }
   });
 
-  await run('switching an endpoint off writes the switch, and puts it back if that fails', async () => {
-    const { card, ops, restore } = mountCard(endpoint());
+  await run('a key coming from the environment says so, and is not editable here', async () => {
+    const { host, restore } = mountTab({ accounts: [endpoint({ keySource: 'env' })] });
     try {
-      const toggle = /** @type {HTMLInputElement} */ (card.querySelector('.custom-endpoint-toggle'));
-      toggle.checked = false;
-      toggle.dispatchEvent(new Event('change'));
-      const call = await awaitOp(ops, 'save');
-      assert(call.params.enabled === false && call.params.id === 'acme',
-        `the switch was sent as ${JSON.stringify(call.params)}`);
+      const card = await drawn(host, 'custom-acme');
+      assert(input(card, 'account-key-input').disabled, 'an env key can be overwritten here');
+      assert((card.textContent || '').includes('CUSTOM_ACME_API_KEY'), 'the card does not name the variable');
+      const chip = card.querySelector('.account-chip-source');
+      assert(!!chip && !(/** @type {HTMLElement} */ (chip)).hidden && (chip.textContent || '').includes('CUSTOM_ACME_API_KEY'),
+        `the card is not marked as coming from the variable — got ${JSON.stringify(chip?.textContent)}`);
     } finally {
       restore();
-    }
-  });
-
-  await run('a switch the server refuses goes back to what the server kept', async () => {
-    const originalFetch = window.fetch;
-    window.fetch = /** @type {any} */ (async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ success: false, error: 'nope' }),
-    }));
-    const { element: card } = buildEndpointCard(endpoint(), {
-      providerFor: () => undefined,
-      modelRow: () => null,
-      applyEndpoints: () => {},
-      refreshProviders: async () => {},
-      onRemoved: () => {},
-      reportError: () => {},
-    });
-    document.body.appendChild(card);
-    try {
-      const toggle = /** @type {HTMLInputElement} */ (card.querySelector('.custom-endpoint-toggle'));
-      toggle.checked = false;
-      toggle.dispatchEvent(new Event('change'));
-      // A switch left showing "off" against a provider the picker still offers
-      // is a lie about the state of the app.
-      await waitFor(() => toggle.checked, {
-        timeoutMs: budgetFor(2000),
-        description: 'the refused switch to go back',
-      });
-    } finally {
-      window.fetch = originalFetch;
-      card.remove();
     }
   });
 
   await run('request headers are edited as names and values, and saved as a set', async () => {
-    const { card, ops, restore } = mountCard(endpoint({ headers: { 'X-Tenant': 'eu' } }));
+    const { host, ops, restore } = mountTab({ accounts: [endpoint({ settings: { baseURL: 'https://a.test/v1', headers: { 'X-Tenant': 'one' } } })] });
     try {
-      assert(card.querySelectorAll('.custom-endpoint-header-row').length === 1,
-        'the endpoint’s existing header is not shown');
-      /** @type {HTMLElement} */ (card.querySelector('.custom-endpoint-header-add')).click();
-      const rows = card.querySelectorAll('.custom-endpoint-header-row');
-      assert(rows.length === 2, 'adding a header row did not add a row');
-
-      const added = rows[1];
-      const name = /** @type {HTMLInputElement} */ (added.querySelector('.custom-endpoint-header-name'));
-      const value = /** @type {HTMLInputElement} */ (added.querySelector('.custom-endpoint-header-value'));
-      name.value = 'X-Route';
-      value.value = 'fast';
-      value.dispatchEvent(new Event('blur'));
-
+      const card = await drawn(host, 'custom-acme');
+      /** @type {HTMLElement} */ (card.querySelector('.account-header-add')).click();
+      const rows = card.querySelectorAll('.account-header-row');
+      const fresh = rows[rows.length - 1];
+      /** @type {HTMLInputElement} */ (fresh.querySelector('.account-header-name')).value = 'X-Route';
+      typeAndLeave(fresh, 'account-header-value', 'eu');
       const call = await awaitOp(ops, 'save');
-      assert(call.params.headers['X-Tenant'] === 'eu' && call.params.headers['X-Route'] === 'fast',
-        `headers were sent as ${JSON.stringify(call.params.headers)}`);
+      assert(JSON.stringify(call.params.settings.headers) === JSON.stringify({ 'X-Tenant': 'one', 'X-Route': 'eu' }),
+        `sent headers ${JSON.stringify(call.params.settings)}`);
     } finally {
       restore();
     }
   });
 
   await run('a header with no name is refused rather than silently dropped', async () => {
-    const { card, ops, restore } = mountCard(endpoint());
+    const { host, ops, restore } = mountTab();
     try {
-      /** @type {HTMLElement} */ (card.querySelector('.custom-endpoint-header-add')).click();
-      const row = card.querySelector('.custom-endpoint-header-row');
-      const value = /** @type {HTMLInputElement} */ (row?.querySelector('.custom-endpoint-header-value'));
-      value.value = 'fast';
-      value.dispatchEvent(new Event('blur'));
-      await new Promise(r => setTimeout(r, 0));
-      assert(ops.length === 0, 'a header with no name was sent anyway');
+      const card = await drawn(host, 'custom-acme');
+      /** @type {HTMLElement} */ (card.querySelector('.account-header-add')).click();
+      typeAndLeave(card, 'account-header-value', 'orphan');
+      await nextTask();
+      assert(!ops.some(c => c.operation === 'save'), 'a nameless header was written');
       const status = card.querySelector('.provider-subfield-status[data-kind="error"]');
-      assert(!!status && String(status.textContent).includes('name'),
-        `the reason must be given — got "${status?.textContent}"`);
+      assert(!!status && !!status.textContent, 'the refusal gave no reason');
     } finally {
       restore();
     }
   });
 
-  await run('under en-XA the card and the add form show no plain English', async () => {
-    const originalFetch = window.fetch;
-    /** @type {HTMLElement[]} */
-    const mounted = [];
-    /** @type {MutationObserver[]} */
-    const observers = [];
+  await run('an account that did not register still has a card, and says why', async () => {
+    const { host, restore } = mountTab({
+      accounts: [endpoint({ registered: false, problem: 'base URL "nope" must start with http:// or https://', settings: { baseURL: 'nope' } })],
+      providers: providers().filter(p => p.name !== 'custom-acme'),
+    });
     try {
-      await underPseudoLocale('custom-providers-test', async () => {
-        // Every failure the server reports is the digit 7, so a message that
-        // carries it is still judged as a message.
-        let fail = false;
-        window.fetch = /** @type {any} */ (async () => ({
-          ok: true,
-          status: 200,
-          json: async () => (fail
-            ? { success: false, error: '7' }
-            : { success: true, data: { endpoints: [] } }),
-        }));
+      const card = await drawn(host, 'custom-acme');
+      const problem = card.querySelector('.account-problem');
+      assert(!!problem && (problem.textContent || '').includes('http://'), `the card does not say why — got "${problem?.textContent}"`);
+      assert(input(card, 'account-url-input').value === 'nope', 'the offending URL is not editable');
+      assert(!card.querySelector('.settings-model-visibility'), 'an unregistered account offers a model list it cannot have');
+    } finally {
+      restore();
+    }
+  });
 
-        /** @type {string[]} */
-        const statuses = [];
-        /**
-         * Record every status line and switch note the root ever shows, so the
-         * transient ones (Saving…, Saved) are judged too.
-         * @param {HTMLElement} root
-         */
-        const watch = (root) => {
-          const observer = new MutationObserver(() => {
-            for (const el of root.querySelectorAll('.provider-subfield-status, .custom-endpoint-toggle-note')) {
-              const text = (el.textContent || '').trim();
-              if (text && !statuses.includes(text)) statuses.push(text);
-            }
-          });
-          observer.observe(root, { subtree: true, childList: true, characterData: true });
-          observers.push(observer);
-        };
-        /** @type {string[]} */
-        const reported = [];
-        /**
-         * @param {any} row
-         * @param {any} [provider]
-         * @returns {HTMLElement} The mounted card.
-         */
-        const mount = (row, provider) => {
-          const { element } = buildEndpointCard(row, {
-            providerFor: () => provider,
-            modelRow: () => null,
-            applyEndpoints: () => {},
-            refreshProviders: async () => {},
-            onRemoved: () => {},
-            reportError: (message) => { reported.push(message); },
-          });
-          document.body.appendChild(element);
-          mounted.push(element);
-          watch(element);
-          return element;
-        };
-        /**
-         * @param {Element} root
-         * @param {string} selector
-         * @param {string} attr
-         */
-        const assertAttr = (root, selector, attr) => {
-          const nodes = [...root.querySelectorAll(selector)];
-          assert(nodes.length > 0, `nothing matches ${selector}`);
-          for (const node of nodes) {
-            const value = node.getAttribute(attr) || '';
-            assert(isPseudoLocalized(value), `${selector} ${attr} is plain English: ${JSON.stringify(value)}`);
-          }
-        };
-        /**
-         * Wait for the status line of the field holding `el` to settle on `kind`.
-         * @param {Element} el - A control in the field.
-         * @param {string} kind - 'ok' or 'error'.
-         * @param {string} description
-         * @param {string} [not] - A text it must have moved on from.
-         * @returns {Promise<void>}
-         */
-        const awaitStatus = (el, kind, description, not) => waitFor(() => {
-          const status = el.closest('.provider-subfield')?.querySelector('.provider-subfield-status');
-          return !!status && /** @type {HTMLElement} */ (status).dataset.kind === kind && status.textContent !== not;
-        }, { timeoutMs: budgetFor(2000), description });
+  await run('renaming saves the name alone and changes nothing else on the page', async () => {
+    const { host, ops, scrollWrites, restore } = mountTab();
+    try {
+      const card = await drawn(host, 'custom-acme');
+      const other = cardOf(host, 'claudecode');
+      const url = input(card, 'account-url-input');
+      pickFromMenu(card, 'Rename');
+      const field = input(card, 'account-rename-input');
+      assert(field.value === 'Acme Gateway', `the rename field starts at ${JSON.stringify(field.value)}`);
+      field.value = 'Acme (EU)';
+      field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+      const call = await awaitOp(ops, 'save');
+      assert(JSON.stringify(call.params) === JSON.stringify({ id: 'custom-acme', displayName: 'Acme (EU)' }),
+        `the rename sent ${JSON.stringify(call.params)}`);
+      await waitFor(() => card.querySelector('.provider-name')?.textContent === 'Acme (EU)', {
+        timeoutMs: budgetFor(2000), description: 'the card to carry its new name',
+      });
+      assert(cardOf(host, 'custom-acme') === card && cardOf(host, 'claudecode') === other, 'a rename rebuilt a card');
+      assert(input(card, 'account-url-input') === url, 'a rename rebuilt the fields on the card');
+      assert(scrollWrites.length === 0, `something scrolled the pane: ${JSON.stringify(scrollWrites)}`);
+    } finally {
+      restore();
+    }
+  });
 
-        // The heading is the endpoint's name and the code its provider id; the
-        // name input's placeholder is the id, the URL's an example URL, the
-        // header name's an example header, and the remove button a × — all data
-        // or non-words, so their own labels are checked one by one below.
-        const cardSkip = '.provider-name, .custom-endpoint-id, .custom-endpoint-name-input, '
-          + '.custom-endpoint-url-input, .custom-endpoint-header-name, .custom-endpoint-header-remove';
-        const checkCard = (/** @type {HTMLElement} */ card, /** @type {string} */ where) => {
-          assertPseudoLocalized(card, { skip: cardSkip, atLeast: 8, where });
-          assertAttr(card, '.custom-endpoint-id', 'title');
-          assertAttr(card, '.custom-endpoint-name-input', 'aria-label');
-          assertAttr(card, '.custom-endpoint-url-input', 'aria-label');
-        };
+  await run('removing asks plainly, saying how many conversations use the account', async () => {
+    const { host, ops, scrollWrites, restore } = mountTab({ usage: 3 });
+    const modal = stubModal(true);
+    try {
+      const card = await drawn(host, 'custom-acme');
+      const other = cardOf(host, 'claudecode');
+      pickFromMenu(card, 'Remove');
+      await awaitOp(ops, 'remove');
+      assert(modal.asked && modal.asked.message === 'Remove Acme Gateway? 3 conversations use it.',
+        `the confirm read ${JSON.stringify(modal.asked?.message)}`);
+      assert(modal.asked.confirmText === 'Remove', `the confirm button reads ${JSON.stringify(modal.asked.confirmText)}`);
+      await waitFor(() => !cardOf(host, 'custom-acme'), { timeoutMs: budgetFor(2000), description: 'the card to go' });
+      assert(cardOf(host, 'claudecode') === other, 'removing one account rebuilt another');
+      assert(scrollWrites.length === 0, `something scrolled the pane: ${JSON.stringify(scrollWrites)}`);
+    } finally {
+      modal.restore();
+      restore();
+    }
+  });
 
-        // A registered endpoint with a header and no key.
-        const card = mount(endpoint({
-          id: '7', providerId: 'custom-7', displayName: '42', url: 'https://1.2.3.4/1', headers: { 5: '6' },
-        }), { name: 'custom-7', available: true, modelsWithContext: [] });
-        assert(card.querySelector('.custom-endpoint-problem')?.textContent === '',
-          'a healthy endpoint shows a problem');
-        checkCard(card, 'card');
-        assertAttr(card, '.custom-endpoint-header-name', 'aria-label');
-        assertAttr(card, '.custom-endpoint-header-remove', 'aria-label');
+  await run('an account no conversation uses is removed on a bare question', async () => {
+    const { host, ops, restore } = mountTab({ usage: 0 });
+    const modal = stubModal(false);
+    try {
+      pickFromMenu(await drawn(host, 'custom-acme'), 'Remove');
+      await waitFor(() => !!modal.asked, { timeoutMs: budgetFor(2000), description: 'the confirm to be asked' });
+      assert(modal.asked.message === 'Remove Acme Gateway?', `the confirm read ${JSON.stringify(modal.asked.message)}`);
+      await nextTask();
+      assert(!ops.some(c => c.operation === 'remove'), 'a declined remove was carried out');
+      assert(!!cardOf(host, 'custom-acme'), 'a declined remove took the card');
+    } finally {
+      modal.restore();
+      restore();
+    }
+  });
 
-        // A header row being added, then refused for having no name.
-        /** @type {HTMLElement} */ (card.querySelector('.custom-endpoint-header-add')).click();
-        checkCard(card, 'header being added');
-        assertAttr(card, '.custom-endpoint-header-remove', 'aria-label');
-        const rows = card.querySelectorAll('.custom-endpoint-header-row');
-        const newValue = /** @type {HTMLInputElement} */ (rows[rows.length - 1].querySelector('.custom-endpoint-header-value'));
-        newValue.value = '8';
-        newValue.dispatchEvent(new Event('blur'));
-        await awaitStatus(newValue, 'error', 'the nameless header to be refused');
-        /** @type {HTMLElement} */ (rows[rows.length - 1].querySelector('.custom-endpoint-header-remove')).click();
-        await new Promise(r => setTimeout(r, 0));
+  await run('logins on this machine are tiles among the kinds of account, added on a pick and never before', async () => {
+    const { host, ops, restore } = mountTab({
+      candidates: [
+        { key: 'ollama', type: 'ollama', accountId: 'ollama', displayName: 'Ollama', reason: 'removed' },
+        { key: 'claudecode:/home/u/.claude-work', type: 'claudecode', accountId: 'claudecode-work', displayName: 'Claude Code (work)', reason: 'found', path: '/home/u/.claude-work', label: 'a@b.test' },
+      ],
+    });
+    try {
+      await drawn(host, 'custom-acme');
+      const tileFor = (/** @type {string} */ key) => /** @type {HTMLButtonElement|null} */ (host.querySelector(`.account-add .account-type[data-key="${key}"]`));
+      await waitFor(() => !!tileFor('ollama'), { timeoutMs: budgetFor(2000), description: 'the removed default offered in the grid' });
+      assert(!cardOf(host, 'ollama'), 'a found login was added without being asked');
 
-        // A field saved, then a field that fails to save.
-        const url = input(card, 'custom-endpoint-url-input');
-        typeAndLeave(card, 'custom-endpoint-url-input', 'https://1.2.3.4/2');
-        await awaitStatus(url, 'ok', 'the URL to be saved');
-        fail = true;
-        typeAndLeave(card, 'custom-endpoint-url-input', 'https://1.2.3.4/3');
-        await awaitStatus(url, 'error', 'the URL save to fail');
+      // In its kind's group, and offered once: the removed default stands in for
+      // its type rather than beside it.
+      const grid = [...host.querySelectorAll('.account-types > *')];
+      const groupOf = (/** @type {Element} */ el) => {
+        const before = grid.slice(0, grid.indexOf(el)).filter(g => g.classList.contains('account-type-group'));
+        return before[before.length - 1]?.textContent;
+      };
+      assert(groupOf(/** @type {Element} */ (tileFor('ollama'))) === 'Local servers', `the removed Ollama sits under ${groupOf(/** @type {Element} */ (tileFor('ollama')))}`);
+      assert(!host.querySelector('.account-type[data-type="ollama"]:not([data-key])'), 'Ollama is offered twice: as itself and as its removed account');
+      const work = /** @type {HTMLElement} */ (tileFor('claudecode:/home/u/.claude-work'));
+      assert(groupOf(work) === 'Subscriptions', `the found Claude Code login sits under ${groupOf(work)}`);
+      assert((work.textContent || '').includes('a@b.test') && (work.textContent || '').includes('/home/u/.claude-work'),
+        `the found login does not say who or where: ${JSON.stringify(work.textContent)}`);
 
-        // The switch, refused.
-        const toggle = /** @type {HTMLInputElement} */ (card.querySelector('.custom-endpoint-toggle'));
-        toggle.checked = false;
-        toggle.dispatchEvent(new Event('change'));
-        await waitFor(() => !!card.querySelector('.custom-endpoint-toggle-note')?.textContent, {
-          timeoutMs: budgetFor(2000), description: 'the refused switch to say why',
-        });
+      /** @type {HTMLElement} */ (tileFor('ollama')).click();
+      const call = await awaitOp(ops, 'addCandidate');
+      assert(call.params.key === 'ollama', `the pick sent ${JSON.stringify(call.params)}`);
+      await drawn(host, 'ollama');
+      await waitFor(() => !tileFor('ollama'), { timeoutMs: budgetFor(2000), description: 'the added login to leave the grid' });
+      assert(!!tileFor('claudecode:/home/u/.claude-work'), 'adding one login took the other off offer');
+    } finally {
+      restore();
+    }
+  });
 
-        // A key typed and refused, then saved.
-        const key = input(card, 'custom-endpoint-key-input');
-        key.value = '0';
-        key.dispatchEvent(new Event('input', { bubbles: true }));
-        checkCard(card, 'key typed');
-        /** @type {HTMLElement} */ (card.querySelector('.custom-endpoint-key-save')).click();
-        await awaitStatus(key, 'error', 'the key save to fail');
-        fail = false;
-        /** @type {HTMLElement} */ (card.querySelector('.custom-endpoint-key-save')).click();
-        await awaitStatus(key, 'ok', 'the key to be saved');
+  await run('adding an account: the kind first, then its form, then a card', async () => {
+    const { host, ops, restore } = mountTab();
+    try {
+      await drawn(host, 'custom-acme');
+      await waitFor(() => !!host.querySelector('.account-type'), { timeoutMs: budgetFor(2000), description: 'the type picker' });
+      const groups = [...host.querySelectorAll('.account-type-group')].map(g => g.textContent);
+      assert(JSON.stringify(groups) === JSON.stringify(['API keys', 'Local servers', 'Custom']),
+        `the groups are ${JSON.stringify(groups)}`);
+      // Claude Code has its default account and takes no other yet.
+      assert(!host.querySelector('.account-type[data-type="claudecode"]'), 'a type that can take no account is offered');
 
-        // Removing: the confirmation, then a removal that fails.
-        fail = true;
-        const confirm = stubModal(true);
-        try {
-          /** @type {HTMLElement} */ (card.querySelector('.custom-endpoint-remove')).click();
-          await waitFor(() => reported.length > 0, {
-            timeoutMs: budgetFor(2000), description: 'the failed removal to be reported',
-          });
-        } finally {
-          confirm.restore();
-        }
-        fail = false;
-        const asked = confirm.asked;
-        assert(!!asked, 'removing asked nothing');
-        const rawDialog = [asked.title, asked.message, asked.confirmText].filter(s => !isPseudoLocalized(s));
-        assert(rawDialog.length === 0, `plain English in the removal confirmation: ${JSON.stringify(rawDialog)}`);
-        const rawReported = reported.filter(s => !isPseudoLocalized(s));
-        assert(rawReported.length === 0, `plain English in the removal failure: ${JSON.stringify(rawReported)}`);
-        checkCard(card, 'after the saves');
+      /** @type {HTMLElement} */ (host.querySelector('.account-type[data-type="anthropic"]')).click();
+      await waitFor(() => !!host.querySelector('.account-add-form[data-type="anthropic"]'), {
+        timeoutMs: budgetFor(2000), description: 'picking a type to open its form',
+      });
+      const form = /** @type {HTMLElement} */ (host.querySelector('.account-add-form[data-type="anthropic"]'));
+      assert((host.querySelector('.account-add-id')?.textContent || '').includes('anthropic'),
+        `the form does not show the id the account takes: ${host.querySelector('.account-add-id')?.textContent}`);
+      /** @type {HTMLElement} */ (host.querySelector('.account-add-save')).click();
+      await nextTask();
+      assert(!ops.some(c => c.operation === 'save'), 'an API-key account was added with no key');
 
-        // A stored key: the badge and Delete.
-        const stored = mount(endpoint({ id: '7', providerId: 'custom-7', displayName: '42', hasKey: true, keySource: 'credentials' }));
-        checkCard(stored, 'stored key');
-        /** @type {HTMLElement} */ (stored.querySelector('.custom-endpoint-key-delete')).click();
-        await awaitStatus(input(stored, 'custom-endpoint-key-input'), 'ok', 'the key to be deleted');
-
-        // A key from the environment.
-        const env = mount(endpoint({ id: '7', providerId: 'custom-7', displayName: '42', hasKey: true, keySource: 'env', envVarName: '9' }));
-        assert(!!env.querySelector('.key-source-hint'), 'the environment key has no hint');
-        checkCard(env, 'key from the environment');
-
-        // The add form: empty, named, refused for no URL, and failing to add.
-        const form = buildAddEndpointForm({ takenIds: [], onAdded: () => {}, onCancel: () => {} });
-        document.body.appendChild(form);
-        mounted.push(form);
-        watch(form);
-        const formSkip = '.custom-endpoint-add-url, .custom-endpoint-add-id';
-        assertPseudoLocalized(form, { skip: formSkip, atLeast: 6, where: 'add form' });
-        assertAttr(form, '.custom-endpoint-add-url', 'aria-label');
-        const addName = input(form, 'custom-endpoint-add-name');
-        addName.value = '42';
-        addName.dispatchEvent(new Event('input', { bubbles: true }));
-        // The id is data inside a message: judged with the id taken out.
-        const idNote = form.querySelector('.custom-endpoint-add-id')?.textContent || '';
-        assert(idNote.includes('custom-endpoint'), `the id note reads ${JSON.stringify(idNote)}`);
-        assert(isPseudoLocalized(idNote.replace('custom-endpoint', '')),
-          `the id note is plain English: ${JSON.stringify(idNote)}`);
-        const addURL = input(form, 'custom-endpoint-add-url');
-        /** @type {HTMLElement} */ (form.querySelector('.custom-endpoint-add-save')).click();
-        await awaitStatus(addURL, 'error', 'the URL-less add to be refused');
-        const refusal = addURL.closest('.provider-subfield')?.querySelector('.provider-subfield-status')?.textContent || '';
-        fail = true;
-        addURL.value = 'https://1.2.3.4/4';
-        /** @type {HTMLElement} */ (form.querySelector('.custom-endpoint-add-save')).click();
-        await awaitStatus(addURL, 'error', 'the add to fail', refusal);
-        fail = false;
-        assertPseudoLocalized(form, { skip: formSkip, where: 'add form after failing' });
-
-        // Saving…, Saved, Deleted, every refusal and every failure.
-        assert(statuses.length >= 8, `expected every status line, saw ${JSON.stringify(statuses)}`);
-        const rawStatus = statuses.filter(s => !isPseudoLocalized(s));
-        assert(rawStatus.length === 0, `plain English status lines: ${JSON.stringify(rawStatus)}`);
+      input(form, 'account-add-key').value = 'sk-ant';
+      /** @type {HTMLElement} */ (host.querySelector('.account-add-save')).click();
+      const call = await awaitOp(ops, 'save');
+      assert(JSON.stringify(call.params) === JSON.stringify({ type: 'anthropic', displayName: 'Anthropic', apiKey: 'sk-ant' }),
+        `Add sent ${JSON.stringify(call.params)}`);
+      await drawn(host, 'anthropic');
+      await waitFor(() => !host.querySelector('.account-add-form') && !!host.querySelector('.account-add .account-types'), {
+        timeoutMs: budgetFor(2000), description: 'the form to give way to the kinds of account again',
       });
     } finally {
-      for (const observer of observers) observer.disconnect();
-      for (const el of mounted) el.remove();
-      window.fetch = originalFetch;
+      restore();
+    }
+  });
+
+  await run('an endpoint with no URL is refused before anything is written', async () => {
+    const { host, ops, restore } = mountTab();
+    try {
+      await drawn(host, 'custom-acme');
+      await waitFor(() => !!host.querySelector(`.account-type[data-type="${ENDPOINT_TYPE}"]`), {
+        timeoutMs: budgetFor(2000), description: 'the type picker',
+      });
+      /** @type {HTMLElement} */ (host.querySelector(`.account-type[data-type="${ENDPOINT_TYPE}"]`)).click();
+      await waitFor(() => !!host.querySelector('.account-add-name'), { timeoutMs: budgetFor(2000), description: 'the endpoint form' });
+      input(host, 'account-add-name').value = 'Acme';
+      /** @type {HTMLElement} */ (host.querySelector('.account-add-save')).click();
+      await nextTask();
+      assert(!ops.some(c => c.operation === 'save'), 'an endpoint with no URL was written anyway');
+      const status = host.querySelector('.provider-subfield-status[data-kind="error"]');
+      assert(!!status && !!status.textContent, 'the form gave no reason for refusing');
+    } finally {
+      restore();
+    }
+  });
+
+  await run('naming a provider the catalogue knows fills in its base URL', async () => {
+    const { host, restore } = mountTab({
+      catalog: [
+        { id: 'baseten', name: 'Baseten', api: 'https://inference.baseten.co/v1' },
+        { id: 'chutes', name: 'Chutes', api: 'https://llm.chutes.ai/v1' },
+      ],
+    });
+    try {
+      await drawn(host, 'custom-acme');
+      await waitFor(() => !!host.querySelector(`.account-type[data-type="${ENDPOINT_TYPE}"]`), {
+        timeoutMs: budgetFor(2000), description: 'the type picker',
+      });
+      /** @type {HTMLElement} */ (host.querySelector(`.account-type[data-type="${ENDPOINT_TYPE}"]`)).click();
+      await waitFor(() => !!host.querySelector('.account-add-name'), { timeoutMs: budgetFor(2000), description: 'the endpoint form' });
+      const name = input(host, 'account-add-name');
+      const url = input(host, 'account-add-url');
+      await waitFor(() => (name.list?.options.length ?? 0) === 2, {
+        timeoutMs: budgetFor(2000), description: 'the name field to offer the catalogued providers',
+      });
+      const type = (/** @type {string} */ value) => {
+        name.value = value;
+        name.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      type('baseten');
+      assert(url.value === 'https://inference.baseten.co/v1', `naming Baseten filled ${JSON.stringify(url.value)}`);
+      type('Chutes');
+      assert(url.value === 'https://llm.chutes.ai/v1', `a filled-in URL did not follow the name: ${JSON.stringify(url.value)}`);
+      type('Chutes Lab');
+      assert(url.value === '', `a filled-in URL outlived the name that chose it: ${JSON.stringify(url.value)}`);
+      url.value = 'https://proxy.internal/v1';
+      type('Baseten');
+      assert(url.value === 'https://proxy.internal/v1', `a typed URL was replaced: ${JSON.stringify(url.value)}`);
+    } finally {
+      restore();
+    }
+  });
+
+  await run('the id a new account shows is the server’s latest answer, never an overtaken one', async () => {
+    /** @type {Array<{params: any, answer: (preview: any) => void}>} */
+    const asked = [];
+    const { host, restore } = mountTab({
+      preview: (params) => new Promise((answer) => { asked.push({ params, answer }); }),
+    });
+    try {
+      await drawn(host, 'custom-acme');
+      await waitFor(() => !!host.querySelector('.account-type[data-type="anthropic"]'), {
+        timeoutMs: budgetFor(2000), description: 'the type picker',
+      });
+      /** @type {HTMLElement} */ (host.querySelector('.account-type[data-type="anthropic"]')).click();
+      await waitFor(() => asked.length === 1, { timeoutMs: budgetFor(2000), description: 'the form to ask what an add makes' });
+      asked[0].answer({ id: 'anthropic-2', displayName: 'Anthropic (2)', isDefault: false });
+      await waitFor(() => !!host.querySelector('.account-add-name'), { timeoutMs: budgetFor(2000), description: 'the form' });
+      const name = input(host, 'account-add-name');
+      const idLine = () => host.querySelector('.account-add-id')?.textContent || '';
+      assert(name.value === 'Anthropic (2)' && idLine().includes('anthropic-2'),
+        `the form opened as ${JSON.stringify(name.value)} with ${JSON.stringify(idLine())}`);
+
+      const type = (/** @type {string} */ value) => {
+        name.value = value;
+        name.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      type('Anthropic (t)');
+      type('Anthropic (team)');
+      await waitFor(() => asked.length === 3, { timeoutMs: budgetFor(2000), description: 'a preview per keystroke' });
+      asked[2].answer({ id: 'anthropic-team', displayName: 'Anthropic (team)', isDefault: false });
+      await waitFor(() => idLine().includes('anthropic-team'), { timeoutMs: budgetFor(2000), description: 'the latest id' });
+      asked[1].answer({ id: 'anthropic-t', displayName: 'Anthropic (t)', isDefault: false });
+      await nextTask();
+      assert(idLine().includes('anthropic-team') && !idLine().includes('anthropic-t.'),
+        `an overtaken answer replaced the latest: ${JSON.stringify(idLine())}`);
+    } finally {
+      restore();
     }
   });
 
@@ -1212,20 +801,66 @@ export async function runTests(_ctx) {
 
         /** @type {string[]} */
         const calls = [];
-        const fail = { config: false, settings: false, enable: true, switch: true };
+        const fail = { config: false, settings: false, switch: true, ops: false };
         let startOK = false;
         const ok = (/** @type {any} */ body) => ({ ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) });
         const bad = (/** @type {any} */ body) => ({
           ok: false, status: 500, statusText: '', json: async () => body, text: async () => (body ? JSON.stringify(body) : ''),
         });
+        const accounts = () => [
+          // API key: none set, one stored, one from the environment.
+          { id: 'p1', type: 'p1', typeDisplayName: '1', displayName: '1', isDefault: true, keySource: '', registered: true },
+          { id: 'p2', type: 'p2', typeDisplayName: '2', displayName: '20', isDefault: true, keySource: 'credentials', registered: true },
+          { id: 'p3', type: 'p3', typeDisplayName: '3', displayName: '3', isDefault: true, keySource: 'env', envVarName: '9', registered: true },
+          // OAuth: signed in (with who), signed out, the device flow both ways.
+          { id: 'p4', type: 'p4', typeDisplayName: '4', displayName: '4', isDefault: true, keySource: 'codex_cli', accountLabel: '1@2', registered: true },
+          { id: 'p5', type: 'p5', typeDisplayName: '5', displayName: '5', isDefault: true, registered: true },
+          { id: 'p6', type: 'p6', typeDisplayName: '6', displayName: '6', isDefault: true, registered: true },
+          { id: 'p7', type: 'p7', typeDisplayName: '7', displayName: '7', isDefault: true, registered: true },
+          // Keyless: a hint, a switch, the host and path rows.
+          { id: 'p9', type: 'p9', typeDisplayName: '9', displayName: '9', isDefault: true, registered: true },
+          { id: 'p10', type: 'p10', typeDisplayName: '10', displayName: '10', isDefault: true, registered: true },
+          { id: 'ollama', type: 'ollama', typeDisplayName: '12', displayName: '12', isDefault: true, registered: true },
+          { id: 'claudecode', type: 'claudecode', typeDisplayName: '13', displayName: '13', isDefault: true, registered: true },
+          // An endpoint, and an account this build cannot use.
+          { id: 'custom-1', type: ENDPOINT_TYPE, typeDisplayName: '15', displayName: '16', keySource: 'credentials', registered: true, settings: { baseURL: 'https://1.2.3.4/', headers: { 1: '2' } } },
+          { id: 'p2-2', type: 'p2', typeDisplayName: '2', displayName: '21', registered: false, problem: 'This version of Juggler cannot use this account.', problemMessage: { key: 'This version of Juggler cannot use this account.' } },
+        ];
+        const list = {
+          accounts: accounts(),
+          candidates: [
+            { key: 'p14', type: 'p14', accountId: 'p14', displayName: '14', reason: 'removed' },
+            { key: 'custom-2', type: ENDPOINT_TYPE, accountId: 'custom-2', displayName: '17', reason: 'switched-off' },
+            { key: 'p5:/1', type: 'p5', accountId: 'p5-1', reason: 'found', path: '/1', label: '2' },
+          ],
+        };
+        const typeList = [
+          { name: 'p1', displayName: '1', category: 'api_key', hasDefaultAccount: true, acceptsExtra: true },
+          { name: 'p5', displayName: '5', category: 'subscription', hasDefaultAccount: true, acceptsExtra: true },
+          { name: 'p18', displayName: '18', category: 'local', hasDefaultAccount: true, acceptsExtra: false },
+          { name: 'p14', displayName: '14', category: 'local', hasDefaultAccount: true, acceptsExtra: false },
+          {
+            name: ENDPOINT_TYPE, displayName: '15', category: 'custom', hasDefaultAccount: false, acceptsExtra: true,
+            // The server's own blurb, sent as the message it was rendered from.
+            description: 'A gateway, a tenant or a server speaking the OpenAI API',
+            descriptionMessage: { key: 'A gateway, a tenant or a server speaking the OpenAI API' },
+          },
+        ];
         // Every failure the server reports is the digit 7; a switch failure says
         // nothing at all, so the tab's own fallback is what shows.
         window.fetch = /** @type {any} */ (async (/** @type {any} */ url, /** @type {any} */ init) => {
           const u = String(url);
           const method = (init && init.method) || 'GET';
           calls.push(`${method} ${u}`);
-          if (u.includes('/api/ops/call')) return ok({ success: true, data: { endpoints: [] } });
-          if (u.endsWith('/config/provider-enabled')) return fail.enable ? bad({ error: '7' }) : ok({});
+          if (u.includes('/api/ops/call')) {
+            const body = JSON.parse(init.body);
+            if (body.operation === 'types') return ok({ success: true, data: { types: typeList } });
+            if (body.operation === 'preview') return ok({ success: true, data: { id: body.params.type === ENDPOINT_TYPE ? 'custom-2' : `${body.params.type}-2`, displayName: '', isDefault: false } });
+            if (body.operation === 'usage') return ok({ success: true, data: { conversations: 2 } });
+            if (body.operation === 'catalog') return ok({ success: true, data: { providers: [] } });
+            if (fail.ops && body.operation !== 'list') return ok({ success: false, error: '7' });
+            return ok({ success: true, data: { id: 'p1', ...list } });
+          }
           if (u.endsWith('/config')) return fail.config ? bad({ error: '7' }) : ok({});
           if (u.endsWith('/settings')) return fail.settings ? bad({ error: '7' }) : ok({});
           if (u.endsWith('/providers/switch')) return fail.switch ? bad(null) : ok({ provider: 'p11' });
@@ -1245,7 +880,7 @@ export async function runTests(_ctx) {
         const dialogs = [];
         /** @type {any} */ (window).showModal = async (/** @type {any} */ options) => {
           dialogs.push(options);
-          return options.type === 'confirm' ? true : undefined;
+          return options.type === 'confirm' ? !options.message?.includes('20') : undefined;
         };
 
         const models = () => [
@@ -1255,23 +890,19 @@ export async function runTests(_ctx) {
           { id: '4', contextWindow: 512, maxOutputTokens: 100, windowAssumed: true },
         ];
         const providers = () => [
-          // API key: none set, one stored, one from the environment.
           { name: 'p1', displayName: '1', description: '2', configKeyName: 'p1_key', apiKeyURL: 'https://1.2.3.4/', keySource: '', envVarName: '', modelsWithContext: models() },
-          { name: 'p2', displayName: '2', configKeyName: 'p2_key', keySource: 'credentials', modelsWithContext: [] },
+          { name: 'p2', displayName: '20', configKeyName: 'p2_key', keySource: 'credentials', envVarName: '8', modelsWithContext: [] },
           { name: 'p3', displayName: '3', configKeyName: 'p3_key', keySource: 'env', envVarName: '9', modelsWithContext: [] },
-          // OAuth: signed in, signed out, the device flow both ways, switched off.
           { name: 'p4', displayName: '4', authType: 'oauth_bearer', available: true, modelsWithContext: [] },
           { name: 'p5', displayName: '5', authType: 'oauth_bearer', available: false },
           { name: 'p6', displayName: '6', authType: 'oauth_bearer', available: false, signInMethod: 'github_device' },
           { name: 'p7', displayName: '7', authType: 'oauth_bearer', available: true, signInMethod: 'github_device' },
-          { name: 'p8', displayName: '8', authType: 'oauth_bearer', disabled: true },
-          // Keyless: on with a server hint (a CLI not found), offering a switch,
-          // the two with a host or path row, and one switched off.
           { name: 'p9', displayName: '9', configKeyName: '', credentialed: true, authHint: '5' },
           { name: 'p10', displayName: '10', configKeyName: '', credentialed: true, switchTo: { reason: '6', displayName: '11' } },
           { name: 'ollama', displayName: '12', configKeyName: '', credentialed: true },
           { name: 'claudecode', displayName: '13', configKeyName: '', credentialed: true },
-          { name: 'p14', displayName: '14', configKeyName: '', credentialed: false },
+          { name: 'p18', displayName: '18', configKeyName: '', credentialed: false },
+          { name: 'custom-1', displayName: '16', configKeyName: 'custom_1_api_key', available: false, authHint: '19', modelsWithContext: [] },
         ];
 
         document.body.appendChild(host);
@@ -1280,8 +911,15 @@ export async function runTests(_ctx) {
         // Every string the tab ever shows, so the transient ones (Saving…,
         // Checking…, Starting…, Switching…) are judged too. A string with no
         // letters in it is data, not English.
+        const literal = '#ollama-host-input, .account-copilot-host, .account-url-input, .account-header-name, .account-add-url';
+        // The ⋯ and × glyphs, and the lines that carry an id or a name with
+        // letters in it, are checked by hand below.
+        const skip = '.provider-name, .provider-description, .account-id, .account-problem, .account-chip:not(.account-chip-source), '
+          + '.account-type-name, .account-type-description, .account-type-detail, .account-add-id, '
+          + '.account-menu-button, .account-add-back, .account-header-remove, .settings-model-visibility-name, .settings-model-visibility-count, '
+          + `.model-limit-input, .provider-switch-reason, [data-provider="p9"] .account-status, ${literal}`;
         observer = new MutationObserver(() => {
-          for (const s of shownStrings(host, '#ollama-host-input, .copilot-host-field input')) {
+          for (const s of shownStrings(host, skip)) {
             const text = strip(s);
             if (/[A-Za-z]/.test(text) && !isPseudoLocalized(text) && !transient.includes(s)) transient.push(s);
           }
@@ -1291,17 +929,28 @@ export async function runTests(_ctx) {
         tab = new ProvidersTab(host);
         host.loadConfig = async () => true;
         tab.onConfigLoaded({ config: { keys: { p2: true } }, providers: providers() }, true);
-        await waitFor(() => !!host.querySelector('.custom-endpoint-add-open'), {
-          timeoutMs: budgetFor(2000), description: 'the endpoint section to be drawn',
+        await waitFor(() => !!tab.accountList && !!cardOf(host, 'custom-1') && !!host.querySelector('.account-type-found'), {
+          timeoutMs: budgetFor(2000), description: 'the accounts and the found logins to be drawn',
         });
 
-        // Names, descriptions, model ids, numbers and addresses are data; their
-        // elements' own labels are checked one by one below.
-        const skip = '.provider-name, .provider-description, .settings-model-visibility-name, .settings-model-visibility-count, '
-          + '.model-limit-input, .provider-switch-reason, #p9-oauth-status, #ollama-host-input, .copilot-host-field input';
+        // Names, descriptions, ids, model ids, numbers and addresses are data;
+        // their elements' own labels are checked one by one below.
         /**
-         * Every limit field's title and aria-label is a message; its placeholder
-         * is the reported number, or a message when there is none.
+         * Every element matching selector carries attr as a message.
+         * @param {string} selector
+         * @param {string} attr
+         * @param {string} where
+         */
+        const checkAttr = (selector, attr, where) => {
+          const nodes = [...host.querySelectorAll(selector)];
+          assert(nodes.length > 0, `nothing matches ${selector} (${where})`);
+          for (const node of nodes) {
+            const v = node.getAttribute(attr) || '';
+            assert(isPseudoLocalized(v), `${selector} ${attr} is plain English (${where}): ${JSON.stringify(v)}`);
+          }
+        };
+        /**
+         * Every limit field's title and aria-label is a message.
          * @param {string} where
          */
         const checkLimitFields = (where) => {
@@ -1317,60 +966,65 @@ export async function runTests(_ctx) {
         const check = (/** @type {string} */ where) => {
           assertPseudoLocalized(host, { skip, atLeast: 40, where });
           checkLimitFields(where);
-          const tenant = host.querySelector('.copilot-host-field input')?.getAttribute('placeholder') || '';
+          const tenant = host.querySelector('.account-copilot-host')?.getAttribute('placeholder') || '';
           assert(tenant.includes('github.com') && isPseudoLocalized(tenant.replace('github.com', '')),
             `the GitHub host placeholder is plain English (${where}): ${JSON.stringify(tenant)}`);
         };
+        const dialogCount = (/** @type {number} */ n, /** @type {string} */ description) =>
+          waitFor(() => dialogs.length >= n, { timeoutMs: budgetFor(4000), description });
+        const inCard = (/** @type {string} */ id, /** @type {string} */ selector) =>
+          /** @type {HTMLElement} */ (/** @type {HTMLElement} */ (cardOf(host, id)).querySelector(selector));
+        /**
+         * Wait for a card's field to report a failure on its status line.
+         * @param {string} id - The account.
+         * @param {string} description - What failed.
+         * @returns {Promise<void>} Resolves once it does.
+         */
+        const fieldRefused = (id, description) => waitFor(
+          () => !!/** @type {HTMLElement} */ (cardOf(host, id)).querySelector('.provider-subfield-status[data-kind="error"]'),
+          { timeoutMs: budgetFor(2000), description });
+
         check('as drawn');
-        assert(!!host.querySelector('#p4-oauth-status') && !!host.querySelector('#p5-oauth-status'),
+        checkAttr('.account-menu-button', 'aria-label', 'as drawn');
+        checkAttr('.account-header-remove', 'aria-label', 'as drawn');
+        assert(!!inCard('p4', '.account-status') && !!inCard('p5', '.account-status'),
           'the OAuth status lines were not drawn');
         assert(!!host.querySelector('.provider-switch-notice'), 'the switch notice was not drawn');
         assert(!!host.querySelector('#claudecode-binary-input'), 'the Claude Code path row was not drawn');
         assert(!!host.querySelector('.model-window-assumed'), 'the assumed marker was not drawn');
+        assert(!!host.querySelector('.account-label:not([hidden])'), 'who is signed in was not drawn');
+        const why = cardOf(host, 'p2-2')?.querySelector('.account-problem')?.textContent || '';
+        assert(isPseudoLocalized(why), `the unusable account does not say why in the reader's language: ${JSON.stringify(why)}`);
 
-        const dialogCount = (/** @type {number} */ n, /** @type {string} */ description) =>
-          waitFor(() => dialogs.length >= n, { timeoutMs: budgetFor(4000), description });
-        const fieldOf = (/** @type {string} */ name) => /** @type {HTMLElement} */ (host.querySelector(`.provider-field[data-provider="${name}"]`));
-
-        // A key typed, then refused; a stored key whose delete fails.
-        fail.config = true;
+        // A key typed, then refused.
+        fail.ops = true;
         const key = /** @type {HTMLInputElement} */ (host.querySelector('#p1-key'));
         key.value = '0';
         key.dispatchEvent(new Event('input'));
         check('key typed');
-        /** @type {HTMLElement} */ (host.querySelector('#p1-save')).click();
-        await dialogCount(1, 'the refused key to be reported');
-        /** @type {HTMLElement} */ (host.querySelector('#p2-delete')).click();
-        await dialogCount(2, 'the failed delete to be reported');
-        // A switch the server refuses.
-        const off = /** @type {HTMLInputElement} */ (host.querySelector('#p14-toggle'));
-        off.checked = true;
-        off.dispatchEvent(new Event('change'));
-        await dialogCount(3, 'the refused switch to be reported');
+        inCard('p1', '.account-key-save').click();
+        await fieldRefused('p1', 'the refused key to say so');
+        fail.ops = false;
 
         // The model list: a model hidden, then a limit and a hide that fail.
-        const list = /** @type {HTMLDetailsElement} */ (fieldOf('p1').querySelector('details.settings-model-visibility'));
-        assert(list.open, 'a list with an assumed window did not open');
-        const box = /** @type {HTMLInputElement} */ (list.querySelector('[data-model="1"] .settings-model-visibility-check'));
+        const list1 = /** @type {HTMLDetailsElement} */ (cardOf(host, 'p1')?.querySelector('details.settings-model-visibility'));
+        assert(list1.open, 'a list with an assumed window did not open');
+        const box = /** @type {HTMLInputElement} */ (list1.querySelector('[data-model="1"] .settings-model-visibility-check'));
         box.checked = false;
         box.dispatchEvent(new Event('change'));
         await nextTask();
-        const count = list.querySelector('.settings-model-visibility-count')?.textContent || '';
+        const count = list1.querySelector('.settings-model-visibility-count')?.textContent || '';
         assert(isPseudoLocalized(count), `the shown count is plain English: ${JSON.stringify(count)}`);
         fail.settings = true;
-        const limit = /** @type {HTMLInputElement} */ (list.querySelector('[data-model="1"] [data-limit="contextWindow"]'));
+        const limit = /** @type {HTMLInputElement} */ (list1.querySelector('[data-model="1"] [data-limit="contextWindow"]'));
         limit.value = '2000';
         limit.dispatchEvent(new Event('change'));
-        const status = /** @type {HTMLElement} */ (list.querySelector('.settings-model-visibility-status'));
+        const status = /** @type {HTMLElement} */ (list1.querySelector('.settings-model-visibility-status'));
         await waitFor(() => !status.hidden, { timeoutMs: budgetFor(2000), description: 'the limit save to fail' });
         const limitError = status.textContent;
         assert(isPseudoLocalized(limitError || ''), `the limit failure is plain English: ${JSON.stringify(limitError)}`);
-        const box2 = /** @type {HTMLInputElement} */ (list.querySelector('[data-model="2"] .settings-model-visibility-check'));
-        box2.checked = false;
-        box2.dispatchEvent(new Event('change'));
-        await waitFor(() => status.textContent !== limitError, { timeoutMs: budgetFor(2000), description: 'the hide to fail' });
         fail.settings = false;
-        const filter = /** @type {HTMLInputElement} */ (list.querySelector('.settings-model-visibility-filter'));
+        const filter = /** @type {HTMLInputElement} */ (list1.querySelector('.settings-model-visibility-filter'));
         filter.value = '0';
         filter.dispatchEvent(new Event('input'));
         check('model list filtered to nothing');
@@ -1380,14 +1034,13 @@ export async function runTests(_ctx) {
           ['#ollama-host-input', ['1.2.3.4', '', '5.6.7.8']],
           ['#claudecode-binary-input', ['/1/2', '', '/3']],
         ])) {
-          const input = /** @type {HTMLInputElement} */ (host.querySelector(id));
-          const line = /** @type {HTMLElement} */ (input.closest('.provider-input-wrapper')?.nextElementSibling);
+          const field = /** @type {HTMLInputElement} */ (host.querySelector(id));
+          const line = /** @type {HTMLElement} */ (field.closest('.provider-input-wrapper')?.nextElementSibling);
           for (const [i, value] of values.entries()) {
             fail.config = i === 2;
             const before = line.textContent;
-            input.value = value;
-            input.dispatchEvent(new Event('blur'));
-            // Saving… gives way to what happened.
+            field.value = value;
+            field.dispatchEvent(new Event('blur'));
             await waitFor(() => !!line.textContent && line.textContent !== before && !line.textContent.includes('\u2026'), {
               timeoutMs: budgetFor(2000), description: `${id} to report ${JSON.stringify(value)}`,
             });
@@ -1397,22 +1050,34 @@ export async function runTests(_ctx) {
 
         // The GitHub device flow: a host refused, a sign-in that cannot start,
         // one GitHub denies, and a sign-out that fails.
-        const hostInput = /** @type {HTMLInputElement} */ (host.querySelector('#p6-host'));
+        const hostInput = /** @type {HTMLInputElement} */ (inCard('p6', '.account-copilot-host'));
         hostInput.value = '1.2.3.4';
-        hostInput.dispatchEvent(new Event('change'));
-        await dialogCount(4, 'the refused host to be reported');
-        /** @type {HTMLElement} */ (fieldOf('p6').querySelector('.btn-primary')).click();
-        await dialogCount(5, 'the sign-in that could not start to be reported');
+        hostInput.dispatchEvent(new Event('blur'));
+        await fieldRefused('p6', 'the refused host to say so');
+        hostInput.value = 'github.com';
+        inCard('p6', '.provider-control .btn-primary').click();
+        await dialogCount(1, 'the sign-in that could not start to be reported');
         startOK = true;
-        /** @type {HTMLElement} */ (fieldOf('p6').querySelector('.btn-primary')).click();
-        await dialogCount(6, 'the denied sign-in to be reported');
-        /** @type {HTMLElement} */ (fieldOf('p7').querySelector('.btn-danger')).click();
-        await dialogCount(8, 'the sign-out to be confirmed, then its failure reported');
+        inCard('p6', '.provider-control .btn-primary').click();
+        await dialogCount(2, 'the denied sign-in to be reported');
+        inCard('p7', '.provider-control .btn-danger').click();
+        await dialogCount(4, 'the sign-out to be confirmed, then its failure reported');
+
+        // An endpoint's settings and key, saved and refused.
+        const endpointCard = /** @type {HTMLElement} */ (cardOf(host, 'custom-1'));
+        fail.ops = true;
+        typeAndLeave(endpointCard, 'account-url-input', 'https://5.6.7.8/');
+        await waitFor(() => !!endpointCard.querySelector('.provider-subfield-status[data-kind="error"]'), {
+          timeoutMs: budgetFor(2000), description: 'the refused URL to say so',
+        });
+        /** @type {HTMLElement} */ (endpointCard.querySelector('.account-key-delete')).click();
+        fail.ops = false;
+        check('endpoint saves refused');
 
         // Re-checking a sign-in, and a keyless provider's status.
         for (const name of ['p4', 'p9']) {
           const before = calls.length;
-          /** @type {HTMLElement} */ (fieldOf(name).querySelector('.settings-recheck-btn')).click();
+          inCard(name, '.settings-recheck-btn').click();
           await waitFor(() => calls.slice(before).some(c => c.endsWith('/providers/refresh')), {
             timeoutMs: budgetFor(2000), description: `${name}'s re-check to ask for a refresh`,
           });
@@ -1421,6 +1086,69 @@ export async function runTests(_ctx) {
             timeoutMs: budgetFor(2000), description: `${name}'s re-check to finish`,
           });
         }
+
+        // Rename, and Remove both ways: declined (it names conversations), and
+        // carried out but refused.
+        inCard('p3', '.account-menu-button').click();
+        const menuRows = [...document.querySelectorAll('.account-menu .menu-item')];
+        assert(menuRows.length === 2 && menuRows.every(el => isPseudoLocalized(el.textContent || '')),
+          `the ⋯ menu is plain English: ${JSON.stringify(menuRows.map(el => el.textContent))}`);
+        /** @type {HTMLElement} */ (menuRows[0]).click();
+        check('renaming');
+        /** @type {HTMLInputElement} */ (host.querySelector('.account-rename-input')).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+        pickFromMenu(/** @type {HTMLElement} */ (cardOf(host, 'p2')), 'Remove');
+        await dialogCount(5, 'the remove confirm');
+        fail.ops = true;
+        pickFromMenu(/** @type {HTMLElement} */ (cardOf(host, 'p3')), 'Remove');
+        await dialogCount(7, 'the remove to be confirmed, then its failure reported');
+        fail.ops = false;
+
+        // Found: what each login on offer says about itself, and an add refused.
+        const found = [...host.querySelectorAll('.account-type-found')];
+        const titles = found.map(el => el.querySelector('.account-type-name')?.textContent || '');
+        assert(titles.some(s => s.includes('·') && isPseudoLocalized(s)), `a found login's title is plain English: ${JSON.stringify(titles)}`);
+        const offeredWhy = found.map(el => el.querySelector('.account-type-description')?.textContent || '');
+        assert(offeredWhy.length === 3 && offeredWhy.every(s => isPseudoLocalized(s)),
+          `a login on offer says why in plain English: ${JSON.stringify(offeredWhy)}`);
+        fail.ops = true;
+        /** @type {HTMLElement} */ (found[0]).click();
+        await dialogCount(8, 'the refused add to be reported');
+        fail.ops = false;
+
+        // Add an account: the grid, an API-key form refused for want of a key,
+        // an endpoint's form refused for want of a URL, and an OAuth type's form.
+        await waitFor(() => !!host.querySelector('.account-type'), { timeoutMs: budgetFor(2000), description: 'the type picker' });
+        check('type picker');
+        const blurb = host.querySelector(`.account-type[data-type="${ENDPOINT_TYPE}"]:not([data-key]) .account-type-description`)?.textContent || '';
+        assert(isPseudoLocalized(blurb), `the endpoint type's blurb is plain English: ${JSON.stringify(blurb)}`);
+        for (const type of ['p1', ENDPOINT_TYPE, 'p5', 'p18']) {
+          /** @type {HTMLElement} */ (host.querySelector(`.account-type[data-type="${type}"]:not([data-key])`)).click();
+          await waitFor(() => !!host.querySelector(`.account-add-form[data-type="${type}"]`), {
+            timeoutMs: budgetFor(2000), description: `${type}'s form`,
+          });
+          const idLine = host.querySelector('.account-add-id')?.textContent || '';
+          assert(isPseudoLocalized(idLine.replace(/(p\d+|custom)(-\d+)?/, '')),
+            `the ${type} form's id line is plain English: ${JSON.stringify(idLine)}`);
+          if (type === 'p1' || type === ENDPOINT_TYPE) {
+            /** @type {HTMLElement} */ (host.querySelector('.account-add-save')).click();
+            await waitFor(() => !!host.querySelector('.account-add .provider-subfield-status[data-kind="error"]'), {
+              timeoutMs: budgetFor(2000), description: `${type}'s form to refuse`,
+            });
+          }
+          check(`${type} form`);
+          checkAttr('.account-add-back', 'aria-label', `${type} form`);
+          /** @type {HTMLElement} */ (host.querySelector('.account-add-back')).click();
+        }
+        /** @type {HTMLElement} */ (host.querySelector('.account-type[data-type="p5"]:not([data-key])')).click();
+        await waitFor(() => !!host.querySelector('.account-add-save'), { timeoutMs: budgetFor(2000), description: 'p5\'s form' });
+        fail.ops = true;
+        /** @type {HTMLElement} */ (host.querySelector('.account-add-save')).click();
+        await waitFor(() => !!host.querySelector('.account-add-status')?.textContent, {
+          timeoutMs: budgetFor(2000), description: 'the refused add to say so',
+        });
+        fail.ops = false;
+        check('add refused');
+        /** @type {HTMLElement} */ (host.querySelector('.account-add-cancel')).click();
 
         // Switching: refused, then done.
         const switchButton = () => /** @type {HTMLButtonElement} */ (host.querySelector('.provider-switch-notice button'));
@@ -1444,9 +1172,8 @@ export async function runTests(_ctx) {
 
         // Every dialog: a reported failure from the server carries its detail,
         // the digit 7, after the tab's own words.
-        assert(dialogs.length >= 8, `expected 8 dialogs, saw ${dialogs.length}`);
-        const rawDialogs = dialogs.flatMap(d => [d.title, d.message])
-          .filter(s => s !== 'GitHub Copilot' && !isPseudoLocalized(String(s).replace(/: 7$/, '')));
+        const rawDialogs = dialogs.flatMap(d => [d.title, d.message, d.confirmText].filter(Boolean))
+          .filter(s => s !== 'GitHub Copilot' && !isPseudoLocalized(String(s).replace(/: 7$/, '').replace(/ 7$/, '')));
         assert(rawDialogs.length === 0, `plain English in a dialog: ${JSON.stringify(rawDialogs)}`);
         assert(transient.length === 0, `plain English shown on the way: ${JSON.stringify(transient)}`);
       });

@@ -27,10 +27,10 @@ import (
 	"time"
 
 	"juggler/cmd/juggler/core"
+	"juggler/cmd/juggler/providers/accounts"
 	"juggler/cmd/juggler/providers/acp"
 	"juggler/cmd/juggler/providers/anthropic"
 	"juggler/cmd/juggler/providers/claudecode"
-	"juggler/cmd/juggler/providers/customprovider"
 	"juggler/cmd/juggler/providers/deepseek"
 	"juggler/cmd/juggler/providers/gemini"
 	"juggler/cmd/juggler/providers/moonshot"
@@ -60,8 +60,9 @@ func registerProviders() {
 	openaicodex.Register()
 	openrouter.Register()
 	zai.Register()
-	// The user's own named endpoints, same as the server registers them.
-	customprovider.RegisterAll()
+	// The accounts the user added — their own named endpoints among them —
+	// same as the server registers them.
+	accounts.RegisterAll()
 	streamidle.Register()
 }
 

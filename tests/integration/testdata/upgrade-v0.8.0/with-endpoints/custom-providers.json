@@ -1,0 +1,23 @@
+{
+  "customProviders": {
+    "openai-compatible": {
+      "displayName": "OpenAI-compatible (custom)",
+      "protocol": "openai",
+      "baseURL": "http://127.0.0.1:9/legacy/v1"
+    },
+    "acme": {
+      "displayName": "Acme gateway",
+      "protocol": "openai",
+      "baseURL": "http://127.0.0.1:9/acme/v1",
+      "headers": {
+        "X-Team": "core"
+      }
+    },
+    "oldbox": {
+      "displayName": "Old box",
+      "protocol": "openai",
+      "baseURL": "http://127.0.0.1:9/oldbox/v1",
+      "enabled": false
+    }
+  }
+}

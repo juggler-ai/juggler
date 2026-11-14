@@ -60,12 +60,12 @@ func (c *Client) UsageStats(ctx context.Context) (provider.UsageStats, error) {
 	// usage appear before the first turn for a signed-in user (one startup probe)
 	// while capping a logged-out CLI at one spawn per retry interval — after that
 	// only a real turn, or the interval elapsing, re-enables polling.
-	if !claudeUsagePollAllowed() {
+	if !claudeUsagePollAllowed(c.acct.id()) {
 		return provider.UsageStats{}, fmt.Errorf("claude CLI usage poll skipped: sign-in not yet confirmed")
 	}
 	bin := claudeBinary()
 	if bin == "" {
-		return provider.UsageStats{}, claudeNotFoundError()
+		return provider.UsageStats{}, claudeNotFoundError(c.acct)
 	}
 	// --setting-sources project,local omits "user", so the probe loads only
 	// project/local settings and fires none of the user's Claude Code plugins or
@@ -76,7 +76,7 @@ func (c *Client) UsageStats(ctx context.Context) (provider.UsageStats, error) {
 	args := []string{"-p", "--output-format", "json", "--max-turns", "1", "--setting-sources", "project,local", "/usage"}
 	cmd := claudeCommand(ctx, bin, args)
 	cmd.Dir = c.workingDir
-	cmd.Env = spawnEnv(bin, testExtraSpawnEnv)
+	cmd.Env = spawnEnv(bin, testExtraSpawnEnv, c.acct.configDir)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -92,15 +92,14 @@ func (c *Client) UsageStats(ctx context.Context) (provider.UsageStats, error) {
 	}
 	// The probe succeeded, so the CLI is signed in: keep the poll enabled for the
 	// rest of the process rather than through the rate-limited probe latch.
-	markClaudeLoginConfirmed()
-	return parseUsageText(parsed.Result, time.Now()), nil
+	markClaudeLoginConfirmed(c.acct.id())
+	stats := parseUsageText(parsed.Result, time.Now())
+	stats.Provider = c.acct.id()
+	return stats, nil
 }
 
 func parseUsageText(text string, now time.Time) provider.UsageStats {
-	stats := provider.UsageStats{
-		Provider:  "claudecode",
-		UpdatedAt: now,
-	}
+	stats := provider.UsageStats{UpdatedAt: now}
 	for _, rawLine := range strings.Split(text, "\n") {
 		line := strings.TrimSpace(rawLine)
 		m := usageLineRE.FindStringSubmatch(line)

@@ -43,9 +43,9 @@ func Info() provider.ProviderInfo {
 		// AutoDetect only answers "is the binary there". A CLI that is installed
 		// but not signed in is indistinguishable to it, which is how an expired
 		// login stayed invisible until a turn failed. ReadinessCheck carries that
-		// second question; see claudeReadiness for why it refuses only on
+		// second question; see readinessOf for why it refuses only on
 		// evidence from a real turn.
-		ReadinessCheck:           claudeReadiness,
+		ReadinessCheck:           func() (bool, msg.Message) { return readinessOf(account{}) },
 		ResolveModelCapabilities: conservativeAliasCapabilities,
 		// Learn-on-first-turn: a verbatim custom model id resolves no static
 		// capabilities, and the CLI only reports its real window/output limits

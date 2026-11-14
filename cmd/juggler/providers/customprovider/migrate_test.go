@@ -37,13 +37,13 @@ func writeLegacyCredentials(t *testing.T, baseURL, headers, apiKey string) *core
 	return store
 }
 
-func TestRegisterAllMigratesTheLegacySingleton(t *testing.T) {
+func TestRegisterMigratesTheLegacySingleton(t *testing.T) {
 	userpathstest.Isolate(t)
 	srv, gotPath, gotHeader := modelListServer(t)
 	store := writeLegacyCredentials(t, srv.URL, `{"X-Tenant":"acme"}`, "sk-legacy")
-	unregisterAllAtEnd(t)
 
-	RegisterAll()
+	RegisterType()
+	registerAccounts(t)
 
 	// The migrated endpoint keeps its historic id. Every stored reference to it
 	// — default-model.json, recent models, models.hidden, models.limits, and
@@ -55,13 +55,9 @@ func TestRegisterAllMigratesTheLegacySingleton(t *testing.T) {
 		t.Fatal("the migrated endpoint took the prefixed id, which no stored reference names")
 	}
 
-	instances, err := Load()
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	migrated, ok := instances[LegacyID]
+	migrated, ok := lookup(LegacyID)
 	if !ok {
-		t.Fatalf("instances hold %v, want an entry under %q", instances, LegacyID)
+		t.Fatalf("accounts.json holds no endpoint under %q", LegacyID)
 	}
 	if migrated.BaseURL != srv.URL {
 		t.Fatalf("migrated base URL = %q, want %q", migrated.BaseURL, srv.URL)
@@ -92,30 +88,28 @@ func TestRegisterAllMigratesTheLegacySingleton(t *testing.T) {
 	}
 }
 
-func TestRegisterAllLeavesAnEditedFileAlone(t *testing.T) {
+func TestRegisterLeavesAnEditedFileAlone(t *testing.T) {
 	userpathstest.Isolate(t)
 	writeLegacyCredentials(t, "https://gateway.legacy.test/v1", "", "sk-legacy")
-	unregisterAllAtEnd(t)
 	// The user has been here already and removed the migrated endpoint. The
 	// legacy credentials still sit in the store, so only the file's existence
 	// can tell the second run from the first.
-	if err := Save(map[string]Instance{
+	writeInstances(t, map[string]Instance{
 		"acme": {DisplayName: "Acme Gateway", BaseURL: "https://gateway.acme.test/v1"},
-	}); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
+	})
 
-	RegisterAll()
+	RegisterType()
+	registerAccounts(t)
 
-	instances, err := Load()
+	f, err := core.LoadAccounts()
 	if err != nil {
-		t.Fatalf("Load: %v", err)
+		t.Fatalf("LoadAccounts: %v", err)
 	}
-	if _, resurrected := instances[LegacyID]; resurrected {
+	if _, resurrected := f.Accounts[LegacyID]; resurrected {
 		t.Fatal("a second run re-migrated an endpoint the user had deleted")
 	}
-	if len(instances) != 1 || instances["acme"].BaseURL != "https://gateway.acme.test/v1" {
-		t.Fatalf("instances = %v, want the user's own entry untouched", instances)
+	if acme, ok := lookup(RegisteredName("acme")); len(f.Accounts) != 1 || !ok || acme.BaseURL != "https://gateway.acme.test/v1" {
+		t.Fatalf("accounts = %v, want the user's own entry untouched", f.Accounts)
 	}
 	if _, found := provider.GetProviderInfo(LegacyID); found {
 		t.Fatal("the deleted endpoint was registered anyway")
@@ -125,14 +119,16 @@ func TestRegisterAllLeavesAnEditedFileAlone(t *testing.T) {
 	}
 }
 
-func TestRegisterAllWithNoLegacyEndpointWritesNothing(t *testing.T) {
+func TestRegisterWithNoLegacyEndpointWritesNothing(t *testing.T) {
 	userpathstest.Isolate(t)
-	unregisterAllAtEnd(t)
 
-	RegisterAll()
+	RegisterType()
+	registerAccounts(t)
 
-	if _, err := os.Stat(configPath()); !os.IsNotExist(err) {
-		t.Fatalf("os.Stat(%s) = %v, want the file never created for a user who had no custom endpoint", configFileName, err)
+	for _, path := range []string{configPath(), core.AccountsPath()} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("os.Stat(%s) = %v, want the file never created for a user who had no custom endpoint", path, err)
+		}
 	}
 	if _, found := provider.GetProviderInfo(LegacyID); found {
 		t.Fatal("an endpoint was registered for a user who had never configured one")

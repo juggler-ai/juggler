@@ -21,6 +21,7 @@ import (
 type Descriptor struct {
 	// Registry metadata
 	Name          string
+	Type          string // Provider type, for an account that is not its type's default; empty means Name
 	DisplayName   string
 	Description   msg.Message // Blurb shown in the settings UI, as a msg.New literal. May be zero.
 	AuthType      provider.AuthType
@@ -164,6 +165,13 @@ type Descriptor struct {
 // Register wires a Descriptor into the provider registry. Each provider
 // package calls this from its own Register, invoked explicitly from main.
 func Register(d Descriptor) {
+	provider.RegisterProvider(Build(d))
+}
+
+// Build turns a Descriptor into the provider info and initializer Register
+// would register, without registering them — what a type's Instantiate returns
+// for one of its accounts.
+func Build(d Descriptor) (provider.ProviderInfo, provider.ProviderInitializer) {
 	// Data-driven caps: synthesise the per-model (context, maxOutput) lookup and
 	// the static context map from ContextWindowCaps/MaxOutputCaps when the
 	// provider didn't supply the function/map forms directly.
@@ -181,6 +189,7 @@ func Register(d Descriptor) {
 
 	info := provider.ProviderInfo{
 		Name:                   d.Name,
+		Type:                   d.Type,
 		DisplayName:            d.DisplayName,
 		Description:            d.Description,
 		AuthType:               d.AuthType,
@@ -306,8 +315,7 @@ func Register(d Descriptor) {
 		}
 		return client, nil
 	}
-
-	provider.RegisterProvider(info, initializer)
+	return info, initializer
 }
 
 // catalogMaxOutputLookup returns the client's authoritative per-model output

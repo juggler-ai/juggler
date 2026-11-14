@@ -6,7 +6,6 @@ package customprovider
 
 import (
 	"encoding/json"
-	"os"
 	"strings"
 
 	"juggler/cmd/juggler/core"
@@ -36,46 +35,82 @@ const (
 	legacyDisplayName    = "OpenAI-compatible (custom)"
 )
 
-// migrateLegacySingleton turns the one endpoint the raw credentials describe
-// into instance #1, so a user who configured it before there could be several
-// finds it still there, still selected, still holding its key.
+// migrateToAccounts moves the endpoints into accounts.json, once. In order:
 //
-// The file's existence is the whole record of having run: the credentials it
-// reads are never cleared (a downgrade would need them), so a user who deletes
-// the migrated endpoint would otherwise have it resurrected on every start.
-func migrateLegacySingleton() error {
-	if _, err := os.Stat(configPath()); err == nil {
-		return nil
-	} else if !os.IsNotExist(err) {
+//   - accounts.json exists: done. Its existence is the whole record of the
+//     migration having run — nothing it reads is ever cleared, since a
+//     downgrade needs it — so a user who deletes a migrated endpoint would
+//     otherwise have it resurrected on every start. A corrupt one is moved
+//     aside and replaced by an empty one, for the same reason
+//     (core.QuarantineCorruptAccounts).
+//   - custom-providers.json exists: each endpoint becomes an account under the
+//     id it was registered as, keeping its key where it is. One that was
+//     switched off is kept aside to be offered back rather than made an
+//     account. The file is left exactly as it was, for a downgrade.
+//   - the three raw credentials of the single endpoint that predates the file
+//     exist: it becomes the account LegacyID, keeping its historic id and key.
+//
+// Anything else writes nothing: an accounts.json written for a user who had no
+// endpoint would be a lie about having asked.
+func migrateToAccounts() error {
+	if core.AccountsFileExists() {
+		_, err := core.QuarantineCorruptAccounts()
 		return err
 	}
+	instances, exists, err := loadLegacyFile()
+	if err != nil {
+		// Written by an older build and unparseable there too, so nothing the
+		// user had was working. Nothing is written, so a fixed file migrates on
+		// the next start.
+		return err
+	}
+	if !exists {
+		inst, ok := legacySingleton()
+		if !ok {
+			return nil
+		}
+		instances = map[string]Instance{LegacyID: inst}
+	}
+	return core.UpdateAccounts(func(f *core.AccountsFile) error {
+		for id, inst := range instances {
+			// An entry that could never have been saved through the UI was
+			// never registered either, so it is dropped and named in the log.
+			if err := validateIDShape(id); err != nil {
+				jlog.Error("[CustomProvider] Not migrating entry: %v", err)
+				continue
+			}
+			if err := ValidateInstance(inst); err != nil {
+				jlog.Error("[CustomProvider] Not migrating %q: %v", id, err)
+				continue
+			}
+			if inst.IsEnabled() {
+				f.Accounts[RegisteredName(id)] = entryFromInstance(inst)
+			} else {
+				f.SwitchedOff[RegisteredName(id)] = entryFromInstance(inst)
+			}
+		}
+		return nil
+	})
+}
 
+// legacySingleton reads the one endpoint the raw credentials describe, from the
+// days before there could be several. The credentials are never cleared (a
+// downgrade would need them).
+func legacySingleton() (Instance, bool) {
 	store, err := core.NewCredentialsStore()
 	if err != nil {
-		return err
+		return Instance{}, false
 	}
 	baseURL := strings.TrimSpace(store.GetRawKey(legacyBaseURLCredKey))
 	if baseURL == "" {
-		// Nothing was ever configured. Writing a file here would be a lie about
-		// having asked, and would suppress the migration for a user who
-		// configures the old provider on an older build later.
-		return nil
+		return Instance{}, false
 	}
-
-	instance := Instance{
+	return Instance{
 		DisplayName: legacyDisplayName,
 		Protocol:    ProtocolOpenAI,
 		BaseURL:     baseURL,
 		Headers:     parseHeaderJSON(store.GetRawKey(legacyHeadersCredKey)),
-	}
-	if err := ValidateInstance(instance); err != nil {
-		// A URL that predates validation is not worth refusing to start over.
-		// Nothing is written, so the endpoint is simply absent until the user
-		// re-enters it — and the reason is in the log.
-		jlog.Error("[CustomProvider] Not migrating the existing OpenAI-compatible endpoint: %v", err)
-		return nil
-	}
-	return Save(map[string]Instance{LegacyID: instance})
+	}, true
 }
 
 // parseHeaderJSON parses a JSON object of string→string header pairs. Blank

@@ -83,9 +83,9 @@ func TestLoadCodexCLIAccessTokenReadsCodexHome(t *testing.T) {
 		},
 	})
 
-	got, accountID, err := loadCodexCLIAccessToken()
+	got, accountID, err := loadCodexAccessToken("")
 	if err != nil {
-		t.Fatalf("loadCodexCLIAccessToken: %v", err)
+		t.Fatalf("loadCodexAccessToken: %v", err)
 	}
 	if got != token {
 		t.Fatalf("token mismatch")
@@ -109,9 +109,9 @@ func TestLoadCodexCLIAccessTokenFallsBackToHome(t *testing.T) {
 		},
 	})
 
-	got, _, err := loadCodexCLIAccessToken()
+	got, _, err := loadCodexAccessToken("")
 	if err != nil {
-		t.Fatalf("loadCodexCLIAccessToken: %v", err)
+		t.Fatalf("loadCodexAccessToken: %v", err)
 	}
 	if got != token {
 		t.Fatalf("token mismatch")
@@ -141,9 +141,9 @@ func TestLoadCodexCLIAccessTokenAcceptsUnknownExpiry(t *testing.T) {
 				"tokens":    map[string]any{"access_token": tt.token},
 			})
 
-			got, _, err := loadCodexCLIAccessToken()
+			got, _, err := loadCodexAccessToken("")
 			if err != nil {
-				t.Fatalf("loadCodexCLIAccessToken: %v", err)
+				t.Fatalf("loadCodexAccessToken: %v", err)
 			}
 			if got != tt.token {
 				t.Fatalf("token = %q, want %q", got, tt.token)
@@ -175,7 +175,7 @@ func TestLoadCodexCLIAccessTokenRejectsInvalidAuth(t *testing.T) {
 				}
 			}
 
-			_, _, err := loadCodexCLIAccessToken()
+			_, _, err := loadCodexAccessToken("")
 			if err == nil {
 				t.Fatal("expected error")
 			}
@@ -198,9 +198,9 @@ func TestOAuthProviderSwitchLeavesTheLoginReadable(t *testing.T) {
 	userpathstest.Isolate(t)
 	const name = "core_oauthswitch"
 	const source = "core_oauthswitch_src"
-	RegisterOAuthBearerSource(source, func() (ProviderCredential, error) {
+	RegisterOAuthSource(source, OAuthSource{Resolve: func() (ProviderCredential, error) {
 		return ProviderCredential{BearerToken: "tok"}, nil
-	})
+	}})
 	provider.RegisterProvider(provider.ProviderInfo{
 		Name:       name,
 		AuthType:   provider.AuthTypeOAuthBearer,
@@ -225,6 +225,40 @@ func TestOAuthProviderSwitchLeavesTheLoginReadable(t *testing.T) {
 	}
 	if _, err := store.ResolveOAuthLogin(name); err != nil {
 		t.Fatalf("the login must still resolve while switched off: %v", err)
+	}
+}
+
+// TestRemovedAPIKeyAccountRefusesItsEnvVarUntilAKeyIsTyped: removing an
+// API-key provider's default account sets enabled_<name>=false, which is what
+// stops a key the environment still supplies from serving it. Typing a key for
+// it afterwards is adding it back, so the flag must not swallow that key.
+func TestRemovedAPIKeyAccountRefusesItsEnvVarUntilAKeyIsTyped(t *testing.T) {
+	userpathstest.Isolate(t)
+	const name = "core_removedkey"
+	provider.RegisterProvider(provider.ProviderInfo{
+		Name:          name,
+		AuthType:      provider.AuthTypeAPIKey,
+		ConfigKeyName: name + "_api_key",
+		EnvVarName:    "CORE_REMOVEDKEY_API_KEY",
+	}, nil)
+	t.Cleanup(func() { provider.UnregisterProvider(name) })
+	t.Setenv("CORE_REMOVEDKEY_API_KEY", "env-key")
+	store, err := NewCredentialsStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.SetProviderEnabled(name, false); err != nil {
+		t.Fatal(err)
+	}
+	if cred, err := store.GetProviderCredential(name); err == nil {
+		t.Fatalf("a removed account still serves its env var's key %q", cred.APIKey)
+	}
+	if err := store.SetAPIKey(name, "typed-key"); err != nil {
+		t.Fatal(err)
+	}
+	if cred, err := store.GetProviderCredential(name); err != nil || cred.APIKey != "typed-key" {
+		t.Fatalf("after typing a key the account resolves %q, %v; want the typed key", cred.APIKey, err)
 	}
 }
 

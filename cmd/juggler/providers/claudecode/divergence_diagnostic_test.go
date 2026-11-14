@@ -160,9 +160,9 @@ func TestSidecarRoundTripsFingerprints(t *testing.T) {
 	msgs := []provider.Message{userMsg("a"), assistantMsg("b"), userMsg("c")}
 	sess := &activeSession{sessionUUID: "uuid-rt"}
 	sess.captureSentPrefix("sys", msgs)
-	saveDiskSession(c.workingDir, convID, c.workingDir, sess)
+	saveDiskSession(c.workingDir, convID, c.workingDir, "", sess)
 
-	loaded := loadDiskSession(c.workingDir, convID, c.workingDir)
+	loaded := loadDiskSession(c.workingDir, convID, c.workingDir, "")
 	if loaded == nil {
 		t.Fatal("expected to load saved session")
 	}

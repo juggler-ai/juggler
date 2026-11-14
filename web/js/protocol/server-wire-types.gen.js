@@ -325,6 +325,8 @@
  * @typedef {object} ProviderStatus
  * @property {string} name
  * @property {string} displayName
+ * @property {string} type - Type is the provider type this account is of; Name for a type's default account.
+ * @property {string} [accountLabel] - AccountLabel says who is signed in to the account, when known.
  * @property {string} description
  * @property {ServerText} [descriptionMessage] - DescriptionMessage is the message Description was rendered from, for the UI to show translated with serverText; nil when there is no description.
  * @property {'api_key'|'toggle'|'oauth_bearer'} authType

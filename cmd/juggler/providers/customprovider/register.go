@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/msg"
 	"juggler/cmd/juggler/providers/modelsdev"
 	"juggler/cmd/juggler/providers/openaibase"
@@ -85,108 +86,83 @@ func defaultContextWindowFor(baseURL string) int {
 	return defaultContextWindow
 }
 
-// The set of instances currently registered, keyed by instance id, so Sync can
-// tell which registrations are its own and retire the ones the user removed.
-// Scanning the registry for the id prefix would not do: the migrated singleton
-// keeps its historic bare name.
+// RegisterType registers the openai-compatible type and, on the first start that
+// needs to, moves the endpoints into accounts.json. Call it at startup before
+// the accounts are registered: they are instantiated through this type.
 //
-// Guarded by a 1-capacity channel used as a binary semaphore (the codebase
-// forbids sync.Mutex): acquire by sending, release by receiving. syncLock
-// serialises whole reconciliations, so two concurrent edits cannot interleave
-// their register and unregister passes.
-var (
-	syncLock       = make(chan struct{}, 1)
-	registeredLock = make(chan struct{}, 1)
-	registeredIDs  = make(map[string]bool)
-)
-
-// RegisterAll registers every enabled instance at startup. It is called before
-// any credential is read, which it must be: the credentials store resolves a
-// provider's key through its registered ConfigKeyName, so an instance that is
-// not registered has no key to find.
-//
-// A file that cannot be read is logged rather than fatal — the rest of the
-// providers still work, and the settings UI is how the user would fix it.
-func RegisterAll() {
-	if err := migrateLegacySingleton(); err != nil {
-		jlog.Error("[CustomProvider] Could not migrate the existing OpenAI-compatible endpoint: %v", err)
-	}
-	if err := Sync(); err != nil {
-		jlog.Error("[CustomProvider] Could not register custom providers: %v", err)
+// A failed migration is logged rather than fatal — the rest of the providers
+// still work, and the settings page is how the user would fix it.
+func RegisterType() {
+	provider.RegisterType(provider.TypeInfo{
+		Name:            TypeName,
+		DisplayName:     "OpenAI-compatible endpoint",
+		Description:     msg.New("A gateway, a tenant or a server speaking the OpenAI API"),
+		Category:        provider.CategoryCustom,
+		IDPrefix:        idPrefix,
+		Instantiate:     instantiate,
+		PrepareSettings: prepareSettings,
+		KeySlot:         keySlot,
+	})
+	if err := migrateToAccounts(); err != nil {
+		jlog.Error("[CustomProvider] Could not move the custom endpoints into accounts.json: %v", err)
 	}
 }
 
-// Sync reconciles the registry with the file: instances added or edited are
-// registered (re-registering a name replaces its definition), and ones removed,
-// disabled or no longer valid are unregistered. Callers run it after every edit,
-// so a new endpoint reaches the model picker without a restart.
-func Sync() error {
-	syncLock <- struct{}{}
-	defer func() { <-syncLock }()
-
-	instances, err := Load()
-	if err != nil {
-		return err
+// instantiate builds the provider for one endpoint account. An entry edited by
+// hand into one that could never have been saved is refused, so it never puts
+// a provider in the picker that errors on first use.
+func instantiate(acct provider.Account) (provider.ProviderInfo, provider.ProviderInitializer, error) {
+	if _, ok := instanceID(acct.ID); !ok || !provider.AccountIDPattern.MatchString(acct.ID) {
+		return provider.ProviderInfo{}, nil, fmt.Errorf("%q is not an OpenAI-compatible endpoint id", acct.ID)
 	}
-
-	desired := make(map[string]bool, len(instances))
-	for id, inst := range instances {
-		if !inst.IsEnabled() {
-			continue
-		}
-		// A file edited by hand can hold an entry that could never have been
-		// saved through the UI. Registering it would put a provider in the picker
-		// that errors on first use, so it is skipped and named in the log.
-		if err := validateIDShape(id); err != nil {
-			jlog.Error("[CustomProvider] Skipping entry: %v", err)
-			continue
-		}
-		if err := ValidateInstance(inst); err != nil {
-			jlog.Error("[CustomProvider] Skipping %q: %v", id, err)
-			continue
-		}
-		desired[id] = true
-		registerInstance(id, inst)
+	inst := instanceFromEntry(core.AccountEntry{DisplayName: acct.DisplayName, Settings: acct.Settings})
+	if err := ValidateInstance(inst); err != nil {
+		return provider.ProviderInfo{}, nil, err
 	}
-
-	registeredLock <- struct{}{}
-	var retired []string
-	for id := range registeredIDs {
-		if !desired[id] {
-			retired = append(retired, id)
-		}
-	}
-	registeredIDs = desired
-	<-registeredLock
-
-	for _, id := range retired {
-		provider.UnregisterProvider(RegisteredName(id))
-	}
-	return nil
+	info, initializer := openaibase.Build(descriptorFor(acct.ID, inst))
+	return info, initializer, nil
 }
 
-// registerInstance registers one endpoint under its own provider id, from a
-// descriptor template shared by every instance.
-//
-// The record is passed only for the values that are fixed at registration
-// (the label). Everything the request itself needs is resolved from a fresh read
-// at client-construction time, so editing an endpoint's URL or headers takes
-// effect on the next turn rather than at the next restart.
-func registerInstance(id string, inst Instance) {
+// prepareSettings validates an endpoint's settings and keeps only those an
+// endpoint has, in the form accounts.json stores them.
+func prepareSettings(settings map[string]any) (map[string]any, error) {
+	inst := instanceFromEntry(core.AccountEntry{Settings: settings})
+	inst.BaseURL = strings.TrimSpace(inst.BaseURL)
+	if err := ValidateInstance(inst); err != nil {
+		return nil, err
+	}
+	return entryFromInstance(inst).Settings, nil
+}
+
+// keySlot is where an endpoint keeps its API key: a credential slot and an
+// environment variable of its own, so several endpoints hold distinct secrets.
+// The id is kept verbatim so the key reads back as the endpoint it belongs to;
+// the environment form folds the hyphens an id may carry to underscores, since
+// a shell cannot set a variable whose name contains one. The endpoint that
+// keeps LegacyID keeps the key and variable it always had, so its key is found
+// without being moved.
+func keySlot(accountID string) (configKey, envVar string) {
+	id, _ := instanceID(accountID)
+	if id == LegacyID {
+		return legacyAPIKeyCredKey, legacyEnvVarName
+	}
+	return "custom_" + id + "_api_key", "CUSTOM_" + strings.ToUpper(strings.ReplaceAll(id, "-", "_")) + "_API_KEY"
+}
+
+// descriptorFor is the descriptor one endpoint registers through.
+func descriptorFor(accountID string, inst Instance) openaibase.Descriptor {
 	displayName := strings.TrimSpace(inst.DisplayName)
 	if displayName == "" {
-		displayName = id
+		displayName, _ = instanceID(accountID)
 	}
-	openaibase.Register(openaibase.Descriptor{
-		Name:        RegisteredName(id),
-		DisplayName: displayName,
-		Description: msg.New("A custom endpoint speaking the OpenAI Chat Completions API. Its base URL and request headers are set in the Custom Providers tab; the API key is optional, for endpoints that need one. Models come from the endpoint's own model list, along with their context windows where it publishes them (vLLM, llama.cpp and LiteLLM all do; for LM Studio, use the LM Studio provider, which reads each model's loaded window). For a hosted provider that models.dev lists, models the endpoint says nothing about take that catalogue's figures. For any other model it says nothing about, Juggler assumes 128k, or 8k for a server on this machine or your local network — set the real figure per model below."),
-		// Per-instance credential slot and environment variable, so several
-		// endpoints hold distinct secrets. The environment form folds the
-		// hyphens an id may carry to underscores, since a shell cannot set a
-		// variable whose name contains one.
-		ConfigKeyName:   ConfigKeyName(id),
-		EnvVarName:      EnvVarName(id),
+	configKey, envVar := keySlot(accountID)
+	return openaibase.Descriptor{
+		Name:            accountID,
+		Type:            TypeName,
+		DisplayName:     displayName,
+		Description:     msg.New("A custom endpoint speaking the OpenAI Chat Completions API. Its base URL and request headers are set in the Custom Providers tab; the API key is optional, for endpoints that need one. Models come from the endpoint's own model list, along with their context windows where it publishes them (vLLM, llama.cpp and LiteLLM all do; for LM Studio, use the LM Studio provider, which reads each model's loaded window). For a hosted provider that models.dev lists, models the endpoint says nothing about take that catalogue's figures. For any other model it says nothing about, Juggler assumes 128k, or 8k for a server on this machine or your local network — set the real figure per model below."),
+		ConfigKeyName:   configKey,
+		EnvVarName:      envVar,
 		DisplayProvider: displayName,
 		// Fixed at registration, which Sync repeats after every edit, so a
 		// changed base URL re-decides both the default and which catalogue
@@ -213,64 +189,32 @@ func registerInstance(id string, inst Instance) {
 			m, ok := catalog().Lookup(inst.BaseURL, model)
 			return ok && !slices.Contains(m.InputModalities(), "image")
 		},
-		BaseURLFunc: func() string { return liveBaseURL(id) },
-		HeadersFunc: func() map[string]string { return liveHeaders(id) },
+		BaseURLFunc: func() string { return liveBaseURL(accountID) },
+		HeadersFunc: func() map[string]string { return liveHeaders(accountID) },
 		// The key is optional: an endpoint may serve a public model list and
 		// need no auth at all. Availability rests instead on the base URL being
 		// configured — not a network probe, since the health path of an
 		// arbitrary endpoint is unknown.
 		APIKeyOptional: true,
-		AutoDetect:     func() bool { return liveBaseURL(id) != "" },
+		AutoDetect:     func() bool { return liveBaseURL(accountID) != "" },
 		// Zero-value Quirks: the standard OpenAI request shape, the safe default
 		// for an endpoint whose divergences are unknown.
-	})
-}
-
-// ConfigKeyName is the credentials-store key holding an instance's API key. The
-// id is kept verbatim so the key reads back as the endpoint it belongs to; the
-// migrated endpoint keeps the key name it was already stored under, so its key
-// is found without being moved.
-func ConfigKeyName(id string) string {
-	if id == LegacyID {
-		return legacyAPIKeyCredKey
 	}
-	return "custom_" + id + "_api_key"
 }
 
-// EnvVarName is the environment variable an instance's API key can be supplied
-// in instead.
-func EnvVarName(id string) string {
-	if id == LegacyID {
-		return legacyEnvVarName
-	}
-	return "CUSTOM_" + strings.ToUpper(strings.ReplaceAll(id, "-", "_")) + "_API_KEY"
-}
-
-// lookup reads one instance from the file. Every per-request resolver goes
-// through it rather than closing over a copy, so an edit is live. A read failure
-// answers "not configured", which surfaces as a clear error on first use.
-func lookup(id string) (Instance, bool) {
-	instances, err := Load()
-	if err != nil {
-		return Instance{}, false
-	}
-	inst, ok := instances[id]
-	return inst, ok
-}
-
-// liveBaseURL resolves an instance's endpoint. Trailing slashes are trimmed so
+// liveBaseURL resolves an endpoint's base URL. Trailing slashes are trimmed so
 // the SDK does not build "//v1/..." paths.
-func liveBaseURL(id string) string {
-	inst, ok := lookup(id)
+func liveBaseURL(accountID string) string {
+	inst, ok := lookup(accountID)
 	if !ok {
 		return ""
 	}
 	return strings.TrimRight(strings.TrimSpace(inst.BaseURL), "/")
 }
 
-// liveHeaders resolves an instance's extra request headers.
-func liveHeaders(id string) map[string]string {
-	inst, ok := lookup(id)
+// liveHeaders resolves an endpoint's extra request headers.
+func liveHeaders(accountID string) map[string]string {
+	inst, ok := lookup(accountID)
 	if !ok || len(inst.Headers) == 0 {
 		return nil
 	}
@@ -279,21 +223,4 @@ func liveHeaders(id string) map[string]string {
 		headers[name] = value
 	}
 	return headers
-}
-
-// validateIDShape checks an id against the rules that make it usable as a
-// provider id, a DOM element id, a CSS selector and a credential key. It leaves
-// out the collision check ValidateID adds, because an id already registered by
-// the very instance being checked is not a collision.
-func validateIDShape(id string) error {
-	if id == "" {
-		return fmt.Errorf("provider id is required")
-	}
-	if len(id) > maxIDLength {
-		return fmt.Errorf("provider id %q is longer than %d characters", id, maxIDLength)
-	}
-	if !idPattern.MatchString(id) {
-		return fmt.Errorf("provider id %q must start with a letter and use only lowercase letters, digits and single hyphens", id)
-	}
-	return nil
 }

@@ -194,6 +194,11 @@ const DYNAMIC_IMPORTS = [
     why: 'a classic worker resolves against its own location, which is this file',
   },
   {
+    file: 'web/js-tests/utilities/pdf-extract-worker.js', expr: '`/worker-module?url=${encodeURIComponent(assetPrefix + viewerPath)}`',
+    targets: ['web/extensions/juggler-core/viewers/pdf-file-viewer.js'], names: ['default'],
+    why: 'the PDF viewer, loaded the way the engine loads it; pdf-viewer-test.js passes its path',
+  },
+  {
     file: 'web/js-tests/utilities/integration-test-executor.js', expr: 'prefix + entry.path',
     targets: (tree) => tree.manifestModules(true), names: MANIFEST_READS.tests ?? [],
     why: 'the extensions\' unit suites, which /api/test/extension-tests lists from the manifests',

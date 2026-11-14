@@ -18,7 +18,9 @@
  * @module unit-tests/settings-first-load-test
  */
 
-import { assert, nextTask } from '../utilities/test-helpers.js';
+import { assert, nextTask, waitFor } from '../utilities/test-helpers.js';
+import { budgetFor } from '../utilities/test-deadline.js';
+import { accountsBackend } from '../utilities/accounts-backend.js';
 import wsService from '../../js/services/websocket.js';
 import { __resetPrefsForTests, getGlobalSettings } from '../../js/services/prefs.js';
 import providersCache from '../../js/services/providers-cache.js';
@@ -59,9 +61,13 @@ function installFetch(opts = {}) {
     configOk: opts.configOk !== false,
   };
   const orig = window.fetch;
+  // The provider's account, which the Providers tab draws its card from.
+  const accounts = accountsBackend([FAKE_PROVIDER]);
   /** @type {string[]} */
   const calls = [];
-  window.fetch = /** @type {any} */ (async (url) => {
+  window.fetch = /** @type {any} */ (async (url, init) => {
+    const answered = accounts.answer(url, init);
+    if (answered) return answered;
     const u = String(url);
     calls.push(u);
     const ok = (/** @type {any} */ body) => ({ ok: true, status: 200, json: async () => body });
@@ -87,7 +93,14 @@ function installFetch(opts = {}) {
     }
     return { ok: false, status: 404, statusText: 'Not Found', text: async () => '', json: async () => ({}) };
   });
-  return { restore: () => { window.fetch = orig; }, calls, state };
+  return {
+    restore: () => {
+      accounts.dispose();
+      window.fetch = orig;
+    },
+    calls,
+    state,
+  };
 }
 
 /**
@@ -138,6 +151,16 @@ export async function runTests(_ctx) {
     }
   };
 
+  /**
+   * The cards the Providers tab drew, once its account list is in.
+   * @param {any} el - The open panel.
+   * @returns {Promise<NodeListOf<Element>>} The cards.
+   */
+  const drawnFields = async (el) => {
+    await waitFor(() => !!el._tabs.providers.accountList, { timeoutMs: budgetFor(2000), description: 'the account list' });
+    return el.querySelectorAll('#provider-fields-container .provider-field');
+  };
+
   // The settled list arrives over the WebSocket; seed the cache the same way the
   // server's post-refresh broadcast does, so waitForReady() resolves.
   const seedSettledProviders = () => {
@@ -152,7 +175,7 @@ export async function runTests(_ctx) {
     await withPanel({ providersPayload: { providers: [], ready: false } }, async (el) => {
       await el.open();
 
-      const fields = el.querySelectorAll('#provider-fields-container .provider-field');
+      const fields = await drawnFields(el);
       assert(fields.length === 1, `one provider field rendered; got ${fields.length}`);
       assert(el._tabs.providers.providers.length === 1,
         `the tab received the settled list; got ${el._tabs.providers.providers.length} providers`);
@@ -163,7 +186,7 @@ export async function runTests(_ctx) {
   await run('a settled snapshot from REST is used as-is', async () => {
     await withPanel({ providersPayload: { providers: [FAKE_PROVIDER], ready: true } }, async (el) => {
       await el.open();
-      const fields = el.querySelectorAll('#provider-fields-container .provider-field');
+      const fields = await drawnFields(el);
       assert(fields.length === 1, `one provider field rendered; got ${fields.length}`);
     });
   });
@@ -184,7 +207,7 @@ export async function runTests(_ctx) {
       await el.open();
 
       assert(el._hasLoadedOnce === true, 'the retry latched after a successful load');
-      const retried = el.querySelectorAll('#provider-fields-container .provider-field');
+      const retried = await drawnFields(el);
       assert(retried.length === 1, `the retry rendered the provider field; got ${retried.length}`);
     });
   });

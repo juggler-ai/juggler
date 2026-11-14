@@ -5,6 +5,7 @@
 package core
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -133,12 +134,33 @@ func StartCopilotDeviceLogin(ctx context.Context, host string) (CopilotDeviceCod
 	}, nil
 }
 
-// PollCopilotDeviceLogin performs one poll for deviceCode against host. On
-// authorization it persists the OAuth token and host (and clears the bearer
-// cache) before returning CopilotLoginAuthorized; otherwise it maps GitHub's
-// error to a status the caller loops on. A non-nil error is a transport/
-// unexpected failure only.
-func PollCopilotDeviceLogin(ctx context.Context, host, deviceCode string) (CopilotLoginStatus, error) {
+// PollCopilotDeviceLogin performs one poll for deviceCode against host, for
+// the Copilot account accountID ("" for the default). On authorization it
+// persists the OAuth token — the default account's with its host as the
+// preferred host, an extra account's in its own slot — and clears the
+// account's bearer cache before returning CopilotLoginAuthorized; otherwise it
+// maps GitHub's error to a status the caller loops on. A non-nil error is a
+// transport/unexpected failure, or an extra account polled against a host other
+// than its own, which would pair a token with the wrong tenant.
+func PollCopilotDeviceLogin(ctx context.Context, accountID, host, deviceCode string) (CopilotLoginStatus, error) {
+	if accountID == "" {
+		return pollCopilotDeviceLogin(ctx, host, deviceCode, storeCopilotOAuthToken)
+	}
+	a, ok := copilotAccountOf(accountID)
+	if !ok {
+		return "", msg.NewError("{account} is not a GitHub Copilot account", "account", accountID)
+	}
+	if got := copilotNormalizeHost(cmp.Or(host, copilotDefaultHost)); got != a.host {
+		return "", msg.NewError("This account signs in to {host}; save the host before signing in.", "host", a.host)
+	}
+	return pollCopilotDeviceLogin(ctx, host, deviceCode, func(token, _ string) error {
+		return storeCopilotAccountToken(accountID, token)
+	})
+}
+
+// pollCopilotDeviceLogin is one poll, handing an authorized token, and the host
+// it was minted against, to store.
+func pollCopilotDeviceLogin(ctx context.Context, host, deviceCode string, store func(token, host string) error) (CopilotLoginStatus, error) {
 	host = copilotNormalizeHost(host)
 	if host == "" {
 		host = copilotDefaultHost
@@ -163,7 +185,7 @@ func PollCopilotDeviceLogin(ctx context.Context, host, deviceCode string) (Copil
 		return "", err
 	}
 	if raw.AccessToken != "" {
-		if err := storeCopilotOAuthToken(raw.AccessToken, host); err != nil {
+		if err := store(raw.AccessToken, host); err != nil {
 			return "", fmt.Errorf("failed to persist Copilot login: %w", err)
 		}
 		return CopilotLoginAuthorized, nil
@@ -182,10 +204,17 @@ func PollCopilotDeviceLogin(ctx context.Context, host, deviceCode string) (Copil
 	}
 }
 
-// SignOutCopilot clears a device-flow login (and the cached bearer). It does not
-// touch an editor-managed login on disk — only Juggler's own stored token.
-func SignOutCopilot() error {
-	return clearCopilotDeviceLogin()
+// SignOutCopilot clears the device-flow login of the Copilot account
+// accountID ("" for the default) and its cached bearer. It never touches an
+// editor's login on disk — only Juggler's own stored token.
+func SignOutCopilot(accountID string) error {
+	if accountID == "" {
+		return clearCopilotDeviceLogin()
+	}
+	if _, ok := copilotAccountOf(accountID); !ok {
+		return msg.NewError("{account} is not a GitHub Copilot account", "account", accountID)
+	}
+	return storeCopilotAccountToken(accountID, "")
 }
 
 // copilotPostForm POSTs form-encoded values and decodes a JSON response,
@@ -245,7 +274,7 @@ func storeCopilotOAuthToken(token, host string) error {
 	if err := store.SetRawKey(copilotHostKey, pref); err != nil {
 		return err
 	}
-	clearCopilotTokenCache()
+	clearCopilotCache("")
 	return nil
 }
 
@@ -290,7 +319,7 @@ func SetCopilotHost(host string) error {
 	if err := store.SetRawKey(copilotHostKey, host); err != nil {
 		return err
 	}
-	clearCopilotTokenCache()
+	clearCopilotCache("")
 	return nil
 }
 
@@ -302,7 +331,7 @@ func clearCopilotDeviceLogin() error {
 	if err := store.SetRawKey(copilotOAuthTokenKey, ""); err != nil {
 		return err
 	}
-	clearCopilotTokenCache()
+	clearCopilotCache("")
 	return nil
 }
 
@@ -314,17 +343,4 @@ func copilotStoredOAuthToken() string {
 		return ""
 	}
 	return strings.TrimSpace(store.GetRawKey(copilotOAuthTokenKey))
-}
-
-// copilotHasDeviceLogin reports whether a Juggler device-flow login is stored.
-func copilotHasDeviceLogin() bool {
-	return copilotStoredOAuthToken() != ""
-}
-
-// clearCopilotTokenCache drops the cached exchanged bearer so the next resolve
-// re-exchanges (after a sign-in/sign-out changes the underlying OAuth token).
-func clearCopilotTokenCache() {
-	copilotTokenGate <- struct{}{}
-	copilotTokenCache = copilotCachedToken{}
-	<-copilotTokenGate
 }

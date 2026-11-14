@@ -77,7 +77,7 @@ func (c *Client) startFreshSession(ctx context.Context, req provider.MessageRequ
 		// the post-boot wait so it reads as expensive-but-working rather than
 		// jammed. A true first turn (plan == nil) keeps the generic activityWaiting.
 		c.turnWaitingDescription = activityProcessingHistory
-		path, err := writeSyntheticSession(c.workingDir, plan)
+		path, err := writeSyntheticSession(c.workingDir, c.acct.configDir, plan)
 		if err != nil {
 			jlog.Debug("synthetic resume: write failed (%v) — falling back to history-less cold start", err)
 			plan = nil

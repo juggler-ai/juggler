@@ -28,7 +28,6 @@ import (
 // to distinguish the two.
 func TestCustomProviderDiscoversEndpointLimits(t *testing.T) {
 	userpathstest.Isolate(t)
-	unregisterAllAtEnd(t)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -39,9 +38,7 @@ func TestCustomProviderDiscoversEndpointLimits(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, err := execute(t, "save", endpointParams("lab", "Lab box", srv.URL)); err != nil {
-		t.Fatalf("save lab: %v", err)
-	}
+	syncInstances(t, map[string]Instance{"lab": {DisplayName: "Lab box", BaseURL: srv.URL}})
 
 	built, err := provider.InitializeProvider(RegisteredName("lab"), provider.Config{Model: "served-by-vllm"})
 	if err != nil {
@@ -107,7 +104,6 @@ func useCatalog(t *testing.T, snap modelsdev.Snapshot) {
 // wins, and a model the catalogue does not list stays on the flagged default.
 func TestCustomProviderSizesCatalogedModels(t *testing.T) {
 	userpathstest.Isolate(t)
-	unregisterAllAtEnd(t)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" {
@@ -130,9 +126,7 @@ func TestCustomProviderSizesCatalogedModels(t *testing.T) {
 		}},
 	}})
 
-	if _, err := execute(t, "save", endpointParams("hosted", "Hosted", srv.URL+"/v1/")); err != nil {
-		t.Fatalf("save: %v", err)
-	}
+	syncInstances(t, map[string]Instance{"hosted": {DisplayName: "Hosted", BaseURL: srv.URL + "/v1/"}})
 	name := RegisteredName("hosted")
 	built, err := provider.InitializeProvider(name, provider.Config{Model: "org/Catalogued-Bare"})
 	if err != nil {
@@ -213,7 +207,6 @@ func TestLocalCustomProviderAssumesSmallWindow(t *testing.T) {
 // answer.
 func TestCustomProviderReadsLocalAICapabilities(t *testing.T) {
 	userpathstest.Isolate(t)
-	unregisterAllAtEnd(t)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -234,9 +227,7 @@ func TestCustomProviderReadsLocalAICapabilities(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, err := execute(t, "save", endpointParams("localai", "LocalAI box", srv.URL+"/v1")); err != nil {
-		t.Fatalf("save localai: %v", err)
-	}
+	syncInstances(t, map[string]Instance{"localai": {DisplayName: "LocalAI box", BaseURL: srv.URL + "/v1"}})
 
 	built, err := provider.InitializeProvider(RegisteredName("localai"), provider.Config{Model: "top-level-big"})
 	if err != nil {

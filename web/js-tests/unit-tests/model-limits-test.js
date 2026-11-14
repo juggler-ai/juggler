@@ -23,11 +23,13 @@
  * @module unit-tests/model-limits-test
  */
 
-import { assert } from '../utilities/test-helpers.js';
+import { assert, waitFor } from '../utilities/test-helpers.js';
+import { budgetFor } from '../utilities/test-deadline.js';
 import { isolateFocus } from '../utilities/isolate-focus.js';
 import { setLocale } from '../../sdk/lib/i18n.js';
 import wsService from '../../js/services/websocket.js';
 import { ProvidersTab } from '../../js/components/settings/providers-tab.js';
+import { accountsBackend } from '../utilities/accounts-backend.js';
 import '../../js/components/settings-panel.js';
 
 /**
@@ -40,15 +42,20 @@ import '../../js/components/settings-panel.js';
 const PROVIDER = 'test-limits-gateway';
 
 /**
- * Route window.fetch to an in-memory settings backend.
+ * Route window.fetch to an in-memory settings backend, whose accounts are the
+ * providers it publishes.
+ * @param {any[]} providers - The published provider list.
  * @param {{reject?: boolean}} [opts] - `reject` fails every PUT with a 500.
  * @returns {{restore: () => void, calls: Array<{method: string, url: string, body: any}>}} Fake backend with restore and recorded calls.
  */
-function installFetch(opts = {}) {
+function installFetch(providers, opts = {}) {
   const orig = window.fetch;
+  const accounts = accountsBackend(providers);
   /** @type {Array<{method: string, url: string, body: any}>} */
   const calls = [];
   window.fetch = /** @type {any} */ (async (url, init) => {
+    const answered = accounts.answer(url, init);
+    if (answered) return answered;
     const u = String(url);
     const method = (init && init.method) || 'GET';
     const body = init && init.body ? JSON.parse(init.body) : null;
@@ -59,7 +66,13 @@ function installFetch(opts = {}) {
     }
     return { ok: true, json: async () => ({}) };
   });
-  return { restore: () => { window.fetch = orig; }, calls };
+  return {
+    restore: () => {
+      accounts.dispose();
+      window.fetch = orig;
+    },
+    calls,
+  };
 }
 
 /**
@@ -70,7 +83,10 @@ function installFetch(opts = {}) {
  */
 function installPanelFetch(providers) {
   const orig = window.fetch;
-  window.fetch = /** @type {any} */ (async (url) => {
+  const accounts = accountsBackend(providers);
+  window.fetch = /** @type {any} */ (async (url, init) => {
+    const answered = accounts.answer(url, init);
+    if (answered) return answered;
     const u = String(url);
     const ok = (/** @type {any} */ body) => ({ ok: true, status: 200, json: async () => body });
     if (u === '/api/config') return ok({ configDir: '/tmp/juggler-test' });
@@ -81,7 +97,12 @@ function installPanelFetch(providers) {
     }
     return { ok: false, status: 404, statusText: 'Not Found', text: async () => '', json: async () => ({}) };
   });
-  return { restore: () => { window.fetch = orig; } };
+  return {
+    restore: () => {
+      accounts.dispose();
+      window.fetch = orig;
+    },
+  };
 }
 
 /**
@@ -195,7 +216,8 @@ export async function runTests(_ctx) {
    */
   const withTab = async (opts, body) => {
     const previousLocale = setLocale('en');
-    const backend = installFetch(opts);
+    const provider = opts.provider || providerFixture();
+    const backend = installFetch([provider], opts);
     const host = document.createElement('div');
     const container = document.createElement('div');
     container.id = 'provider-fields-container';
@@ -203,9 +225,10 @@ export async function runTests(_ctx) {
     document.body.appendChild(host);
     try {
       const tab = new ProvidersTab(/** @type {any} */ (host));
-      /** @type {any} */ (tab).providers = [opts.provider || providerFixture()];
+      /** @type {any} */ (tab).providers = [provider];
       /** @type {any} */ (tab).config = {};
       tab.renderProviderFields();
+      await waitFor(() => !!tab.accountList, { timeoutMs: budgetFor(2000), description: 'the account list' });
       await body(host, backend, tab);
     } finally {
       host.remove();
@@ -597,8 +620,10 @@ export async function runTests(_ctx) {
       assert(details, 'the card has no model list');
       details.open = true;
 
-      assert(details.parentElement === card,
-        `the model list sits in ${details.parentElement?.className}, not across the card`);
+      // Directly in the card, or in the card's own slot for it, which spans it.
+      const slot = details.parentElement;
+      assert(slot === card || (slot?.parentElement === card && slot.classList.contains('account-models')),
+        `the model list sits in ${slot?.className}, not across the card`);
       const info = card.querySelector('.provider-info');
       const offset = details.getBoundingClientRect().left - info.getBoundingClientRect().left;
       assert(Math.abs(offset) < 2, `the model list starts ${offset}px from the card's left edge, want 0`);

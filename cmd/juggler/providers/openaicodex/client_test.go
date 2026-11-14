@@ -137,7 +137,7 @@ func TestListModelsParsesCodexCatalog(t *testing.T) {
 	defer server.Close()
 	baseURL = server.URL
 
-	models, err := listModels(context.Background(), "token", map[string]string{"ChatGPT-Account-Id": "acct_123"})
+	models, err := listModels(context.Background(), unauthorizedHint, "token", map[string]string{"ChatGPT-Account-Id": "acct_123"})
 	if err != nil {
 		t.Fatalf("listModels: %v", err)
 	}
@@ -326,7 +326,7 @@ func TestListModelsAdmitsKnownHiddenModels(t *testing.T) {
 	defer server.Close()
 	baseURL = server.URL
 
-	models, err := listModels(context.Background(), "token", nil)
+	models, err := listModels(context.Background(), unauthorizedHint, "token", nil)
 	if err != nil {
 		t.Fatalf("listModels: %v", err)
 	}
@@ -432,7 +432,7 @@ func TestUsageStatsCallsCodexEndpoint(t *testing.T) {
 	defer server.Close()
 	baseURL = server.URL
 
-	stats, err := usageStats(context.Background(), "token", map[string]string{"ChatGPT-Account-Id": "acct_123"})
+	stats, err := usageStats(context.Background(), unauthorizedHint, "token", map[string]string{"ChatGPT-Account-Id": "acct_123"})
 	if err != nil {
 		t.Fatalf("usageStats: %v", err)
 	}
@@ -461,8 +461,8 @@ func TestCodexProbesHintSignInOn401(t *testing.T) {
 	baseURL = server.URL
 
 	probes := map[string]func() error{
-		"models": func() error { _, err := listModels(context.Background(), "token", nil); return err },
-		"usage":  func() error { _, err := usageStats(context.Background(), "token", nil); return err },
+		"models": func() error { _, err := listModels(context.Background(), unauthorizedHint, "token", nil); return err },
+		"usage":  func() error { _, err := usageStats(context.Background(), unauthorizedHint, "token", nil); return err },
 	}
 	for name, probe := range probes {
 		t.Run(name, func(t *testing.T) {
@@ -502,7 +502,7 @@ func TestListModelsPrefersMaxContextWindow(t *testing.T) {
 	defer server.Close()
 	baseURL = server.URL
 
-	models, err := listModels(context.Background(), "token", nil)
+	models, err := listModels(context.Background(), unauthorizedHint, "token", nil)
 	if err != nil {
 		t.Fatalf("listModels: %v", err)
 	}

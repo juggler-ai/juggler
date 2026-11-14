@@ -25,6 +25,7 @@ import (
 type diskSessionState struct {
 	SessionUUID      string   `json:"sessionUUID"`
 	WorkingDir       string   `json:"workingDir,omitempty"` // the tree the session was made in
+	ConfigDir        string   `json:"configDir,omitempty"`  // the account it was made as: its config dir, "" for the default account
 	HeldCount        *int     `json:"heldCount,omitempty"`
 	SentCount        int      `json:"sentCount"`
 	SentHash         uint64   `json:"sentHash"` // legacy aggregate; covers system prompt + first SentCount messages
@@ -77,7 +78,13 @@ func legacySessionDiskPath(stateDir, convID string) string {
 //
 // A sidecar written before this field existed is read as the project's, which is
 // the only tree there was.
-func loadDiskSession(stateDir, convID, workingDir string) *activeSession {
+//
+// Equally the session belongs to the account it was made as: the CLI keeps it
+// in that account's config dir, and another account's CLI has no such session
+// to resume. A conversation moved to another account cold-starts from its own
+// history there. A sidecar that names no config dir is the default account's,
+// which configDir "" is.
+func loadDiskSession(stateDir, convID, workingDir, configDir string) *activeSession {
 	p := sessionDiskPath(stateDir, convID)
 	legacy := legacySessionDiskPath(stateDir, convID)
 
@@ -112,6 +119,10 @@ func loadDiskSession(stateDir, convID, workingDir string) *activeSession {
 		jlog.Debug("loadDiskSession: session for %s was made in %s, not %s: cold starting", convID, made, workingDir)
 		return nil
 	}
+	if d.ConfigDir != configDir {
+		jlog.Debug("loadDiskSession: session for %s was made as another account (%q, not %q): cold starting", convID, d.ConfigDir, configDir)
+		return nil
+	}
 	heldCount := d.SentCount
 	if d.HeldCount != nil {
 		heldCount = *d.HeldCount
@@ -137,7 +148,7 @@ func loadDiskSession(stateDir, convID, workingDir string) *activeSession {
 	return s
 }
 
-func saveDiskSession(stateDir, convID, workingDir string, sess *activeSession) {
+func saveDiskSession(stateDir, convID, workingDir, configDir string, sess *activeSession) {
 	p := sessionDiskPath(stateDir, convID)
 	if p == "" || sess == nil || sess.sessionUUID == "" {
 		return
@@ -146,6 +157,7 @@ func saveDiskSession(stateDir, convID, workingDir string, sess *activeSession) {
 	d := diskSessionState{
 		SessionUUID:    sess.sessionUUID,
 		WorkingDir:     workingDir,
+		ConfigDir:      configDir,
 		HeldCount:      &heldCount,
 		SentCount:      sess.sentCount,
 		SentHash:       sess.sentHash,

@@ -73,7 +73,7 @@ func TestCLIAPIErrorTypesAUsageLimitWithItsReset(t *testing.T) {
 	reset := time.Now().UTC().Add(3 * time.Hour).Truncate(time.Hour)
 	text := "You've hit your session limit · resets " + reset.Format("Jan 2, 2006, 3pm") + " (UTC)"
 	for _, status := range []int{0, 429} {
-		err := cliAPIError(status, text)
+		err := cliAPIError(account{}, status, text)
 		var limited *provider.RateLimitedError
 		if !errors.As(err, &limited) {
 			t.Fatalf("status %d: error = %T %v, want a RateLimitedError", status, err, err)

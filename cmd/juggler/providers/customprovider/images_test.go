@@ -26,7 +26,6 @@ import (
 // catalogued, and withholding on a guess would break it.
 func TestCustomProviderWithholdsImagesOnlyFromCataloguedTextModels(t *testing.T) {
 	userpathstest.Isolate(t)
-	unregisterAllAtEnd(t)
 
 	bodies := make(chan string, 1)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -43,9 +42,7 @@ func TestCustomProviderWithholdsImagesOnlyFromCataloguedTextModels(t *testing.T)
 			"vision-model": {Context: 128000, Input: []string{"image", "text"}},
 		}},
 	}})
-	if _, err := execute(t, "save", endpointParams("hosted", "Hosted", srv.URL+"/v1")); err != nil {
-		t.Fatalf("save: %v", err)
-	}
+	syncInstances(t, map[string]Instance{"hosted": {DisplayName: "Hosted", BaseURL: srv.URL + "/v1"}})
 
 	data := []byte{1, 2, 3, 4, 5}
 	uri := "data:image/png;base64," + base64.StdEncoding.EncodeToString(data)
@@ -89,7 +86,6 @@ func TestCustomProviderWithholdsImagesOnlyFromCataloguedTextModels(t *testing.T)
 // catalogued vision model as one, and leaves every other model unlabelled.
 func TestCustomProviderPublishesCataloguedModalities(t *testing.T) {
 	userpathstest.Isolate(t)
-	unregisterAllAtEnd(t)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -102,9 +98,7 @@ func TestCustomProviderPublishesCataloguedModalities(t *testing.T) {
 			"vision-model": {Context: 128000, Input: []string{"image", "text"}},
 		}},
 	}})
-	if _, err := execute(t, "save", endpointParams("hosted", "Hosted", srv.URL+"/v1")); err != nil {
-		t.Fatalf("save: %v", err)
-	}
+	syncInstances(t, map[string]Instance{"hosted": {DisplayName: "Hosted", BaseURL: srv.URL + "/v1"}})
 	p, err := provider.InitializeProvider(RegisteredName("hosted"), provider.Config{Model: "vision-model"})
 	if err != nil {
 		t.Fatalf("InitializeProvider: %v", err)

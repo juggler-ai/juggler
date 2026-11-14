@@ -12,21 +12,25 @@ import (
 	"time"
 )
 
-// resetLoginState pins both login-proof latches for a test and restores them on
-// cleanup, so ordering with other tests can't leak the process-lifetime state.
+// resetLoginState gives the default account a fresh login record pinned to
+// state (and, when probed, a passive probe just taken), and puts the old record
+// back on cleanup, so ordering with other tests can't leak process-lifetime
+// state.
 func resetLoginState(t *testing.T, state loginState, probed bool) {
 	t.Helper()
-	prevState := claudeLogin.Load()
-	prevProbed := usageProbeAt.Load()
-	claudeLogin.Store(int32(state))
+	prev, had := loginRecords.Load(defaultAccountID)
+	r := &loginRecord{}
+	r.state.Store(int32(state))
 	if probed {
-		usageProbeAt.Store(usageProbeNow().UnixNano())
-	} else {
-		usageProbeAt.Store(0)
+		r.usageProbeAt.Store(usageProbeNow().UnixNano())
 	}
+	loginRecords.Store(defaultAccountID, r)
 	t.Cleanup(func() {
-		claudeLogin.Store(prevState)
-		usageProbeAt.Store(prevProbed)
+		if had {
+			loginRecords.Store(defaultAccountID, prev)
+		} else {
+			loginRecords.Delete(defaultAccountID)
+		}
 	})
 }
 
@@ -77,18 +81,18 @@ func TestUsagePollRearmsAfterRetryInterval(t *testing.T) {
 	advance := pinUsageProbeClock(t, time.Now())
 	resetLoginState(t, loginUnknown, false)
 
-	if !claudeUsagePollAllowed() {
+	if !claudeUsagePollAllowed(defaultAccountID) {
 		t.Fatalf("the first probe must be allowed")
 	}
 	advance(usageProbeRetryInterval - time.Second)
-	if claudeUsagePollAllowed() {
+	if claudeUsagePollAllowed(defaultAccountID) {
 		t.Fatalf("a probe inside the retry interval must stay latched off")
 	}
 	advance(2 * time.Second)
-	if !claudeUsagePollAllowed() {
+	if !claudeUsagePollAllowed(defaultAccountID) {
 		t.Fatalf("the latch must re-arm once the retry interval has elapsed")
 	}
-	if claudeUsagePollAllowed() {
+	if claudeUsagePollAllowed(defaultAccountID) {
 		t.Fatalf("the re-armed probe must latch off again immediately")
 	}
 }
@@ -101,7 +105,7 @@ func TestUsagePollStaysBlockedWhileExpiredAfterInterval(t *testing.T) {
 	resetLoginState(t, loginExpired, false)
 
 	advance(10 * usageProbeRetryInterval)
-	if claudeUsagePollAllowed() {
+	if claudeUsagePollAllowed(defaultAccountID) {
 		t.Fatalf("an expired sign-in must block the poll however long has passed")
 	}
 }
@@ -111,7 +115,7 @@ func TestUsagePollStaysBlockedWhileExpiredAfterInterval(t *testing.T) {
 // only for the pinned-missing binary, proving it got that far) on every call.
 func TestUsagePollAlwaysAllowedAfterLogin(t *testing.T) {
 	resetLoginState(t, loginUnknown, true) // already probed once, but not confirmed
-	markClaudeLoginConfirmed()
+	markClaudeLoginConfirmed(defaultAccountID)
 	restore := SetBinaryPathForTesting(filepath.Join(t.TempDir(), "does-not-exist-claude"))
 	t.Cleanup(restore)
 
@@ -149,31 +153,31 @@ func TestUsagePollBlockedWhileExpired(t *testing.T) {
 func TestLoginStateTransitions(t *testing.T) {
 	resetLoginState(t, loginUnknown, false)
 
-	if got := currentClaudeLoginState(); got != loginUnknown {
+	if got := currentClaudeLoginState(defaultAccountID); got != loginUnknown {
 		t.Fatalf("initial state = %v, want loginUnknown", got)
 	}
 
-	markClaudeLoginExpired()
-	if got := currentClaudeLoginState(); got != loginExpired {
+	markClaudeLoginExpired(defaultAccountID)
+	if got := currentClaudeLoginState(defaultAccountID); got != loginExpired {
 		t.Fatalf("after markClaudeLoginExpired state = %v, want loginExpired", got)
 	}
 
 	// A real turn succeeding is the strongest evidence there is, and must beat
 	// a previously recorded expiry.
-	markClaudeLoginConfirmed()
-	if got := currentClaudeLoginState(); got != loginConfirmed {
+	markClaudeLoginConfirmed(defaultAccountID)
+	if got := currentClaudeLoginState(defaultAccountID); got != loginConfirmed {
 		t.Fatalf("after markClaudeLoginConfirmed state = %v, want loginConfirmed", got)
 	}
 
 	// The re-check must not demote a confirmed sign-in.
-	clearClaudeLoginExpired()
-	if got := currentClaudeLoginState(); got != loginConfirmed {
+	clearClaudeLoginExpired(defaultAccountID)
+	if got := currentClaudeLoginState(defaultAccountID); got != loginConfirmed {
 		t.Fatalf("clearClaudeLoginExpired touched a confirmed state: %v", got)
 	}
 
-	markClaudeLoginExpired()
-	clearClaudeLoginExpired()
-	if got := currentClaudeLoginState(); got != loginUnknown {
+	markClaudeLoginExpired(defaultAccountID)
+	clearClaudeLoginExpired(defaultAccountID)
+	if got := currentClaudeLoginState(defaultAccountID); got != loginUnknown {
 		t.Fatalf("after clearing an expiry state = %v, want loginUnknown", got)
 	}
 }

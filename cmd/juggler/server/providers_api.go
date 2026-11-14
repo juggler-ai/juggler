@@ -6,6 +6,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -93,7 +94,12 @@ type ModelWithContext struct {
 type ProviderStatus struct {
 	Name        string `json:"name"`
 	DisplayName string `json:"displayName"`
-	Description string `json:"description"`
+	// Type is the provider type this account is of; Name for a type's default
+	// account.
+	Type string `json:"type"`
+	// AccountLabel says who is signed in to the account, when known.
+	AccountLabel string `json:"accountLabel,omitempty"`
+	Description  string `json:"description"`
 	// DescriptionMessage is the message Description was rendered from, for the
 	// UI to show translated with serverText; nil when there is no description.
 	DescriptionMessage *msg.Message      `json:"descriptionMessage,omitempty"`
@@ -370,6 +376,8 @@ func (s *Server) computeProviders(ctx context.Context) []ProviderStatus {
 			providers[idx] = ProviderStatus{
 				Name:               pInfo.Name,
 				DisplayName:        pInfo.DisplayName,
+				Type:               pInfo.Type,
+				AccountLabel:       pInfo.AccountLabel,
 				Description:        pInfo.Description.English(),
 				DescriptionMessage: messageOrNil(pInfo.Description),
 				AuthType:           authType,
@@ -458,12 +466,65 @@ func (s *Server) RefreshProviders() {
 	}
 }
 
+// RefreshProvidersAndWait recomputes the provider list and answers with it:
+// the list of a recomputation that began after the call, so it reflects
+// whatever changed before it — a sign-in, a key, a server started. It waits on
+// the recomputation itself, however long its probes take, until ctx ends.
+//
+// Coalescing still holds: a request that joins one already queued is served
+// by that one, which has not begun yet and so is fresh enough.
+func (s *Server) RefreshProvidersAndWait(ctx context.Context) ([]ProviderStatus, error) {
+	if s.test.offlineProviders {
+		s.RefreshProviders()
+		return s.cachedProviders(), nil
+	}
+	want := s.passesStarted.Load() + 1
+	s.RefreshProviders()
+	for {
+		// The channel is taken before the count is read: a pass publishes its
+		// count before it closes the channel, so none is missed between the two.
+		finished := s.passFinishedChan()
+		if s.passesFinished.Load() >= want {
+			return s.cachedProviders(), nil
+		}
+		select {
+		case <-finished:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-s.shutdownChan:
+			return nil, errors.New("server is shutting down")
+		}
+	}
+}
+
+// passFinishedChan is the channel the next published recomputation closes.
+func (s *Server) passFinishedChan() chan struct{} {
+	for {
+		if ch := s.passFinished.Load(); ch != nil {
+			return *ch
+		}
+		ch := make(chan struct{})
+		s.passFinished.CompareAndSwap(nil, &ch)
+	}
+}
+
+// passPublished records that recomputation pass has been published, and wakes
+// those waiting on one.
+func (s *Server) passPublished(pass int64) {
+	s.passesFinished.Store(pass)
+	next := make(chan struct{})
+	if prev := s.passFinished.Swap(&next); prev != nil {
+		close(*prev)
+	}
+}
+
 func (s *Server) runProviderRefreshActor() {
 	for {
 		select {
 		case <-s.shutdownChan:
 			return
 		case <-s.refreshRequests:
+			pass := s.passesStarted.Add(1)
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 			compute := s.computeProvidersFunc
 			if compute == nil {
@@ -476,6 +537,7 @@ func (s *Server) runProviderRefreshActor() {
 			// This snapshot is the settled, post-compute list — clients that gate
 			// startup decisions on real provider availability should trust it.
 			s.broadcastToAll(providersUpdateFrame{Type: frameProvidersUpdate, Providers: list, Ready: true})
+			s.passPublished(pass)
 		}
 	}
 }
@@ -1040,9 +1102,13 @@ func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
 // each pass.
 func (s *Server) handleRefreshProviders(w http.ResponseWriter, r *http.Request) {
 	provider.InvalidateAutoDetect()
-	s.RefreshProviders()
+	providers, err := s.RefreshProvidersAndWait(r.Context())
+	if err != nil {
+		handlers.WriteErr(w, r, http.StatusServiceUnavailable, err)
+		return
+	}
 	handlers.WriteSuccess(w, r, map[string]any{
-		"providers": s.cachedProviders(),
+		"providers": providers,
 	})
 }
 

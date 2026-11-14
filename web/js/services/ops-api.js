@@ -1916,36 +1916,166 @@ export async function acpSetConfig(params, signal) {
 }
 
 // ============================================================================
-// Custom providers (the user's own named OpenAI-compatible endpoints)
+// Provider accounts (Settings → Providers)
 // ============================================================================
 
 /**
- * One configured custom endpoint, as its settings card needs it. Each registers
- * as its own provider, so `providerId` is the name conversations, the model
- * stores and the model picker all use — and the one thing about an endpoint that
- * can never change.
- * @typedef {object} CustomEndpoint
- * @property {string} id - The endpoint id, chosen once when it was added
- * @property {string} providerId - The provider id it registers under
- * @property {string} [displayName] - The label shown in the picker
- * @property {string} [url] - The configured base URL
- * @property {Record<string, string>} [headers] - Extra request headers
- * @property {boolean} enabled - Whether the user has it switched on
- * @property {boolean} registered - Whether it reached the provider registry, and so the picker
- * @property {string} [error] - Why an enabled endpoint did not register
- * @property {boolean} hasKey - Whether an API key is stored or in the environment
- * @property {''|'credentials'|'env'} [keySource] - Where that key comes from
- * @property {string} envVarName - The environment variable a key may come from instead
+ * One account: a registered provider whose name is the account id, so it is
+ * what conversations, the model stores and the model picker all name.
+ * @typedef {object} ProviderAccount
+ * @property {string} id - The account id; a type's default account has the type's bare name
+ * @property {string} type - The provider type it is an account of
+ * @property {string} typeDisplayName - The type's own name
+ * @property {string} displayName - Its name in the model picker
+ * @property {'subscription'|'api_key'|'local'|'custom'} category - Its group in the add menu
+ * @property {boolean} isDefault - The type's default account, which keeps its bare id
+ * @property {boolean} [detected] - A default account found on this machine (a
+ *   login another app keeps, a CLI or a local server) rather than typed in
+ * @property {string} [keySource] - Where its key or login comes from
+ * @property {string} [envVarName] - The environment variable that may supply its key
+ * @property {string} [problem] - Why it is not registered, when it should be
+ * @property {object} [problemMessage] - The message problem was rendered from
+ * @property {string} [accountLabel] - Who is signed in, when known
+ * @property {string} [signInCommand] - What to run in a terminal to sign it in
+ * @property {Record<string, any>} [settings] - The type's per-account settings
+ * @property {boolean} registered - Whether it reached the provider registry
  */
 
 /**
- * List every configured endpoint, switched on or off. Every mutation below
- * answers with the same list, so a card redraws from one round trip.
- * @param {AbortSignal} [signal]
- * @returns {Promise<{endpoints: CustomEndpoint[]}>} The configured endpoints
+ * A login found on this machine that is not an account.
+ * @typedef {object} AccountCandidate
+ * @property {string} key - Identifies it, for adding it
+ * @property {string} type - The type it would be an account of
+ * @property {string} [accountId] - The id adding it gives the account, when it restores one
+ * @property {string} [displayName] - The name adding it gives the account
+ * @property {'removed'|'switched-off'|'found'} reason - Why it is offered
+ * @property {string} [path] - Where it was found
+ * @property {string} [label] - Who is signed in there, when known
+ * @property {Record<string, any>} [settings] - The settings adding it writes
  */
-export async function customProvidersList(signal) {
-  return callOp('customProviders', 'list', {}, signal);
+
+/**
+ * @typedef {object} AccountList
+ * @property {ProviderAccount[]} accounts - Every account, defaults first
+ * @property {AccountCandidate[]} candidates - Logins offered in "Add an account"
+ */
+
+/**
+ * List the accounts, and the logins on this machine that are not accounts.
+ * Every mutation below answers with the same list, so the page redraws from one
+ * round trip.
+ * @param {AbortSignal} [signal]
+ * @returns {Promise<AccountList>} The list
+ */
+export async function accountsList(signal) {
+  return callOp('accounts', 'list', {}, signal);
+}
+
+/**
+ * Look again for logins on this machine that are not accounts — which can mean
+ * asking a CLI about each, so the server does it at most every half minute —
+ * then list.
+ * @param {AbortSignal} [signal]
+ * @returns {Promise<AccountList>} The list
+ */
+export async function accountsDiscover(signal) {
+  return callOp('accounts', 'discover', {}, signal);
+}
+
+/**
+ * One kind of account the "Add account" menu offers.
+ * @typedef {object} AccountType
+ * @property {string} name - The type id, and its default account's id
+ * @property {string} displayName - Its name
+ * @property {string} [description] - A one-line blurb
+ * @property {object} [descriptionMessage] - The message description was rendered from
+ * @property {string} category - "subscription", "api_key", "local" or "custom"
+ * @property {boolean} hasDefaultAccount - Its first account takes the bare id
+ * @property {boolean} acceptsExtra - It takes accounts beyond its default
+ */
+
+/**
+ * List the kinds of account that can be added.
+ * @param {AbortSignal} [signal]
+ * @returns {Promise<{types: AccountType[]}>} The types
+ */
+export async function accountsTypes(signal) {
+  return callOp('accounts', 'types', {}, signal);
+}
+
+/**
+ * Add an account (given a type) or edit one (given its id). Only the fields
+ * sent change. Takes effect at once: the server registers the account before
+ * answering.
+ * @param {{id?: string, type?: string, displayName?: string, settings?: Record<string, any>, apiKey?: string}} params
+ * @param {AbortSignal} [signal]
+ * @returns {Promise<AccountList & {id: string}>} The account's id, and the list
+ */
+export async function accountsSave(params, signal) {
+  return callOp('accounts', 'save', params, signal);
+}
+
+/**
+ * Remove an account. One the user added is deleted with everything keyed to
+ * it; a type's default account turns back into a candidate.
+ * @param {{id: string}} params
+ * @param {AbortSignal} [signal]
+ * @returns {Promise<AccountList>} The list
+ */
+export async function accountsRemove(params, signal) {
+  return callOp('accounts', 'remove', params, signal);
+}
+
+/**
+ * Store (or, with an empty string, clear) one account's API key, whether or
+ * not it is registered.
+ * @param {{id: string, apiKey: string}} params
+ * @param {AbortSignal} [signal]
+ * @returns {Promise<AccountList & {id: string}>} The list
+ */
+export async function accountsSetKey(params, signal) {
+  return callOp('accounts', 'setKey', params, signal);
+}
+
+/**
+ * Count this project's conversations that use an account, for the remove
+ * confirm.
+ * @param {{id: string}} params
+ * @param {AbortSignal} [signal]
+ * @returns {Promise<{conversations: number}>} The count
+ */
+export async function accountsUsage(params, signal) {
+  return callOp('accounts', 'usage', params, signal);
+}
+
+/**
+ * Add a candidate as an account.
+ * @param {{key: string}} params
+ * @param {AbortSignal} [signal]
+ * @returns {Promise<AccountList & {id: string}>} The new account's id, and the list
+ */
+export async function accountsAddCandidate(params, signal) {
+  return callOp('accounts', 'addCandidate', params, signal);
+}
+
+/**
+ * What adding an account would make, for the add form to show before the user
+ * commits: the server allocates ids, so it is the one to ask.
+ * @typedef {object} AccountPreview
+ * @property {string} id - The id it would take
+ * @property {string} displayName - The name it would take when given none
+ * @property {boolean} isDefault - It would restore the type's default account,
+ *   which takes no settings of its own
+ */
+
+/**
+ * Preview an add.
+ * @param {{type: string, displayName?: string}} params
+ * @param {AbortSignal} [signal]
+ * @returns {Promise<AccountPreview>} The preview
+ */
+export async function accountsPreview(params, signal) {
+  return callOp('accounts', 'preview', params, signal);
 }
 
 /**
@@ -1958,50 +2088,14 @@ export async function customProvidersList(signal) {
  */
 
 /**
- * List the providers the add form can be given by name instead of by URL. The
- * catalogue is compiled into the server, so this asks nothing of the network.
+ * List the providers the custom-endpoint form can be given by name instead of
+ * by URL. The catalogue is compiled into the server, so this asks nothing of
+ * the network.
  * @param {AbortSignal} [signal]
  * @returns {Promise<{providers: CatalogProvider[]}>} The catalogued providers, by name
  */
 export async function customProvidersCatalog(signal) {
   return callOp('customProviders', 'catalog', {}, signal);
-}
-
-/**
- * Write one endpoint — adding it when the id is new, editing it when it is not.
- * Only the fields sent are changed, so a card can save the one input the user
- * just left. Takes effect at once: the server reconciles the provider registry
- * before answering.
- * @param {{id: string, displayName?: string, url?: string, headers?: object, enabled?: boolean}} params
- * @param {AbortSignal} [signal]
- * @returns {Promise<{endpoints: CustomEndpoint[]}>} Updated endpoint list
- */
-export async function customProvidersSave(params, signal) {
-  return callOp('customProviders', 'save', params, signal);
-}
-
-/**
- * Delete one endpoint, along with the hidden models, token limits and model
- * selections naming the provider id it registered under. Its API key stays in
- * the credentials store.
- * @param {{id: string}} params
- * @param {AbortSignal} [signal]
- * @returns {Promise<{endpoints: CustomEndpoint[]}>} Updated endpoint list
- */
-export async function customProvidersRemove(params, signal) {
-  return callOp('customProviders', 'remove', params, signal);
-}
-
-/**
- * Store (or, with an empty string, clear) one endpoint's API key. The credential
- * key name is derived from the id server-side, so this works whether or not the
- * endpoint is currently registered.
- * @param {{id: string, apiKey: string}} params
- * @param {AbortSignal} [signal]
- * @returns {Promise<{endpoints: CustomEndpoint[]}>} Updated endpoint list
- */
-export async function customProvidersSetKey(params, signal) {
-  return callOp('customProviders', 'setKey', params, signal);
 }
 
 // ============================================================================

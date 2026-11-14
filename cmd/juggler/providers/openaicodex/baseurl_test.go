@@ -190,10 +190,10 @@ func TestBaseURLOverrideRoutesEveryRequest(t *testing.T) {
 	t.Setenv("CODEX_TEST_PROXY", server.URL+"/proxy")
 	setOverride(t, "${CODEX_TEST_PROXY}/backend-api/codex")
 
-	if _, err := listModels(context.Background(), "token", nil); err != nil {
+	if _, err := listModels(context.Background(), unauthorizedHint, "token", nil); err != nil {
 		t.Fatalf("listModels: %v", err)
 	}
-	if _, err := usageStats(context.Background(), "token", nil); err != nil {
+	if _, err := usageStats(context.Background(), unauthorizedHint, "token", nil); err != nil {
 		t.Fatalf("usageStats: %v", err)
 	}
 	_ = codexTurn(t)
@@ -226,8 +226,8 @@ func TestUnusableOverrideSendsNothing(t *testing.T) {
 	captureLog(t)
 	setOverride(t, "http://gateway.example/backend-api/codex")
 
-	_, modelsErr := listModels(context.Background(), "token", nil)
-	_, usageErr := usageStats(context.Background(), "token", nil)
+	_, modelsErr := listModels(context.Background(), unauthorizedHint, "token", nil)
+	_, usageErr := usageStats(context.Background(), unauthorizedHint, "token", nil)
 	turnErr := codexTurn(t)
 	for name, err := range map[string]error{"models": modelsErr, "usage": usageErr, "turn": turnErr} {
 		if err == nil || !strings.Contains(err.Error(), baseURLEnv) {

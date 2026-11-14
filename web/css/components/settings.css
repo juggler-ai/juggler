@@ -6,9 +6,9 @@
 
 @layer components {
 /* ============================================================================
-   PROVIDERS, MODELS AND CUSTOM ENDPOINTS
+   PROVIDER ACCOUNTS AND THEIR MODELS
    The provider rows the panel lists: API-key links, the model visibility list
-   and its limits, and the custom-endpoint editor.
+   and its limits, and the account cards and the add-account panel.
    ============================================================================ */
 
 settings-panel .get-api-key-link {
@@ -67,25 +67,23 @@ settings-panel .settings-model-visibility {
     min-width: 0;
 }
 
-/* The list spans the whole provider card rather than its control column, which
-   leaves the name column room for a long id. What follows it on an endpoint
-   card (Remove) spans too, so it stays under the list. The negative margin takes
-   the card's 1.5rem grid gap, sized to separate its two columns, down to a
-   row's spacing. */
+/* The list spans the whole account card rather than its control column, which
+   leaves the name column room for a long id. The negative margin takes the
+   card's 1.5rem grid gap, sized to separate its two columns, down to a row's
+   spacing. */
 settings-panel .provider-field > .settings-model-visibility,
-settings-panel .provider-field > .custom-endpoint-models,
-settings-panel .provider-field > .custom-endpoint-actions {
+settings-panel .provider-field > .account-models {
     grid-column: 1 / -1;
     margin-top: calc(-1 * var(--space-14));
 }
 
-settings-panel .custom-endpoint-models > .settings-model-visibility {
+settings-panel .account-models > .settings-model-visibility {
     margin-top: 0;
 }
 
-/* An endpoint that isn't registered has no list; its empty slot must not open a
+/* An account with no models to list has an empty slot, which must not open a
    row of its own. */
-settings-panel .provider-field > .custom-endpoint-models:empty {
+settings-panel .provider-field > .account-models:empty {
     display: none;
 }
 
@@ -345,44 +343,119 @@ settings-panel .provider-subfield-status[data-kind="error"] {
     color: var(--danger);
 }
 
-/* The user's own endpoints: the same provider cards as everything above them,
-   plus the few controls only an endpoint has. */
-settings-panel .custom-endpoints-note {
+/* Provider accounts: one card per account, on the same two-column shell as
+   every settings row, with a ⋯ menu in a gutter of its own at the top right so
+   it never sits over a field. */
+settings-panel .account-card {
+    position: relative;
+    padding-right: var(--space-48);
+}
+
+settings-panel .account-menu-button {
+    position: absolute;
+    top: var(--space-12);
+    right: var(--space-10);
+}
+
+/* The ⋯ menu is appended to <body>, outside the panel, which covers the window
+   at --z-modal: a dropdown at --z-dropdown would paint behind it. */
+.account-menu {
+    z-index: var(--z-above-modal);
+}
+
+/* The name, the type it is an account of, and where it comes from. */
+settings-panel .account-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-6) var(--space-8);
+    min-width: 0;
+}
+
+settings-panel .account-rename-input {
+    width: 14rem;
+    max-width: 100%;
+}
+
+settings-panel .account-chip {
+    padding: 0 var(--space-6);
+    border: 0.0625rem solid var(--border-color);
+    border-radius: var(--radius-pill);
     color: var(--text-secondary);
-    font-size: var(--font-size-base);
+    font-size: var(--font-size-xs);
     line-height: var(--leading-normal);
-    margin-bottom: var(--space-10);
+    white-space: nowrap;
 }
 
-settings-panel .custom-endpoint .provider-control {
-    gap: var(--space-12);
+settings-panel .account-chip-source {
+    color: var(--success);
+    border-color: color-mix(in srgb, var(--success) 45%, transparent);
 }
 
-/* The provider id: not editable, because everything stored names it. */
-settings-panel .custom-endpoint-id {
+settings-panel .account-label {
+    color: var(--text-secondary);
+    font-size: var(--font-size-sm);
+}
+
+settings-panel .account-location,
+settings-panel .account-id {
     font-family: var(--font-mono);
     font-size: var(--font-size-sm);
     color: var(--text-tertiary);
+    overflow-wrap: anywhere;
 }
 
 /* Always in the card, so saying something later costs no rebuild. Empty means
    there is nothing wrong, and it takes no room. */
-settings-panel .custom-endpoint-problem {
+settings-panel .account-problem {
     font-size: var(--font-size-sm);
     line-height: var(--leading-tight);
     color: var(--danger);
 }
 
-settings-panel .custom-endpoint-problem:empty {
+settings-panel .account-problem:empty {
     display: none;
 }
 
-settings-panel .custom-endpoint-toggle-note {
-    font-size: var(--font-size-sm);
-    color: var(--danger);
+/* The command that signs an account in, set off as something to copy. */
+settings-panel .account-signin {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
 }
 
-settings-panel .custom-endpoint-headers {
+settings-panel .account-signin-label {
+    color: var(--text-secondary);
+    font-size: var(--font-size-sm);
+}
+
+settings-panel .account-signin-command {
+    display: flex;
+    align-items: center;
+    gap: var(--space-6);
+    padding: var(--space-4) var(--space-4) var(--space-4) var(--space-8);
+    background: var(--bg-primary);
+    border: 0.0625rem solid var(--border-color);
+    border-radius: var(--radius-lg);
+}
+
+settings-panel .account-signin-command code {
+    flex: 1;
+    min-width: 0;
+    color: var(--success);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-sm);
+    overflow-x: auto;
+    white-space: nowrap;
+}
+
+/* Labelled fields stacked in a control column are spaced as rows, not as the
+   parts of one. */
+settings-panel .provider-control > .provider-subfield + .provider-subfield {
+    margin-top: var(--space-6);
+}
+
+settings-panel .account-headers {
     display: flex;
     flex-direction: column;
     gap: var(--space-6);
@@ -390,39 +463,155 @@ settings-panel .custom-endpoint-headers {
 
 /* Name, value, and the button that drops the row. The name column is narrower:
    a header's name is a word, its value can be anything. */
-settings-panel .custom-endpoint-header-row {
+settings-panel .account-header-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) auto;
     gap: var(--space-6);
     align-items: center;
 }
 
-settings-panel .custom-endpoint-header-add {
+settings-panel .account-header-add {
     align-self: flex-start;
     margin-top: var(--space-6);
 }
 
-settings-panel .custom-endpoint-headers-hint {
+settings-panel .account-headers-hint {
     color: var(--text-tertiary);
     font-size: var(--font-size-sm);
     padding-top: var(--space-6);
 }
 
-settings-panel .custom-endpoint-actions {
+settings-panel .account-empty {
+    color: var(--text-secondary);
+    font-size: var(--font-size-base);
+    margin-bottom: var(--space-10);
+}
+
+/* Add an account: its own section under the accounts, set well apart from the
+   last card. Its heading is the section's first child, so the gap is the
+   section's to give. */
+settings-panel .account-add-section {
+    margin-top: var(--space-32);
+}
+
+/* A recessed panel rather than a card, so what can be added never reads as
+   something already set up. */
+settings-panel .account-add {
+    padding: var(--space-16) var(--space-20);
+    background: var(--bg-tertiary);
+    border: 0.0625rem solid var(--border-color);
+    border-radius: var(--radius-xl);
+}
+
+settings-panel .account-add-heading {
     display: flex;
-    justify-content: flex-end;
+    align-items: center;
     gap: var(--space-8);
+    margin-bottom: var(--space-12);
+    color: var(--text-primary);
+    font-weight: var(--font-weight-medium);
 }
 
-/* The add form is a card in waiting: same grid, dashed while it holds nothing. */
-settings-panel .custom-endpoint-add {
-    border: 0.0625rem dashed var(--border-color);
+settings-panel .account-types {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr));
+    gap: var(--space-6);
 }
 
-settings-panel .custom-endpoint-add-id {
+settings-panel .account-type-group {
+    grid-column: 1 / -1;
+    color: var(--text-secondary);
+    margin-top: var(--space-8);
+}
+
+settings-panel .account-type-group:first-child {
+    margin-top: 0;
+}
+
+settings-panel .account-type {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+    padding: var(--space-8) var(--space-10);
+    border: 0.0625rem solid var(--border-color);
+    border-radius: var(--radius-lg);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+    transition: border-color var(--transition-fast);
+}
+
+settings-panel .account-type:hover {
+    border-color: var(--accent-blue);
+}
+
+settings-panel .account-type:focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: var(--focus-ring-offset);
+}
+
+settings-panel .account-type-name {
+    font-weight: var(--font-weight-medium);
+}
+
+settings-panel .account-type-description {
+    color: var(--text-tertiary);
+    font-size: var(--font-size-sm);
+    line-height: var(--leading-tight);
+}
+
+/* A login already on this machine, or an account set up before: complete, so
+   one pick adds it. Told apart from a bare type by the colour of what it says
+   about itself, not by a section of its own. */
+settings-panel .account-type-found .account-type-description {
+    color: var(--success);
+}
+
+settings-panel .account-type-detail {
+    color: var(--text-tertiary);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-xs);
+    overflow-wrap: anywhere;
+}
+
+settings-panel .account-type:disabled {
+    cursor: progress;
+    opacity: 0.6;
+}
+
+settings-panel .account-add-form {
+    display: grid;
+    grid-template-columns: minmax(0, 40%) minmax(0, 1fr);
+    gap: var(--space-12) var(--space-24);
+}
+
+settings-panel .account-add-id {
     font-family: var(--font-mono);
     font-size: var(--font-size-sm);
     color: var(--text-tertiary);
+}
+
+settings-panel .account-add-explain {
+    color: var(--text-secondary);
+    font-size: var(--font-size-sm);
+    line-height: var(--leading-normal);
+}
+
+settings-panel .account-add-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-8);
+    margin-top: var(--space-12);
+}
+
+settings-panel .account-add-status {
+    flex: 1;
+    color: var(--danger);
+    font-size: var(--font-size-sm);
 }
 
 /* ============================================================================
@@ -894,26 +1083,6 @@ settings-panel .provider-buttons {
     gap: var(--space-6);
     padding-right: var(--space-8);
     flex-shrink: 0;
-}
-
-/* GitHub host field for the Copilot (device-flow) provider — Enterprise Cloud
-   users point it at their <tenant>.ghe.com. Compact label above a full-width
-   input, sitting between the sign-in status line and the buttons. */
-settings-panel .copilot-host-field {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-4);
-    min-width: 0;
-}
-
-settings-panel .copilot-host-label {
-    color: var(--text-secondary);
-    font-size: var(--font-size-sm);
-}
-
-settings-panel .copilot-host-field input {
-    width: 100%;
-    font-family: var(--font-mono);
 }
 
 settings-panel .provider-active-badge {
@@ -1558,9 +1727,12 @@ settings-panel .chime-preview-btn {
 
     /* The stacked card's gap is already row-sized. */
     settings-panel .provider-field > .settings-model-visibility,
-    settings-panel .provider-field > .custom-endpoint-models,
-    settings-panel .provider-field > .custom-endpoint-actions {
+    settings-panel .provider-field > .account-models {
         margin-top: 0;
+    }
+
+    settings-panel .account-add-form {
+        grid-template-columns: 1fr;
     }
 
     /* The two chime menus sit side by side on desktop; on a phone-width control

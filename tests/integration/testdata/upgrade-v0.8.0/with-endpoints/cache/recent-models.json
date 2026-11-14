@@ -1,0 +1,16 @@
+{
+  "models": [
+    {
+      "provider": "custom-acme",
+      "model": "acme-large"
+    },
+    {
+      "provider": "claudecode",
+      "model": "opus"
+    },
+    {
+      "provider": "copilot",
+      "model": "gpt-5"
+    }
+  ]
+}

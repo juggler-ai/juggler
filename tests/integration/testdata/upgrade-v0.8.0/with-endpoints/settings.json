@@ -1,0 +1,28 @@
+{
+  "models": {
+    "hidden": {
+      "anthropic": [
+        "claude-3-haiku"
+      ],
+      "custom-acme": [
+        "acme-small"
+      ],
+      "claudecode": [
+        "haiku"
+      ]
+    },
+    "limits": {
+      "openai-compatible": {
+        "qwen3": {
+          "contextWindow": 32768
+        }
+      },
+      "custom-acme": {
+        "acme-large": {
+          "contextWindow": 200000,
+          "maxOutputTokens": 8192
+        }
+      }
+    }
+  }
+}

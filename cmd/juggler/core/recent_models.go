@@ -90,6 +90,25 @@ func (s *RecentModelsStore) Add(ref ModelRef) error {
 	return s.save(out)
 }
 
+// RemoveProvider drops every entry naming providerName. A list with none is
+// left untouched on disk.
+func (s *RecentModelsStore) RemoveProvider(providerName string) error {
+	models, err := s.Load()
+	if err != nil {
+		return err
+	}
+	kept := make([]ModelRef, 0, len(models))
+	for _, m := range models {
+		if m.Provider != providerName {
+			kept = append(kept, m)
+		}
+	}
+	if len(kept) == len(models) {
+		return nil
+	}
+	return s.save(kept)
+}
+
 func (s *RecentModelsStore) save(models []ModelRef) error {
 	dir := filepath.Dir(s.filePath)
 	if err := os.MkdirAll(dir, 0700); err != nil {

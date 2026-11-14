@@ -70,7 +70,7 @@ func TestListModelsParsesCopilotCatalog(t *testing.T) {
 		]
 	}`)
 
-	models, err := listModels(context.Background(), "bearer", nil)
+	models, err := listModelsAt(context.Background(), apiBaseFor("")(), "bearer", nil)
 	if err != nil {
 		t.Fatalf("listModels: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestListModelsHidesResponsesOnlyModels(t *testing.T) {
 		]
 	}`)
 
-	models, err := listModels(context.Background(), "bearer", nil)
+	models, err := listModelsAt(context.Background(), apiBaseFor("")(), "bearer", nil)
 	if err != nil {
 		t.Fatalf("listModels: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestListModelsKeepsPolicyGatedModels(t *testing.T) {
 		]
 	}`)
 
-	models, err := listModels(context.Background(), "bearer", nil)
+	models, err := listModelsAt(context.Background(), apiBaseFor("")(), "bearer", nil)
 	if err != nil {
 		t.Fatalf("listModels: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestListModelsKeepsPreviewModels(t *testing.T) {
 		]
 	}`)
 
-	models, err := listModels(context.Background(), "bearer", nil)
+	models, err := listModelsAt(context.Background(), apiBaseFor("")(), "bearer", nil)
 	if err != nil {
 		t.Fatalf("listModels: %v", err)
 	}
@@ -166,7 +166,7 @@ func TestListModelsRequiresToolCalls(t *testing.T) {
 		]
 	}`)
 
-	models, err := listModels(context.Background(), "bearer", nil)
+	models, err := listModelsAt(context.Background(), apiBaseFor("")(), "bearer", nil)
 	if err != nil {
 		t.Fatalf("listModels: %v", err)
 	}

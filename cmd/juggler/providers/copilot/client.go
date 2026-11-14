@@ -23,17 +23,21 @@ import (
 
 // baseURL, when non-empty, overrides the API host (tests point it at an httptest
 // server). In production it stays empty and the host comes from the token
-// exchange via core.CopilotAPIBase() — the account-correct endpoints.api — so
+// exchange via core.CopilotAPIBase — the account-correct endpoints.api — so
 // Business/Enterprise plans hit api.business./api.enterprise.githubcopilot.com
 // rather than the individual host (which 400s model_not_supported for them).
 var baseURL = ""
 
-// apiBase resolves the Copilot API host for both /models and /chat/completions.
-func apiBase() string {
-	if baseURL != "" {
-		return baseURL
+// apiBaseFor is the API host of account accountID ("" for the default
+// account), for both /models and /chat/completions: the one its own plan's
+// token exchange reported.
+func apiBaseFor(accountID string) func() string {
+	return func() string {
+		if baseURL != "" {
+			return baseURL
+		}
+		return core.CopilotAPIBase(accountID)
 	}
-	return core.CopilotAPIBase()
 }
 
 // Register adds the GitHub Copilot provider to the global registry. It uses a
@@ -41,26 +45,37 @@ func apiBase() string {
 // Platform API key. The login can be made here through the device flow, or
 // picked up from one an editor already holds.
 func Register() {
-	openaibase.Register(openaibase.Descriptor{
-		Name:         "copilot",
-		DisplayName:  "GitHub Copilot",
+	openaibase.Register(descriptor(TypeName, displayName, "github_copilot", apiBaseFor("")))
+}
+
+// displayName is the default account's name, and the type's.
+const displayName = "GitHub Copilot"
+
+// descriptor is the provider for one account: its id and name, the OAuth
+// source its login comes from, and where its plan's API is.
+func descriptor(name, shownAs, authSource string, base func() string) openaibase.Descriptor {
+	return openaibase.Descriptor{
+		Name:         name,
+		DisplayName:  shownAs,
 		Description:  msg.New("Uses your GitHub Copilot plan, including the free one. No API key required — sign in with GitHub here, or reuse a Copilot login from VS Code, a JetBrains IDE, or Neovim."),
 		AuthType:     provider.AuthTypeOAuthBearer,
-		AuthSource:   "github_copilot",
+		AuthSource:   authSource,
 		SignInMethod: "github_device",
-		BaseURLFunc:  apiBase, // account-correct host from the token exchange
+		BaseURLFunc:  base, // account-correct host from the token exchange
 		// No ContextWindows map: there is no static catalog. On a failed/empty
 		// live list the provider shows zero models (ProviderInfo.ModelContextWindows
 		// stays nil, so the menu publishes no fallback rows) — connecting is
 		// pointless if we can't enumerate what's actually callable.
-		DisplayProvider:    "GitHub Copilot",
-		ListModelsOverride: listModels,
-		ThinkingSpecFn:     openaibase.OpenAIThinkingSpec,
+		DisplayProvider: "GitHub Copilot",
+		ListModelsOverride: func(ctx context.Context, bearerToken string, headers map[string]string) ([]provider.ModelInfo, error) {
+			return listModelsAt(ctx, base(), bearerToken, headers)
+		},
+		ThinkingSpecFn: openaibase.OpenAIThinkingSpec,
 		Quirks: openaibase.Quirks{
 			MaxTokensParamName:        "max_tokens",
 			ForcedToolChoiceSupported: true,
 		},
-	})
+	}
 }
 
 const chatCompletionsEndpoint = "/chat/completions"
@@ -136,7 +151,8 @@ func (m copilotModel) callable() bool {
 	}
 }
 
-// listModels fetches the live Copilot catalog and returns the models Juggler can
+// listModelsAt fetches the live Copilot catalog from base, the account's own
+// plan's API host, and returns the models Juggler can
 // structurally drive over Chat Completions (see callable for the conservative,
 // account-agnostic filter — non-chat, Responses-API-only, and no-tool-call
 // models are the only ones dropped). The live catalog is the sole source of
@@ -145,9 +161,9 @@ func (m copilotModel) callable() bool {
 // (policy not yet enabled, etc.) and will surface their own model_not_supported
 // error when picked — that's the deliberate tradeoff for not hiding models that
 // work on other accounts.
-func listModels(ctx context.Context, bearerToken string, headers map[string]string) ([]provider.ModelInfo, error) {
+func listModelsAt(ctx context.Context, base, bearerToken string, headers map[string]string) ([]provider.ModelInfo, error) {
 	var parsed copilotModelsResponse
-	if err := utils.GetJSON(ctx, apiBase()+"/models", utils.JSONGetOptions{
+	if err := utils.GetJSON(ctx, base+"/models", utils.JSONGetOptions{
 		Bearer:  bearerToken,
 		Headers: headers,
 		Label:   "GitHub Copilot /models",

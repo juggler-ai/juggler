@@ -17,9 +17,11 @@
  * @module unit-tests/settings-tabs-test
  */
 
-import { assert } from '../utilities/test-helpers.js';
+import { assert, waitFor } from '../utilities/test-helpers.js';
+import { budgetFor } from '../utilities/test-deadline.js';
 import { registerOpenPopup } from '../../js/utils/popup-manager.js';
 import { ProvidersTab } from '../../js/components/settings/providers-tab.js';
+import { accountsBackend } from '../utilities/accounts-backend.js';
 import { DefaultsTab } from '../../js/components/settings/defaults-tab.js';
 import { LogsTab } from '../../js/components/settings/logs-tab.js';
 import { SkillsTab } from '../../js/components/settings/skills-tab.js';
@@ -46,25 +48,32 @@ function stubFetchEmpty() {
 }
 
 /**
- * Draw a Providers tab into a detached-from-the-panel host.
+ * Draw a Providers tab into a detached-from-the-panel host, each provider a
+ * default account, and wait for the account list to be drawn.
  * @param {any[]} providers - The provider list.
  * @param {object} config - The /api/config payload.
- * @returns {{host: HTMLElement, tab: ProvidersTab, cleanup: () => void}} The drawn tab.
+ * @returns {Promise<{host: HTMLElement, tab: ProvidersTab, cleanup: () => void}>} The drawn tab.
  */
-function mountProviders(providers, config) {
+async function mountProviders(providers, config) {
   const restoreFetch = stubFetchEmpty();
+  const empty = window.fetch;
+  const accounts = accountsBackend(providers);
+  window.fetch = /** @type {any} */ (async (/** @type {any} */ url, /** @type {any} */ init) =>
+    accounts.answer(url, init) || empty(url, init));
   const host = /** @type {any} */ (document.createElement('div'));
   host.innerHTML = '<div class="settings-content"><div id="provider-fields-container"></div></div>';
   host.loadConfig = async () => true;
   document.body.appendChild(host);
   const tab = new ProvidersTab(host);
   tab.onConfigLoaded({ config, providers }, true);
+  await waitFor(() => !!tab.accountList, { timeoutMs: budgetFor(2000), description: 'the account list' });
   return {
     host,
     tab,
     cleanup: () => {
       tab.dispose();
       host.remove();
+      accounts.dispose();
       restoreFetch();
     },
   };
@@ -180,23 +189,22 @@ export async function runTests(_ctx) {
   });
 
   await run('key controls hide with the hidden attribute, never an inline display', async () => {
-    const { host, tab, cleanup } = mountProviders([
+    const { host, tab, cleanup } = await mountProviders([
       { name: 'p1', displayName: 'One', configKeyName: 'p1_key', keySource: 'credentials', modelsWithContext: [] },
       { name: 'p2', displayName: 'Two', configKeyName: 'p2_key', keySource: 'env', envVarName: 'P2_KEY', modelsWithContext: [] },
     ], { keys: { p1: true, p2: true } });
     try {
       tab.updateAllButtons();
-      const save = present(host.querySelector('#p1-save'), 'the save button');
-      const del = present(host.querySelector('#p1-delete'), 'the delete button');
-      const badge = present(host.querySelector('#p1-active-badge'), 'the active badge');
-      const source = present(host.querySelector('#p1-source'), 'the source hint');
-      const envSource = present(host.querySelector('#p2-source'), 'the env source hint');
-      for (const el of [save, del, badge, source, envSource]) {
-        assert(el.style.display === '', `#${el.id} carries an inline display: ${el.style.display}`);
+      const p1 = present(host.querySelector('.account-card[data-provider="p1"]'), 'p1\'s card');
+      const save = present(p1.querySelector('.account-key-save'), 'the save button');
+      const badge = present(p1.querySelector('.provider-active-badge'), 'the active badge');
+      const source = present(p1.querySelector('.key-source-hint'), 'the source hint');
+      const envSource = present(host.querySelector('.account-card[data-provider="p2"] .key-source-hint'), 'the env source hint');
+      for (const el of [save, badge, source, envSource]) {
+        assert(el.style.display === '', `.${el.className} carries an inline display: ${el.style.display}`);
       }
       assert(save.hidden, 'an empty key field offers Save');
       assert(getComputedStyle(save).display === 'none', '[hidden] lost to a display rule on the save button');
-      assert(!del.hidden, 'a stored key offers no Delete');
       assert(!badge.hidden, 'a stored key is not reported as active');
       assert(source.hidden, 'a credentials key shows the env-var hint');
       assert(!envSource.hidden, 'an env key does not say where it comes from');
@@ -213,7 +221,7 @@ export async function runTests(_ctx) {
   });
 
   await run('the model filter hides rows and shows the empty line with the hidden attribute', async () => {
-    const { host, cleanup } = mountProviders([
+    const { host, cleanup } = await mountProviders([
       {
         name: 'p1', displayName: 'One', configKeyName: 'p1_key', keySource: 'credentials',
         modelsWithContext: [{ id: 'alpha', contextWindow: 1000 }, { id: 'beta', contextWindow: 1000 }],

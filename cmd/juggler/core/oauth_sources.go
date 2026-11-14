@@ -4,63 +4,89 @@
 
 package core
 
-import "juggler/cmd/juggler/msg"
-
 // OAuth-bearer source registry. Providers whose auth is a short-lived bearer
 // minted from an external login (a CLI token file, a device-flow login, …)
-// register a resolver here keyed by their ProviderInfo.AuthSource;
-// GetProviderCredential dispatches on that name. This replaces a hardcoded
-// switch so new sources — including ones from a wrapping distribution — are
-// additive: call RegisterOAuthBearerSource, no core edit required.
+// register a source here keyed by their ProviderInfo.AuthSource;
+// GetProviderCredential dispatches on that name, and the account list asks the
+// same source whether its login is there and who it belongs to. New sources —
+// including ones from a wrapping distribution — are additive: call
+// RegisterOAuthSource, no core edit required.
 
 // OAuthBearerResolver produces a provider's resolved bearer credential (or an
 // error whose message is safe to surface as the sign-in hint).
 type OAuthBearerResolver func() (ProviderCredential, error)
 
+// OAuthSource is one external login a provider's bearer is minted from.
+type OAuthSource struct {
+	// Resolve mints (or reuses) the bearer.
+	Resolve OAuthBearerResolver
+	// Present reports whether the login is there, reading only local files: the
+	// account list asks it of every OAuth account each time the settings page
+	// opens, so it must neither mint a token nor wait on the network. A login
+	// that is present but expired still counts — the account exists, and its
+	// status line says to sign in again. Nil counts as present.
+	Present func() bool
+	// Label is who the login is signed in as, from what is already known
+	// locally, or "". Display only, never identity. Nil knows nothing.
+	Label func() string
+	// KeySource is what the account's card says the login comes from.
+	KeySource KeySource
+}
+
 // oauthSourceGate is a size-1 semaphore guarding the registry map (the core
 // forbids sync.Mutex; channels are the house style).
 var (
 	oauthSourceGate = make(chan struct{}, 1)
-	oauthSources    = map[string]OAuthBearerResolver{}
+	oauthSources    = map[string]OAuthSource{}
 )
 
-// init registers the built-in sources so they are present for every caller
-// (including package-core tests) regardless of provider-registration order.
+// init registers the default accounts' sources so they are present for every
+// caller (including package-core tests) regardless of provider-registration
+// order.
 func init() {
-	RegisterOAuthBearerSource("codex_cli", resolveCodexCredential)
-	RegisterOAuthBearerSource("github_copilot", resolveCopilotCredential)
+	RegisterOAuthSource(codexDefaultSource, codexSource(""))
+	RegisterOAuthSource(copilotDefaultSource, copilotSource(""))
 }
 
-// RegisterOAuthBearerSource registers (or replaces) the resolver for an
-// AuthSource name. Safe to call at startup from any package.
-func RegisterOAuthBearerSource(name string, resolver OAuthBearerResolver) {
+// RegisterOAuthSource registers (or replaces) the source for an AuthSource
+// name. Safe to call at startup from any package.
+func RegisterOAuthSource(name string, source OAuthSource) {
 	oauthSourceGate <- struct{}{}
-	oauthSources[name] = resolver
+	oauthSources[name] = source
 	<-oauthSourceGate
 }
 
-// lookupOAuthBearerSource returns the resolver registered for name, if any.
-func lookupOAuthBearerSource(name string) (OAuthBearerResolver, bool) {
+// UnregisterOAuthSource drops a source, when the account it served is removed.
+func UnregisterOAuthSource(name string) {
 	oauthSourceGate <- struct{}{}
-	resolver, ok := oauthSources[name]
+	delete(oauthSources, name)
 	<-oauthSourceGate
-	return resolver, ok
 }
 
-// resolveCodexCredential resolves the OpenAI Codex (ChatGPT-plan) bearer from
-// the local ChatGPT app or Codex CLI login.
-func resolveCodexCredential() (ProviderCredential, error) {
-	token, accountID, err := loadCodexCLIAccessToken()
-	if err != nil {
-		return errorAuthHint(err), err
+// lookupOAuthSource returns the source registered for name, if any.
+func lookupOAuthSource(name string) (OAuthSource, bool) {
+	oauthSourceGate <- struct{}{}
+	source, ok := oauthSources[name]
+	<-oauthSourceGate
+	return source, ok
+}
+
+// HasOAuthLogin reports whether the external login an OAuth source reads is
+// present, and the key source it would report (OAuthSource.Present).
+func HasOAuthLogin(name string) (bool, KeySource) {
+	source, ok := lookupOAuthSource(name)
+	if !ok {
+		return false, KeySourceNone
 	}
-	var headers map[string]string
-	if accountID != "" {
-		headers = map[string]string{"ChatGPT-Account-Id": accountID}
+	return source.Present == nil || source.Present(), source.KeySource
+}
+
+// OAuthLoginLabel is who an OAuth source's login is signed in as, or "" when
+// that cannot be said without the network (OAuthSource.Label).
+func OAuthLoginLabel(name string) string {
+	source, ok := lookupOAuthSource(name)
+	if !ok || source.Label == nil {
+		return ""
 	}
-	return ProviderCredential{
-		BearerToken: token,
-		Headers:     headers,
-		KeySource:   KeySourceCodexCLI,
-	}.withAuthHint(msg.New("Signed in via ChatGPT app or Codex CLI")), nil
+	return source.Label()
 }

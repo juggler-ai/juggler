@@ -30,14 +30,16 @@ injectStylesOnce('file-pin-styles', `
    one-row grid: a viewer may put its own header in the view ahead of the
    content (the HTML viewer's Source bar), and only the content may take the
    spare height. Stretched across, each child is held to the pin's width, so a
-   long unwrapped line scrolls inside its viewer instead of widening the pin. */
+   long unwrapped line scrolls inside its viewer instead of widening the pin.
+   The content is the view's last child, since a viewer's header goes in ahead
+   of it, and it is named by position because its class is the host's own. */
 .file-pin > file-view {
   display: flex;
   flex: 1 0 auto;
   flex-direction: column;
 }
 
-.file-pin > file-view > .file-view-content {
+.file-pin > file-view > :last-child {
   flex: 1 0 auto;
 }
 

@@ -41,7 +41,7 @@ Current session: 21% used · resets Jun 12 at 11:50am (Europe/London)
 Current week (all models): 2% used · resets Jun 18 at 9pm (Europe/London)
 Current week (Sonnet only): 0% used`, now)
 
-	if stats.Provider != "claudecode" || !stats.UpdatedAt.Equal(now) {
+	if !stats.UpdatedAt.Equal(now) {
 		t.Fatalf("unexpected header: %+v", stats)
 	}
 	if len(stats.Stats) != 3 {

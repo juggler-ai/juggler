@@ -840,6 +840,13 @@ const (
 type ProviderInfo struct {
 	Name        string
 	DisplayName string
+	// Type is the provider type this account is of (see TypeInfo). Empty
+	// means the provider is its type's default account, whose type is its own
+	// Name; RegisterProvider fills it in.
+	Type string
+	// AccountLabel says who is signed in to this account, when known — an
+	// email, a GitHub login. Display only, never identity.
+	AccountLabel string
 	// Description is the blurb shown in the settings UI, written as a msg.New
 	// literal so it is catalogued and shown translated. May be zero.
 	Description msg.Message

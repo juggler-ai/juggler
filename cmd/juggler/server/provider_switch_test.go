@@ -33,9 +33,9 @@ func findProviderStatus(t *testing.T, list []ProviderStatus, name string) Provid
 func TestComputeProvidersOAuthSwitch(t *testing.T) {
 	const name = "oauthswitch"
 	const source = "oauthswitch_src"
-	core.RegisterOAuthBearerSource(source, func() (core.ProviderCredential, error) {
+	core.RegisterOAuthSource(source, core.OAuthSource{Resolve: func() (core.ProviderCredential, error) {
 		return core.ProviderCredential{BearerToken: "tok", AuthHint: "Signed in"}, nil
-	})
+	}})
 	provider.RegisterProvider(provider.ProviderInfo{
 		Name:       name,
 		AuthType:   provider.AuthTypeOAuthBearer,

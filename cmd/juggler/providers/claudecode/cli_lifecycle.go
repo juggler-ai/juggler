@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -141,12 +142,47 @@ func isExecutablePath(p string) bool {
 // shim) find its `node` interpreter even when juggler was launched from a GUI
 // with a minimal PATH — the npm-installed `claude` is a Node script whose
 // shebang resolves `node` through PATH.
-func spawnEnv(bin string, extra []string) []string {
-	env := augmentPathEnv(os.Environ(), filepath.Dir(bin))
+//
+// configDir is the config dir of the account the CLI runs as, "" for the
+// default account, whose CLI inherits Juggler's environment exactly as it is —
+// a CLAUDE_CONFIG_DIR the user exported included. Setting it explicitly, even
+// to ~/.claude, would change which Keychain entry the CLI reads and leave the
+// default looking signed out. An extra account gets its own config dir, and
+// none of the credential variables, any of which would take precedence over
+// its /login and make it the same account as the default.
+func spawnEnv(bin string, extra []string, configDir string) []string {
+	env := os.Environ()
+	if configDir != "" {
+		env = accountEnviron(env, configDir)
+	}
+	env = augmentPathEnv(env, filepath.Dir(bin))
 	if len(extra) > 0 {
 		env = append(env, extra...)
 	}
 	return env
+}
+
+// accountCredentialVars are the variables through which the CLI takes a
+// credential from its environment ahead of the login in its config dir.
+var accountCredentialVars = []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"}
+
+// accountEnviron is environ for an extra account's CLI: without a credential
+// variable or an inherited config dir, and with configDir as its own. Names are
+// matched case-insensitively on Windows, where the environment is.
+func accountEnviron(environ []string, configDir string) []string {
+	same := func(a, b string) bool { return a == b }
+	if runtime.GOOS == "windows" {
+		same = strings.EqualFold
+	}
+	out := make([]string, 0, len(environ)+1)
+	for _, kv := range environ {
+		name, _, _ := strings.Cut(kv, "=")
+		if same(name, "CLAUDE_CONFIG_DIR") || slices.ContainsFunc(accountCredentialVars, func(v string) bool { return same(name, v) }) {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return append(out, "CLAUDE_CONFIG_DIR="+configDir)
 }
 
 // claudecodeEffortLevels is the claude CLI's native reasoning-effort vocabulary,
@@ -227,13 +263,13 @@ func augmentPathEnv(environ []string, dir string) []string {
 // another model as well as settings.
 var claudeNotFoundHint = msg.New("Claude Code isn't installed, or Juggler can't find its claude CLI. It's only one way to run Juggler: choose another model, or install it — or set its path — in provider settings.")
 
-// claudeNotFoundError is the failure for a spawn that finds no claude CLI: a
-// provider.SetupError, so the worker reports it as user-fixable rather than as
+// claudeNotFoundError is the failure of a spawn, as account a, that finds no
+// claude CLI: a provider.SetupError, so the worker reports it as user-fixable rather than as
 // a generic error with only a Retry beneath it. The message keeps what was
 // searched, which is the diagnosable part for someone who has it installed.
-func claudeNotFoundError() error {
+func claudeNotFoundError(a account) error {
 	return &provider.SetupError{
-		Provider: "claudecode",
+		Provider: a.id(),
 		Message: fmt.Sprintf("claude executable not found. Searched $PATH, the login shell, and known install locations (%s). Its path can be set in provider settings, or with %s.",
 			claudeInstallLocationsHint, claudePathEnvVar),
 		Hint: claudeNotFoundHint.English(),
@@ -636,13 +672,13 @@ func (c *Client) ensurePersistentCLI(req provider.MessageRequest) error {
 func (c *Client) spawnCLIPipes(args []string) error {
 	bin := claudeBinary()
 	if bin == "" {
-		return claudeNotFoundError()
+		return claudeNotFoundError(c.acct)
 	}
 	jlog.Debug("Claude CLI command: %s %s", bin, strings.Join(args, " "))
 
 	cmd := claudeCommand(context.Background(), bin, args)
 	cmd.Dir = c.workingDir
-	cmd.Env = spawnEnv(bin, c.thinkingSpawnExtras())
+	cmd.Env = spawnEnv(bin, c.thinkingSpawnExtras(), c.acct.configDir)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

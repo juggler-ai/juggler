@@ -81,9 +81,9 @@ func stubAuthProbe(t *testing.T, verdict authProbeVerdict) *int {
 	t.Helper()
 	calls := 0
 	prev := authStatusProbe
-	authStatusProbe = func(context.Context) authProbeVerdict {
+	authStatusProbe = func(context.Context, string) authProbeResult {
 		calls++
-		return verdict
+		return authProbeResult{verdict: verdict}
 	}
 	t.Cleanup(func() { authStatusProbe = prev })
 	return &calls
@@ -109,7 +109,7 @@ func TestReadinessRefusesWhenCLIMissing(t *testing.T) {
 		stubCLIInstalled(t, false)
 		calls := stubAuthProbe(t, authProbeSignedIn)
 
-		ready, hint := claudeReadiness()
+		ready, hint := readinessOf(account{})
 		if ready {
 			t.Errorf("state %v: ready = true, want false with no CLI to run", state)
 		}
@@ -125,9 +125,10 @@ func TestReadinessRefusesWhenCLIMissing(t *testing.T) {
 // resetAuthProbeThrottle clears the rate limiter so a test's probe is due.
 func resetAuthProbeThrottle(t *testing.T) {
 	t.Helper()
-	prev := lastAuthProbeUnixNano.Load()
-	lastAuthProbeUnixNano.Store(0)
-	t.Cleanup(func() { lastAuthProbeUnixNano.Store(prev) })
+	probeAt := &loginFor(defaultAccountID).authProbeAt
+	prev := probeAt.Load()
+	probeAt.Store(0)
+	t.Cleanup(func() { probeAt.Store(prev) })
 }
 
 // TestReadinessNeverProbesWhenNotExpired is the cost guard. Readiness is
@@ -140,7 +141,7 @@ func TestReadinessNeverProbesWhenNotExpired(t *testing.T) {
 		stubCLIInstalled(t, true)
 		calls := stubAuthProbe(t, authProbeSignedOut)
 
-		ready, hint := claudeReadiness()
+		ready, hint := readinessOf(account{})
 		if !ready {
 			t.Errorf("state %v: ready = false, want true — only a failed turn may disable the provider", state)
 		}
@@ -162,14 +163,14 @@ func TestReadinessRefusesWhenProbeConfirmsSignedOut(t *testing.T) {
 	stubCLIInstalled(t, true)
 	stubAuthProbe(t, authProbeSignedOut)
 
-	ready, hint := claudeReadiness()
+	ready, hint := readinessOf(account{})
 	if ready {
 		t.Error("ready = true, want false")
 	}
 	if hint.Key != claudeSignInHint.Key {
 		t.Errorf("hint = %q, want the sign-in hint", hint)
 	}
-	if got := currentClaudeLoginState(); got != loginExpired {
+	if got := currentClaudeLoginState(defaultAccountID); got != loginExpired {
 		t.Errorf("login state = %v, want it left expired", got)
 	}
 }
@@ -183,14 +184,14 @@ func TestReadinessRecoversWhenProbeSaysSignedIn(t *testing.T) {
 	stubCLIInstalled(t, true)
 	stubAuthProbe(t, authProbeSignedIn)
 
-	ready, hint := claudeReadiness()
+	ready, hint := readinessOf(account{})
 	if !ready {
 		t.Error("ready = false, want true after the CLI reports a sign-in")
 	}
 	if !hint.IsZero() {
 		t.Errorf("hint = %q, want empty", hint)
 	}
-	if got := currentClaudeLoginState(); got != loginUnknown {
+	if got := currentClaudeLoginState(defaultAccountID); got != loginUnknown {
 		t.Errorf("login state = %v, want loginUnknown — a probe is not a served turn", got)
 	}
 }
@@ -205,14 +206,14 @@ func TestReadinessFailsOpenWhenProbeCannotAnswer(t *testing.T) {
 	stubCLIInstalled(t, true)
 	stubAuthProbe(t, authProbeUnknown)
 
-	ready, hint := claudeReadiness()
+	ready, hint := readinessOf(account{})
 	if !ready {
 		t.Error("ready = false, want true — an unanswerable probe must not hold the provider down")
 	}
 	if !hint.IsZero() {
 		t.Errorf("hint = %q, want empty", hint)
 	}
-	if got := currentClaudeLoginState(); got != loginUnknown {
+	if got := currentClaudeLoginState(defaultAccountID); got != loginUnknown {
 		t.Errorf("login state = %v, want loginUnknown", got)
 	}
 }
@@ -227,7 +228,7 @@ func TestReadinessThrottlesTheProbe(t *testing.T) {
 	calls := stubAuthProbe(t, authProbeSignedOut)
 
 	for i := 0; i < 5; i++ {
-		ready, hint := claudeReadiness()
+		ready, hint := readinessOf(account{})
 		if ready {
 			t.Fatalf("call %d: ready = true, want false", i)
 		}

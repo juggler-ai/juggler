@@ -383,9 +383,9 @@ func TestCLIFailuresDeclareTheirKind(t *testing.T) {
 		{"exhausted ladder", ladderExhaustedError(), provider.FailureOverloaded, true},
 		{"exit", c.streamClosedError(&turnResult{}, make(chan error)), provider.FailureUnknown, false},
 		{"no usable tool call", noUsableToolCallError(), provider.FailureUnusableOutput, false},
-		{"529 after the CLI's ladder", cliAPIError(529, "Overloaded"), provider.FailureOverloaded, true},
-		{"500 after the CLI's ladder", cliAPIError(500, "Internal server error"), provider.FailureServerError, true},
-		{"400", cliAPIError(400, "messages: text content blocks must be non-empty"), provider.FailureInvalidRequest, false},
+		{"529 after the CLI's ladder", cliAPIError(account{}, 529, "Overloaded"), provider.FailureOverloaded, true},
+		{"500 after the CLI's ladder", cliAPIError(account{}, 500, "Internal server error"), provider.FailureServerError, true},
+		{"400", cliAPIError(account{}, 400, "messages: text content blocks must be non-empty"), provider.FailureInvalidRequest, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := provider.ClassifyFailure(tc.err)

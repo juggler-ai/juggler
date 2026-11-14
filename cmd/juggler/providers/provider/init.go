@@ -6,6 +6,7 @@ package provider
 
 import (
 	"fmt"
+	"sync/atomic"
 )
 
 // ProviderInitializer is a function that creates a provider instance
@@ -32,6 +33,9 @@ var (
 // name that is already registered replaces it, which is how an edited custom
 // provider takes effect.
 func RegisterProvider(info ProviderInfo, initializer ProviderInitializer) {
+	if info.Type == "" {
+		info.Type = info.Name
+	}
 	registryLock <- struct{}{}
 	initializers[info.Name] = initializer
 	providerInfos[info.Name] = info
@@ -52,6 +56,58 @@ func UnregisterProvider(name string) {
 	delete(providerInfos, name)
 	<-registryLock
 	invalidateAutoDetect(name)
+}
+
+// SetDisplayName renames a registered provider in place, keeping its
+// initializer and everything else it was registered with, and reports whether
+// name was registered. It is how a user's name for a type's default account,
+// which its own package registered, reaches the model picker.
+func SetDisplayName(name, displayName string) bool {
+	registryLock <- struct{}{}
+	defer func() { <-registryLock }()
+	info, ok := providerInfos[name]
+	if ok {
+		info.DisplayName = displayName
+		providerInfos[name] = info
+	}
+	return ok
+}
+
+// accountChangedHook runs after something about an account changed outside a
+// registration; see OnAccountChanged.
+var accountChangedHook atomic.Pointer[func()]
+
+// OnAccountChanged installs what runs after an account changes in place — who
+// is signed in to it, whether it is: re-deriving the names that show its
+// label, and republishing the provider list. Call it once, where the server is
+// built.
+func OnAccountChanged(fn func()) {
+	accountChangedHook.Store(&fn)
+}
+
+// AccountChanged reports that something an account shows changed in place,
+// such as a probe learning that it is signed out.
+func AccountChanged() {
+	if hook := accountChangedHook.Load(); hook != nil {
+		(*hook)()
+	}
+}
+
+// SetAccountLabel records who is signed in to a registered account, in place,
+// as SetDisplayName records its name. A provider learns this from its own
+// login (an auth-status probe, a token's claims) after it was registered.
+func SetAccountLabel(name, label string) {
+	registryLock <- struct{}{}
+	info, ok := providerInfos[name]
+	changed := ok && info.AccountLabel != label
+	if changed {
+		info.AccountLabel = label
+		providerInfos[name] = info
+	}
+	<-registryLock
+	if changed {
+		AccountChanged()
+	}
 }
 
 // InitializeProvider initializes a provider by name using config

@@ -395,7 +395,7 @@ func TestWriteSyntheticSessionToolUseShape(t *testing.T) {
 	if err := os.MkdirAll(workingDir, 0o755); err != nil {
 		t.Fatalf("mkdir workingDir: %v", err)
 	}
-	path, err := writeSyntheticSession(workingDir, plan)
+	path, err := writeSyntheticSession(workingDir, "", plan)
 	if err != nil {
 		t.Fatalf("writeSyntheticSession: %v", err)
 	}
@@ -634,7 +634,7 @@ func TestSyntheticTranscript_ToolInputAlwaysValidJSON(t *testing.T) {
 	if err := os.MkdirAll(workingDir, 0o755); err != nil {
 		t.Fatalf("mkdir workingDir: %v", err)
 	}
-	path, err := writeSyntheticSession(workingDir, plan)
+	path, err := writeSyntheticSession(workingDir, "", plan)
 	if err != nil {
 		t.Fatalf("writeSyntheticSession: %v", err)
 	}

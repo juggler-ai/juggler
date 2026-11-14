@@ -6,7 +6,7 @@
 // assistant history. The stream-json input parser drops fed assistant
 // blocks (and Claude is trained to reject fabricated ones as injected
 // content), so we materialise prior turns as a JSONL file in the CLI's
-// own ~/.claude/projects/<dir>/<uuid>.jsonl format and spawn with
+// own <config dir>/projects/<dir>/<uuid>.jsonl format (see projectsDir) and spawn with
 // --resume <uuid>; only the trailing user turn is piped on stdin.
 //
 // Minimum required field set, verified against claude-code 2.1.142:
@@ -36,7 +36,7 @@ import (
 
 // syntheticVersion goes into the "version" field of each entry. The CLI
 // doesn't validate it; pick a value that identifies juggler-written
-// sessions when poking around ~/.claude/projects.
+// sessions when poking around the CLI's projects dir.
 const syntheticVersion = "juggler-synth"
 
 // continuationNudge is the synthetic user-role text we pipe to the CLI when
@@ -339,13 +339,13 @@ func reframeAssistantAsUserSummary(m anthropic.APIMessage) *anthropic.APIMessage
 }
 
 // writeSyntheticSession materialises the plan as a JSONL file under
-// ~/.claude/projects/<dir>/<sessionUUID>.jsonl and returns the absolute
+// <projectsDir>/<sessionUUID>.jsonl and returns the absolute
 // path. The CLI's own subsequent writes append to this file as a normal
-// session.
-func writeSyntheticSession(workingDir string, plan *syntheticSessionPlan) (string, error) {
-	dir := projectsDir(workingDir)
+// session. accountDir is the account's config dir, "" for the default account.
+func writeSyntheticSession(workingDir, accountDir string, plan *syntheticSessionPlan) (string, error) {
+	dir := projectsDir(workingDir, accountDir)
 	if dir == "" {
-		return "", fmt.Errorf("synthetic resume: no home dir for ~/.claude/projects")
+		return "", fmt.Errorf("synthetic resume: no claude config dir (no home dir and no CLAUDE_CONFIG_DIR)")
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("synthetic resume: mkdir %s: %w", dir, err)
@@ -374,7 +374,7 @@ func writeSyntheticSession(workingDir string, plan *syntheticSessionPlan) (strin
 	return path, nil
 }
 
-// newSyntheticEntry builds one ~/.claude/projects JSONL session entry in the
+// newSyntheticEntry builds one projects-dir JSONL session entry in the
 // CLI's native shape (minimum verified field set — see the file header). role
 // is "user" or "assistant"; content is the entry's API content blocks;
 // entryUUID identifies it and parentUUID chains it to its predecessor (nil for
@@ -417,18 +417,44 @@ func tailStdinLine(plan *syntheticSessionPlan) []byte {
 	return buf
 }
 
-// projectsDir returns the absolute path of ~/.claude/projects/<dir-form>
-// for the given workingDir, or "" if HOME is unset.
-func projectsDir(workingDir string) string {
+// projectsDir returns the directory the claude CLI spawned in workingDir keeps
+// that directory's session files in: <config dir>/projects/<dir-form>, or ""
+// when there is no config dir to be had (see claudeConfigDir).
+func projectsDir(workingDir, accountDir string) string {
+	configDir := claudeConfigDir(workingDir, accountDir)
+	if configDir == "" {
+		return ""
+	}
+	return filepath.Join(configDir, "projects", projectDirNameFromWorkingDir(workingDir))
+}
+
+// claudeConfigDir returns the config dir of a claude CLI spawned in workingDir,
+// derived as the CLI derives it: $CLAUDE_CONFIG_DIR when set — which the spawn
+// inherits from Juggler's own environment — cleaned, and resolved against the
+// CLI's working directory when relative; otherwise ~/.claude. "" when neither
+// is set and there is no home directory.
+//
+// accountDir is an extra account's config dir, which its CLI is given in
+// place of all that; "" for the default account.
+func claudeConfigDir(workingDir, accountDir string) string {
+	if accountDir != "" {
+		return accountDir
+	}
+	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
+		if !filepath.IsAbs(dir) {
+			dir = filepath.Join(workingDir, dir)
+		}
+		return filepath.Clean(dir)
+	}
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
 		return ""
 	}
-	return filepath.Join(home, ".claude", "projects", projectDirNameFromWorkingDir(workingDir))
+	return filepath.Join(home, ".claude")
 }
 
 // projectDirNameFromWorkingDir maps an absolute working-directory path to the
-// directory name the claude CLI uses under ~/.claude/projects. It mirrors the
+// directory name the claude CLI uses under its projects dir. It mirrors the
 // CLI's own encoder exactly (the `gw` function, verified against claude-code
 // 2.1.160): every non-alphanumeric character is replaced with "-" — that
 // covers path separators on Unix ("/") and Windows ("\\" and the drive ":"),

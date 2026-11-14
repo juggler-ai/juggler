@@ -13,6 +13,7 @@ import (
 	"sort"
 	"sync/atomic"
 
+	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/msg"
 	"juggler/cmd/juggler/providers/openaibase"
 	"juggler/cmd/juggler/providers/provider"
@@ -35,32 +36,54 @@ const (
 	// release anyway, so that a claim we make about ourselves stays true.
 	codexClientVersion = "0.160.0"
 
-	// unauthorizedHint rides every 401 from the Codex backend: the chat path
-	// through Descriptor.UnauthorizedHint, the model list and usage probes
-	// through hintUnauthorized. It is the cure, since a rejected token is one
-	// the ChatGPT app or Codex CLI has to replace.
+	// unauthorizedHint is the default account's hint on every 401 from the
+	// Codex backend: the chat path through Descriptor.UnauthorizedHint, the
+	// model list and usage probes through hintUnauthorized. It is the cure,
+	// since a rejected token is one the ChatGPT app or Codex CLI has to
+	// replace. An extra account's names its own CODEX_HOME
+	// (unauthorizedHintFor).
 	unauthorizedHint = "sign in with the ChatGPT app or run `codex login`"
 )
 
-// hintUnauthorized appends unauthorizedHint to a probe's error when the backend
-// answered 401, and returns any other error as it is.
-func hintUnauthorized(err error) error {
+// unauthorizedHintFor is the 401 hint of the account whose login is kept in
+// codexHome ("" for the default account's).
+func unauthorizedHintFor(codexHome string) string {
+	if codexHome == "" {
+		return unauthorizedHint
+	}
+	return "run `" + core.CodexSignInCommand(codexHome) + "`"
+}
+
+// hintUnauthorized appends hint to a probe's error when the backend answered
+// 401, and returns any other error as it is.
+func hintUnauthorized(err error, hint string) error {
 	var status *utils.HTTPStatusError
 	if errors.As(err, &status) && status.Status == http.StatusUnauthorized {
-		return fmt.Errorf("%w (hint: %s)", err, unauthorizedHint)
+		return fmt.Errorf("%w (hint: %s)", err, hint)
 	}
 	return err
 }
 
+// displayName is the default account's name, and the type's.
+const displayName = "OpenAI Codex (ChatGPT plan)"
+
 // Register adds the OpenAI Codex-plan provider to the global registry. It
 // uses the ChatGPT OAuth token of the local ChatGPT app or Codex CLI, not a Platform API key.
 func Register() {
-	openaibase.Register(openaibase.Descriptor{
-		Name:           "openaicodex",
-		DisplayName:    "OpenAI Codex (ChatGPT plan)",
+	openaibase.Register(descriptor(TypeName, displayName, ""))
+}
+
+// descriptor is the provider of one account: its id and name, and the
+// CODEX_HOME its login is kept in ("" for the default account's).
+func descriptor(name, shownAs, codexHome string) openaibase.Descriptor {
+	hint := unauthorizedHintFor(codexHome)
+	return openaibase.Descriptor{
+		Name:           name,
+		Type:           TypeName,
+		DisplayName:    shownAs,
 		Description:    msg.New("Uses your local ChatGPT app or Codex CLI login, so any ChatGPT plan including Free can run Codex here without an OpenAI Platform API key."),
 		AuthType:       provider.AuthTypeOAuthBearer,
-		AuthSource:     "codex_cli",
+		AuthSource:     core.CodexAuthSource(codexHome),
 		BaseURLFunc:    func() string { base, _ := codexBaseURL(); return base },
 		BaseURLErr:     func() error { _, err := codexBaseURL(); return err },
 		ContextWindows: ModelContextWindows,
@@ -83,12 +106,16 @@ func Register() {
 		// model, first, and the automatic default would then spend plan quota
 		// on it that the user never chose to. Sol is the everyday tier; newest
 		// first, with gpt-5.6-sol for accounts without GPT-6.
-		DefaultModels:      []string{"gpt-6.1-sol", "gpt-6-sol", "gpt-5.6-sol"},
-		UnauthorizedHint:   unauthorizedHint,
-		ListModelsOverride: listModels,
-		UsageStatsOverride: usageStats,
-		ThinkingSpecFn:     codexThinkingSpec,
-		ServiceTierSpecFn:  codexServiceTierSpec,
+		DefaultModels:    []string{"gpt-6.1-sol", "gpt-6-sol", "gpt-5.6-sol"},
+		UnauthorizedHint: hint,
+		ListModelsOverride: func(ctx context.Context, bearerToken string, headers map[string]string) ([]provider.ModelInfo, error) {
+			return listModels(ctx, hint, bearerToken, headers)
+		},
+		UsageStatsOverride: func(ctx context.Context, bearerToken string, headers map[string]string) (provider.UsageStats, error) {
+			return usageStats(ctx, hint, bearerToken, headers)
+		},
+		ThinkingSpecFn:    codexThinkingSpec,
+		ServiceTierSpecFn: codexServiceTierSpec,
 		Quirks: openaibase.Quirks{
 			MaxTokensParamName:           "max_completion_tokens",
 			ForceResponsesAPI:            true,
@@ -96,7 +123,7 @@ func Register() {
 			ForcedToolChoiceSupported:    true,
 			SessionAffinityHeader:        true,
 		},
-	})
+	}
 }
 
 type codexModelsResponse struct {
@@ -243,7 +270,7 @@ func admitModel(model codexModel) bool {
 	return known
 }
 
-func listModels(ctx context.Context, bearerToken string, headers map[string]string) ([]provider.ModelInfo, error) {
+func listModels(ctx context.Context, hint, bearerToken string, headers map[string]string) ([]provider.ModelInfo, error) {
 	base, err := codexBaseURL()
 	if err != nil {
 		return nil, err
@@ -262,7 +289,7 @@ func listModels(ctx context.Context, bearerToken string, headers map[string]stri
 		Headers: headers,
 		Label:   "OpenAI Codex /models",
 	}, &parsed); err != nil {
-		return nil, fmt.Errorf("failed to list models from OpenAI Codex: %w", hintUnauthorized(err))
+		return nil, fmt.Errorf("failed to list models from OpenAI Codex: %w", hintUnauthorized(err, hint))
 	}
 
 	sort.SliceStable(parsed.Models, func(i, j int) bool {

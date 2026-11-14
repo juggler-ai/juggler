@@ -24,7 +24,7 @@ import (
 // not a single entry carrying both. Returns the file path.
 func seedWarmSession(t *testing.T, workingDir, sessionUUID string, toolUseIDs ...string) string {
 	t.Helper()
-	dir := projectsDir(workingDir)
+	dir := projectsDir(workingDir, "")
 	if dir == "" {
 		t.Fatal("projectsDir empty (HOME not isolated?)")
 	}
@@ -178,7 +178,7 @@ func TestAppendToolResultsToWarmSession_TailNotToolUse(t *testing.T) {
 		t.Fatalf("mkdir workingDir: %v", err)
 	}
 	const uuid = "uuid-tail-text"
-	dir := projectsDir(workingDir)
+	dir := projectsDir(workingDir, "")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir projects: %v", err)
 	}
@@ -266,7 +266,7 @@ func TestAppendToolResultsToWarmSession_BookkeepingOverTextTurnStillRefuses(t *t
 		t.Fatalf("mkdir workingDir: %v", err)
 	}
 	const uuid = "uuid-text-under-bookkeeping"
-	dir := projectsDir(workingDir)
+	dir := projectsDir(workingDir, "")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir projects: %v", err)
 	}

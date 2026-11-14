@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"juggler/cmd/juggler/msg"
 	"juggler/cmd/juggler/providers/utils"
 	"juggler/internal/jlog"
 )
@@ -51,6 +50,8 @@ var copilotGHEHostPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*\.ghe\.com$`)
 type copilotLogin struct {
 	token string
 	host  string
+	// editor: the login is one an editor keeps on disk, not Juggler's own.
+	editor bool
 }
 
 // copilotNormalizeHost lower-cases and trims a host so comparisons and map keys
@@ -100,38 +101,6 @@ const (
 	copilotFallbackTTL = 25 * time.Minute
 )
 
-// resolveCopilotCredential is the OAuthBearerResolver registered for the
-// "github_copilot" source (see oauth_sources.go). It sources the GitHub login,
-// exchanges it for a short-lived Copilot bearer, and returns the resolved
-// credential with the Copilot request headers attached.
-func resolveCopilotCredential() (ProviderCredential, error) {
-	token, err := loadCopilotBearer()
-	if err != nil {
-		return errorAuthHint(err), err
-	}
-	return ProviderCredential{
-		BearerToken: token,
-		Headers:     CopilotHeaders(),
-		KeySource:   KeySourceCopilot,
-	}.withAuthHint(copilotSignedInHint()), nil
-}
-
-// copilotSignedInHint labels the signed-in state, naming how the login was
-// sourced so the settings UI can tell a device-flow login from an editor one.
-func copilotSignedInHint() msg.Message {
-	host := CopilotHost()
-	switch {
-	case host == copilotDefaultHost && copilotHasDeviceLogin():
-		return msg.New("Signed in with GitHub")
-	case host == copilotDefaultHost:
-		return msg.New("Signed in via your editor's Copilot login")
-	case copilotHasDeviceLogin():
-		return msg.New("Signed in with GitHub to {host}", "host", host)
-	default:
-		return msg.New("Signed in via your editor's Copilot login to {host}", "host", host)
-	}
-}
-
 // CopilotHeaders are the headers api.githubcopilot.com (and the token-exchange
 // endpoint) require alongside Authorization. Returned in the resolved
 // credential so the openaibase client sends them on every request.
@@ -161,65 +130,11 @@ type copilotExchangeResponse struct {
 	} `json:"endpoints"`
 }
 
-type copilotCachedToken struct {
-	bearer    string
-	apiBase   string // account-correct API host from the exchange (endpoints.api)
-	expiresAt time.Time
-	oauthKey  string // re-exchange if the underlying GitHub login (token or host) changes
-}
-
 // copilotDefaultAPIBase is the individual-plan host; used until an exchange
 // reports the account's real endpoints.api (Business/Enterprise plans route to
 // api.business./api.enterprise.githubcopilot.com, and calling the wrong host
 // returns 400 model_not_supported for every model).
 const copilotDefaultAPIBase = "https://api.githubcopilot.com"
-
-// copilotTokenGate is a size-1 semaphore serialising read-modify-write on the
-// cached token (the core forbids sync.Mutex; channels are the house style).
-var (
-	copilotTokenGate  = make(chan struct{}, 1)
-	copilotTokenCache copilotCachedToken
-)
-
-// CopilotAPIBase returns the API host the last token exchange reported for this
-// account (falling back to the individual-plan host before the first exchange).
-// The provider uses it for both /models and /chat/completions so they always
-// agree with the account's plan.
-func CopilotAPIBase() string {
-	copilotTokenGate <- struct{}{}
-	defer func() { <-copilotTokenGate }()
-	if copilotTokenCache.apiBase != "" {
-		return copilotTokenCache.apiBase
-	}
-	return copilotDefaultAPIBase
-}
-
-// loadCopilotBearer sources the GitHub OAuth login, then returns a valid
-// short-lived Copilot bearer, exchanging (and caching) only when needed.
-func loadCopilotBearer() (string, error) {
-	login, err := loadCopilotLogin()
-	if err != nil {
-		return "", err
-	}
-	// Key the cache on host+token so switching between github.com and a *.ghe.com
-	// login (or refreshing either) forces a re-exchange against the right host.
-	cacheKey := login.host + "\x00" + login.token
-
-	copilotTokenGate <- struct{}{}
-	defer func() { <-copilotTokenGate }()
-
-	if c := copilotTokenCache; c.bearer != "" && c.oauthKey == cacheKey &&
-		time.Now().Add(copilotRefreshMargin).Before(c.expiresAt) {
-		return c.bearer, nil
-	}
-
-	bearer, apiBase, expiresAt, err := exchangeCopilotToken(context.Background(), login)
-	if err != nil {
-		return "", err
-	}
-	copilotTokenCache = copilotCachedToken{bearer: bearer, apiBase: apiBase, expiresAt: expiresAt, oauthKey: cacheKey}
-	return bearer, nil
-}
 
 func exchangeCopilotToken(ctx context.Context, login copilotLogin) (bearer, apiBase string, expiresAt time.Time, err error) {
 	var resp copilotExchangeResponse
@@ -282,15 +197,10 @@ func loadCopilotLogin() (copilotLogin, error) {
 		}
 		return copilotLogin{token: tok, host: host}, nil
 	}
-	dir := copilotConfigDir()
-	var found []copilotLogin
-	for _, name := range []string{"apps.json", "hosts.json"} {
-		found = append(found, readCopilotTokenFile(filepath.Join(dir, name))...)
-	}
-	if login, ok := pickCopilotLogin(found, preferred); ok {
+	if login, ok := pickCopilotLogin(copilotEditorLogins(), preferred); ok {
 		return login, nil
 	}
-	return copilotLogin{}, fmt.Errorf("not signed in — click “Sign in with GitHub” below, or sign in to Copilot in VS Code, a JetBrains IDE, or Neovim (checked %s)", dir)
+	return copilotLogin{}, fmt.Errorf("not signed in — click “Sign in with GitHub” below, or sign in to Copilot in VS Code, a JetBrains IDE, or Neovim (checked %s)", copilotConfigDir())
 }
 
 // pickCopilotLogin chooses among discovered editor logins: the user's preferred
@@ -314,6 +224,18 @@ func pickCopilotLogin(logins []copilotLogin, preferred string) (copilotLogin, bo
 		return logins[0], true
 	}
 	return copilotLogin{}, false
+}
+
+// copilotEditorLogins are the GitHub logins editors keep on this machine:
+// apps.json (current layout), then hosts.json (older neovim/copilot.vim
+// layout).
+func copilotEditorLogins() []copilotLogin {
+	dir := copilotConfigDir()
+	var found []copilotLogin
+	for _, name := range []string{"apps.json", "hosts.json"} {
+		found = append(found, readCopilotTokenFile(filepath.Join(dir, name))...)
+	}
+	return found
 }
 
 func copilotConfigDir() string {
@@ -362,7 +284,7 @@ func readCopilotTokenFile(path string) []copilotLogin {
 		if !copilotValidHost(host) {
 			continue
 		}
-		out = append(out, copilotLogin{token: v.OAuthToken, host: host})
+		out = append(out, copilotLogin{token: v.OAuthToken, host: host, editor: true})
 	}
 	return out
 }

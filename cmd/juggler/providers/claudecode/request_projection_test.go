@@ -101,7 +101,7 @@ func TestFailedTurnWritePersistsFullAssistantProjection(t *testing.T) {
 		t.Fatal("fake failure must surface")
 	}
 
-	loaded := loadDiskSession(c.workingDir, convID, c.workingDir)
+	loaded := loadDiskSession(c.workingDir, convID, c.workingDir, "")
 	if loaded == nil {
 		t.Fatal("successful request write followed by error must persist its projection")
 	}
@@ -125,7 +125,7 @@ func TestDiskSession_OldSidecarDefaultsHeldCountToDecisionCount(t *testing.T) {
 		t.Fatalf("write legacy sidecar: %v", err)
 	}
 
-	loaded := loadDiskSession(c.workingDir, convID, c.workingDir)
+	loaded := loadDiskSession(c.workingDir, convID, c.workingDir, "")
 	if loaded == nil || loaded.heldCount != 2 || loaded.sentCount != 2 {
 		t.Fatalf("legacy projection = %+v, want heldCount and sentCount 2", loaded)
 	}

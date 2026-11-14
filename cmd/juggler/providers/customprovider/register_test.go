@@ -40,31 +40,61 @@ func modelListServer(t *testing.T) (*httptest.Server, *string, *string) {
 	return srv, &gotPath, &gotHeader
 }
 
-// unregisterAllAtEnd empties the instance file and reconciles at the end of the
-// test — the registry is process-global, so a leaked entry would be visible to
-// every later test.
-func unregisterAllAtEnd(t *testing.T) {
+// writeInstances writes the endpoints into accounts.json, in place of every
+// endpoint it held, as an add or an edit through the accounts ops would.
+func writeInstances(t *testing.T, instances map[string]Instance) {
 	t.Helper()
-	t.Cleanup(func() {
-		if err := Save(nil); err != nil {
-			t.Errorf("cleanup Save: %v", err)
-			return
+	if err := core.UpdateAccounts(func(f *core.AccountsFile) error {
+		for id, entry := range f.Accounts {
+			if entry.Type == TypeName {
+				delete(f.Accounts, id)
+			}
 		}
-		if err := Sync(); err != nil {
-			t.Errorf("cleanup Sync: %v", err)
+		for id, inst := range instances {
+			f.Accounts[RegisteredName(id)] = entryFromInstance(inst)
 		}
-	})
+		return nil
+	}); err != nil {
+		t.Fatalf("UpdateAccounts: %v", err)
+	}
 }
 
-// syncInstances writes the whole instance set and reconciles the registry with it.
+// syncInstances writes the endpoints and registers each through the type's
+// Instantiate, as the accounts package does, unregistering them when the test
+// ends: the registry is process-global, so a leaked entry would be visible to
+// every later test.
 func syncInstances(t *testing.T, instances map[string]Instance) {
 	t.Helper()
-	unregisterAllAtEnd(t)
-	if err := Save(instances); err != nil {
-		t.Fatalf("Save: %v", err)
+	writeInstances(t, instances)
+	for id, inst := range instances {
+		entry := entryFromInstance(inst)
+		info, initializer, err := instantiate(provider.Account{ID: RegisteredName(id), Type: TypeName, DisplayName: entry.DisplayName, Settings: entry.Settings})
+		if err != nil {
+			t.Fatalf("instantiate %s: %v", id, err)
+		}
+		provider.RegisterProvider(info, initializer)
+		t.Cleanup(func() { provider.UnregisterProvider(info.Name) })
 	}
-	if err := Sync(); err != nil {
-		t.Fatalf("Sync: %v", err)
+}
+
+// registerAccounts registers every endpoint accounts.json holds, as the
+// accounts package does at startup, and unregisters them when the test ends.
+func registerAccounts(t *testing.T) {
+	t.Helper()
+	f, err := core.LoadAccounts()
+	if err != nil {
+		t.Fatalf("LoadAccounts: %v", err)
+	}
+	for id, entry := range f.Accounts {
+		if entry.Type != TypeName {
+			continue
+		}
+		info, initializer, err := instantiate(provider.Account{ID: id, Type: TypeName, DisplayName: entry.DisplayName, Settings: entry.Settings})
+		if err != nil {
+			continue
+		}
+		provider.RegisterProvider(info, initializer)
+		t.Cleanup(func() { provider.UnregisterProvider(info.Name) })
 	}
 }
 
@@ -77,28 +107,24 @@ func registeredNames(t *testing.T) map[string]bool {
 	return names
 }
 
-func TestSyncRegistersEnabledInstancesAndUnregistersTheRest(t *testing.T) {
+func TestEndpointRegistersAsAProviderOfItsOwn(t *testing.T) {
 	userpathstest.Isolate(t)
-	disabled := false
 	syncInstances(t, map[string]Instance{
 		"acme": {DisplayName: "Acme Gateway", BaseURL: "https://gateway.acme.test/v1"},
-		"lab":  {DisplayName: "Lab box", BaseURL: "http://127.0.0.1:8080/v1", Enabled: &disabled},
 	})
 
-	listed := registeredNames(t)
-	if !listed["custom-acme"] {
-		t.Fatal("an enabled instance did not reach the provider list, so it can never reach the model picker")
+	if !registeredNames(t)["custom-acme"] {
+		t.Fatal("an endpoint did not reach the provider list, so it can never reach the model picker")
 	}
-	if listed["custom-lab"] {
-		t.Fatal("a disabled instance was registered; disabling must take it out of the picker")
-	}
-
 	info, found := provider.GetProviderInfo("custom-acme")
 	if !found {
 		t.Fatal("custom-acme has no provider info")
 	}
 	if info.DisplayName != "Acme Gateway" {
-		t.Fatalf("DisplayName = %q, want the instance's own label", info.DisplayName)
+		t.Fatalf("DisplayName = %q, want the endpoint's own label", info.DisplayName)
+	}
+	if info.Type != TypeName {
+		t.Fatalf("Type = %q, want %q", info.Type, TypeName)
 	}
 	if !info.APIKeyOptional {
 		t.Fatal("APIKeyOptional = false; a gateway with a public model list needs no key")
@@ -106,24 +132,26 @@ func TestSyncRegistersEnabledInstancesAndUnregistersTheRest(t *testing.T) {
 	// A configured endpoint is available before any key is entered — that pair
 	// (optional key + detected) is what lights the provider up in the picker.
 	if !provider.CheckAutoDetect("custom-acme") {
-		t.Fatal("a configured instance is not auto-detected, so it stays greyed out")
+		t.Fatal("a configured endpoint is not auto-detected, so it stays greyed out")
 	}
+}
 
-	// Removing an instance from the file and re-syncing takes it back out.
-	if err := Save(map[string]Instance{
-		"lab": {DisplayName: "Lab box", BaseURL: "http://127.0.0.1:8080/v1"},
-	}); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-	if err := Sync(); err != nil {
-		t.Fatalf("Sync: %v", err)
-	}
-	listed = registeredNames(t)
-	if listed["custom-acme"] {
-		t.Fatal("a deleted instance stayed registered")
-	}
-	if !listed["custom-lab"] {
-		t.Fatal("an instance enabled by an edit was not registered")
+// TestEndpointsThatCouldNeverHaveBeenSavedAreRefused: an entry edited by hand
+// into one the add form would refuse is not registered, so it never puts a
+// provider in the picker that errors on first use.
+func TestEndpointsThatCouldNeverHaveBeenSavedAreRefused(t *testing.T) {
+	for _, tc := range []struct {
+		id       string
+		settings map[string]any
+	}{
+		{"custom-acme", map[string]any{"baseURL": "not a url"}},
+		{"custom-acme", map[string]any{}},
+		{"custom-Bad", map[string]any{"baseURL": "https://gateway.test/v1"}},
+		{"acme", map[string]any{"baseURL": "https://gateway.test/v1"}},
+	} {
+		if _, _, err := instantiate(provider.Account{ID: tc.id, Type: TypeName, Settings: tc.settings}); err == nil {
+			t.Errorf("instantiate(%q, %v) accepted it", tc.id, tc.settings)
+		}
 	}
 }
 
@@ -201,13 +229,11 @@ func TestInstanceClientReadsItsEndpointFreshOnEveryUse(t *testing.T) {
 		t.Fatalf("first endpoint saw X-Tenant %q, want acme — the instance's headers never reached the request", *firstHeader)
 	}
 
-	// Repoint the instance without re-syncing: the descriptor's resolvers read
-	// the record per use, so an edit takes effect with no restart.
-	if err := Save(map[string]Instance{
+	// Repoint the endpoint without re-registering: the descriptor's resolvers
+	// read the account per use, so an edit takes effect with no restart.
+	writeInstances(t, map[string]Instance{
 		"acme": {DisplayName: "Acme Gateway", BaseURL: second.URL},
-	}); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
+	})
 	*firstPath = ""
 	list()
 	if *secondPath != "/models" {

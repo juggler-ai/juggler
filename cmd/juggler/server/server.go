@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"juggler/cmd/juggler/core"
+	"juggler/cmd/juggler/providers/accounts"
 	"juggler/cmd/juggler/server/handlers"
 	"juggler/cmd/juggler/syswake"
 	"juggler/cmd/juggler/worker"
@@ -138,6 +139,14 @@ type providerRefresh struct {
 	// computeProvidersFunc is an immutable test seam for deterministic refresh
 	// coordination. Production leaves it nil and uses computeProviders.
 	computeProvidersFunc func(context.Context) []ProviderStatus
+	// passesStarted and passesFinished count the actor's recomputations: the
+	// number of the last one begun, and of the last one published.
+	// passFinished is closed, and replaced, as each one is published, waking
+	// whoever waits on a fresh list (RefreshProvidersAndWait). All three start
+	// zero; passFinished is made on first use.
+	passesStarted  atomic.Int64
+	passesFinished atomic.Int64
+	passFinished   atomic.Pointer[chan struct{}]
 	// providersReady is closed once the first provider refresh completes.
 	// Lookups that derive their answer from the live provider list (the
 	// implicit default-model selection) wait on it so a conversation created
@@ -361,6 +370,10 @@ func New(cfg Config) (*Server, error) {
 
 	// Server skeleton created up-front so handler providers can close over its accessors.
 	s := &Server{}
+
+	accounts.SetConversationCounter(func(providerID string) (int, error) {
+		return countConversationsUsing(wm, s.ProjectPath(), providerID)
+	})
 
 	sessionAPI := handlers.NewSessionAPI(s.SessionManager, wm, serverBroadcaster{srv: s}, func(convID string) {
 		// Closure captures the (yet-to-be-set) cache pointer on s so

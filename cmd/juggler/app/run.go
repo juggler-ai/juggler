@@ -29,6 +29,7 @@ import (
 	"juggler/cmd/juggler/machineserver"
 	"juggler/cmd/juggler/mcp"
 	"juggler/cmd/juggler/ops"
+	"juggler/cmd/juggler/providers/accounts"
 	"juggler/cmd/juggler/providers/acp"
 	"juggler/cmd/juggler/providers/builtin"
 	"juggler/cmd/juggler/providers/customprovider"
@@ -183,6 +184,7 @@ func Run(cfg Config) int {
 	mcp.Register()
 	acp.RegisterOps()
 	customprovider.RegisterOps()
+	accounts.RegisterOps()
 	if err := extconfig.RegisterOps(); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to register extension config: %v\n", err)
 		return 1
@@ -239,11 +241,12 @@ func reportStartupFailure(w io.Writer, err error) {
 func registerProviders() {
 	builtin.Register()
 
-	// The user's own named endpoints, read from their definitions file. They
-	// register here, alongside the built-ins and ahead of every credential
-	// reader, because a provider's key is resolved through the ConfigKeyName its
-	// registration carries. Later edits re-register through customprovider.Sync.
-	customprovider.RegisterAll()
+	// The accounts the user added on top of each type's default, from
+	// accounts.json. They register here, alongside the built-ins and ahead of
+	// every credential reader, because a provider's key is resolved through the
+	// ConfigKeyName its registration carries. Later edits re-register as they
+	// are made.
+	accounts.RegisterAll()
 
 	// Not a provider: install the resolver for the user-configurable stream
 	// idle timeout so every provider's watchdog reads the setting live.

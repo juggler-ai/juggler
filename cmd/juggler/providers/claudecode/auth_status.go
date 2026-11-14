@@ -8,7 +8,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"sync/atomic"
 	"time"
 
 	"juggler/cmd/juggler/msg"
@@ -36,7 +35,14 @@ const claudeAuthStatusTimeout = 10 * time.Second
 // spawn a process.
 const authProbeInterval = 10 * time.Second
 
-var lastAuthProbeUnixNano atomic.Int64
+// authProbeResult is what one auth-status probe found: the verdict, and who is
+// signed in when it said.
+type authProbeResult struct {
+	verdict authProbeVerdict
+	// email is the signed-in account's address, when the CLI reports one.
+	// Display only, never identity.
+	email string
+}
 
 // authStatusProbe is the seam tests replace. Production always uses
 // runClaudeAuthStatus.
@@ -63,16 +69,18 @@ var claudeNotInstalledHint = msg.New("Claude Code CLI not found — install it, 
 //
 // The subcommand does not exist on older CLI builds. That is not an error worth
 // reporting: it simply means we cannot know, which authProbeUnknown says.
-func runClaudeAuthStatus(ctx context.Context) authProbeVerdict {
+//
+// configDir is the account's config dir, "" for the default account.
+func runClaudeAuthStatus(ctx context.Context, configDir string) authProbeResult {
 	bin := claudeBinary()
 	if bin == "" {
-		return authProbeUnknown
+		return authProbeResult{verdict: authProbeUnknown}
 	}
 	ctx, cancel := context.WithTimeout(ctx, claudeAuthStatusTimeout)
 	defer cancel()
 
 	cmd := claudeCommand(ctx, bin, []string{"auth", "status"})
-	cmd.Env = spawnEnv(bin, testExtraSpawnEnv)
+	cmd.Env = spawnEnv(bin, testExtraSpawnEnv, configDir)
 	// No stdin. Nothing here should ever be able to wait for a person.
 	cmd.Stdin = nil
 	var stdout, stderr bytes.Buffer
@@ -84,7 +92,7 @@ func runClaudeAuthStatus(ctx context.Context) authProbeVerdict {
 	// reach it too. The JSON is the answer; the exit code is noise.
 	_ = cmd.Run()
 
-	return parseClaudeAuthStatus(stdout.Bytes())
+	return authProbeResult{verdict: parseClaudeAuthStatus(stdout.Bytes()), email: parseClaudeAuthEmail(stdout.Bytes())}
 }
 
 // parseClaudeAuthStatus reads the probe's stdout. Split out from the spawn
@@ -109,19 +117,33 @@ func parseClaudeAuthStatus(stdout []byte) authProbeVerdict {
 	return authProbeSignedOut
 }
 
-// authProbeDue rate-limits the probe to one spawn per authProbeInterval.
-func authProbeDue() bool {
+// parseClaudeAuthEmail reads who is signed in from the probe's stdout, or ""
+// when it does not say.
+func parseClaudeAuthEmail(stdout []byte) string {
+	var parsed struct {
+		Email string `json:"email"`
+	}
+	if json.Unmarshal(bytes.TrimSpace(stdout), &parsed) != nil {
+		return ""
+	}
+	return parsed.Email
+}
+
+// authProbeDue rate-limits the probe to one spawn per authProbeInterval, per
+// account.
+func authProbeDue(id string) bool {
+	probeAt := &loginFor(id).authProbeAt
 	now := time.Now().UnixNano()
-	last := lastAuthProbeUnixNano.Load()
+	last := probeAt.Load()
 	if last != 0 && now-last < int64(authProbeInterval) {
 		return false
 	}
-	return lastAuthProbeUnixNano.CompareAndSwap(last, now)
+	return probeAt.CompareAndSwap(last, now)
 }
 
-// claudeReadiness reports whether the CLI can serve a turn right now, and if not
-// why. Registered as the provider's ReadinessCheck, so a false here makes the
-// provider unavailable and shows the hint.
+// readinessOf reports whether the CLI can serve a turn as account a right now,
+// and if not why. Registered as each account's ReadinessCheck, so a false here
+// makes the provider unavailable and shows the hint.
 //
 // It first refuses when no CLI can be located at all. The provider is a toggle,
 // so switching it on in settings credentials it whether or not claude is
@@ -144,19 +166,28 @@ func authProbeDue() bool {
 // only a successful turn could clear the expiry, a provider we had disabled
 // could never be re-enabled by one. Letting the turn through means the worst
 // case is the same error again, reported properly, instead of a dead end.
-func claudeReadiness() (bool, msg.Message) {
+//
+// An added account differs in one way: before a turn has confirmed it, it is
+// most often not signed in yet, so the last probe's definite "signed out"
+// keeps it unready, with the command that signs it in. That probe runs in the
+// background (probeInBackground), never on the path of a refresh.
+func readinessOf(a account) (bool, msg.Message) {
 	if !claudeCLIInstalled() {
 		return false, claudeNotInstalledHint
 	}
-	if currentClaudeLoginState() != loginExpired {
-		return true, msg.Message{}
+	id := a.id()
+	probeInBackground(a)
+	switch currentClaudeLoginState(id) {
+	case loginExpired:
+		if !authProbeDue(id) || probeAccount(a) == authProbeSignedOut {
+			return false, signInHintFor(a)
+		}
+		clearClaudeLoginExpired(id)
+	case loginUnknown:
+		if a.configDir != "" && authProbeVerdict(loginFor(id).lastVerdict.Load()) == authProbeSignedOut {
+			return false, signInHintFor(a)
+		}
+	case loginConfirmed:
 	}
-	if !authProbeDue() {
-		return false, claudeSignInHint
-	}
-	if authStatusProbe(context.Background()) == authProbeSignedOut {
-		return false, claudeSignInHint
-	}
-	clearClaudeLoginExpired()
 	return true, msg.Message{}
 }

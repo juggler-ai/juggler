@@ -341,6 +341,7 @@ func (s *CredentialsStore) SetAPIKey(providerName string, apiKey string) error {
 	}
 
 	configKeyName := info.ConfigKeyName
+	clearsRemoval := info.EffectiveAuthType() == provider.AuthTypeAPIKey
 
 	return s.update(func(creds Credentials) {
 		if apiKey == "" {
@@ -348,6 +349,11 @@ func (s *CredentialsStore) SetAPIKey(providerName string, apiKey string) error {
 			delete(creds, configKeyName)
 		} else {
 			creds[configKeyName] = apiKey
+			// Typing a key for an account the user had removed is adding it
+			// back; left set, the flag would quietly refuse the key just given.
+			if clearsRemoval && creds["enabled_"+providerName] == "false" {
+				delete(creds, "enabled_"+providerName)
+			}
 		}
 	})
 }
@@ -358,22 +364,14 @@ func (s *CredentialsStore) HasKey(providerName string) bool {
 	return err == nil && key != ""
 }
 
-func codexAuthPath() (string, error) {
-	if codexHome := os.Getenv("CODEX_HOME"); codexHome != "" {
-		return filepath.Join(codexHome, "auth.json"), nil
-	}
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get user home directory: %w", err)
-	}
-	return filepath.Join(homeDir, ".codex", "auth.json"), nil
-}
-
 type codexAuthFile struct {
 	AuthMode string `json:"auth_mode"`
 	Tokens   struct {
 		AccessToken string `json:"access_token"`
 		AccountID   string `json:"account_id"`
+		// IDToken names who signed in; only its email claim is read, for
+		// display.
+		IDToken string `json:"id_token"`
 	} `json:"tokens"`
 }
 
@@ -382,19 +380,31 @@ type codexAuthFile struct {
 // copilotRefreshMargin.
 const codexRefreshMargin = 5 * time.Minute
 
-func codexSignInHint(path string) string {
-	return fmt.Sprintf("sign in with the ChatGPT app or run `codex login` (checked %s)", path)
+// codexSignInHint says how to sign in the login kept in codexHome ("" for the
+// default account's), whose auth.json is path.
+func codexSignInHint(codexHome, path string) string {
+	if codexHome == "" {
+		return fmt.Sprintf("sign in with the ChatGPT app or run `codex login` (checked %s)", path)
+	}
+	return fmt.Sprintf("run `%s` (checked %s)", CodexSignInCommand(codexHome), path)
 }
 
-func loadCodexCLIAccessToken() (string, string, error) {
-	path, err := codexAuthPath()
+// loadCodexAccessToken reads the ChatGPT login kept in codexHome ("" for the
+// default account's: $CODEX_HOME, then ~/.codex). It only ever reads auth.json:
+// Juggler never refreshes or writes it, so two accounts never contend for a
+// refresh token, and the app or CLI that owns the login keeps it fresh.
+func loadCodexAccessToken(codexHome string) (string, string, error) {
+	path, err := codexAuthPathIn(codexHome)
 	if err != nil {
 		return "", "", err
 	}
-	hint := codexSignInHint(path)
+	hint := codexSignInHint(codexHome, path)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
+			if codexKeepsLoginInKeyring(filepath.Dir(path)) {
+				return "", "", fmt.Errorf("codex keeps its login in the system keyring, which Juggler can't read; run `%s`, or set cli_auth_credentials_store = \"file\" in %s", CodexSignInCommand(codexHome), filepath.Join(filepath.Dir(path), "config.toml"))
+			}
 			return "", "", fmt.Errorf("codex auth not found; %s", hint)
 		}
 		return "", "", fmt.Errorf("failed to read Codex auth. %s", hint)
@@ -532,7 +542,10 @@ func (s *CredentialsStore) GetProviderCredential(providerName string) (ProviderC
 
 	switch providerInfo.EffectiveAuthType() {
 	case provider.AuthTypeToggle:
-		if !s.IsProviderEnabled(providerName) {
+		// The flag is the default account's. An account added beyond it exists
+		// only while its accounts.json entry does, so being registered is what
+		// switches it on.
+		if providerInfo.Type == providerInfo.Name && !s.IsProviderEnabled(providerName) {
 			return ProviderCredential{}, fmt.Errorf("provider %s is not enabled", providerName)
 		}
 		return ProviderCredential{}.withAuthHint(msg.New("Enabled")), nil
@@ -544,6 +557,12 @@ func (s *CredentialsStore) GetProviderCredential(providerName string) (ProviderC
 		return resolveOAuthLogin(providerInfo)
 
 	case provider.AuthTypeAPIKey:
+		// The user removed this default account. The flag is what keeps a key
+		// still supplied by an environment variable from serving it; an older
+		// build ignores the flag, which only means the key works there.
+		if s.IsProviderSwitchedOff(providerName) {
+			return ProviderCredential{}, fmt.Errorf("provider %s was removed", providerName)
+		}
 		apiKey, err := s.GetAPIKey(providerName)
 		if err != nil {
 			return ProviderCredential{}, err
@@ -585,11 +604,11 @@ func (s *CredentialsStore) ResolveOAuthLogin(providerName string) (ProviderCrede
 }
 
 func resolveOAuthLogin(providerInfo *provider.ProviderInfo) (ProviderCredential, error) {
-	resolver, ok := lookupOAuthBearerSource(providerInfo.AuthSource)
+	source, ok := lookupOAuthSource(providerInfo.AuthSource)
 	if !ok {
 		return ProviderCredential{}, fmt.Errorf("unsupported OAuth bearer source for provider %s: %s", providerInfo.Name, providerInfo.AuthSource)
 	}
-	return resolver()
+	return source.Resolve()
 }
 
 // GetProviderCredentialString returns the legacy string credential for a provider.

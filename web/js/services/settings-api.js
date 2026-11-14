@@ -156,21 +156,23 @@ export function startCopilotDeviceLogin(host) {
  * POST /api/providers/copilot/device/poll: ask whether the device code was authorized.
  * @param {string} deviceCode - From {@link startCopilotDeviceLogin}.
  * @param {string} host - The host the flow was started against.
+ * @param {string} [account] - The Copilot account signing in; none is the default account.
  * @returns {Promise<SuccessEnvelope|null>} `{success, status}`; status is authorized, pending, slow_down, expired or denied.
  */
-export function pollCopilotDeviceLogin(deviceCode, host) {
+export function pollCopilotDeviceLogin(deviceCode, host, account = '') {
   return fetchJson(apiUrl('/providers/copilot/device/poll'), {
     method: 'POST',
-    body: { deviceCode, host },
+    body: { deviceCode, host, account },
   });
 }
 
 /**
  * POST /api/providers/copilot/signout: forget the GitHub login Juggler stored.
+ * @param {string} [account] - The Copilot account signing out; none is the default account.
  * @returns {Promise<SuccessEnvelope|null>} `{success}` or `{success: false, error}`.
  */
-export function signOutCopilot() {
-  return fetchJson(apiUrl('/providers/copilot/signout'), { method: 'POST' });
+export function signOutCopilot(account = '') {
+  return fetchJson(apiUrl('/providers/copilot/signout'), { method: 'POST', body: { account } });
 }
 
 // ── Model roles ────────────────────────────────────────────────────────────

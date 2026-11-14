@@ -577,35 +577,23 @@ class ModelSelector extends JugglerElement {
   }
 
   /**
-   * Ask the server to re-read external provider credentials and wait for the
-   * refreshed list to arrive, then return the named provider's fresh entry. Lets
-   * a just-completed external login (e.g. `codex login`) be picked up without
-   * relaunching the app. Resolves with the latest known entry even if no push
-   * arrives within the timeout, so the caller never hangs.
+   * Ask the server to re-read external provider credentials, and return the
+   * named provider's entry from the list it answers with, which it computed
+   * after being asked. Lets a just-completed external login (e.g. `codex
+   * login`) be picked up without relaunching the app. A failed refresh answers
+   * with the entry in hand.
    * @param {string} providerName
    * @returns {Promise<Provider|undefined>} The provider's fresh entry, or undefined if absent.
    * @private
    */
   async _recheckProviderAvailability(providerName) {
-    const next = /** @type {Promise<Provider[]>} */(new Promise((resolve) => {
-      /** @type {ReturnType<typeof setTimeout>|null} */
-      let timer = null;
-      const off = wsService.on('providers-update', (/** @type {unknown} */ data) => {
-        if (timer) clearTimeout(timer);
-        off();
-        resolve(Array.isArray(data) ? /** @type {Provider[]} */(data) : this.providers);
-      });
-      timer = setTimeout(() => {
-        off();
-        resolve(this.providers);
-      }, 4000);
-    }));
+    /** @type {Provider[]} */
+    let list = this.providers;
     try {
-      await providersCache.refresh();
+      list = await providersCache.refresh();
     } catch (err) {
       console.warn('[ModelSelector] Provider re-check refresh failed:', err);
     }
-    const list = await next;
     return list.find(p => p.name === providerName);
   }
 

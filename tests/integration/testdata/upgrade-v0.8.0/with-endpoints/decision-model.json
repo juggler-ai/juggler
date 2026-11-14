@@ -1,0 +1,4 @@
+{
+  "provider": "openai-compatible",
+  "model": "qwen3"
+}

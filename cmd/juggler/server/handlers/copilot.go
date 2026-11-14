@@ -9,6 +9,7 @@ import (
 	"net/http"
 
 	"juggler/cmd/juggler/core"
+	"juggler/cmd/juggler/providers/copilot"
 )
 
 // GitHub Copilot device-flow sign-in endpoints. The frontend (providers tab)
@@ -42,16 +43,18 @@ func (c *ConfigAPI) HandleCopilotDeviceStart(w http.ResponseWriter, r *http.Requ
 }
 
 // HandleCopilotDevicePoll performs one poll for the pending device code. On
-// authorization it refreshes the provider list before responding.
+// authorization it refreshes the provider list before responding. An account
+// names the Copilot account signing in; none is the default account.
 func (c *ConfigAPI) HandleCopilotDevicePoll(w http.ResponseWriter, r *http.Request) {
 	req, ok := DecodeJSON[struct {
 		DeviceCode string `json:"deviceCode"`
 		Host       string `json:"host"`
+		Account    string `json:"account"`
 	}](w, r)
 	if !ok {
 		return
 	}
-	status, err := core.PollCopilotDeviceLogin(r.Context(), req.Host, req.DeviceCode)
+	status, err := core.PollCopilotDeviceLogin(r.Context(), copilotAccount(req.Account), req.Host, req.DeviceCode)
 	if err != nil {
 		WriteErr(w, r, http.StatusBadGateway, err)
 		return
@@ -64,10 +67,16 @@ func (c *ConfigAPI) HandleCopilotDevicePoll(w http.ResponseWriter, r *http.Reque
 	})
 }
 
-// HandleCopilotSignOut clears a Juggler device-flow login and refreshes the
-// provider list. It does not disturb an editor-managed login on disk.
+// HandleCopilotSignOut clears a Juggler device-flow login — the default
+// account's, or the account the body names — and refreshes the provider list.
+// It does not disturb an editor-managed login on disk.
 func (c *ConfigAPI) HandleCopilotSignOut(w http.ResponseWriter, r *http.Request) {
-	if err := core.SignOutCopilot(); err != nil {
+	var req struct {
+		Account string `json:"account"`
+	}
+	// Body is optional: no account means the default account.
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if err := core.SignOutCopilot(copilotAccount(req.Account)); err != nil {
 		WriteErr(w, r, http.StatusInternalServerError, err)
 		return
 	}
@@ -101,4 +110,14 @@ func (c *ConfigAPI) HandleCopilotSetHost(w http.ResponseWriter, r *http.Request)
 	WriteSuccess(w, r, map[string]any{
 		"host": core.CopilotHost(),
 	})
+}
+
+// copilotAccount is the Copilot account a request names, as core takes it: ""
+// for the default account. Core refuses an id that is not a registered Copilot
+// account, since the id names the credentials slot a login is written to.
+func copilotAccount(id string) string {
+	if id == copilot.TypeName {
+		return ""
+	}
+	return id
 }

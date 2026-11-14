@@ -36,7 +36,7 @@ type usageWindow struct {
 	LimitWindowSeconds int      `json:"limit_window_seconds"`
 }
 
-func usageStats(ctx context.Context, bearerToken string, headers map[string]string) (provider.UsageStats, error) {
+func usageStats(ctx context.Context, hint, bearerToken string, headers map[string]string) (provider.UsageStats, error) {
 	base, err := codexBaseURL()
 	if err != nil {
 		return provider.UsageStats{}, err
@@ -54,7 +54,7 @@ func usageStats(ctx context.Context, bearerToken string, headers map[string]stri
 		},
 		Label: "OpenAI Codex /usage",
 	}, &parsed); err != nil {
-		return provider.UsageStats{}, hintUnauthorized(err)
+		return provider.UsageStats{}, hintUnauthorized(err, hint)
 	}
 	return buildUsageStats(parsed, time.Now()), nil
 }

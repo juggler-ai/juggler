@@ -48,12 +48,18 @@ const SETTINGS_TABS = [
  * - `#auto-name-instruction-input`: its placeholder is the built-in prompt sent
  *   to the model, which stays in English whatever the UI language.
  * - `.plugin-version`, `.plugin-author`: an extension's manifest fields.
+ * - `.account-card .provider-name`, `.account-type-name`,
+ *   `.account-chip:not(.account-chip-source)`: a provider account's name, or
+ *   its type's — a product's, or the user's own for it. Only an account
+ *   card's: `.provider-name` is every settings tab's row label.
+ * - `.account-type-detail`: where a login on offer was found on disk.
  * - `code`, `pre`: tool arguments, paths and file content.
  * - `option[lang]`: a Language menu entry naming a language in itself
  *   ("简体中文"), which stays in that language whatever the UI language.
  */
 const DATA = '.project-path-display__path, .session-switcher-chip-tile, .user-message-text, .markdown, .model-name, .usage-card__sub, '
   + '#auto-name-instruction-input, .plugin-version, .plugin-author, .properties-panel-filepath, '
+  + '.account-card .provider-name, .account-type-name, .account-type-detail, .account-chip:not(.account-chip-source), '
   + 'code, pre, option[lang]';
 
 /**

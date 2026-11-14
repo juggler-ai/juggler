@@ -445,7 +445,7 @@ func (c *Client) passOverQueryTrailer(msg *StreamMessage, result *turnResult) bo
 	}
 	jlog.Debug("claudecode: passed over the previous query's result envelope (it closes a turn already returned)")
 	c.learnModelUsage(msg)
-	markClaudeLoginConfirmed()
+	markClaudeLoginConfirmed(c.acct.id())
 	return true
 }
 
@@ -702,14 +702,14 @@ func (c *Client) onResultLine(msg *StreamMessage, result *turnResult) error {
 	c.learnModelUsage(msg)
 	switch msg.Subtype {
 	case "success":
-		return onResultSuccess(msg, result)
+		return onResultSuccess(c.acct, msg, result)
 	case "error":
 		// CLI exhausted retries or hit a fatal error — return as a proper error.
 		// A CLI that has no usable credential answers here with bare text and no
 		// status, so the text is the only signal there is.
 		var errStr string
 		if json.Unmarshal(msg.Result, &errStr) == nil && errStr != "" {
-			return cliAPIError(msg.APIErrorStatus, errStr)
+			return cliAPIError(c.acct, msg.APIErrorStatus, errStr)
 		}
 		return errors.New("claude CLI returned an error")
 	}
@@ -744,19 +744,19 @@ func (c *Client) learnModelUsage(msg *StreamMessage) {
 // subtype="success", and stuffs the error text into Result. Without surfacing
 // this, the worker would see an empty end_turn and treat it as a normal
 // (silent) completion.
-func onResultSuccess(msg *StreamMessage, result *turnResult) error {
+func onResultSuccess(a account, msg *StreamMessage, result *turnResult) error {
 	if msg.IsError {
 		var errStr string
 		_ = json.Unmarshal(msg.Result, &errStr)
 		if errStr == "" {
 			errStr = fmt.Sprintf("claude CLI API call failed (HTTP %d)", msg.APIErrorStatus)
 		}
-		return cliAPIError(msg.APIErrorStatus, errStr)
+		return cliAPIError(a, msg.APIErrorStatus, errStr)
 	}
 	// A clean result proves the CLI is signed in and served a turn.
 	// Unlock the passive /usage poll, and clear any earlier expiry so a
 	// user who has just signed back in isn't still told they haven't.
-	markClaudeLoginConfirmed()
+	markClaudeLoginConfirmed(a.id())
 	var resultStr string
 	if json.Unmarshal(msg.Result, &resultStr) == nil && resultStr == "" {
 		result.StopReason = provider.StopReasonEmptyResponse
@@ -775,9 +775,9 @@ func onResultSuccess(msg *StreamMessage, result *turnResult) error {
 // becomes an APIError the worker classifies by it; a server-side failure the CLI
 // reports has already been through the CLI's own retries, and says so. With no
 // status, the text is all there is.
-func cliAPIError(status int, text string) error {
-	if authErr := classifyClaudeAuthFailure(status, text); authErr != nil {
-		markClaudeLoginExpired()
+func cliAPIError(a account, status int, text string) error {
+	if authErr := classifyClaudeAuthFailure(a, status, text); authErr != nil {
+		markClaudeLoginExpired(a.id())
 		return authErr
 	}
 	if isRejectedTranscriptText(status, text) {
@@ -788,7 +788,7 @@ func cliAPIError(status int, text string) error {
 	// retried into, and the row can offer to continue at that time.
 	var cause error
 	if status != 0 {
-		cause = &provider.APIError{Provider: "claudecode", Status: status, Message: text}
+		cause = &provider.APIError{Provider: a.id(), Status: status, Message: text}
 	}
 	if limited := usageLimitError(text, cause, time.Now()); limited != nil {
 		return limited
@@ -796,7 +796,7 @@ func cliAPIError(status int, text string) error {
 	if status == 0 {
 		return errors.New(text)
 	}
-	apiErr := &provider.APIError{Provider: "claudecode", Status: status, Message: text}
+	apiErr := &provider.APIError{Provider: a.id(), Status: status, Message: text}
 	if status < 500 {
 		return apiErr
 	}

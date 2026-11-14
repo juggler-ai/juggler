@@ -24,8 +24,9 @@ const cacheMissWarningTokens int64 = 25_000
 // dispatcher that fields the CLI's mcp_message control_requests.
 type Client struct {
 	model      string
-	workingDir string // where the CLI spawns: the bound workspace, or the project
-	stateDir   string // the project: where OUR per-conversation files live, wherever the CLI runs
+	acct       account // the login its claude runs under; the zero value is the default account
+	workingDir string  // where the CLI spawns: the bound workspace, or the project
+	stateDir   string  // the project: where OUR per-conversation files live, wherever the CLI runs
 
 	threadID      string         // "" = root thread; sub-threads are in-memory only (no disk sidecar)
 	activeSession *activeSession // Persisted between StreamMessage calls for continuation
@@ -170,9 +171,9 @@ func (c *Client) acquireOwnershipAfterInterrupt() (release func(), ok bool) {
 	}
 }
 
-// Name returns the provider name
+// Name returns the provider name: the id of the account it serves.
 func (c *Client) Name() string {
-	return "claudecode"
+	return c.acct.id()
 }
 
 // reapIdleCLI frees the live CLI subprocess when this session has gone idle,
@@ -252,6 +253,7 @@ func (c *Client) OpenConversation(ctx context.Context, convID string) (provider.
 func (base *Client) newThreadSession(threadID string) *Client {
 	s := &Client{
 		model:      base.model,
+		acct:       base.acct,
 		workingDir: base.workingDir,
 		stateDir:   base.stateDir,
 		threadID:   threadID,
@@ -282,14 +284,14 @@ func (c *Client) loadSidecar(convID string) *activeSession {
 	if c.threadID != "" {
 		return nil
 	}
-	return loadDiskSession(c.stateDir, convID, c.workingDir)
+	return loadDiskSession(c.stateDir, convID, c.workingDir, c.acct.configDir)
 }
 
 func (c *Client) saveSidecar(convID string, sess *activeSession) {
 	if c.threadID != "" {
 		return
 	}
-	saveDiskSession(c.stateDir, convID, c.workingDir, sess)
+	saveDiskSession(c.stateDir, convID, c.workingDir, c.acct.configDir, sess)
 }
 
 func (c *Client) deleteSidecar(convID string) {

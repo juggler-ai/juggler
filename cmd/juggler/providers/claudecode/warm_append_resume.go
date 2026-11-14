@@ -116,12 +116,12 @@ func (c *Client) runWarmAppendResume(ctx context.Context, req provider.MessageRe
 }
 
 // warmSessionPath is the CLI's own session file for the active warm uuid, or ""
-// when there is no uuid to resume or no ~/.claude/projects dir for the cwd.
+// when there is no uuid to resume or no projects dir for the cwd.
 func (c *Client) warmSessionPath() string {
 	if c.activeSession == nil || c.activeSession.sessionUUID == "" {
 		return ""
 	}
-	dir := projectsDir(c.workingDir)
+	dir := projectsDir(c.workingDir, c.acct.configDir)
 	if dir == "" {
 		return ""
 	}
@@ -145,7 +145,7 @@ func (c *Client) snapshotWarmSession() []byte {
 
 // appendToolResultsToWarmSession appends a single `user: tool_result` entry —
 // closing the warm transcript's dangling tool_use — to the CLI's own session
-// file at ~/.claude/projects/<dir>/<sessionUUID>.jsonl, then atomically replaces
+// file at <projectsDir>/<sessionUUID>.jsonl, then atomically replaces
 // it. The appended entry reuses the native session shape (newSyntheticEntry) and
 // chains to the file's current last entry.
 //
@@ -165,7 +165,7 @@ func (c *Client) appendToolResultsToWarmSession(results []provider.Message, snap
 	}
 	path := c.warmSessionPath()
 	if path == "" {
-		return fmt.Errorf("no ~/.claude/projects dir for working dir %q", c.workingDir)
+		return fmt.Errorf("no claude projects dir for working dir %q", c.workingDir)
 	}
 
 	data := snapshot

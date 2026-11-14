@@ -52,15 +52,15 @@ var authFailureMarkers = []string{
 // API answered 401, or the CLI said in its own words that it is not
 // authenticated. Everything else — including every other HTTP status — stays a
 // generic terminal error.
-func classifyClaudeAuthFailure(status int, text string) *provider.AuthError {
+func classifyClaudeAuthFailure(a account, status int, text string) *provider.AuthError {
 	if status != 401 && !matchesAuthFailure(text) {
 		return nil
 	}
 	return &provider.AuthError{
-		Provider: "claudecode",
+		Provider: a.id(),
 		Status:   status,
 		Message:  strings.TrimSpace(text),
-		Hint:     claudeSignInHint.English(),
+		Hint:     signInHintFor(a).English(),
 	}
 }
 

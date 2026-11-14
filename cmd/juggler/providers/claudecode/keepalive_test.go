@@ -120,6 +120,10 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, "FAIL: importing claudecode started the model-info actor; it must start on first use")
 		os.Exit(1)
 	}
+	// The resume paths follow CLAUDE_CONFIG_DIR (claudeConfigDir). Inherited
+	// from a developer's shell it would send every session file these tests
+	// write into that real config dir, past the HOME each test isolates.
+	_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
 	cleanupFakeCLI := prepareFakeCLI()
 	code := m.Run()
 	cleanupFakeCLI()
@@ -134,7 +138,14 @@ type traceRecord struct {
 	Mode      string   `json:"mode"`
 	Cwd       string   `json:"cwd,omitempty"` // the spawned process's working directory (cmd.Dir)
 	StartedAt int64    `json:"startedAtUnixNano"`
+	// Env holds the variables that decide which account the CLI runs as, each
+	// present only when the process had it set.
+	Env map[string]string `json:"env,omitempty"`
 }
+
+// accountEnvVars are the variables traceRecord.Env records: the config dir that
+// names an account, and the credentials that would override its login.
+var accountEnvVars = []string{"CLAUDE_CONFIG_DIR", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"}
 
 // runFakeClaude implements a minimal claude CLI replacement just rich
 // enough to drive Client through complete turns. It is invoked via
@@ -158,7 +169,14 @@ func runFakeClaude() {
 
 	if path := os.Getenv(envFakeTrace); path != "" {
 		cwd, _ := os.Getwd()
+		env := map[string]string{}
+		for _, name := range accountEnvVars {
+			if v, ok := os.LookupEnv(name); ok {
+				env[name] = v
+			}
+		}
 		writeTrace(path, traceRecord{
+			Env:       env,
 			Pid:       os.Getpid(),
 			Argv:      argv,
 			ResumeID:  resumeID,

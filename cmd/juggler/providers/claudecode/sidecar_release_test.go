@@ -64,7 +64,7 @@ func TestClose_PreservesSidecar(t *testing.T) {
 		t.Fatalf("Close deleted the warm-resume sidecar (%v) — the next turn after a restart will cold-start the whole history", err)
 	}
 	// And the preserved sidecar must still yield a resumable session.
-	loaded := loadDiskSession(c.workingDir, convID, c.workingDir)
+	loaded := loadDiskSession(c.workingDir, convID, c.workingDir, "")
 	if loaded == nil || loaded.sessionUUID == "" {
 		t.Fatal("sidecar no longer yields a resumable session after Close")
 	}
@@ -95,7 +95,7 @@ func TestFinalizeTurn_ErrorPreservesSidecar(t *testing.T) {
 	if _, statErr := os.Stat(sidecar); statErr != nil {
 		t.Fatalf("error path deleted the warm-resume sidecar (%v) — the retry will cold-start the whole history", statErr)
 	}
-	if loaded := loadDiskSession(c.workingDir, convID, c.workingDir); loaded == nil || loaded.sessionUUID == "" {
+	if loaded := loadDiskSession(c.workingDir, convID, c.workingDir, ""); loaded == nil || loaded.sessionUUID == "" {
 		t.Fatal("sidecar no longer yields a resumable session after an errored turn")
 	}
 }
@@ -155,7 +155,7 @@ func TestRoutineFreshStartPreservesSidecarBeforeReplacementSucceeds(t *testing.T
 			if _, statErr := os.Stat(sidecar); statErr != nil {
 				t.Fatalf("routine fresh-start setup deleted the previous warm-resume sidecar (%v)", statErr)
 			}
-			loaded := loadDiskSession(c.workingDir, convID, c.workingDir)
+			loaded := loadDiskSession(c.workingDir, convID, c.workingDir, "")
 			if loaded == nil || loaded.sessionUUID != "uuid-"+tc.name+"-preserve" {
 				t.Fatalf("sidecar should still point at the last successful session; got %+v", loaded)
 			}
@@ -186,7 +186,7 @@ func TestWarmResumeFallbackFailurePreservesSidecar(t *testing.T) {
 	if _, statErr := os.Stat(sidecar); statErr != nil {
 		t.Fatalf("warm-resume fallback failure deleted the previous warm-resume sidecar (%v)", statErr)
 	}
-	loaded := loadDiskSession(c.workingDir, convID, c.workingDir)
+	loaded := loadDiskSession(c.workingDir, convID, c.workingDir, "")
 	if loaded == nil || loaded.sessionUUID != "uuid-resume-fallback-preserve" {
 		t.Fatalf("sidecar should still point at the last successful session; got %+v", loaded)
 	}
@@ -221,7 +221,7 @@ func TestDivergentFreshStartSuccessReplacesSidecar(t *testing.T) {
 		t.Fatalf("turn 2 divergent: %v", err)
 	}
 
-	loaded := loadDiskSession(c.workingDir, convID, c.workingDir)
+	loaded := loadDiskSession(c.workingDir, convID, c.workingDir, "")
 	if loaded == nil || loaded.sessionUUID != "uuid-diverge-success" {
 		t.Fatalf("successful divergent turn should save the replacement session; got %+v", loaded)
 	}

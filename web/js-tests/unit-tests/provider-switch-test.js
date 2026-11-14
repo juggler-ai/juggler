@@ -22,6 +22,7 @@
 import { assert, waitFor } from '../utilities/test-helpers.js';
 import wsService from '../../js/services/websocket.js';
 import { ProvidersTab } from '../../js/components/settings/providers-tab.js';
+import { accountsBackend } from '../utilities/accounts-backend.js';
 import '../../js/components/model-picker/model-picker.js';
 
 /**
@@ -38,15 +39,20 @@ const SWITCH = {
 };
 
 /**
- * Route window.fetch to a backend that accepts the switch.
+ * Route window.fetch to a backend that accepts the switch, and whose accounts
+ * are the providers it publishes.
+ * @param {any[]} providers - The published provider list.
  * @param {{reject?: boolean}} [opts] - `reject` fails the switch with a 409.
  * @returns {{restore: () => void, calls: Array<{method: string, url: string, body: any}>}} Fake backend.
  */
-function installFetch(opts = {}) {
+function installFetch(providers, opts = {}) {
   const orig = window.fetch;
+  const accounts = accountsBackend(providers);
   /** @type {Array<{method: string, url: string, body: any}>} */
   const calls = [];
   window.fetch = /** @type {any} */ (async (url, init) => {
+    const answered = accounts.answer(url, init);
+    if (answered) return answered;
     const u = String(url);
     const method = (init && init.method) || 'GET';
     const body = init && init.body ? JSON.parse(init.body) : null;
@@ -60,7 +66,13 @@ function installFetch(opts = {}) {
     }
     return { ok: true, json: async () => ({}) };
   });
-  return { restore: () => { window.fetch = orig; }, calls };
+  return {
+    restore: () => {
+      accounts.dispose();
+      window.fetch = orig;
+    },
+    calls,
+  };
 }
 
 /**
@@ -131,7 +143,7 @@ export async function runTests(_ctx) {
    * @param {(host: HTMLElement, backend: ReturnType<typeof installFetch>) => Promise<void>} body
    */
   const withTab = async (provider, opts, body) => {
-    const backend = installFetch(opts);
+    const backend = installFetch([provider], opts);
     const host = document.createElement('div');
     const container = document.createElement('div');
     container.id = 'provider-fields-container';
@@ -142,6 +154,7 @@ export async function runTests(_ctx) {
       /** @type {any} */ (tab).providers = [provider];
       /** @type {any} */ (tab).config = {};
       tab.renderProviderFields();
+      await waitFor(() => !!tab.accountList, { description: 'the account list' });
       await body(host, backend);
     } finally {
       host.remove();
@@ -185,8 +198,9 @@ export async function runTests(_ctx) {
       // arrived, which is more async hops than any fixed number of ticks.
       await waitFor(() => !host.querySelector('.provider-switch-notice'),
         { description: 'the card to be redrawn from the switched list, without the notice' });
-      const toggle = /** @type {HTMLInputElement|null} */ (host.querySelector('#localai-toggle'));
-      assert(toggle && !toggle.checked, 'LocalAI still reads as switched on after the switch');
+      // The account goes with the list the tab asks for once it has switched.
+      await waitFor(() => !host.querySelector('[data-provider="localai"]'),
+        { description: 'LocalAI to stop being an account once it is switched off' });
     });
   });
 
@@ -213,7 +227,7 @@ export async function runTests(_ctx) {
   // same switch — and moves the conversation along with it: the model id is
   // the server's own, so it names the same model under either provider.
   await run('the picker offers the switch and moves this conversation onto the new provider', async () => {
-    const backend = installFetch();
+    const backend = installFetch([localAI(true)]);
     // Rendered once and never connected, as the picker's own suite drives it:
     // connecting renders and wires it, so a second render() would wire it twice.
     const el = /** @type {any} */ (document.createElement('model-picker'));

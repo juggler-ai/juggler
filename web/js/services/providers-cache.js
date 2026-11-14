@@ -142,13 +142,16 @@ const providersCache = {
   },
 
   /**
-   * Ask the server to refresh provider availability/model lists. The endpoint
-   * returns the previous cached list immediately; the fresh result arrives via
-   * the normal providers-update WebSocket event.
-   * @returns {Promise<void>}
+   * Ask the server to look at every provider again. It answers once a
+   * recomputation that began after the request is published — the same list
+   * the providers-update push carries to every client — so the answer reflects
+   * whatever changed before asking.
+   * @returns {Promise<any[]>} The recomputed provider list.
    */
   async refresh() {
-    await fetchJson(apiUrl('/providers/refresh'), { method: 'POST', errorPrefix: t('Provider refresh failed') });
+    const result = await fetchJson(apiUrl('/providers/refresh'), { method: 'POST', errorPrefix: t('Provider refresh failed') });
+    const providers = /** @type {any} */ (result)?.providers;
+    return Array.isArray(providers) ? providers : [];
   },
 
   /**

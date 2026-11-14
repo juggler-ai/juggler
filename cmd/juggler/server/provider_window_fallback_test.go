@@ -38,9 +38,9 @@ func (p flakyCatalogProvider) OpenConversation(context.Context, string) (provide
 func registerFlakyCatalog(t *testing.T, name string) *atomic.Bool {
 	t.Helper()
 	source := name + "_src"
-	core.RegisterOAuthBearerSource(source, func() (core.ProviderCredential, error) {
+	core.RegisterOAuthSource(source, core.OAuthSource{Resolve: func() (core.ProviderCredential, error) {
 		return core.ProviderCredential{BearerToken: "tok"}, nil
-	})
+	}})
 	down := new(atomic.Bool)
 	provider.RegisterProvider(provider.ProviderInfo{
 		Name:                   name,

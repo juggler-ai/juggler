@@ -30,7 +30,7 @@ func userShellToolUseMsg(id, command string) provider.Message {
 // without calling a tool.
 func seedTextTurnSession(t *testing.T, workingDir, sessionUUID string) string {
 	t.Helper()
-	dir := projectsDir(workingDir)
+	dir := projectsDir(workingDir, "")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir projects: %v", err)
 	}

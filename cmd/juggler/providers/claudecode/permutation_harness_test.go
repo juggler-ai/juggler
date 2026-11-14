@@ -1868,7 +1868,7 @@ func TestToolDeliverySidecarColdResume(t *testing.T) {
 	// sidecar: it has the sessionUUID but NO pendingTools and NO live CLI.
 	cont := append(append([]provider.Message{}, conv1...), toolUseMsg("t1", "bash"), toolResultMsg("t1", "RESULT::t1"))
 
-	loaded := loadDiskSession(c.workingDir, convID, c.workingDir)
+	loaded := loadDiskSession(c.workingDir, convID, c.workingDir, "")
 	if loaded == nil || loaded.sessionUUID == "" {
 		t.Fatal("sidecar no longer yields a resumable session after the restart")
 	}

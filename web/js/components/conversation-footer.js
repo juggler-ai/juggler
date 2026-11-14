@@ -267,15 +267,6 @@ class ConversationFooter extends JugglerElement {
   _historyObserver = null;
 
   /**
-   * Whether the last `update` saw a running turn, so the start of a turn can be
-   * told apart from the many ticks that follow it. Only the rising edge offers
-   * the spinner its once-per-turn fumble; every tick after that must not.
-   * @type {boolean}
-   * @private
-   */
-  _wasProcessing = false;
-
-  /**
    * Whether the markup has been written. See connectedCallback.
    * @type {boolean}
    * @private
@@ -859,7 +850,8 @@ class ConversationFooter extends JugglerElement {
   }
 
   /**
-   * The meter's reading, kept for the footer's guidance slot.
+   * The meter's reading, kept for the footer's guidance slot and the busy
+   * spinner.
    * @param {{total: number, budget: number}} tokens
    * @private
    */
@@ -868,6 +860,18 @@ class ConversationFooter extends JugglerElement {
     if (last && last.total === tokens.total && last.budget === tokens.budget) return;
     this._nudgeTokens = tokens;
     this._syncNudge();
+    this._syncSpinnerContext();
+  }
+
+  /**
+   * Tell the live spinner how long the context is (it sets the clubs on fire
+   * past a threshold). A status-only column has no reading of its own — the
+   * meter there would be counting the parent thread — so it reports none.
+   * @private
+   */
+  _syncSpinnerContext() {
+    const spinner = /** @type {any} */ (this.querySelector('juggler-spinner[live]'));
+    if (spinner) spinner.contextTokens = this._statusOnly ? 0 : (this._nudgeTokens?.total ?? 0);
   }
 
   /**
@@ -1260,10 +1264,8 @@ class ConversationFooter extends JugglerElement {
           throughput: state.throughput ?? 0,
           toolWaitMs: state.toolWaitMs ?? null,
         });
-        // One roll of the dice per turn, on the rising edge only.
-        if (!this._wasProcessing) /** @type {any} */ (spinner).offerDrop();
       }
-      this._wasProcessing = true;
+      this._syncSpinnerContext();
       if (nextSteps) {
         // The plan belongs to the thread, not to a run of its tool calls.
         const text = this._statusOnly ? '' : (state.nextSteps || '');
@@ -1301,7 +1303,6 @@ class ConversationFooter extends JugglerElement {
       // Keeping the row up a few hundred milliseconds past the end of the work
       // makes that signal false, and points the keyboard at a status row
       // describing a turn that is already over.
-      this._wasProcessing = false;
       hide(processing);
       if (processing) delete /** @type {HTMLElement} */ (processing).dataset.messageId;
       if (nextSteps) { nextSteps.textContent = ''; hide(nextSteps); }

@@ -12,6 +12,32 @@ properties-panel {
     border-left: 1px solid var(--border-divider);
     overflow: hidden;
     position: relative;
+
+    /* A stacking context of its own, so the dot grid's z-index: -1 puts it
+       above this element's background but beneath every child. */
+    isolation: isolate;
+}
+
+/* Background pattern: a faint grid of dots, graph-paper style, telling the
+   properties column apart from the conversation columns beside it — the
+   counterpart of the line pattern behind the header and sidebar
+   (layout/app-shell.css). Inked in the theme's text colour at
+   --properties-pattern-strength, set per theme in tokens/theme-*.css. Cards and
+   code blocks are opaque, so it shows only in the space around them. */
+properties-panel::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-image: radial-gradient(
+        circle,
+        var(--text-primary) 0.0625rem,
+        transparent 0.1rem
+    );
+    background-size: 1rem 1rem;
+    background-position: 0.5rem 0.5rem;
+    opacity: var(--properties-pattern-strength);
 }
 
 /* Content area - flex column so expanded content can fill available space */

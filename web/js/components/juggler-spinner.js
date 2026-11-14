@@ -14,7 +14,7 @@
  *   <juggler-spinner live></juggler-spinner>
  *
  * CSS knobs (set on the host):
- *   --spinner-size      — overall diameter         (default 1.5rem)
+ *   --spinner-size      — overall diameter         (default 2rem)
  *   --spinner-duration  — one orbital cycle        (default 1.5s)
  *   color               — club fill                (inherited from the parent's
  *                                                   `color`, so the spinner adapts
@@ -32,14 +32,17 @@
  *
  * `live` opts a spinner into reporting the work it sits in front of, so the
  * cascade becomes a readout rather than decoration: {@link clubs} tracks how
- * many tool calls are executing in parallel, and {@link report} tracks what the
- * turn is actually doing — waiting, streaming, or parked on a tool call. Only
- * spinners whose owner can supply those numbers should carry it — a spinner
- * that opts in and is never fed simply rests at the default cascade, which is
- * exactly the non-live appearance.
+ * many tool calls are executing in parallel, {@link report} tracks what the
+ * turn is actually doing — waiting, streaming, or parked on a tool call — and
+ * {@link contextTokens} sets the clubs on fire once the conversation is long
+ * (juggler-spinner-fire.js). Only spinners whose owner can supply those
+ * numbers should carry it — a spinner that opts in and is never fed simply
+ * rests at the default cascade, which is exactly the non-live appearance.
  */
 
 import JugglerElement from './juggler-element.js';
+import SpinnerFire, { FIRE_CLOCKED } from './juggler-spinner-fire.js';
+import { animationsOf, matchClock } from '../utils/animation-clock.js';
 import { t } from '../../sdk/lib/i18n.js';
 
 // The two paths from juggler-logo.svg, inlined into a single self-contained
@@ -50,8 +53,8 @@ import { t } from '../../sdk/lib/i18n.js';
 // the clubs render at the wrong scale/offset and scatter off their orbit (the
 // bug is gone by FF 153, but users on 149 hit it). A plain <svg> with a single
 // viewBox and no symbol indirection is the most portable SVG construct there
-// is and every engine maps it identically. Duplicated three times below —
-// cheap, and correctness beats sharing one <symbol>.
+// is and every engine maps it identically. Repeated once per club — cheap, and
+// correctness beats sharing one <symbol>.
 const CLUB_SVG_HTML = `<svg viewBox="-26 -42 52 84" aria-hidden="true"><g transform="translate(-67,-122)"><path d="m 66.033179,116.69934 c -4.412016,4.89314 -12.358013,12.52542 -17.596859,23.54326 -1.987636,4.76634 -5.434859,14.13639 -5.857007,17.71365 l 8.582939,4.81728 c 6.977318,-7.0357 13.098603,-13.43877 17.445963,-25.25324 1.421897,-4.1573 3.06366,-10.49489 4.738729,-16.41967 z"/><path d="m 85.934794,81.917297 c -4.696459,0.08969 -6.548377,5.246501 -4.58162,8.852873 -4.714452,10.23004 -10.939485,20.2839 -13.105143,23.40736 l 5.988781,3.50934 c 1.634814,-3.92835 6.500703,-14.4903 11.935189,-24.419178 3.93831,-0.64312 5.787539,-3.93172 5.368148,-6.871415 -0.303232,-3.07033 -3.343756,-4.571558 -5.605355,-4.47898 z"/></g></svg>`;
 
 /** Clubs in the resting cascade — the count every spinner starts and returns to. */
@@ -65,21 +68,22 @@ const DEFAULT_CLUBS = 3;
    change how it feels. Compile-time only and deliberately so — none
    of this is user-facing preference and none of it is persisted
    anywhere, so nothing here needs a migration or a settings entry.
+   The fire's own numbers live with it, in juggler-spinner-fire.js.
    ================================================================== */
 
 /**
  * On/off per behaviour the `live` attribute unlocks. Each is independent:
  * switching one off returns that aspect of the spinner to its fixed default and
- * leaves the rest working. With all four off, a `live` spinner behaves exactly
- * like a plain one.
+ * leaves the rest working. With all of them off, a `live` spinner behaves
+ * exactly like a plain one.
  */
 const BEHAVIOURS = Object.freeze({
   /** Club count tracks how many tool calls are executing in parallel. */
   count: true,
   /** Orbit/flip speed tracks the work: output flow, or the wait for a tool. */
   rate: true,
-  /** The rare fumbled club. */
-  drop: true,
+  /** The clubs burn once the conversation's context is long. */
+  fire: true,
 });
 
 /** Numeric feel of each behaviour. */
@@ -98,30 +102,8 @@ const TUNING = Object.freeze({
   toolWaitSlowdownMs: 60000,
   /** Quiet period a shrinking club count must hold before the cascade closes up. */
   shrinkDelayMs: 400,
-  /** Fade as a club joins or leaves; matches the CSS opacity transition. */
+  /** How long a leaving club has to fade before it is detached; outlasts the CSS opacity transition. */
   fadeMs: 250,
-  /** Chance a given eligible turn fumbles a club. Rare on purpose. */
-  dropChance: 0.05,
-  /** How long a turn must have been running before it can fumble. */
-  dropAfterMs: 4000,
-  /**
-   * Fallback length of the fumble, for when the running animation cannot be
-   * measured. The real length is read off the animation itself: the CSS states
-   * it as a fraction of `--spinner-duration`, and playback rate stretches it further.
-   */
-  dropMs: 1100,
-  /**
-   * How far before the bottom of the orbit the club that fumbles should be,
-   * in degrees.
-   *
-   * The club is thrown OUTWARD along its own radius, which only looks like
-   * falling near the bottom of the ring — the same offset at the top flings it
-   * upward and reads as a glitch. The lead gives the fall time to build while
-   * the club drops into the bottom of its throw.
-   */
-  dropLeadDeg: 55,
-  /** Fumbles allowed per app session, across every spinner in the window. */
-  dropsPerSession: 1,
   /** Smallest rate change worth applying; anything less is measurement noise. */
   rateDeadband: 0.05,
   /** Deadband for the tool-wait ramp, which is a clean curve rather than a measurement. */
@@ -131,46 +113,60 @@ const TUNING = Object.freeze({
 });
 
 /**
- * Fumbles spent this session, counted across every spinner in the window rather
- * than per element — a spinner is torn down and rebuilt constantly (every
- * footer render, every tab switch), so a per-instance count would reset
- * continuously and the gag would stop being rare. Module scope makes "once"
- * mean once for as long as the window lives.
- *
- * Deliberately NOT persisted. Nothing about the spinner belongs in user
- * settings, so the budget resets when the app does.
+ * `x` held to [lo, hi], with anything that is not a finite number read as
+ * `fallback` first.
+ * @param {number} x - Value to clamp.
+ * @param {number} lo - Floor.
+ * @param {number} hi - Ceiling.
+ * @param {number} fallback - Stand-in for a non-finite `x`.
+ * @returns {number} The clamped value.
  */
-let dropsThisSession = 0;
-
-/**
- * Hand the session its fumble allowance back, for tests.
- *
- * The browser suite reuses one JS realm across the sequence of tests a lane
- * runs, and the app arms a fumble on the rising edge of any turn — so any
- * earlier test that ran a turn can spend this window's single allowance before
- * the spinner's own tests get to it, leaving them nothing to arm and no way to
- * tell that from a broken budget. Whether it happens turns on load: an armed
- * fumble refunds itself if its spinner is torn down before it fires, so a slow
- * run is one where the spinner is more likely to still be there at four
- * seconds. Not called in production, where spending the allowance once is the
- * entire point.
- */
-export function __resetDropBudgetForTests() {
-  dropsThisSession = 0;
+function clamp(x, lo, hi, fallback) {
+  const n = Number(x);
+  return Math.max(lo, Math.min(hi, Number.isFinite(n) ? n : fallback));
 }
 
 /**
- * Whether the user has asked for reduced motion.
- * @returns {boolean} True when the reduce preference is set.
+ * The speed a given output rate maps to.
+ *
+ * Zero is meaningful and common — waiting on the network, waiting on the first
+ * token — and maps to the floor rather than to a stop: the spinner still has to
+ * say "working", just visibly labouring. The scale is linear up to
+ * {@link TUNING.fastTokensPerSecond} and flat above it, so the difference
+ * between a slow model and a fast one reads clearly while a burst from a very
+ * fast one doesn't blur the clubs.
+ * @param {number} tps - Output tokens per second.
+ * @returns {number} Rate multiple.
  */
-function prefersReducedMotion() {
-  return typeof window !== 'undefined'
-    && typeof window.matchMedia === 'function'
-    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+function throughputRate(tps) {
+  const flow = clamp(tps, 0, TUNING.fastTokensPerSecond, 0);
+  return TUNING.minRate + (TUNING.maxRate - TUNING.minRate) * (flow / TUNING.fastTokensPerSecond);
 }
 
 /**
- * Markup for one club at slot `index` of a cascade of `count`.
+ * The speed a tool call that has been running for `ms` maps to.
+ *
+ * A linear glide from {@link TUNING.toolWaitStartRate} down to the floor over
+ * {@link TUNING.toolWaitSlowdownMs}, and flat at the floor after that. Linear
+ * on purpose: spread over a minute it is about a percent of orbital speed per
+ * second, which nobody can see happening — the spinner is only ever noticed to
+ * be labouring, never noticed slowing down.
+ *
+ * The anchor is a fixed rate rather than "whatever speed we were just doing",
+ * so every fresh tool call starts from the same place. Carrying the live rate
+ * over would be smoother at the handoff but it compounds: a tool that starts
+ * while an earlier ramp is part-way down would inherit the tired speed and the
+ * cascade could never recover, which is the opposite of the point.
+ * @param {number} ms - How long the tool call has been running.
+ * @returns {number} Rate multiple.
+ */
+function toolWaitRate(ms) {
+  const progress = clamp(ms, 0, TUNING.toolWaitSlowdownMs, 0) / TUNING.toolWaitSlowdownMs;
+  return TUNING.toolWaitStartRate + (TUNING.minRate - TUNING.toolWaitStartRate) * progress;
+}
+
+/**
+ * Markup for one club.
  *
  * Three nested spans, each owning exactly one transform: the pivot holds the
  * static angle of this club's slot on the orbit, the orbit span holds the
@@ -185,11 +181,12 @@ function prefersReducedMotion() {
  * cascade that grows to seven clubs and back announces nothing.
  *
  * The markup carries no slot: {@link placeClub} sets it.
+ * @param {string} extra - Markup to carry inside the club after its svg (the fire).
  * @returns {string} HTML for one pivot/orbit/club triple.
  */
-function clubHTML() {
+function clubHTML(extra) {
   return '<span class="spinner-pivot" aria-hidden="true">'
-        + `<span class="spinner-orbit"><span class="spinner-club">${CLUB_SVG_HTML}</span></span></span>`;
+        + `<span class="spinner-orbit"><span class="spinner-club">${CLUB_SVG_HTML}${extra}</span></span></span>`;
 }
 
 /**
@@ -215,14 +212,14 @@ class JugglerSpinner extends JugglerElement {
     this._rate = 1;
     /** @type {any} @private Pending trailing shrink of the club count. */
     this._shrinkTimer = 0;
-    /** @type {any} @private Pending fumble, armed at the start of a turn. */
-    this._dropTimer = 0;
     /** @type {any} @private Pending throttled rate application. */
     this._rateTimer = 0;
     /** @type {number} @private When the rate was last pushed to the animations. */
     this._rateAppliedAt = 0;
-    /** @type {{orbits: Animation[], flips: Animation[]}|null} @private Resolved animations; see _invalidateAnimations. */
+    /** @type {{orbits: Animation[], flips: Animation[], fire: Animation[]}|null} @private Resolved animations; see _animationsChanged. */
     this._animCache = null;
+    /** @type {SpinnerFire} @private The fire on the clubs. */
+    this._fire = new SpinnerFire(this, () => this._animationsChanged());
   }
 
   connectedCallback() {
@@ -231,6 +228,18 @@ class JugglerSpinner extends JugglerElement {
     // A live spinner stands in front of a running turn, which is work, not a load.
     if (!this.hasAttribute('aria-label')) this.setAttribute('aria-label', this.isLive ? t('Working') : t('Loading'));
     this._observeVisibility();
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    // Plain fields rather than this.setTimeout: the setters re-arm these on every
+    // streaming tick, and each JugglerElement timer holds a cleanup until the
+    // next disconnect.
+    this._cancelShrink();
+    clearTimeout(this._rateTimer);
+    this._rateTimer = 0;
+    this._animCache = null;
+    this._fire.dispose();
   }
 
   /**
@@ -242,6 +251,8 @@ class JugglerSpinner extends JugglerElement {
   get isLive() {
     return this.hasAttribute('live');
   }
+
+  /* ---- Club count ------------------------------------------------------- */
 
   /**
    * How many tool calls are executing in parallel behind this spinner.
@@ -256,14 +267,11 @@ class JugglerSpinner extends JugglerElement {
    */
   set clubs(n) {
     if (!this.isLive || !BEHAVIOURS.count) return;
-    const asked = Math.round(Number(n));
-    const want = Math.max(DEFAULT_CLUBS,
-      Math.min(TUNING.maxClubs, Number.isFinite(asked) ? asked : DEFAULT_CLUBS));
-    if (want === this._clubs) {
-      clearTimeout(this._shrinkTimer);
-      this._shrinkTimer = 0;
-      return;
-    }
+    const want = clamp(Math.round(Number(n)), DEFAULT_CLUBS, TUNING.maxClubs, DEFAULT_CLUBS);
+    // Any new reading supersedes a pending shrink: it is either re-armed below
+    // or no longer wanted.
+    this._cancelShrink();
+    if (want === this._clubs) return;
     // Fast attack, slow release. Growing is the informative edge — a fan-out of
     // parallel calls should show up the instant it starts — so it applies
     // immediately. Shrinking waits out a quiet period, because a batch drains
@@ -272,16 +280,11 @@ class JugglerSpinner extends JugglerElement {
     // streaming tick, so the timer is re-armed continuously and only fires once
     // the count has genuinely settled.
     if (want > this._clubs) {
-      clearTimeout(this._shrinkTimer);
-      this._shrinkTimer = 0;
-      this._clubs = want;
       this._respace(want);
       return;
     }
-    clearTimeout(this._shrinkTimer);
     this._shrinkTimer = setTimeout(() => {
       this._shrinkTimer = 0;
-      this._clubs = want;
       this._respace(want);
     }, TUNING.shrinkDelayMs);
   }
@@ -291,16 +294,63 @@ class JugglerSpinner extends JugglerElement {
     return this._clubs;
   }
 
+  /** @private */
+  _cancelShrink() {
+    clearTimeout(this._shrinkTimer);
+    this._shrinkTimer = 0;
+  }
+
+  /* ---- Speed ------------------------------------------------------------ */
+
   /**
-   * How fast output is arriving, as a multiple of the resting speed.
+   * The speed of the cascade, as a multiple of the resting speed.
    *
    * Clamped to [{@link TUNING.minRate}, {@link TUNING.maxRate}] so a stall never freezes the
    * spinner outright (it still has to read as "working") and a burst never
-   * blurs it. Ignored entirely on a non-live spinner.
+   * blurs it. Callers reporting a turn use {@link report}, which maps the work
+   * onto this. Ignored entirely on a non-live spinner.
    * @param {number} r - Desired rate multiple.
    */
   set rate(r) {
     this._setRate(r, TUNING.rateDeadband);
+  }
+
+  /** @returns {number} Rate multiple currently applied. */
+  get rate() {
+    return this._rate;
+  }
+
+  /**
+   * Report what the turn behind this spinner is doing right now.
+   *
+   * Three states, and the speed says which one it is in:
+   *
+   * - **Waiting** — the turn is in flight but nothing has come back: preparing a
+   *   request, waiting on the first token, retrying. No flow and no tool
+   *   running, so this lands on the floor and stays there. The spinner labours
+   *   for exactly as long as we are stuck.
+   * - **Streaming** — output is arriving, so speed tracks how fast (see
+   *   {@link throughputRate}). This is the cascade at its liveliest.
+   * - **Parked on a tool call** — no output is arriving, but the machine is
+   *   working rather than stuck, so the floor would be a lie. The cascade starts
+   *   at a healthy clip and tires over a minute (see {@link toolWaitRate}),
+   *   measured from the claim stamp of the LONGEST-running tool still going —
+   *   not from the start of the turn. That distinction is what makes the
+   *   spinner pick up again the moment a slow tool finishes and the next one
+   *   starts: the thing we are waiting on is young again, so the cascade is too.
+   *
+   * Called on every streaming tick, and at least once a second while a turn is
+   * running (the elapsed-time ticker), which is what advances the ramp. Ignored
+   * entirely on a non-live spinner.
+   * @param {object} [work] - What the turn is doing.
+   * @param {number} [work.throughput] - Output tokens per second, 0 when nothing is streaming.
+   * @param {number|null} [work.toolWaitMs] - How long the longest-running tool call has
+   *   been running, or null when no tool is executing.
+   */
+  report({ throughput = 0, toolWaitMs = null } = {}) {
+    const waiting = typeof toolWaitMs === 'number' && Number.isFinite(toolWaitMs);
+    if (waiting) this._setRate(toolWaitRate(toolWaitMs), TUNING.rampDeadband);
+    else this._setRate(throughputRate(throughput), TUNING.rateDeadband);
   }
 
   /**
@@ -311,10 +361,9 @@ class JugglerSpinner extends JugglerElement {
    */
   _setRate(r, deadband) {
     if (!this.isLive || !BEHAVIOURS.rate) return;
-    // Number(r) || 1 would be wrong here: a reported rate of exactly 0 is a
-    // real stall and must clamp DOWN to the floor, not fall back to full speed.
-    const n = Number(r);
-    const want = Math.max(TUNING.minRate, Math.min(TUNING.maxRate, Number.isFinite(n) ? n : 1));
+    // A rate of exactly 0 is a real stall and clamps DOWN to the floor; only
+    // garbage falls back to full speed.
+    const want = clamp(r, TUNING.minRate, TUNING.maxRate, 1);
     // The deadband is per-source, because the two sources have opposite
     // problems. Throughput is measured from lumpy provider chunks and jitters
     // constantly, so it gets a wide one: a tight threshold would let that noise
@@ -347,101 +396,54 @@ class JugglerSpinner extends JugglerElement {
     }, wait);
   }
 
-  /** @returns {number} Rate multiple currently applied. */
-  get rate() {
-    return this._rate;
-  }
-
   /**
-   * How fast output is arriving behind this spinner, in tokens per second.
+   * Set the playback rate of every animation on the cascade's clock.
    *
-   * The caller reports the measurement; mapping it onto a speed is this
-   * element's business. Zero is meaningful and common — waiting on the network,
-   * waiting on the first token — and maps to the floor rather than to a stop:
-   * the spinner still has to say "working", just visibly labouring. The scale is
-   * linear up to {@link TUNING.fastTokensPerSecond} and flat above it, so the
-   * difference between a slow model and a fast one reads clearly while a burst
-   * from a very fast one doesn't blur the clubs.
-   *
-   * A caller that also knows about tool calls should use {@link report} instead,
-   * which routes to this mapping when nothing is executing and to the tool-wait
-   * ramp when something is — a bare 0 during a tool call would read as a stall.
-   * @param {number} tps - Output tokens per second.
-   */
-  set throughput(tps) {
-    this.rate = this._throughputRate(tps);
-  }
-
-  /**
-   * The speed a given output rate maps to.
-   * @param {number} tps - Output tokens per second.
-   * @returns {number} Rate multiple.
+   * `updatePlaybackRate` rather than a `--spinner-duration` rewrite: it preserves each
+   * animation's current time and adjusts its start time instead, so the cascade
+   * changes speed without jumping. Rewriting `--spinner-duration` (or
+   * `animation-duration`) re-maps progress against the new duration and makes
+   * the clubs lurch. Orbit and flip take the same rate so each club's
+   * slow-zone stays pinned to the bottom of its orbit at any speed, and the
+   * fire's counter-rotations take it too so the flames stay upright.
+   * @param {number} rate - Multiple of the CSS duration.
    * @private
    */
-  _throughputRate(tps) {
-    const n = Number(tps);
-    const flow = Number.isFinite(n) && n > 0 ? n : 0;
-    const span = TUNING.maxRate - TUNING.minRate;
-    return TUNING.minRate + span * Math.min(1, flow / TUNING.fastTokensPerSecond);
+  _applyRate(rate) {
+    const { orbits, flips, fire } = this._animations();
+    for (const a of orbits.concat(flips, fire)) {
+      if (typeof a.updatePlaybackRate === 'function') a.updatePlaybackRate(rate);
+      else a.playbackRate = rate;
+    }
   }
 
-  /**
-   * The speed a tool call that has been running for `ms` maps to.
-   *
-   * A linear glide from {@link TUNING.toolWaitStartRate} down to the floor over
-   * {@link TUNING.toolWaitSlowdownMs}, and flat at the floor after that. Linear
-   * on purpose: spread over a minute it is about a percent of orbital speed per
-   * second, which nobody can see happening — the spinner is only ever noticed to
-   * be labouring, never noticed slowing down.
-   *
-   * The anchor is a fixed rate rather than "whatever speed we were just doing",
-   * so every fresh tool call starts from the same place. Carrying the live rate
-   * over would be smoother at the handoff but it compounds: a tool that starts
-   * while an earlier ramp is part-way down would inherit the tired speed and the
-   * cascade could never recover, which is the opposite of the point.
-   * @param {number} ms - How long the tool call has been running.
-   * @returns {number} Rate multiple.
-   * @private
-   */
-  _toolWaitRate(ms) {
-    const n = Number(ms);
-    const waited = Number.isFinite(n) && n > 0 ? n : 0;
-    const progress = Math.min(1, waited / TUNING.toolWaitSlowdownMs);
-    return TUNING.toolWaitStartRate + (TUNING.minRate - TUNING.toolWaitStartRate) * progress;
-  }
+  /* ---- Fire ------------------------------------------------------------- */
 
   /**
-   * Report what the turn behind this spinner is doing right now.
-   *
-   * Three states, and the speed says which one it is in:
-   *
-   * - **Waiting** — the turn is in flight but nothing has come back: preparing a
-   *   request, waiting on the first token, retrying. No flow and no tool
-   *   running, so this lands on the floor and stays there. The spinner labours
-   *   for exactly as long as we are stuck.
-   * - **Streaming** — output is arriving, so speed tracks how fast (see
-   *   {@link throughput}). This is the cascade at its liveliest.
-   * - **Parked on a tool call** — no output is arriving, but the machine is
-   *   working rather than stuck, so the floor would be a lie. The cascade starts
-   *   at a healthy clip and tires over a minute (see {@link _toolWaitRate}),
-   *   measured from the claim stamp of the LONGEST-running tool still going —
-   *   not from the start of the turn. That distinction is what makes the
-   *   spinner pick up again the moment a slow tool finishes and the next one
-   *   starts: the thing we are waiting on is young again, so the cascade is too.
-   *
-   * Called on every streaming tick, and at least once a second while a turn is
-   * running (the elapsed-time ticker), which is what advances the ramp. Ignored
+   * How large the conversation's context is, in tokens: past a threshold the
+   * clubs are on fire, the flames growing with it, and when it drops back — a
+   * compaction, say — the fire goes out. See juggler-spinner-fire.js. Ignored
    * entirely on a non-live spinner.
-   * @param {object} [work] - What the turn is doing.
-   * @param {number} [work.throughput] - Output tokens per second, 0 when nothing is streaming.
-   * @param {number|null} [work.toolWaitMs] - How long the longest-running tool call has
-   *   been running, or null when no tool is executing.
+   * @param {number} tokens - Current context size.
    */
-  report({ throughput = 0, toolWaitMs = null } = {}) {
-    if (!this.isLive || !BEHAVIOURS.rate) return;
-    const waiting = typeof toolWaitMs === 'number' && Number.isFinite(toolWaitMs);
-    if (waiting) this._setRate(this._toolWaitRate(toolWaitMs), TUNING.rampDeadband);
-    else this._setRate(this._throughputRate(throughput), TUNING.rateDeadband);
+  set contextTokens(tokens) {
+    if (!this.isLive || !BEHAVIOURS.fire) return;
+    this._fire.setContext(tokens);
+  }
+
+  /* ---- Layout ----------------------------------------------------------- */
+
+  /**
+   * Build the cascade from scratch at `count` clubs. Wholesale replacement, so
+   * this is only for the initial render — changing the count of a running
+   * spinner this way would restart every club's animation from frame 0.
+   * @param {number} count - How many clubs to lay out.
+   * @private
+   */
+  _renderClubs(count) {
+    this.innerHTML = clubHTML(this._fire.clubMarkup).repeat(count);
+    this._layout(Array.from(this.children), count);
+    this._animCache = null;
   }
 
   /**
@@ -457,15 +459,14 @@ class JugglerSpinner extends JugglerElement {
    * @private
    */
   _respace(count) {
-    this._invalidateAnimations();
+    this._clubs = count;
+    this._animCache = null;
     // Departing clubs fade out first and detach when the fade is done. They are
     // taken out of the layout pass immediately (spinner-leaving), so the survivors
     // re-space around the count they are heading for rather than shuffling
     // twice.
     const before = Array.from(this.children).filter(el => !el.classList.contains('spinner-leaving'));
-    for (let i = before.length; i > count; i--) {
-      const leaving = /** @type {HTMLElement} */ (before[i - 1]);
-      if (!leaving) continue;
+    for (const leaving of before.slice(count)) {
       leaving.classList.add('spinner-leaving', 'spinner-faded');
       setTimeout(() => leaving.remove(), TUNING.fadeMs);
     }
@@ -473,9 +474,8 @@ class JugglerSpinner extends JugglerElement {
 
     /** @type {Element[]} */ const added = [];
     for (let i = survivors.length; i < count; i++) {
-      this.insertAdjacentHTML('beforeend', clubHTML());
-      const el = this.lastElementChild;
-      if (!el) continue;
+      this.insertAdjacentHTML('beforeend', clubHTML(this._fire.clubMarkup));
+      const el = /** @type {Element} */ (this.lastElementChild);
       el.classList.add('spinner-faded');
       added.push(el);
     }
@@ -483,8 +483,7 @@ class JugglerSpinner extends JugglerElement {
     // Settle the spacing variables BEFORE touching any animation. --spinner-n feeds
     // the flip's delay calc, and _syncPhase below forces a style recalc — so a
     // sync done first would read the phases of the old spacing.
-    this.style.setProperty('--spinner-n', String(count));
-    survivors.concat(added).forEach((pivot, i) => placeClub(/** @type {HTMLElement} */ (pivot), i, count));
+    this._layout(survivors.concat(added), count);
 
     // The survivors' flip delays have just changed with --spinner-n, which shifts
     // each flip a fraction of a turn in one frame. That shift is deliberate and
@@ -509,268 +508,85 @@ class JugglerSpinner extends JugglerElement {
   }
 
   /**
-   * Offer this spinner the chance to fumble a club during the turn that is
-   * starting. Called once per turn; almost always does nothing.
-   *
-   * The rarity is the whole point, so the gate is deliberately narrow: live
-   * spinners only, at most {@link TUNING.dropsPerSession} per session across
-   * the whole window, only on a turn that has run long enough to be worth
-   * watching, and then only on a {@link TUNING.dropChance} roll. A user might
-   * see this a handful of times; most sessions will never show it.
-   *
-   * Suppressed under reduced motion, and the budget is not spent when it is —
-   * a fumble nobody was shown should not count against a fumble they might
-   * later want to see.
-   * @returns {void}
-   */
-  offerDrop() {
-    if (!this.isLive || !BEHAVIOURS.drop) return;
-    if (this._dropTimer) return; // already armed for this turn; one roll each
-    if (dropsThisSession >= TUNING.dropsPerSession) return;
-    if (prefersReducedMotion()) return;
-    if (Math.random() >= TUNING.dropChance) return;
-
-    // Spend the budget on ARMING, not on firing. The fumble waits out a delay
-    // before it happens, and several spinners can be running at once (one per
-    // column); if each only counted itself at fire time, they would all pass
-    // this check against a total none of them had incremented yet and the
-    // session would spend its whole allowance at once. Refunded below if the
-    // fumble never actually happens.
-    dropsThisSession++;
-    this._dropTimer = setTimeout(() => {
-      this._dropTimer = 0;
-      // Re-check on arrival: the turn may have ended or the spinner been
-      // detached during the wait, and a club must never be fumbled onto a
-      // moment that has stopped being a busy one. Hand the budget back — an
-      // impression nobody saw should not count against one they might.
-      const victim = this._pickDropVictim();
-      if (!victim || !this.isConnected || this.getClientRects().length === 0) {
-        dropsThisSession--;
-        return;
-      }
-      victim.classList.add('spinner-dropping');
-      this._invalidateAnimations(); // spinner-dropping rewrites animation-name on that club
-      this._reapply(); // before measuring: playback rate is what stretches the fall
-      setTimeout(() => {
-        victim.classList.remove('spinner-dropping');
-        this._invalidateAnimations();
-        this._reapply();
-      }, this._dropDurationMs(victim));
-    }, TUNING.dropAfterMs);
-  }
-
-  /**
-   * Disarm a fumble that has not fired yet, refunding its reserved impression.
+   * Space `pivots` evenly round the ring as a cascade of `count`.
+   * @param {Element[]} pivots - The `.spinner-pivot`s, in slot order.
+   * @param {number} count - Clubs in the cascade.
    * @private
    */
-  _cancelPendingDrop() {
-    if (!this._dropTimer) return;
-    clearTimeout(this._dropTimer);
-    this._dropTimer = 0;
-    dropsThisSession--;
+  _layout(pivots, count) {
+    this.style.setProperty('--spinner-n', String(count));
+    pivots.forEach((pivot, i) => placeClub(/** @type {HTMLElement} */ (pivot), i, count));
   }
 
   /**
-   * Choose which club fumbles: the one best placed to be falling right now.
+   * Put a freshly-inserted club in step with the ones already flying.
    *
-   * The drop pushes a club outward along its own radius (see the CSS), and that
-   * direction rides the orbit — so it reads as gravity near the bottom of the
-   * ring and as a glitch anywhere else. Picking at random meant most fumbles
-   * fired at the wrong point on the ring and looked like a stumble in the
-   * animation rather than a dropped club.
-   *
-   * The clubs are evenly spaced, so rather than waiting for the right moment
-   * (another timer, and a wait as long as a whole orbit) we take whichever club
-   * is closest to {@link TUNING.dropLeadDeg} before the bottom. With three clubs
-   * that is never more than 60° off, and every club above three sharpens it.
-   *
-   * Falls back to a random club when the orbit's phase can't be read — a
-   * paused or not-yet-started animation, or an engine without the Web
-   * Animations API. A fumble at an unknown phase is still better than none.
-   * @returns {Element|null} The club to drop, or null when there are none.
+   * Copying `currentTime` from an existing club is exact, and the CSS keeps
+   * handling the rest: every orbit runs with no delay (so matching currentTime
+   * IS matching position), and each flip's own `--spinner-phase` delay then
+   * places its slow-zone at the bottom of its slot. Any fire the club carries
+   * is synced last, to the club's own now-correct clocks.
+   * @param {Element} pivot - The newly-inserted `.spinner-pivot`.
    * @private
    */
-  _pickDropVictim() {
-    const clubs = Array.from(this.querySelectorAll('.spinner-club'));
-    if (clubs.length === 0) return null;
-    const random = () => clubs[Math.floor(Math.random() * clubs.length)] || null;
-
-    const { orbits } = this._animations();
-    const ref = orbits.find(a => a.currentTime !== null);
-    const period = Number(ref?.effect?.getComputedTiming?.().duration);
-    if (!ref || !Number.isFinite(period) || period <= 0) return random();
-
-    // Where the whole ring has rotated to. Every orbit animation shares one
-    // start time and carries no delay, so any of them speaks for all of them;
-    // a club's position on screen is this plus its own static slot angle.
-    const spun = ((Number(ref.currentTime) % period) / period) * 360;
-    const target = 180 - TUNING.dropLeadDeg; // 0deg is the top of the ring
-    let best = null;
-    let bestErr = Infinity;
-    for (const club of clubs) {
-      const pivot = club.closest('.spinner-pivot');
-      const slot = parseFloat(/** @type {HTMLElement|null} */ (pivot)?.style.getPropertyValue('--spinner-angle') || '');
-      if (!Number.isFinite(slot)) continue;
-      // Shortest angular distance to the target, either way round the ring.
-      const err = Math.abs((((slot + spun - target) % 360) + 540) % 360 - 180);
-      if (err < bestErr) {
-        bestErr = err;
-        best = club;
-      }
-    }
-    return best || random();
+  _syncPhase(pivot) {
+    const { orbits, flips } = this._animations();
+    const club = /** @type {Element} */ (pivot.querySelector('.spinner-club'));
+    matchClock(pivot.querySelector('.spinner-orbit'), orbits.find(a => a.currentTime !== null));
+    matchClock(club, flips.find(a => a.currentTime !== null));
+    this._fire.join(club);
   }
 
-  /**
-   * How long the fumble on `club` will actually take, in wall-clock ms.
-   *
-   * Measured from the running animation rather than assumed, because two things
-   * stretch it. The CSS states the length as a fraction of `--spinner-duration`, which a
-   * host can override; and playback rate scales every animation on the club, so
-   * a fumble during a slow tool-call ramp can run several times longer than the
-   * nominal length. A fixed timer would strip the class mid-fall and teleport
-   * the club back to its slot — the exact snap this is here to avoid. The margin
-   * covers a rate change landing mid-fumble; overshooting only leaves a spent
-   * class on the element a moment longer.
-   * @param {Element} club - The club carrying the drop animation.
-   * @returns {number} Milliseconds to let the fumble run.
-   * @private
-   */
-  _dropDurationMs(club) {
-    const anims = typeof (/** @type {any} */ (club).getAnimations) === 'function'
-      ? /** @type {any} */ (club).getAnimations()
-      : [];
-    for (const a of anims) {
-      if (a.animationName !== 'juggler-spinner-drop') continue;
-      const active = Number(a.effect?.getComputedTiming?.().activeDuration);
-      const rate = Math.abs(Number(a.playbackRate)) || 1;
-      if (Number.isFinite(active) && active > 0) return (active / rate) * 1.2;
-    }
-    return TUNING.dropMs;
-  }
+  /* ---- Animations ------------------------------------------------------- */
 
   /**
-   * The running animations, split by what they drive. Resolved fresh on each
-   * call rather than cached: {@link restart} destroys and rebuilds every
-   * animation, so a cached list would go stale the first time the spinner
-   * self-heals.
-   * @returns {{orbits: Animation[], flips: Animation[]}} Live animation objects.
+   * The animations on the cascade's clock, split by what they drive: the
+   * orbits, the flips, and the fire's counter-rotations. Cached, because
+   * `getAnimations()` forces a style flush and the rate is driven from a Yjs
+   * observer several times a second on every visible spinner: resolving it
+   * live turned a status update into a synchronous layout, which is enough to
+   * make the whole page stutter. Whatever rebuilds animations drops the cache
+   * (see {@link _animationsChanged}).
+   * @returns {{orbits: Animation[], flips: Animation[], fire: Animation[]}} Live animation objects.
    * @private
    */
   _animations() {
     if (this._animCache) return this._animCache;
     /** @type {Animation[]} */ const orbits = [];
     /** @type {Animation[]} */ const flips = [];
-    for (const el of Array.from(this.querySelectorAll('.spinner-orbit, .spinner-club'))) {
-      if (typeof (/** @type {any} */ (el).getAnimations) !== 'function') continue;
-      const target = el.classList.contains('spinner-orbit') ? orbits : flips;
-      for (const a of el.getAnimations()) target.push(a);
+    /** @type {Animation[]} */ const fire = [];
+    for (const el of Array.from(this.querySelectorAll(`.spinner-orbit, .spinner-club, ${FIRE_CLOCKED}`))) {
+      const target = el.classList.contains('spinner-orbit') ? orbits
+        : el.classList.contains('spinner-club') ? flips : fire;
+      target.push(...animationsOf(el));
     }
-    this._animCache = { orbits, flips };
+    this._animCache = { orbits, flips, fire };
     return this._animCache;
   }
 
   /**
-   * Forget the resolved animations, so the next caller re-reads them.
-   *
-   * Must be called wherever the animations are actually rebuilt — a club added
-   * or removed, a restart, a class change that alters `animation-name`. The
-   * cache exists because `getAnimations()` forces a style flush, and the rate
-   * is driven from a Yjs observer several times a second on every visible
-   * spinner: resolving it live turned a status update into a synchronous
-   * layout, which is enough to make the whole page stutter.
+   * The set of running animations has changed — fire added or removed, or
+   * every animation rebuilt by {@link restart}: forget the resolved list, and
+   * give whatever is running now the reported rate.
    * @private
    */
-  _invalidateAnimations() {
+  _animationsChanged() {
     this._animCache = null;
-  }
-
-  /**
-   * Put a freshly-inserted club in step with the ones already flying.
-   *
-   * A new element's animations begin their own timeline at zero, so without
-   * this a club added mid-flight orbits at whatever phase the cascade happened
-   * to be at when it appeared — visibly out of the cascade. Copying
-   * `currentTime` from an existing club is exact, and the CSS keeps handling
-   * the rest: every orbit runs with no delay (so matching currentTime IS
-   * matching position), and each flip's own `--spinner-phase` delay then places its
-   * slow-zone at the bottom of its slot.
-   * @param {Element} pivot - The newly-inserted `.spinner-pivot`.
-   * @private
-   */
-  _syncPhase(pivot) {
-    const { orbits, flips } = this._animations();
-    const orbitRef = orbits.find(a => a.currentTime !== null);
-    const flipRef = flips.find(a => a.currentTime !== null);
-    const newOrbit = /** @type {any} */ (pivot.querySelector('.spinner-orbit'));
-    const newFlip = /** @type {any} */ (pivot.querySelector('.spinner-club'));
-    if (orbitRef && newOrbit?.getAnimations) {
-      for (const a of newOrbit.getAnimations()) a.currentTime = orbitRef.currentTime;
-    }
-    if (flipRef && newFlip?.getAnimations) {
-      for (const a of newFlip.getAnimations()) a.currentTime = flipRef.currentTime;
-    }
+    this._reapply();
   }
 
   /**
    * Re-apply everything that lives on the Animation objects rather than in CSS.
    *
-   * {@link restart} throws the animations away and lets CSS build new ones, so
-   * anything set imperatively is lost with them. Phase survives that on its own
-   * (the rebuilt animations all start together, and their relative offsets come
-   * from the CSS delays), but the playback rate does not — without this a
-   * spinner that self-heals after an un-hide would silently drop back to 1×.
+   * New animations start at 1×, so anything set imperatively is lost when CSS
+   * builds them afresh. Phase survives that on its own (the rebuilt animations
+   * all start together, and their relative offsets come from the CSS delays),
+   * but the playback rate does not — without this a spinner that self-heals
+   * after an un-hide would silently drop back to 1×.
    * @private
    */
   _reapply() {
     if (this._rate !== 1) this._applyRate(this._rate);
-  }
-
-  /**
-   * Set the playback rate of every animation in the cascade.
-   *
-   * `updatePlaybackRate` rather than a `--spinner-duration` rewrite: it preserves each
-   * animation's current time and adjusts its start time instead, so the cascade
-   * changes speed without jumping. Rewriting `--spinner-duration` (or
-   * `animation-duration`) re-maps progress against the new duration and makes
-   * the clubs lurch. Orbit and flip take the same rate so each club's
-   * slow-zone stays pinned to the bottom of its orbit at any speed.
-   * @param {number} rate - Multiple of the CSS duration.
-   * @private
-   */
-  _applyRate(rate) {
-    const { orbits, flips } = this._animations();
-    for (const a of orbits.concat(flips)) {
-      if (typeof a.updatePlaybackRate === 'function') a.updatePlaybackRate(rate);
-      else a.playbackRate = rate;
-    }
-  }
-
-  /**
-   * Build the cascade from scratch at `count` clubs. Wholesale replacement, so
-   * this is only for the initial render — changing the count of a running
-   * spinner this way would restart every club's animation from frame 0.
-   * @param {number} count - How many clubs to lay out.
-   * @private
-   */
-  _renderClubs(count) {
-    this._invalidateAnimations();
-    this.style.setProperty('--spinner-n', String(count));
-    this.innerHTML = clubHTML().repeat(count);
-    Array.from(this.children).forEach((pivot, i) => placeClub(/** @type {HTMLElement} */ (pivot), i, count));
-  }
-
-  disconnectedCallback() {
-    super.disconnectedCallback();
-    // Plain fields rather than this.setTimeout: the setters re-arm these on every
-    // streaming tick, and each JugglerElement timer holds a cleanup until the
-    // next disconnect.
-    clearTimeout(this._shrinkTimer);
-    this._shrinkTimer = 0;
-    clearTimeout(this._rateTimer);
-    this._rateTimer = 0;
-    this._invalidateAnimations();
-    this._cancelPendingDrop();
   }
 
   /**
@@ -821,11 +637,7 @@ class JugglerSpinner extends JugglerElement {
     this.style.display = 'none';
     void this.offsetHeight; // commit the display:none, discarding the frozen animations
     this.style.display = prev;
-    // The reflow discarded the old animations and CSS has just built new ones,
-    // so anything resolved earlier now points at objects that no longer drive
-    // this element.
-    this._invalidateAnimations();
-    this._reapply(); // the rebuilt animations start at 1×; restore the reported rate
+    this._animationsChanged();
   }
 }
 

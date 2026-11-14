@@ -26,15 +26,17 @@ injectStylesOnce('file-pin-styles', `
 
 /* The view is at least as tall as the pin, so a viewer whose content has no
    height of its own (the HTML viewer's frame) can fill it; content longer than
-   the pin grows past it and the pinboard body scrolls. */
+   the pin grows past it and the pinboard body scrolls. One grid row of 1fr
+   stretches whatever the view renders into to that height without naming it —
+   the content element is the view's own — and the row's auto minimum lets
+   longer content grow it. The column is held to the pin's width, as a flex
+   column's cross axis would be, so a long unwrapped line scrolls inside its
+   viewer instead of widening the pin. */
 .file-pin > file-view {
-  display: flex;
+  display: grid;
   flex: 1 0 auto;
-  flex-direction: column;
-}
-
-.file-pin > file-view > .file-view-content {
-  flex: 1 0 auto;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 1fr;
 }
 
 .file-pin__note {

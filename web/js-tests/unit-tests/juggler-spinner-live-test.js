@@ -22,7 +22,7 @@ import { TOOL_STATES } from '../../sdk/lib/message.js';
 import { runningToolsInTree } from '../../js/model/thread-navigation.js';
 import LLMState from '../../js/services/llm-state.js';
 // The side-effect import registers the custom element.
-import { __resetDropBudgetForTests } from '../../js/components/juggler-spinner.js';
+import '../../js/components/juggler-spinner.js';
 import { underPseudoLocale, shownStrings } from '../utilities/pseudo-locale.js';
 import { assert, waitFor } from '../utilities/test-helpers.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
@@ -66,20 +66,6 @@ function mount(live) {
   if (live) el.setAttribute('live', '');
   document.body.appendChild(el);
   return el;
-}
-
-/**
- * Whether this environment asks for reduced motion.
- *
- * The fumble is the one part of the spinner that is decoration rather than
- * instrumentation, so it is suppressed twice under the preference: the CSS
- * leaves `.spinner-dropping` spinning in the ring, and `offerDrop` returns before
- * arming. CI machines report the preference, so the drop cases assert whichever
- * of the two behaviours this machine is entitled to.
- * @returns {boolean} True when the reduce preference is set.
- */
-function reducedMotion() {
-  return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
 }
 
 /**
@@ -338,39 +324,28 @@ export async function runTests() {
   // spinner's job is to say "working"), and a burst must not exceed the cap.
   try {
     const el = mount(true); mounted.push(el);
-    el.throughput = 0;
+    el.report({ throughput: 0 });
     if (Math.abs(el.rate - 0.25) > 0.001)
       throw new Error(`a stall should sit at the floor 0.25, got ${el.rate}`);
 
-    el.throughput = 120;   // the reference "fast" rate
+    el.report({ throughput: 120 });   // the reference "fast" rate
     if (Math.abs(el.rate - 2) > 0.001)
       throw new Error(`120 tok/s should reach the cap 2, got ${el.rate}`);
 
-    el.throughput = 100000; // absurd burst
+    el.report({ throughput: 100000 }); // absurd burst
     if (Math.abs(el.rate - 2) > 0.001)
       throw new Error(`a burst should stay capped at 2, got ${el.rate}`);
 
-    el.throughput = 60;    // half the reference → half the span above the floor
+    el.report({ throughput: 60 });    // half the reference → half the span above the floor
     if (Math.abs(el.rate - 1.125) > 0.001)
       throw new Error(`60 tok/s should map to 1.125, got ${el.rate}`);
 
     // Garbage in must not move the spinner to some arbitrary speed.
-    el.throughput = 60;
-    const before = el.rate;
-    el.throughput = NaN;
+    el.report({ throughput: NaN });
     if (Math.abs(el.rate - 0.25) > 0.001)
-      throw new Error(`NaN should read as no flow (0.25), got ${el.rate} (was ${before})`);
+      throw new Error(`NaN should read as no flow (0.25), got ${el.rate}`);
     passed++;
   } catch (e) { failed++; errors.push(`throughput maps onto rate: ${e.message}`); }
-
-  // K — a non-live spinner ignores throughput too, so the fetch-waiters keep
-  // their fixed speed no matter what anyone sets on them.
-  try {
-    const el = mount(false); mounted.push(el);
-    el.throughput = 500;
-    if (el.rate !== 1) throw new Error(`non-live spinner changed rate to ${el.rate}`);
-    passed++;
-  } catch (e) { failed++; errors.push(`non-live spinner ignores throughput: ${e.message}`); }
 
   // N — report() as the whole speed model: waiting is slow, streaming is quick,
   // and a tool call tires slowly rather than dropping to the floor the instant
@@ -499,131 +474,122 @@ export async function runTests() {
     passed++;
   } catch (e) { failed++; errors.push(`LLMState.getThroughput: ${e.message}`); }
 
-  // P — the fumble picks the club that is about to fall, not any club. The drop
-  // is an outward shove along the club's own radius, so it only reads as gravity
-  // near the bottom of the ring; fired at the top it flings a club upward.
+  // S — a long conversation sets the clubs alight, live spinners only, and the
+  // flames grow with the context.
+  try {
+    const inert = mount(false); mounted.push(inert);
+    inert.contextTokens = 900000;
+    assert(!inert.classList.contains('is-on-fire') && !inert.querySelector('.spinner-fire'),
+      'a non-live spinner caught fire');
+
+    const el = mount(true); mounted.push(el);
+    el.contextTokens = 249999;
+    assert(!el.classList.contains('is-on-fire') && !el.querySelector('.spinner-fire'),
+      'below the threshold the clubs should not burn');
+    el.contextTokens = 250000;
+    assert(el.classList.contains('is-on-fire'), 'at 250k the spinner should be on fire');
+    const fires = el.querySelectorAll('.spinner-club > .spinner-fire').length;
+    assert(fires === 3, `expected a fire on each of 3 clubs, got ${fires}`);
+    const low = parseFloat(el.style.getPropertyValue('--spinner-fire-intensity'));
+    el.contextTokens = 2000000;
+    const high = parseFloat(el.style.getPropertyValue('--spinner-fire-intensity'));
+    assert(low > 0 && high > low, `flames should grow with the context: ${low} at 250k, ${high} at 2M`);
+    el.contextTokens = 1500000;
+    assert(parseFloat(el.style.getPropertyValue('--spinner-fire-intensity')) === high,
+      'intensity should be capped at the top of its range');
+    passed++;
+  } catch (e) { failed++; errors.push(`long context sets the clubs on fire: ${e.message}`); }
+
+  // T — the fire stays upright only while its counter-rotations match the club
+  // exactly: a club that joins a burning cascade carries fire whose clocks are
+  // its own club's, and a rate change reaches those clocks but not the flicker.
   try {
     const el = mount(true); mounted.push(el);
-    /** @type {any[]} */ const orbits = [];
-    for (const node of Array.from(el.querySelectorAll('.spinner-orbit'))) {
-      for (const a of /** @type {any} */ (node).getAnimations()) orbits.push(a);
+    // Off frame 0 first, as in H, so fire left at its own zero shows. Then both
+    // ways a club gets fire: lit where it flies, and joining while it burns.
+    for (const node of Array.from(el.querySelectorAll('.spinner-orbit, .spinner-club'))) {
+      for (const a of /** @type {any} */ (node).getAnimations()) a.currentTime = 500;
     }
-    if (orbits.length !== 3) throw new Error(`expected 3 orbit animations, got ${orbits.length}`);
-    const period = Number(orbits[0].effect.getComputedTiming().duration);
-    if (!(period > 0)) throw new Error('orbit animation has no measurable period');
-
-    /**
-     * Which slot's club the spinner would fumble at a given ring rotation.
-     * @param {number} spunDeg - How far the ring has turned from its start.
-     * @returns {number} Index of the chosen pivot.
-     */
-    const victimSlotAt = (spunDeg) => {
-      for (const a of orbits) a.currentTime = period * (spunDeg / 360);
-      el._invalidateAnimations();
-      const victim = el._pickDropVictim();
-      return Array.from(el.children).findIndex(p => p.contains(victim));
+    el.contextTokens = 300000;
+    el.clubs = 5;
+    const pivots = Array.from(el.querySelectorAll('.spinner-pivot'));
+    assert(pivots.length === 5, `expected 5 clubs, got ${pivots.length}`);
+    const time = (/** @type {Element|null} */ node, /** @type {string} */ name) => {
+      const a = /** @type {any} */ (node)?.getAnimations().find((/** @type {any} */ x) => x.animationName === name);
+      return a ? Number(a.currentTime) : NaN;
     };
+    for (const [i, pivot] of pivots.entries()) {
+      const club = pivot.querySelector('.spinner-club');
+      const flip = time(club, 'juggler-spinner-spin');
+      const orbit = time(pivot.querySelector('.spinner-orbit'), 'juggler-spinner-orbit');
+      const unspin = time(pivot.querySelector('.spinner-fire-unspin'), 'juggler-spinner-spin');
+      const upright = time(pivot.querySelector('.spinner-fire-upright'), 'juggler-spinner-orbit');
+      const lean = time(pivot.querySelector('.spinner-fire-lean'), 'juggler-spinner-fire-lean');
+      assert(Math.abs(unspin - flip) < 20, `club ${i}: unspin at ${unspin}ms, its flip at ${flip}ms`);
+      assert(Math.abs(upright - orbit) < 20, `club ${i}: upright at ${upright}ms, its orbit at ${orbit}ms`);
+      assert(Math.abs(lean - orbit) < 20, `club ${i}: lean at ${lean}ms, its orbit at ${orbit}ms`);
+    }
 
-    // Ring unrotated: clubs sit at 0/120/240deg, and the target (55deg before
-    // the bottom, so 125deg) is all but on top of the second one.
-    if (victimSlotAt(0) !== 1)
-      throw new Error(`unrotated ring should fumble slot 1, got ${victimSlotAt(0)}`);
-    // Half a turn on, those same clubs are at 180/300/60 — now the first is the
-    // one heading into the bottom of its throw.
-    if (victimSlotAt(180) !== 0)
-      throw new Error(`half-turned ring should fumble slot 0, got ${victimSlotAt(180)}`);
-    // ...and a third of a turn later it is the last one's turn.
-    if (victimSlotAt(240) !== 2)
-      throw new Error(`two-thirds-turned ring should fumble slot 2, got ${victimSlotAt(240)}`);
+    // On the same clock, the unspin (the flip's keyframes run in reverse) must
+    // cancel the flip at every point of the cycle. That holds only while the
+    // spin keyframes stay point-symmetric; an edit that breaks the symmetry
+    // tilts the flames, and nothing else would say so.
+    const club = /** @type {Element} */ (pivots[0].querySelector('.spinner-club'));
+    const unspinEl = /** @type {Element} */ (pivots[0].querySelector('.spinner-fire-unspin'));
+    const flipAnim = /** @type {any} */ (club).getAnimations().find((/** @type {any} */ a) => a.animationName === 'juggler-spinner-spin');
+    const unspinAnim = /** @type {any} */ (unspinEl).getAnimations()[0];
+    const period = Number(flipAnim.effect.getComputedTiming().duration);
+    const angle = (/** @type {Element} */ node) => {
+      const m = new window.DOMMatrix(getComputedStyle(node).transform);
+      return Math.atan2(m.b, m.a) * 180 / Math.PI;
+    };
+    for (let k = 0; k < 20; k++) {
+      flipAnim.currentTime = unspinAnim.currentTime = (period * k) / 20;
+      const net = ((angle(club) + angle(unspinEl)) % 360 + 540) % 360 - 180;
+      assert(Math.abs(net) < 0.5, `at ${k * 5}% of the flip the flame is ${net.toFixed(1)}° off upright`);
+    }
+
+    // Same spy as G: what was asked for, not what a frameless page committed.
+    const animProto = /** @type {any} */ (globalThis).Animation.prototype;
+    const realUpdate = animProto.updatePlaybackRate;
+    /** @type {Map<any, number>} */ const asked = new Map();
+    try {
+      animProto.updatePlaybackRate = function (/** @type {number} */ r) {
+        asked.set(this, r);
+        return realUpdate.call(this, r);
+      };
+      el.rate = 1.5;
+      const clocked = () => Array.from(el.querySelectorAll('.spinner-fire-unspin, .spinner-fire-upright, .spinner-fire-lean'))
+        .flatMap((n) => /** @type {any} */ (n).getAnimations());
+      let missed = -1;
+      await waitFor(() => {
+        const list = clocked();
+        missed = list.filter((a) => Math.abs((asked.get(a) ?? 0) - 1.5) > 0.001).length;
+        return list.length === 15 && missed === 0;
+      }, { timeoutMs: 1000, description: () => `all 15 fire clocks to be asked for 1.5 (${missed} never were)` });
+      const flickers = Array.from(el.querySelectorAll('.spinner-flame, .spinner-fire-glow'))
+        .flatMap((n) => /** @type {any} */ (n).getAnimations());
+      assert(flickers.every((a) => !asked.has(a)), 'the flicker should keep real time, not the cascade rate');
+    } finally {
+      animProto.updatePlaybackRate = realUpdate;
+    }
     passed++;
-  } catch (e) { failed++; errors.push(`the fumble picks a falling club: ${e.message}`); }
+  } catch (e) { failed++; errors.push(`fire keeps step with its club: ${e.message}`); }
 
-  // Q — the fumble is allowed to finish. The class is stripped on a timer, and
-  // the animation it belongs to is stated as a fraction of the orbit and then
-  // stretched by playback rate — so a fixed timer would cut a slow fumble off
-  // mid-fall and teleport the club back into the ring.
+  // U — compaction puts the fire out: off at once, and the markup (with its
+  // running animations) gone once it has died down.
   try {
     const el = mount(true); mounted.push(el);
-    const club = /** @type {any} */ (el.querySelector('.spinner-club'));
-    club.classList.add('spinner-dropping');
-    el._invalidateAnimations();
-    const drop = club.getAnimations().find((/** @type {any} */ a) => a.animationName === 'juggler-spinner-drop');
-    if (reducedMotion()) {
-      // The club keeps its place in the cascade: under the preference the class
-      // buys the spin alone, and there is no fall to run to completion.
-      if (drop) throw new Error('reduced motion must leave the club in the ring');
-    } else {
-      if (!drop) throw new Error('spinner-dropping did not start a drop animation');
-
-      const full = el._dropDurationMs(club);
-      const nominal = Number(drop.effect.getComputedTiming().activeDuration);
-      if (!(full >= nominal))
-        throw new Error(`allowed ${full}ms for a ${nominal}ms fumble — it would be cut short`);
-
-      // Halve the speed and the fumble takes twice as long in wall time. This is
-      // the case that used to snap: a spinner tired by a long tool call runs well
-      // below 1x, and the drop is stretched with everything else.
-      drop.playbackRate = 0.5;
-      const slow = el._dropDurationMs(club);
-      if (!(slow > full * 1.8))
-        throw new Error(`at half speed expected roughly double (${full}ms → ${slow}ms)`);
-    }
-    club.classList.remove('spinner-dropping');
+    el.contextTokens = 400000;
+    el.contextTokens = 120000;
+    assert(!el.classList.contains('is-on-fire'), 'the fire should go out as soon as the context drops');
+    await waitFor(() => !el.querySelector('.spinner-fire'),
+      () => `the spent fire markup to be removed (${el.querySelectorAll('.spinner-fire').length} left)`, 3000);
+    el.contextTokens = 400000;
+    assert(el.querySelectorAll('.spinner-fire').length === 3, 'a later long context should relight every club');
     passed++;
-  } catch (e) { failed++; errors.push(`the fumble runs to completion at any speed: ${e.message}`); }
+  } catch (e) { failed++; errors.push(`fire goes out when the context drops: ${e.message}`); }
 
-  // M — the drop's session budget: the guarantee that stops the gag ever
-  // becoming wallpaper.
-  //
-  // Asserted on the RESERVATION rather than by watching a club actually fall.
-  // The fumble is deliberately armed seconds ahead, so waiting for one would
-  // sleep the suite through that delay; and the bug this guards against was in
-  // the reservation itself — two spinners both passing the budget check before
-  // either had incremented it, which in a multi-column layout made "once per
-  // session" mean "once per visible spinner". Counting armed spinners tests
-  // that directly and instantly.
-  //
-  // Runs last: it spends the session's allowance, so nothing after it can arm.
-  //
-  // The allowance is per WINDOW, and a lane's tests share one, so an earlier
-  // test that ran a turn may already have spent it — which would leave nothing
-  // to arm here and read as a breach of a budget that was in fact working.
-  // Take it back before counting.
-  __resetDropBudgetForTests();
-  const inert = mount(false); mounted.push(inert);
-  const dropA = mount(true); mounted.push(dropA);
-  const dropB = mount(true); mounted.push(dropB);
-  const realRandom = Math.random;
-  try {
-    Math.random = () => 0; // always inside dropChance, always the first club
-    for (let i = 0; i < 500; i++) { inert.offerDrop(); dropA.offerDrop(); dropB.offerDrop(); }
-  } finally {
-    Math.random = realRandom;
-  }
-
-  try {
-    const armed = [inert, dropA, dropB].filter(el => el._dropTimer).length;
-    if (armed > 1)
-      throw new Error(`session budget breached: ${armed} spinners armed a fumble at once`);
-    // Under reduced motion nothing arms at all: `offerDrop` turns 500 offers
-    // down before the budget is ever consulted.
-    const expected = reducedMotion() ? 0 : 1;
-    if (armed !== expected)
-      throw new Error(`expected ${expected} armed fumble(s)${expected === 0 ? ' under reduced motion' : ''}, got ${armed}`);
-    // Nothing may fumble on the spot: a drop that fired the instant a turn
-    // began would land on every trivial turn, which is not rare.
-    if (document.querySelectorAll('.spinner-dropping').length !== 0)
-      throw new Error('a fumble fired immediately instead of waiting out the turn');
-    passed++;
-  } catch (e) { failed++; errors.push(`drop session budget: ${e.message}`); }
-
-  try {
-    if (inert._dropTimer) throw new Error('non-live spinner armed a fumble');
-    passed++;
-  } catch (e) { failed++; errors.push(`non-live spinner never fumbles: ${e.message}`); }
-
-  // Detaching cancels the armed fumble and refunds its impression, so the
-  // budget is not silently spent by a spinner that never showed anything.
   for (const el of mounted) el.remove();
 
   // N — en-XA: the label a spinner gives itself is translated, whether or not

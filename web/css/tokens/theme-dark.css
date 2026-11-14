@@ -131,6 +131,11 @@
        lines on light don't read at the same opacity. */
     --chrome-pattern-strength: 0.06;
 
+    /* How strongly the dot grid behind the properties panel is inked
+       (components/properties-panel.css). Dots cover less ground than lines, so
+       they take more ink to read as faintly. */
+    --properties-pattern-strength: 0.07;
+
     /* ANSI foreground palette (dark) — used by utils/ansi.js to colour bash
        output text in the properties panel. Tuned to read well on --bg-primary.
        Backgrounds use the theme-independent --ansi-bg-* palette (see :root). */

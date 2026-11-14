@@ -27,6 +27,12 @@
     --spinner-club-w: calc(var(--spinner-size) * 0.22);
     --spinner-club-h: calc(var(--spinner-size) * 0.36);
 
+    /* The fire (see "Fire" below). Intensity is set by the component as the
+       context grows; the lean is how far a flame trails the club's motion. */
+    --spinner-fire-intensity: 1;
+    --spinner-flame-w: calc(var(--spinner-size) * 0.15 * var(--spinner-fire-intensity));
+    --spinner-fire-lean: 28deg;
+
     display: inline-block;
     position: relative;
     width: var(--spinner-size);
@@ -70,6 +76,12 @@
     height: 0;
     transform: rotate(var(--spinner-angle, 0deg));
     transition: transform var(--duration-slower) ease, opacity var(--transition-slow);
+
+    /* Where in the cycle this club runs, as the animation-delay of everything
+       that turns with it: the slot's share of one orbit, negated so the club
+       starts part-way through rather than waiting. Resolved here, where
+       --spinner-phase is set, and inherited by the club and its fire. */
+    --spinner-phase-delay: calc(var(--spinner-duration) * var(--spinner-phase, 0) / var(--spinner-n) * -1);
 }
 
 /* Clubs joining or leaving the cascade fade rather than pop — the same
@@ -91,8 +103,6 @@
     animation: juggler-spinner-orbit var(--spinner-duration) linear infinite;
 }
 
-
-
 /* The flip's slow-zone has to line up with the bottom of THIS club's orbit, so
    it keeps a per-club phase offset — generalised from the hardcoded thirds to
    any club count. Expressed against the --spinner-duration variable (not
@@ -105,7 +115,7 @@
     left: calc(var(--spinner-club-w) / -2);
     top: calc((var(--spinner-radius) + var(--spinner-club-h) / 2) * -1);
     animation: juggler-spinner-spin var(--spinner-duration) linear infinite;
-    animation-delay: calc(var(--spinner-duration) * var(--spinner-phase, 0) / var(--spinner-n) * -1);
+    animation-delay: var(--spinner-phase-delay);
 }
 
 /* Scoped through .spinner-club, which the svg always lives inside, so this matches
@@ -136,93 +146,220 @@
    = nearly stopped. Each club's animation-delay aligns its own
    slow-zone with its position at the bottom of the orbit, so all
    three clubs visibly decelerate as they fall and accelerate as
-   they rise. */
+   they rise.
+
+   Point-symmetric about 50% / 180deg — every step at p% has a partner at
+   (100 - p)% that turns (360 - angle) — and the fire depends on it: run in
+   reverse, this then turns by exactly minus the forward angle, which is how
+   .spinner-fire-unspin undoes the flip with these same keyframes. */
 @keyframes juggler-spinner-spin {
     0%   { transform: rotate(0deg); }
     12%  { transform: rotate(80deg); }
     25%  { transform: rotate(140deg); }
     37%  { transform: rotate(170deg); }
     50%  { transform: rotate(180deg); }
-    62%  { transform: rotate(190deg); }
+    63%  { transform: rotate(190deg); }
     75%  { transform: rotate(220deg); }
-    87%  { transform: rotate(280deg); }
+    88%  { transform: rotate(280deg); }
     100% { transform: rotate(360deg); }
 }
 
-/* ---- The drop -------------------------------------------------------------
-   Very occasionally one club is fumbled: it sags out of the ring, wobbles, and
-   is caught. Animated on the `translate` PROPERTY rather than `transform`,
-   which is what makes it composable — the club's `transform` is already fully
-   occupied by its flip, and CSS applies `translate` before `transform`, so the
-   two combine instead of one clobbering the other. The club therefore never
-   leaves the cascade's timing: it keeps flipping and keeps orbiting throughout,
-   and rejoins the ring exactly in phase.
+/* ---- Fire ------------------------------------------------------------------
+   A long conversation sets the clubs alight (`is-on-fire` on the host, with
+   --spinner-fire-intensity scaling the flames as the context grows; both set by
+   the component). The fire markup only exists while it is wanted, inside each
+   club after its svg:
 
-   Local +Y on the club points at the centre of the orbit, so the negative
-   offsets below push it outward — off the ring, below the orbit path at the
-   bottom of a throw. Outward is a direction in the ROTATING frame, so it only
-   coincides with screen-down while the club is near the bottom of its orbit:
-   the same offset fired at the top would fling the club upward and read as a
-   glitch rather than a fumble. That is why the club is chosen by where it is on
-   the ring (see _pickDropVictim) instead of at random — the shape below assumes
-   the fall lands in the bottom of a throw.
+     .spinner-fire            anchor at the club's fat end, where the wick is
+       .spinner-fire-unspin     inverse of the club's flip       ┐ cancel every
+         .spinner-fire-upright  inverse of the orbit and slot    ┘ rotation above
+           .spinner-fire-lean   drags the flame against the motion
+             .spinner-fire-glow
+             .spinner-flame ×2
 
-   The duration is a fraction of the orbit rather than an absolute, so the fall
-   still finishes within one pass of the bottom whatever --spinner-duration says. */
-:where(juggler-spinner) .spinner-club.spinner-dropping {
-    animation:
-        juggler-spinner-spin var(--spinner-duration) linear infinite,
-        juggler-spinner-drop calc(var(--spinner-duration) * 0.6) linear 1;
-    animation-delay:
-        calc(var(--spinner-duration) * var(--spinner-phase, 0) / var(--spinner-n) * -1),
-        0s;
+   Rotations compose, so pivot(+a) · orbit(+o) · flip(+s) · unspin(-s) ·
+   upright(-o-a) leaves the flames' frame upright on screen while its origin
+   still rides the wick round the cascade: the clubs tumble, the fire burns up.
+
+   The unspin and upright wrappers run the club's own spin and orbit keyframes
+   in reverse, and the lean is phased like the flip, so all three are clocked to
+   the cascade: the component gives them its playback rate and phase-syncs them
+   like the clubs (juggler-spinner-fire.js).
+   The flicker and the halo's pulse are not — fire does not slow down when the
+   juggler does. */
+:where(juggler-spinner) .spinner-fire {
+    position: absolute;
+    left: 15%;
+    top: 88%;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+
+    /* Under the club's own body. The flip animation makes .spinner-club a
+       stacking context, so this orders within the club and nowhere else. */
+    z-index: -1;
+    scale: 0;
+    opacity: 0;
+
+    /* Going out: drawn back into the wick. */
+    transition:
+        scale var(--duration-slower) var(--ease-in),
+        opacity var(--duration-slower) var(--ease-in);
 }
 
-/* Each segment carries its own timing function (the shorthand above is
-   `linear`), because a single easing across the whole fumble is what made the
-   old one lurch: gravity accelerates, an impact decelerates hard, and a catch
-   eases out — one curve cannot be all three. The catch is deliberately the
-   longest phase, nearly half the animation, so the club is gathered back into
-   the pattern rather than snapping to its slot. */
-@keyframes juggler-spinner-drop {
-    /* dropped — accelerating away from the ring */
-    0% {
-        translate: 0 0;
-        animation-timing-function: cubic-bezier(0.45, 0, 1, 1);
-    }
-
-    /* hits the floor */
-    26% {
-        translate: 0 calc(var(--spinner-radius) * -1.2);
-        animation-timing-function: cubic-bezier(0, 0, 0.35, 1);
-    }
-
-    /* bounces */
-    40% {
-        translate: 0 calc(var(--spinner-radius) * -0.9);
-        animation-timing-function: cubic-bezier(0.45, 0, 1, 1);
-    }
-
-    /* and settles */
-    52% {
-        translate: 0 calc(var(--spinner-radius) * -1.2);
-        animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-    }
-
-    /* scooped back into the cascade */
-    100% { translate: 0 0; }
+/* Catching: flares up out of the wick, a little past full, and settles. */
+:where(juggler-spinner.is-on-fire) .spinner-fire {
+    scale: 1;
+    opacity: 1;
+    transition:
+        scale calc(var(--duration-slower) * 2) var(--ease-spring),
+        opacity var(--duration-slower) var(--ease-out);
 }
 
-/* The drop is the one thing here that is decoration rather than
-   instrumentation: the club count and the speed report real work and stay live
-   under reduced motion, but a club lurching off its orbit tells the user
-   nothing they need and is exactly the unrequested movement this preference
-   exists to stop. Suppressed, and nothing informational is withheld. */
+:where(juggler-spinner) .spinner-fire-unspin,
+:where(juggler-spinner) .spinner-fire-upright,
+:where(juggler-spinner) .spinner-fire-lean,
+:where(juggler-spinner) .spinner-fire-glow,
+:where(juggler-spinner) .spinner-flame {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 0;
+    height: 0;
+}
+
+/* The club's flip, backwards, with the same timing and phase: it cancels the
+   flip exactly (see juggler-spinner-spin for why reversing is negating). */
+:where(juggler-spinner) .spinner-fire-unspin {
+    animation: juggler-spinner-spin var(--spinner-duration) linear infinite reverse;
+    animation-delay: var(--spinner-phase-delay);
+}
+
+/* The slot is undone by the static `rotate`, transitioned exactly as the pivot's
+   transform is, so the flames stay upright while the cascade re-spaces; the
+   orbit by the animated `transform`. */
+:where(juggler-spinner) .spinner-fire-upright {
+    rotate: calc(var(--spinner-angle, 0deg) * -1);
+    transition: rotate var(--duration-slower) ease;
+    animation: juggler-spinner-orbit var(--spinner-duration) linear infinite reverse;
+}
+
+/* Phase is the club's slot (angle / 360 = phase / n), so the lean always
+   matches where on the ring the club actually is. */
+:where(juggler-spinner) .spinner-fire-lean {
+    animation: juggler-spinner-fire-lean var(--spinner-duration) linear infinite;
+    animation-delay: var(--spinner-phase-delay);
+}
+
+/* A gradient rather than a blur filter: blur() on an element that moves every
+   frame is a full re-raster every frame. */
+:where(juggler-spinner) .spinner-fire-glow {
+    left: calc(var(--spinner-flame-w) * -1.6);
+    top: calc(var(--spinner-flame-w) * -2.2);
+    width: calc(var(--spinner-flame-w) * 3.2);
+    height: calc(var(--spinner-flame-w) * 3.2);
+    border-radius: 50%;
+    background: radial-gradient(circle, var(--spinner-fire-glow) 0%, transparent 68%);
+    animation: juggler-spinner-fire-pulse 0.9s ease-in-out infinite alternate;
+}
+
+/* One tongue of flame: the element flickers about its base, and its two
+   pseudo-elements are the shape — a square with one sharp corner, turned to
+   point up and stretched into a teardrop — outer flame and hot core. */
+:where(juggler-spinner) .spinner-flame {
+    left: calc(var(--spinner-flame-w) / -2);
+    top: calc(var(--spinner-flame-w) * -1.25);
+    width: var(--spinner-flame-w);
+    height: calc(var(--spinner-flame-w) * 1.5);
+    transform-origin: 50% 85%;
+    animation: juggler-spinner-flicker 0.42s ease-in-out infinite alternate;
+}
+
+:where(juggler-spinner) .spinner-flame::before,
+:where(juggler-spinner) .spinner-flame::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: var(--spinner-flame-w);
+    height: var(--spinner-flame-w);
+    border-radius: 50% 0 50% 50%;
+}
+
+:where(juggler-spinner) .spinner-flame::before {
+    transform: scale(0.95, 1.45) rotate(-45deg);
+    translate: 0 calc(var(--spinner-flame-w) * -0.2);
+    background: radial-gradient(circle at 32% 68%,
+        var(--spinner-fire-mid) 0%, var(--spinner-fire-outer) 45%, var(--spinner-fire-edge) 80%);
+    opacity: 0.92;
+}
+
+:where(juggler-spinner) .spinner-flame::after {
+    transform: scale(0.5, 0.75) rotate(-45deg);
+    translate: 0 calc(var(--spinner-flame-w) * -0.1);
+    background: radial-gradient(circle at 35% 65%,
+        var(--spinner-fire-core) 0%, var(--spinner-fire-mid) 70%);
+}
+
+/* A second, smaller tongue, off-centre and out of step: two flames that never
+   agree read as fire, where one regular pulse reads as a lamp. */
+:where(juggler-spinner) .spinner-flame + .spinner-flame {
+    left: calc(var(--spinner-flame-w) * -0.15);
+    scale: 0.6;
+    animation-name: juggler-spinner-flicker-alt;
+    animation-duration: 0.31s;
+    animation-delay: -0.17s;
+}
+
+/* With θ = 0 at the top of the ring and running clockwise, the club moves along
+   (cos θ, sin θ) and the flame trails the other way: skew carries the sideways
+   part, scaleY the vertical — stretched as the club falls, squashed as it
+   rises. Sampled every 45°. */
+@keyframes juggler-spinner-fire-lean {
+    0%    { transform: skewX(var(--spinner-fire-lean)) scaleY(1); }
+    12.5% { transform: skewX(calc(var(--spinner-fire-lean) * 0.71)) scaleY(1.2); }
+    25%   { transform: skewX(0deg) scaleY(1.3); }
+    37.5% { transform: skewX(calc(var(--spinner-fire-lean) * -0.71)) scaleY(1.2); }
+    50%   { transform: skewX(calc(var(--spinner-fire-lean) * -1)) scaleY(1); }
+    62.5% { transform: skewX(calc(var(--spinner-fire-lean) * -0.71)) scaleY(0.82); }
+    75%   { transform: skewX(0deg) scaleY(0.75); }
+    87.5% { transform: skewX(calc(var(--spinner-fire-lean) * 0.71)) scaleY(0.82); }
+    100%  { transform: skewX(var(--spinner-fire-lean)) scaleY(1); }
+}
+
+@keyframes juggler-spinner-flicker {
+    0%   { transform: scale(1, 1) skewX(0deg); }
+    30%  { transform: scale(0.92, 1.12) skewX(-6deg); }
+    55%  { transform: scale(1.05, 0.9) skewX(4deg); }
+    80%  { transform: scale(0.95, 1.18) skewX(-3deg); }
+    100% { transform: scale(1.02, 0.96) skewX(5deg); }
+}
+
+@keyframes juggler-spinner-flicker-alt {
+    0%   { transform: scale(1, 0.85) skewX(8deg); }
+    40%  { transform: scale(0.85, 1.25) skewX(-5deg); }
+    100% { transform: scale(1.1, 1) skewX(3deg); }
+}
+
+@keyframes juggler-spinner-fire-pulse {
+    from {
+        opacity: 0.65;
+        scale: 0.9;
+    }
+
+    to {
+        opacity: 1;
+        scale: 1.08;
+    }
+}
+
+/* That the conversation is long is information, so the fire stays; its flicker
+   is decoration, so it stops. The lean is left running: it is part of the
+   cascade's own motion, which runs regardless (see below). */
 @media (prefers-reduced-motion: reduce) {
-    juggler-spinner .spinner-club.spinner-dropping {
-        animation:
-            juggler-spinner-spin var(--spinner-duration) linear infinite;
-        animation-delay: calc(var(--spinner-duration) * var(--spinner-phase, 0) / var(--spinner-n) * -1);
+    juggler-spinner .spinner-flame,
+    juggler-spinner .spinner-fire-glow {
+        animation: none;
     }
 }
 
@@ -252,6 +389,4 @@
     /* stylelint-disable-next-line declaration-no-important -- an animation shorthand on any more specific rule would otherwise resume it */
     animation-play-state: paused !important;
 }
-
-/* Model Selector - Hint when no providers configured */
 }

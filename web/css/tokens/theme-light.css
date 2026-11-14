@@ -101,6 +101,9 @@
     /* The header/sidebar line pattern's strength (see tokens/theme-dark.css). */
     --chrome-pattern-strength: 0.06;
 
+    /* The properties panel's dot-grid strength (see tokens/theme-dark.css). */
+    --properties-pattern-strength: 0.09;
+
     /* ANSI foreground palette (light) — tuned to read well on the light
        --bg-primary. Mirrors GitHub's light ANSI colours. Backgrounds use the
        theme-independent --ansi-bg-* palette (see :root). */

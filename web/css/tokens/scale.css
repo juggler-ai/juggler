@@ -149,6 +149,15 @@
     --window-close-hover-bg: #e81123;
     --window-close-active-bg: #f1707a;
 
+    /* The fire on the busy spinner's clubs (patterns/spinner.css), hottest to
+       coolest and then its halo. One set for both themes: a flame is the same
+       colour whatever it burns against. */
+    --spinner-fire-core: #fff6c8;
+    --spinner-fire-mid: #ffc23a;
+    --spinner-fire-outer: #ff6a13;
+    --spinner-fire-edge: #d42a0a;
+    --spinner-fire-glow: rgb(255 110 20 / 55%);
+
     /* The room the macOS traffic lights take at the top left of a window, in
        pixels, which the UI zoom does not scale (layout/window-chrome.css). The
        fallback bar over a page that is not Juggler's reads it too

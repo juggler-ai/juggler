@@ -23,6 +23,7 @@ the current release). The project follows semantic versioning.
 - The sessions page works behind a reverse proxy that requires signing in
 - `--port-strict` makes the server fail on a busy port instead of moving
 - @-mentioned and tool-read PDFs reach the model as text, instead of a "fake worker" error
+- The busy spinner's clubs catch fire once a conversation's context passes 250k tokens
 - PDFs dropped into the composer are attached as their text
 - The agent can rename or move its project folder; windows follow it there
 - Dropping a file no longer warns of a cache miss that doesn't happen

@@ -91,8 +91,8 @@ func onMessageStart(ev *StreamEventDetail, result *turnResult, callback provider
 		// The CLI reports message_start usage cumulatively across all
 		// API calls in one juggler turn — emitting it mid-stream
 		// would flash a wrong number in the footer (10× too high on
-		// long tool-use loops). The footer keeps showing the previous
-		// turn's correct anchor until end-of-turn writes the new one.
+		// long tool-use loops). The footer's live reading comes from
+		// this call's message_delta instead.
 	}
 }
 

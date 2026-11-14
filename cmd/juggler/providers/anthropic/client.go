@@ -758,9 +758,8 @@ func (c *Client) sendMessageStreaming(ctx context.Context, req provider.MessageR
 			// been observed to be cumulative across all API calls in a
 			// single juggler turn (the LLM-internal tool-use chain) — so
 			// emitting it mid-stream would flash a wrong number in the
-			// footer before end-of-turn corrects it. The footer keeps
-			// showing the previous turn's correct anchor until the new
-			// end-of-turn write lands, which is the least-wrong UX.
+			// footer. The footer's live reading comes from this call's
+			// message_delta instead.
 			if event.Message.Usage.InputTokens > 0 {
 				inputTokens = int(event.Message.Usage.InputTokens)
 			}

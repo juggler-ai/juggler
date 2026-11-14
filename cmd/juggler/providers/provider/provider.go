@@ -966,10 +966,10 @@ type ProviderInfo struct {
 	// StreamsLiveUsage marks a provider that reports authoritative per-step input
 	// usage mid-turn that maps onto our context meter — i.e. its transient `usage`
 	// stream chunks carry a real, monotonic prompt-token total the footer bar can
-	// grow against as the turn proceeds. The zero value (false) keeps the footer's
-	// end-of-turn blob anchor: a provider whose live numbers are absent, cumulative
-	// across calls, or otherwise unfit for the meter (e.g. the claudecode CLI) must
-	// leave this unset so its bar stays pinned to the last completed turn.
+	// grow against as the turn proceeds. The zero value (false) hides the meter
+	// while a turn runs and shows the end-of-turn blob anchor once it ends: a
+	// provider whose live numbers are absent, estimated, cumulative across calls,
+	// or otherwise unfit for the meter (e.g. ACP agents) must leave this unset.
 	StreamsLiveUsage bool
 	// SpawnsLocalProcess marks a provider Juggler runs as a subprocess of its
 	// own, in the conversation's working directory — the CLI agents, not the

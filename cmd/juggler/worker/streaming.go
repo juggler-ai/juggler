@@ -208,11 +208,11 @@ func (r *run) processStreamChunk(chunk StreamChunk) {
 			r.mergeProcessingTokens(chunk.OutputTokens, 0, 0)
 		}
 	case provider.ContentBlockTypeUsage:
-		// Surface input/cached tokens on the live spinner status text
-		// (transient — cleared when status leaves "streaming"). The
-		// footer's anchor reads the most recent transaction blob's
-		// `inputTokens` on demand instead. Spinner text is purely
-		// cosmetic and tolerates noisy provider numbers.
+		// Surface input/cached tokens on the run's processingState entry
+		// (transient — cleared when status leaves "streaming"). The spinner
+		// text shows them, and the footer meter grows against them for a
+		// model whose provider sets StreamsLiveUsage; otherwise the footer
+		// reads the most recent transaction blob's `inputTokens`.
 		//
 		// The same figures are kept on the run, where a cancel can still reach
 		// them: the blob a cancelled round-trip writes has no other source for

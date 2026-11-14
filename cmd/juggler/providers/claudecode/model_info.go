@@ -62,6 +62,10 @@ func Info() provider.ProviderInfo {
 		SpawnsLocalProcess: true,
 		// The CLI has no per-request max_tokens knob (see streamMessage).
 		FixedOutputCap: true,
+		// recordMessageDeltaUsage streams each API call's own usage — the same
+		// figures the call's transaction blob records — so the footer can grow
+		// against it mid-turn.
+		StreamsLiveUsage: true,
 	}
 }
 

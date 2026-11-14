@@ -29,9 +29,16 @@ import (
 // DefaultPort is where the machine server listens unless told otherwise.
 const DefaultPort = 3939
 
+// PortStrictUsage is --port-strict's help, for both commands that take it
+// (`juggler serve` and bare juggler).
+const PortStrictUsage = "Fail to start if the port is busy, rather than move to the next free one: for a reverse proxy whose upstream names the port"
+
 // listenAll listens on every interface at port, or the first free port after
 // it, so the server's address stays one a person can remember; the LAN gate,
-// not the bind, decides who gets in. Port 0 is any port the OS assigns.
+// not the bind, decides who gets in. Port 0 is any port the OS assigns. When
+// strict (serve --port-strict), a busy port is an error instead: a reverse
+// proxy's upstream names that port, and a server that moved off it would look
+// healthy while every request through the proxy failed.
 //
 // A port something else holds on loopback alone is taken: on some systems
 // (macOS) a bind on every interface succeeds beside it, and every client on
@@ -42,11 +49,15 @@ const DefaultPort = 3939
 // listener a remote viewer's host connects to — over the LAN, or a tunnel's
 // forwarder — so it is where a host that vanished without closing (a suspended
 // laptop, a phone leaving wifi) leaves a half-open connection to be reaped.
-func listenAll(port int) (net.Listener, error) {
+func listenAll(port int, strict bool) (net.Listener, error) {
 	if port == 0 {
 		return portbind.Listen(":0") // every interface by design; the LAN gate decides who gets in
 	}
-	return portbind.FirstFree("", port, func(addr string) (net.Listener, error) {
+	bind := portbind.FirstFree
+	if strict {
+		bind = portbind.Exactly
+	}
+	return bind("", port, func(addr string) (net.Listener, error) {
 		_, p, _ := net.SplitHostPort(addr)
 		probe, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", p))
 		if err != nil {
@@ -77,6 +88,7 @@ var serveListening = func(*Server) {}
 func RunCommand(args []string, assets fs.FS, peer Peer, startupNotes ...string) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	port := fs.Int("port", DefaultPort, "Port for the machine server, or the first free one after it (0 = OS-assigned; the bound address is recorded in ~/.juggler/server.json)")
+	portStrict := fs.Bool("port-strict", false, PortStrictUsage)
 	verbose := fs.Bool("verbose", false, "Verbose logging (debug level)")
 	fs.BoolVar(verbose, "v", false, "Verbose logging (debug level) (shorthand)")
 	implicit := fs.Bool("implicit", false, "Mark this server as started on demand by a client (bare juggler, the desktop app) rather than by hand; recorded in ~/.juggler/server.json")
@@ -97,6 +109,10 @@ func RunCommand(args []string, assets fs.FS, peer Peer, startupNotes ...string) 
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
+	if *portStrict && *port == 0 {
+		fmt.Fprintln(os.Stderr, "serve: --port-strict needs a port to keep to; --port 0 lets the OS choose one")
+		return 2
+	}
 	if *openTunnel != "" {
 		if _, err := startableMode(tunnel.Mode(*openTunnel)); err != nil {
 			fmt.Fprintf(os.Stderr, "serve: %v\n", err)
@@ -109,7 +125,7 @@ func RunCommand(args []string, assets fs.FS, peer Peer, startupNotes ...string) 
 		jlog.Info("%s", note)
 	}
 
-	err := Serve(ServeOptions{Port: *port, Implicit: *implicit, StartedBy: *startedBy, TestChildren: *testChildren,
+	err := Serve(ServeOptions{Port: *port, StrictPort: *portStrict, Implicit: *implicit, StartedBy: *startedBy, TestChildren: *testChildren,
 		Dev: *dev, AssetsFromDisk: *assetsFromDisk, AllowHosts: allowHosts, BasePath: *basePath, LAN: *lan, Tunnel: tunnel.Mode(*openTunnel), Assets: assets, Peer: peer})
 	var held *LockHeldError
 	switch {
@@ -155,6 +171,9 @@ type ServeOptions struct {
 	// Port to listen on, or the first free one after it; 0 for one the OS
 	// assigns.
 	Port int
+	// StrictPort makes a busy Port an error rather than a reason to move on
+	// (serve --port-strict).
+	StrictPort bool
 	// Implicit marks a server a client started on demand: it exits without clients.
 	Implicit bool
 	// StartedBy holds startup while this pid lives, until it attaches.
@@ -323,7 +342,7 @@ func Serve(opts ServeOptions) error {
 		sig = ch
 	}
 
-	ln, err := listenAll(opts.Port)
+	ln, err := listenAll(opts.Port, opts.StrictPort)
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
 	}

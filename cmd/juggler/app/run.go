@@ -306,6 +306,7 @@ func parseFlags(hasTerminal bool) (appFlags, bool) {
 	window := flag.Bool("window", false, "Test-mode only: show the test harness's debug lane window")
 	project := flag.String("project", "", "Project folder to open a session for (default: none; open one from the server's page)")
 	port := flag.Int("port", 0, "Port for the Juggler server, when this starts it, or the first free one after it (default 3939)")
+	portStrict := flag.Bool("port-strict", false, machineserver.PortStrictUsage)
 	testMode := flag.Bool("test", false, "Enable test API routes and print JUGGLER_ADDR to stdout")
 	testIframes := flag.Int("test-iframes", 0, "Test-mode only: open the viewer window at /test-pool?n=N (tiled iframes acting as parallel test lanes) instead of the production UI")
 	testWindowURL := flag.String("test-window-url", "", "Test-mode only: the URL the test window loads instead of this server's own (set by `juggler serve --test` to the session's proxied URL)")
@@ -351,6 +352,7 @@ func parseFlags(hasTerminal bool) (appFlags, bool) {
 		hasTerminal:    hasTerminal,
 		port:           *port,
 		portSet:        portSet,
+		portStrict:     *portStrict,
 		testMode:       *testMode,
 		testIframes:    *testIframes,
 		testWindowURL:  *testWindowURL,

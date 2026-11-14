@@ -28,10 +28,11 @@ type TerminalOptions struct {
 	// Project is the folder to open a session for; "" opens none, pointing
 	// the terminal at the sessions page instead.
 	Project string
-	// Port, AllowHosts, BasePath and the developer flags (Dev,
+	// Port, StrictPort, AllowHosts, BasePath and the developer flags (Dev,
 	// AssetsFromDisk; see ServeOptions) apply when this run starts the
 	// server. Port 0 is DefaultPort.
 	Port                int
+	StrictPort          bool
 	AllowHosts          []string
 	BasePath            string
 	Dev, AssetsFromDisk bool
@@ -70,7 +71,7 @@ func RunTerminal(opts TerminalOptions) int {
 	opts.Ready = withKeys(opts, in)
 	for attempt := 0; attempt < terminalAttempts; attempt++ {
 		err := Serve(ServeOptions{
-			Port: cmp.Or(opts.Port, DefaultPort), Implicit: true, AllowHosts: opts.AllowHosts, BasePath: opts.BasePath, Assets: opts.Assets, Peer: opts.Peer, Signals: opts.Signals,
+			Port: cmp.Or(opts.Port, DefaultPort), StrictPort: opts.StrictPort, Implicit: true, AllowHosts: opts.AllowHosts, BasePath: opts.BasePath, Assets: opts.Assets, Peer: opts.Peer, Signals: opts.Signals,
 			Dev: opts.Dev, AssetsFromDisk: opts.AssetsFromDisk,
 			Foreground: &Foreground{Project: opts.Project, Out: opts.Stdout, Ready: opts.Ready},
 		})
@@ -166,8 +167,8 @@ func attachTo(c *Client, opts TerminalOptions, in *bufio.Reader) (code int, agai
 	}
 
 	fmt.Fprintf(opts.Stdout, "Using the Juggler server at %s\n", page)
-	if opts.Port != 0 || len(opts.AllowHosts) > 0 || opts.BasePath != "" {
-		fmt.Fprintln(opts.Stderr, "juggler: --port, --allow-host and --base-path apply only when juggler starts the server; it was already running.")
+	if opts.Port != 0 || opts.StrictPort || len(opts.AllowHosts) > 0 || opts.BasePath != "" {
+		fmt.Fprintln(opts.Stderr, "juggler: --port, --port-strict, --allow-host and --base-path apply only when juggler starts the server; it was already running.")
 	}
 	if opts.Project == "" {
 		fmt.Fprintln(opts.Stdout, "Open a project from its page.")

@@ -67,6 +67,7 @@ func runBare(flags appFlags) int {
 	opts := machineserver.TerminalOptions{
 		Project:        project,
 		Port:           flags.port,
+		StrictPort:     flags.portStrict,
 		AllowHosts:     flags.allowHosts,
 		BasePath:       flags.basePath,
 		Dev:            flags.dev,

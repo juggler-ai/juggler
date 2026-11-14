@@ -24,6 +24,7 @@ type appFlags struct {
 	hasTerminal    bool     // true if launched with a controlling TTY
 	port           int      // --port overrides config port (0 = OS-assigned)
 	portSet        bool     // true if --port was passed (allows --port 0 = OS-assigned)
+	portStrict     bool     // --port-strict: the machine server bare juggler starts fails on a busy port rather than moving off it
 	testMode       bool     // --test enables test API routes and prints JUGGLER_ADDR
 	testIframes    int      // --test-iframes N: open viewer at /test-pool?n=N (tiled iframe lanes)
 	testWindowURL  string   // --test-window-url: the page the test window loads, in place of this server's own (a machine server's proxy for its test children)

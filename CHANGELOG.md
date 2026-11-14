@@ -21,6 +21,7 @@ the current release). The project follows semantic versioning.
 - A pinned HTML page fills the pinboard's height instead of a fixed share of the window
 - Serving Juggler under a reverse proxy's path works again; `--base-path` for proxies without `X-Forwarded-Prefix`
 - The sessions page works behind a reverse proxy that requires signing in
+- `--port-strict` makes the server fail on a busy port instead of moving
 - @-mentioned and tool-read PDFs reach the model as text, instead of a "fake worker" error
 - PDFs dropped into the composer are attached as their text
 - The agent can rename or move its project folder; windows follow it there

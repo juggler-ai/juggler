@@ -54,7 +54,8 @@ juggler serve --lan
 This is the machine's Juggler server, with no session of its own: its page,
 at `http://<host>:3939/`, lists the sessions running here and opens new ones in
 any folder. The default port is 3939, or the next free one (`--port`
-overrides).
+overrides). With `--port-strict` a busy port stops the server from starting
+instead, for a reverse proxy or firewall rule that names the port.
 
 `--lan` turns on LAN access, so other devices on your network can connect.
 Without it the server accepts connections from this machine only. LAN access is

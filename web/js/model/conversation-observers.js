@@ -13,7 +13,6 @@ import {
   approvePermittedPendingApprovals,
 } from './conversation-tool-actions.js';
 import { extractInsertedItemIds } from './thread-navigation.js';
-import strategyRegistry from '../registries/strategy-registry.js';
 import workerManager from '../services/worker-manager.js';
 import { isViewer } from '../../sdk/lib/client-role.js';
 import { recordTape } from '../utils/event-tape.js';
@@ -189,18 +188,12 @@ export function setupYjsObservers(c) {
     // value, the selector's incoming===current guard skips its render, and a
     // remote strategy switch never shows until the next unrelated doc change.
     if (event.keysChanged.has('currentStrategyId')) {
-      const storedStrategyId = c.getMetadata('currentStrategyId');
-      const newStrategyId = typeof storedStrategyId === 'string' ? storedStrategyId : '';
-      const root = c._rootMessageThread;
-      if (newStrategyId && newStrategyId !== root.currentStrategyId) {
-        // Track the active strategy and (re)build its instance so the UI — and
-        // the engine, which shares this observer — operate on the right
-        // strategy. The onActivate lifecycle hook is NOT fired here: session-
-        // wide flow runs only in the engine, driven by the worker at turn-start
-        // (run-strategy-hook), never in an elected viewer.
-        root.currentStrategyId = newStrategyId;
-        root.strategy = strategyRegistry.createStrategy(newStrategyId, root);
-      }
+      // Rebuild the root's strategy instance now rather than at its next read,
+      // so the UI — and the engine, which shares this observer — operate on the
+      // right strategy. The onActivate lifecycle hook is NOT fired here: session-
+      // wide flow runs only in the engine, driven by the worker at turn-start
+      // (run-strategy-hook), never in an elected viewer.
+      c._rootMessageThread.syncStrategy();
     }
 
     // Check all relevant metadata keys

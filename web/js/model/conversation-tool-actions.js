@@ -295,9 +295,9 @@ async function decideForAction(ActionClass, toolDef, call, opts = {}) {
   // The strategy has master control over approval (YOLO approves everything,
   // read-only auto-approves read/meta tools).
   // Consult it exactly as response-handler._determineApprovalNeeded does, so a
-  // live strategy switch takes effect for every tool evaluated afterwards — the
-  // metadata observer rebuilds messageThread.strategy on the switch, so this
-  // reads the current policy with no extra plumbing.
+  // live strategy switch takes effect for every tool evaluated afterwards —
+  // reading messageThread.strategy brings it into step with the document first
+  // (MessageThread#syncStrategy), so this is the current policy.
   const strategyPolicy = messageThread.strategy?.getApprovalPolicy?.({
     toolName,
     toolInput: toolInputPlain,

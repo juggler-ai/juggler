@@ -580,21 +580,6 @@ class Conversation {
   }
 
   /**
-   * Restore strategy from worker-loaded metadata.
-   * @param {string} strategyId
-   */
-  restoreStrategyFromWorker(strategyId) {
-    // The metadata observer handles strategy instance creation.
-    // This just ensures the in-memory state is consistent during
-    // initial load when metadata is applied via worker sync.
-    const root = this._rootMessageThread;
-    if (strategyId && strategyId !== root.currentStrategyId) {
-      root.currentStrategyId = strategyId;
-      root.strategy = strategyRegistry.createStrategy(strategyId, root);
-    }
-  }
-
-  /**
    * Restore metadata from worker-loaded conversation.
    *
    * IMPORTANT: do NOT write modelConfig back to Yjs here. The worker just
@@ -606,12 +591,16 @@ class Conversation {
    * modelConfig back over a `set-model` another viewer makes at the same
    * moment, leaving the wrong modelConfig in the document. yjs-sync
    * delivers the authoritative value; no JS-side write needed.
-   * @param {{modelConfig?: unknown, currentStrategyId?: string}} metadata
+   *
+   * The same holds for the strategy, and more strongly: the ready message
+   * carries the metadata the worker had when it answered, which a document
+   * already holding a later switch has overtaken. So its `currentStrategyId`
+   * is not installed over the document's; the root only brings its instance
+   * into step with the document (MessageThread#syncStrategy).
+   * @param {{modelConfig?: unknown, currentStrategyId?: string}} _metadata
    */
-  restoreWorkerMetadata(metadata) {
-    if (metadata.currentStrategyId) {
-      this.restoreStrategyFromWorker(metadata.currentStrategyId);
-    }
+  restoreWorkerMetadata(_metadata) {
+    this._rootMessageThread.syncStrategy();
   }
 
   /**

@@ -35,6 +35,7 @@ the current release). The project follows semantic versioning.
 - An OpenAI conversation interrupted mid-reasoning can be continued instead of failing every request
 - Images a tool showed the model appear in that call's properties panel
 - Re-checking a provider's sign-in shows the result even when the check is slow
+- YOLO mode no longer starts asking for approval partway through a conversation
 
 ## [0.8.0] - 2026-11-08
 

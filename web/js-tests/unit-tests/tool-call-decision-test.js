@@ -18,6 +18,10 @@
  *   6. An unknown tool and an invalid input are 'invalid', with the text the
  *      evaluate path would store.
  *   7. Nothing is written: the thread holds no new item afterwards.
+ *   8. The decision follows the strategy the conversation is in, whatever the
+ *      thread's strategy instance was last built from: a ready message from an
+ *      older snapshot, or a build made while the strategy was unregistered (a
+ *      registry rebuild's window), does not leave a YOLO conversation asking.
  * @module unit-tests/tool-call-decision-test
  */
 
@@ -29,6 +33,7 @@ import {
 } from '../utilities/test-helpers.js';
 import { decideToolCall } from '../../js/model/conversation-tool-actions.js';
 import hookRegistry from '../../js/registries/hook-registry.js';
+import strategyRegistry from '../../js/registries/strategy-registry.js';
 import HookType from 'juggler/hook-type';
 import YoloStrategyType from '../../extensions/juggler-core/strategies/yolo-strategy-type.js';
 
@@ -124,6 +129,10 @@ export async function runTests(_ctx) {
   const decide = (conversation, mt, toolName, toolInput) =>
     decideToolCall({ messageThread: mt, conversation, toolName, toolInput, toolUseId: `decide-${toolName}-${Math.random()}` });
 
+  // A command the Default strategy parks (it publishes, so no read-only
+  // analysis approves it), so only YOLO's policy can approve it.
+  const ASKS_UNDER_DEFAULT = 'git push origin main';
+
   try {
     await test('an ordinary write is approved under YOLO', async () => {
       const { conversation, mt } = await yoloConversation();
@@ -198,6 +207,41 @@ export async function runTests(_ctx) {
       assert(d.verdict === 'deny', `expected deny, got ${d.verdict}`);
       assert(d.reason === 'Blocked by hook "denier": not today', `unexpected reason: ${d.reason}`);
     }));
+
+    // The worker's ready message carries the metadata it had when it answered,
+    // and the loader applies it after the document may already hold a later
+    // switch. The document is what the conversation is in.
+    await test('a stale ready message does not take a YOLO conversation off YOLO', async () => {
+      const conversation = await createApprovalTestConversation(session);
+      const mt = conversation.rootMessageThread;
+      const control = await decide(conversation, mt, 'bash', { command: ASKS_UNDER_DEFAULT });
+      assert(control.verdict === 'park', `the command must park under Default for this to test anything, got ${control.verdict}`);
+      mt.setStrategy('yolo');
+      conversation.restoreWorkerMetadata({ currentStrategyId: 'default' });
+      const d = await decide(conversation, mt, 'bash', { command: ASKS_UNDER_DEFAULT });
+      assert(d.verdict === 'approve', `expected approve, got ${d.verdict} (${d.reason})`);
+      assert(mt.currentStrategyId === 'yolo', `the thread should report yolo, got ${mt.currentStrategyId}`);
+    });
+
+    // A switch observed while the registries are being rebuilt finds the
+    // strategy unregistered and gets a stand-in. Once it is registered again the
+    // thread must run the real one, though the id never changes again.
+    await test('a strategy built while unregistered is replaced once it is registered', async () => {
+      const conversation = await createApprovalTestConversation(session);
+      const mt = conversation.rootMessageThread;
+      const items = /** @type {Map<string, any>} */ (/** @type {any} */ (strategyRegistry).items);
+      const Yolo = items.get('yolo');
+      assert(Yolo, 'the yolo strategy should be registered');
+      items.delete('yolo');
+      try {
+        mt.setStrategy('yolo');
+      } finally {
+        items.set('yolo', Yolo);
+      }
+      const d = await decide(conversation, mt, 'bash', { command: ASKS_UNDER_DEFAULT });
+      assert(d.verdict === 'approve', `expected approve, got ${d.verdict} (${d.reason})`);
+      assert(mt.strategy instanceof Yolo, `the thread should run the yolo strategy, got ${mt.strategy?.constructor?.name}`);
+    });
 
     await test('an unknown tool and an invalid input are invalid', async () => {
       const { conversation, mt } = await yoloConversation();

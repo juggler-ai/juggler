@@ -16,7 +16,6 @@
 import { isEngine } from '../../sdk/lib/client-role.js';
 import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
 import { TOOL_STATES } from '../../sdk/lib/message.js';
-import strategyRegistry from '../registries/strategy-registry.js';
 import contextItemRegistry from '../registries/context-item-registry.js';
 import { whenRegistriesRebuilt } from '../registries/registry-ready.js';
 import actionExecutor from './action-executor.js';
@@ -425,13 +424,10 @@ export async function handleRunStrategyHook(wm, conversationId, data) {
   // copy of currentStrategyId can lag (it auto-loaded an earlier snapshot, or
   // the switch update hasn't applied yet), so align the thread's strategy to the
   // id the worker sent before invoking — otherwise we'd run the stale strategy's
-  // hook (e.g. default's no-op) and silently inject nothing.
+  // hook (e.g. default's no-op) and silently inject nothing. The pin holds only
+  // until the document's strategy next changes, which is the copy catching up.
   const strategyId = /** @type {string|undefined} */ (data.strategyId);
-  if (thread && strategyId && thread.currentStrategyId !== strategyId) {
-    thread.currentStrategyId = strategyId;
-    thread.strategy = strategyRegistry.createStrategy(strategyId, thread);
-  }
-  const strategy = thread?.strategy;
+  const strategy = thread && strategyId ? thread.pinStrategy(strategyId) : thread?.strategy;
 
   if (requestId) {
     // onActivate: CAPTURE the guidance rather than writing it to the doc. The
@@ -874,7 +870,14 @@ export async function handleEvaluateTool(wm, conversationId, toolUseId) {
   } finally {
     c._handlingNewToolAction.delete(toolUseId);
   }
-  sendEngineTrace(wm, conversationId, 'evaluate-done', { toolUseId });
+  // The strategy the call was decided under, and the state it was left in
+  // (approved, pending, …): what a report of a call asking when it should not
+  // have — or not asking when it should — turns on, and nothing else records.
+  sendEngineTrace(wm, conversationId, 'evaluate-done', {
+    toolUseId,
+    strategyId: mt.currentStrategyId,
+    state: mt.getToolAction(toolUseId)?.get('state') ?? ''
+  });
   return true;
 }
 

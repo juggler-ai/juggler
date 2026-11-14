@@ -87,14 +87,21 @@ export default class MessageThread {
     /** @type {import('./conversation.js').default} */
     this.conversation = conversation;
 
-    // Resolve the effective strategy when one wasn't explicitly supplied so a
-    // sub-thread inherits its parent's (ultimately the conversation's) strategy
-    // unless it carries its own override — mirrors getEffectiveModelConfig.
-    const resolvedStrategyId = strategyId ?? this.getEffectiveStrategyId();
-    /** @type {string} */
-    this.currentStrategyId = resolvedStrategyId;
-    /** @type {import('juggler/strategy-type').default} */
-    this.strategy = strategyRegistry.createStrategy(resolvedStrategyId, this);
+    // The strategy this thread runs, kept in step with the document by
+    // syncStrategy() on every read of `strategy` / `currentStrategyId`.
+    /** @type {import('juggler/strategy-type').default} @private */
+    this._strategy = /** @type {any} */ (null);
+    /** @type {string} @private - the id `_strategy` was built for */
+    this._strategyId = '';
+    /** @type {string} @private - the document's effective id when last read */
+    this._strategyDocId = this.getEffectiveStrategyId();
+    /** @type {boolean} @private - `_strategy` is the registry's stand-in, built while `_strategyId` was unregistered */
+    this._strategyStandIn = false;
+    // An explicit id is a pin over what the document says, held until the
+    // document's id next changes; otherwise a sub-thread inherits its parent's
+    // (ultimately the conversation's) strategy unless it carries its own
+    // override — mirrors getEffectiveModelConfig.
+    this._installStrategy(strategyId ?? this._strategyDocId);
 
     /** @type {boolean} - Set by message-thread-context-items.js once SYSTEM_1 is known present */
     this._systemPromptPlaceholderEnsured = false;
@@ -1633,6 +1640,96 @@ export default class MessageThread {
   // ── Strategy ─────────────────────────────────────────────────────
 
   /**
+   * The strategy instance this thread runs: the one for the strategy the
+   * document puts it in (see {@link syncStrategy}). Assigning one installs it
+   * as-is until the document's strategy next changes.
+   * @returns {import('juggler/strategy-type').default} The strategy instance
+   */
+  get strategy() {
+    this.syncStrategy();
+    return this._strategy;
+  }
+
+  /** @param {import('juggler/strategy-type').default} value - The instance to run */
+  set strategy(value) {
+    this._strategy = value;
+    this._strategyStandIn = false;
+  }
+
+  /**
+   * The id of the strategy this thread runs.
+   * @returns {string} The strategy id
+   */
+  get currentStrategyId() {
+    this.syncStrategy();
+    return this._strategyId;
+  }
+
+  /**
+   * Bring this thread's strategy instance into step with the document, and say
+   * whether it had to be rebuilt.
+   *
+   * The document is the record of which strategy a thread is in; the instance
+   * is a cache of it, and a cache that is only refreshed by a change event goes
+   * stale for good whenever one is missed or overwritten — a YOLO conversation
+   * then asks for approval on every call while its selector still says YOLO.
+   * So each read checks instead, two ways:
+   *
+   *   - The document's effective id has changed since it was last read (a
+   *     switch, an initial sync, a load): the document decides, whatever was
+   *     installed in between — a ready message from an older snapshot included.
+   *     An id installed explicitly ({@link pinStrategy}) is the newer word only
+   *     until then: the document has not caught up to it yet.
+   *   - The instance is the registry's stand-in, built while the id was
+   *     unregistered (a registry rebuild's window), and the id is registered
+   *     now: the real one replaces it, though the id itself never changes.
+   *
+   * Both checks are a metadata read for the root; a sub-thread without its own
+   * override walks to its parent, as {@link getEffectiveStrategyId} does.
+   * @returns {boolean} True if the instance was rebuilt
+   */
+  syncStrategy() {
+    const docId = this.getEffectiveStrategyId();
+    if (docId !== this._strategyDocId) {
+      this._strategyDocId = docId;
+      if (docId !== this._strategyId) {
+        this._installStrategy(docId);
+        return true;
+      }
+    }
+    if (this._strategyStandIn && strategyRegistry.has(this._strategyId)) {
+      this._installStrategy(this._strategyId);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Run this thread under `strategyId` ahead of the document, which has not yet
+   * caught up to it — the worker named it, and its copy is the authoritative
+   * one. Held until the document's strategy next changes (see
+   * {@link syncStrategy}).
+   * @param {string} strategyId - Strategy id to run
+   * @returns {import('juggler/strategy-type').default} The instance now installed
+   */
+  pinStrategy(strategyId) {
+    this.syncStrategy();
+    if (this._strategyId !== strategyId) this._installStrategy(strategyId);
+    return this._strategy;
+  }
+
+  /**
+   * Build and install the instance for `strategyId`.
+   * @param {string} strategyId - Strategy id
+   * @private
+   */
+  _installStrategy(strategyId) {
+    this._strategyId = strategyId;
+    this._strategy = strategyRegistry.createStrategy(strategyId, this);
+    this._strategyStandIn = !strategyRegistry.has(strategyId);
+  }
+
+  /**
    * Set the strategy for this message thread
    * @param {string} strategyId - Strategy ID to use
    */
@@ -1652,8 +1749,7 @@ export default class MessageThread {
       this.transact(() => {
         this.container.set('currentStrategyId', strategyId);
       });
-      this.currentStrategyId = strategyId;
-      this.strategy = strategyRegistry.createStrategy(strategyId, this);
+      this.syncStrategy();
       return;
     }
 

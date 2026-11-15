@@ -6,6 +6,8 @@ the current release). The project follows semantic versioning.
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-11-15
+
 - Faster loading and much lighter traffic over remote and slow connections
 - Add several accounts per provider and choose one per conversation
 - On Windows and Linux, double-clicking the title bar maximises or restores the window

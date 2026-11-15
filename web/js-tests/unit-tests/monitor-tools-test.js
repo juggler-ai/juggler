@@ -11,7 +11,9 @@
  *   3. approval policy: Monitor (shell exec) requires approval; TaskOutput /
  *      TaskStop do not;
  *   4. Monitor shares the `execute` permission domain, so a grant already given
- *      to bash auto-approves the equivalent monitor without re-prompting.
+ *      to bash auto-approves the equivalent monitor without re-prompting;
+ *   5. a persistent monitor asks for no deadline; a non-persistent one keeps
+ *      its capped timeout.
  * @module unit-tests/monitor-tools
  */
 
@@ -23,6 +25,7 @@ import {
 } from '../utilities/test-helpers.js';
 import contextItemRegistry from '../../js/registries/context-item-registry.js';
 import { generateToolDefinitions, resolveToolName } from '../../js/services/tool-generator.js';
+import { MAX_EXEC_TIMEOUT_MS } from '../../js/services/ops-api.js';
 
 /**
  * @typedef {object} TestContext
@@ -156,6 +159,46 @@ export async function runTests(_ctx) {
   } catch (e) {
     failed++;
     errors.push(`shared permission domain: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  // =========================================================================
+  // Test 5: The timeout each kind of monitor asks the backend for. A persistent
+  // monitor runs until TaskStop or the session ends, so it must ask for no
+  // deadline (-1, the startBackground sentinel) — the 20-minute cap would kill
+  // a long CI watch silently. A non-persistent one keeps its capped timeout.
+  // =========================================================================
+  try {
+    const conversation = await createTestConversation(session);
+    const mt = conversation.rootMessageThread;
+    const MonitorClass = /** @type {any} */ (contextItemRegistry.getByToolName('Monitor'));
+    const monitor = new MonitorClass({ id: MonitorClass.MANIFEST.id, session, conversation, messageThread: mt });
+    /** @type {Array<number|undefined>} */
+    const asked = [];
+    monitor._ops = {
+      shellBackground: async (/** @type {any} */ p) => { asked.push(p.timeout); return { task_id: `t${asked.length}` }; }
+    };
+    mt.requestTaskOutputDelivery = () => {};
+
+    const run = async (/** @type {Record<string, unknown>} */ params) => {
+      await monitor.execute({ command: 'tail -f log', description: 'log', ...params });
+      return asked[asked.length - 1];
+    };
+
+    const persistent = await run({ persistent: true });
+    assert(persistent === -1, `a persistent monitor should ask for no deadline (-1), asked for ${persistent}`);
+    const persistentIgnoresTimeout = await run({ persistent: true, timeout_ms: 5000 });
+    assert(persistentIgnoresTimeout === -1, `a persistent monitor should ignore timeout_ms, asked for ${persistentIgnoresTimeout}`);
+    const capped = await run({ timeout_ms: 99999999 });
+    assert(capped === MAX_EXEC_TIMEOUT_MS, `a non-persistent monitor's timeout should be capped, asked for ${capped}`);
+    const plain = await run({ timeout_ms: 5000 });
+    assert(plain === 5000, `a non-persistent monitor should honour timeout_ms, asked for ${plain}`);
+    const dflt = await run({});
+    assert(dflt === undefined, `a non-persistent monitor without timeout_ms should take the backend default, asked for ${dflt}`);
+
+    passed++;
+  } catch (e) {
+    failed++;
+    errors.push(`monitor timeouts: ${e instanceof Error ? e.message : String(e)}`);
   }
 
   return { passed, failed, errors };

@@ -13,6 +13,12 @@ import { inputText } from '../lib/tool-action-result.js';
 const t = translator('@juggler/core');
 
 /**
+ * The `timeout` that asks `shellBackground` for a task with no deadline — one
+ * that runs until it is stopped (`noDeadlineTimeoutMs`, `ops/shell_exec.go`).
+ */
+const NO_DEADLINE_TIMEOUT_MS = -1;
+
+/**
  * MonitorContextItem — start a long-running background command whose output is
  * streamed back into the conversation.
  *
@@ -189,10 +195,11 @@ class MonitorContextItem extends ContextItem {
     const command = /** @type {string} */ (params.command || '');
     const description = params.description ? String(params.description) : '';
     const persistent = Boolean(params.persistent);
-    // A persistent monitor wants to run as long as possible; otherwise honour
-    // the requested timeout (the backend caps both at MAX_EXEC_TIMEOUT_MS).
+    // A persistent monitor runs until TaskStop or the session ends, so it asks
+    // for no deadline at all; anything else would be the cap, which kills a
+    // long watch silently. A non-persistent one honours timeout_ms, capped.
     const timeoutMs = persistent
-      ? MAX_EXEC_TIMEOUT_MS
+      ? NO_DEADLINE_TIMEOUT_MS
       : (params.timeout_ms !== undefined ? Math.min(Number(params.timeout_ms), MAX_EXEC_TIMEOUT_MS) : undefined);
 
     const result = await this.ops.shellBackground({

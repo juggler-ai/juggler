@@ -18,6 +18,7 @@
  */
 
 import MemoryContextItem from '../context-items/memory-context-item.js';
+import { join } from '../lib/workspace-paths.js';
 import { readFile } from '../../../js/services/ops-api.js';
 import {
   initializeRegistries,
@@ -335,10 +336,13 @@ export async function runTests(ctx) {
     const root = session.projectPath;
     // The server reports the state folder; one under the fixture stands in for
     // the real outside one, which the scope admits the same way.
-    const stateDir = `${base}/state${++pathCounter}-${Date.now()}`;
+    // Joined, not templated: the fixture is in Windows' separator there, and the
+    // path the item names is in one separator throughout.
+    const stateDir = join(base, `state${++pathCounter}-${Date.now()}`);
+    const memoryFile = join(stateDir, 'MEMORY.md');
     const outsideSession = Object.assign(Object.create(session), { projectPath: root, stateDir });
-    assert(MemoryContextItem.defaultPath(outsideSession) === `${stateDir}/MEMORY.md`,
-      `the default should be MEMORY.md in the state folder, got ${MemoryContextItem.defaultPath(outsideSession)}`);
+    assert(MemoryContextItem.defaultPath(outsideSession) === memoryFile,
+      `the default should be ${memoryFile}, got ${MemoryContextItem.defaultPath(outsideSession)}`);
     assert(MemoryContextItem.defaultPath(Object.assign(Object.create(session), { projectPath: root, stateDir: `${root}/.juggler` }))
       === MemoryContextItem.DEFAULT_PATH, 'a state folder in the project keeps the relative default, byte for byte');
     assert(MemoryContextItem.defaultPath(Object.assign(Object.create(session), { projectPath: root, stateDir: '' }))
@@ -353,14 +357,14 @@ export async function runTests(ctx) {
       messageThread: conversation.rootMessageThread
     });
     await item.execute({ action: 'remember', fact: 'kept outside the tree' });
-    const content = await readBack(`${stateDir}/MEMORY.md`);
+    const content = await readBack(memoryFile);
     assert(content.includes('kept outside the tree'), `the fact should be in the state folder's MEMORY.md:\n${content}`);
     assert(await MemoryContextItem.shouldAutoInstantiate({ session: outsideSession }),
       'the seeding gate should find the memory file in the state folder');
 
     let hits = 0;
     item.onContentChange = () => { hits++; };
-    item.onFileChange(`${stateDir}/MEMORY.md`, 'write');
+    item.onFileChange(memoryFile, 'write');
     assert(hits === 1, `the watcher reports it by its absolute path, and that must re-read, got ${hits}`);
   });
 

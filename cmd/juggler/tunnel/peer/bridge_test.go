@@ -41,7 +41,10 @@ type guest struct {
 	// pieces holds the channel's binary messages, as they arrive.
 	pieces chan []byte
 	closed chan struct{}
-	chunks *reassembler
+	// drained is signalled when the channel's backlog falls under half of
+	// guestBacklog.
+	drained chan struct{}
+	chunks  *reassembler
 }
 
 // dialGuest connects a guest to p, whose link serves to until life ends.
@@ -62,7 +65,14 @@ func dialGuest(t *testing.T, p *Peer, life context.Context, to target) *guest {
 	chunks.maxAssemblies = maxConcurrentRequests + 1
 	chunks.maxFrameBytes = 2 * maxResponseBodyBytes
 	chunks.maxHeldBytes = chunks.maxAssemblies * chunks.maxFrameBytes
-	g := &guest{t: t, pc: pc, dc: dc, frames: make(chan []byte, 256), pieces: make(chan []byte, 1024), closed: make(chan struct{}), chunks: chunks}
+	g := &guest{t: t, pc: pc, dc: dc, frames: make(chan []byte, 256), pieces: make(chan []byte, 1024), closed: make(chan struct{}), drained: make(chan struct{}, 1), chunks: chunks}
+	dc.SetBufferedAmountLowThreshold(guestBacklog / 2)
+	dc.OnBufferedAmountLow(func() {
+		select {
+		case g.drained <- struct{}{}:
+		default:
+		}
+	})
 	opened := make(chan struct{})
 	dc.OnOpen(func() { close(opened) })
 	dc.OnClose(func() { close(g.closed) })
@@ -604,7 +614,35 @@ func (g *guest) sendChunked(id string, payload []byte) {
 	}
 	bounds := chunkBounds(payload)
 	for i, span := range bounds {
+		g.awaitRoom()
 		g.send(chunk{Type: chunkType, ID: id, Index: i, Total: len(bounds), Data: string(payload[span[0]:span[1]])})
+	}
+}
+
+// guestBacklog is the most a guest leaves queued on its channel before it
+// waits for the channel to drain.
+const guestBacklog = 1 << 20
+
+// awaitRoom holds the guest while its channel has more than guestBacklog
+// queued. The channel's sends never block, so without it a large frame is
+// queued whole at once and a reply's deadline runs out over the transfer
+// rather than the reply; the wait fails only when the backlog stops draining.
+func (g *guest) awaitRoom() {
+	g.t.Helper()
+	for {
+		queued := g.dc.BufferedAmount()
+		if queued <= guestBacklog {
+			return
+		}
+		select {
+		case <-g.drained:
+		case <-g.closed:
+			g.t.Fatal("the channel closed with a frame half sent")
+		case <-time.After(20 * time.Second):
+			if g.dc.BufferedAmount() >= queued {
+				g.t.Fatalf("the channel stopped draining with %d bytes queued", queued)
+			}
+		}
 	}
 }
 

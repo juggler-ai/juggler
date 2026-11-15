@@ -57,6 +57,11 @@ type Session struct {
 	// Busy is what the latest successful poll reported: a turn is running,
 	// not merely parked on a tool approval.
 	Busy bool `json:"busy"`
+	// BackgroundTasks is how many background tasks (bash run_in_background,
+	// Monitor) the latest successful poll found running. A task outlives the
+	// turn that started it, so it never makes the session Busy, but stopping the
+	// session stops it.
+	BackgroundTasks int `json:"backgroundTasks,omitempty"`
 	// LastActive is the later of the latest poll that found the child busy
 	// and the child's own last change of attention — a turn starting or
 	// ending, a call coming to wait on the user or being answered; absent
@@ -478,6 +483,7 @@ func (e *sessionEntry) clearChild() {
 	e.Addr = ""
 	e.PID = 0
 	e.Busy = false
+	e.BackgroundTasks = 0
 	e.Attention = e.Attention.durable()
 	e.child = nil
 }

@@ -647,11 +647,15 @@ class PropertiesPanel extends JugglerElement {
       // Long strings go in as a prefix and a length: an edit's displayData holds
       // the whole file twice, and serialising it on every selection only to keep
       // the first 200 characters is most of what a step through edits costs.
-      const ddJson = displayData ? JSON.stringify(plain(displayData), boundedString) : '';
+      const ddPlain = displayData ? plain(displayData) : null;
+      const ddJson = ddPlain ? JSON.stringify(ddPlain, boundedString) : '';
+      // A background task's status heads the panel, but the prefix may hold
+      // nothing past its output, so it is compared on its own.
+      const taskStatus = String(/** @type {any} */ (ddPlain)?.backgroundTask?.status ?? '');
       return {
         state: msg.get('state'),
         hasResult: result !== null && result !== undefined,
-        contentSnippet: ddJson.slice(0, 200),
+        contentSnippet: `${taskStatus}|${ddJson.slice(0, 200)}`,
         type: msgType
       };
     }

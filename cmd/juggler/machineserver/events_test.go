@@ -125,7 +125,7 @@ func TestServerEventsPushesChanges(t *testing.T) {
 	// The same report again changes nothing, so the next event is the change
 	// after it.
 	r.setAttention(sess.ID, c, report)
-	r.setActivity(sess.ID, c, true, 0, time.Now())
+	r.setActivity(sess.ID, c, childActivityResponse{Active: true}, time.Now())
 	if got := eventSessions(t, nextEvent(t, events)); !got[0].Busy {
 		t.Fatalf("after setActivity: %+v, want busy (an unchanged report sent an event)", got[0])
 	}

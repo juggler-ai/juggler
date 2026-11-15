@@ -15,6 +15,10 @@ the current release). The project follows semantic versioning.
 - A command re-run after an engine reload no longer runs twice; Stop ends every copy
 - A heavily loaded Mac no longer gets its tool engine reloaded mid-command
 - A tool call finishing in under half a second shows "0s", not a blank time
+- Background commands and monitors show how long they ran, not how long they took to start
+- Quitting or restarting to update asks first when background tasks are running
+- Closing the last window asks first, as quitting does, when work is running
+- Background tasks keep running after their project's window is closed
 - Worktree panel shows unlanded commits, and lands work by rebase or merge, submodules included
 - Long-running conversations tell the model when the date changes
 - Theme and zoom are per window again; changing one window no longer restyles the others

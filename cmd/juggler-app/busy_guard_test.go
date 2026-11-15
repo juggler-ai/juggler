@@ -32,7 +32,7 @@ func TestQuitAsksOnceWhileItsConfirmationIsUp(t *testing.T) {
 	orig := confirmQuitDiscard
 	// The first dialog stays up until the test answers it; any other answers
 	// "Keep working" at once.
-	confirmQuitDiscard = func(*appState, int) bool {
+	confirmQuitDiscard = func(*appState, quitStops) bool {
 		if asks.Add(1) == 1 {
 			close(up)
 			<-answer
@@ -77,7 +77,7 @@ func TestAQuitIsHeldOpenWhileTheUserDecides(t *testing.T) {
 	up := make(chan struct{})
 	answer := make(chan struct{})
 	orig := confirmQuitDiscard
-	confirmQuitDiscard = func(*appState, int) bool {
+	confirmQuitDiscard = func(*appState, quitStops) bool {
 		close(up)
 		<-answer
 		return false

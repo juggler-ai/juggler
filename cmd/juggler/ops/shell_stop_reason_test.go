@@ -7,6 +7,7 @@ package ops
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 // A stop decides why a task ended, and the spawner's own terminal update always
@@ -86,6 +87,51 @@ func TestProjectStopKeepsItsReasonThroughTheSpawnersUpdate(t *testing.T) {
 
 	if state := TaskState(id); state.Error != reason {
 		t.Errorf("a task stopped by name ended saying %q, want %q", state.Error, reason)
+	}
+}
+
+// TestTaskStateTimesTheTaskItself pins the run time a background launch's tool
+// action shows: its own call returns the moment the task is spawned, so the
+// task's start and end are the only measure of how long it ran. Both terminal
+// paths stamp an end, the later spawner update moves neither the end nor the
+// stop, and only a stop is reported as one.
+func TestTaskStateTimesTheTaskItself(t *testing.T) {
+	const stoppedID, exitedID = "bg-timed-stopped", "bg-timed-exited"
+	for _, id := range []string{stoppedID, exitedID} {
+		_, cancel := context.WithCancel(context.Background())
+		registerBackgroundShell(&BackgroundShell{
+			ID: id, ConvID: "conv-" + id, ToolUseID: "tool-" + id, Command: "sleep 60",
+			StartTime: time.Now().Add(-time.Minute), ProjectRoot: t.TempDir(),
+			cancel: cancel, reaped: make(chan struct{}), status: "running",
+		})
+		t.Cleanup(func() { removeBackgroundShell(id) })
+	}
+
+	if running := TaskState(stoppedID); running.StartedAt == 0 || running.EndedAt != 0 || running.Stopped {
+		t.Fatalf("a running task reported start %d end %d stopped %v, want a start and no end", running.StartedAt, running.EndedAt, running.Stopped)
+	}
+
+	if !KillTask(stoppedID) {
+		t.Fatalf("KillTask did not stop a running task")
+	}
+	endedAt := TaskState(stoppedID).EndedAt
+	updateShellStatus(stoppedID, "failed", "", -1, "command cancelled", "", 0, false)
+	updateShellStatus(exitedID, "completed", "", 0, "", "", 0, false)
+
+	for _, c := range []struct {
+		id      string
+		stopped bool
+	}{{stoppedID, true}, {exitedID, false}} {
+		state := TaskState(c.id)
+		if state.EndedAt == 0 || state.EndedAt-state.StartedAt < time.Minute.Milliseconds() {
+			t.Errorf("%s: start %d end %d, want an end at least a minute after the start", c.id, state.StartedAt, state.EndedAt)
+		}
+		if state.Stopped != c.stopped {
+			t.Errorf("%s: stopped %v, want %v", c.id, state.Stopped, c.stopped)
+		}
+	}
+	if got := TaskState(stoppedID).EndedAt; got != endedAt {
+		t.Errorf("the spawner's update after a stop moved its end from %d to %d", endedAt, got)
 	}
 }
 

@@ -1624,8 +1624,9 @@ func (a *appState) handleWindowClosed(e *winEntry) {
 	// the empty write, preserving the previous set for restore.
 	a.persistWorkspace()
 	if remaining == 0 {
-		// The last window already passed its own close guard, so the quit it
-		// triggers must not re-prompt: authorise it up front.
+		// The last window already passed its own close gate, which asked what a
+		// quit asks (confirmCloseEndingTheApp), so the quit it triggers must
+		// not re-prompt: authorise it up front.
 		a.reg(func(st *regState) { st.quitting = true })
 		application.InvokeAsync(func() { a.app.Quit() })
 	}

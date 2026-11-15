@@ -30,7 +30,7 @@ var activityHTTP = &http.Client{Timeout: activityPollInterval}
 
 // pollActivity asks c, every interval, whether it is running a turn and
 // records the answer on session id (Session.Busy, Session.LastActive,
-// Session.Conversations). It
+// Session.Conversations, Session.BackgroundTasks). It
 // returns when c exits. A poll that fails records nothing: an unreachable
 // child is either gone — which its supervisor records — or stuck, and a stuck child
 // stays whatever it was last seen to be rather than turning idle under a turn.
@@ -41,9 +41,10 @@ var activityHTTP = &http.Client{Timeout: activityPollInterval}
 // no report is asked again only when its revision moves.
 //
 // A session that has had no viewer for the grace is asked to retire (retire),
-// unless the poll found a turn running, which would refuse. A refusal — an
-// approval wait, queued work — is asked again after a wait that doubles, up to
-// retireRetryMax, and starts again from every once a turn is seen.
+// unless the poll found a turn or a background task running, either of which
+// would refuse. A refusal — an approval wait, queued work — is asked again
+// after a wait that doubles, up to retireRetryMax, and starts again from every
+// once a turn or a task is seen.
 func (s *Server) pollActivity(id string, c *child, every time.Duration) {
 	tick := time.NewTicker(every)
 	defer tick.Stop()
@@ -62,7 +63,7 @@ func (s *Server) pollActivity(id string, c *child, every time.Duration) {
 			continue
 		}
 		now := time.Now()
-		s.reg.setActivity(id, c, activity.Active, activity.Conversations, now)
+		s.reg.setActivity(id, c, activity, now)
 		if !attentionKnown || activity.AttentionRev != attentionRev {
 			report, err := childAttention(c)
 			switch {
@@ -73,7 +74,10 @@ func (s *Server) pollActivity(id string, c *child, every time.Duration) {
 				attentionRev, attentionKnown = activity.AttentionRev, true
 			}
 		}
-		if activity.Active {
+		// A running background task holds the session as a turn does (the
+		// child refuses to retire for either), so neither is worth claiming
+		// the session for: the claim marks it stopping while it asks.
+		if activity.Active || activity.BackgroundTasks > 0 {
 			retryAt, retryAfter = time.Time{}, every
 			continue
 		}
@@ -96,6 +100,10 @@ type childActivityResponse struct {
 	AttentionRev uint64 `json:"attentionRev"`
 	// Conversations is how many conversations the child's project has.
 	Conversations int `json:"conversations"`
+	// BackgroundTasks is how many background tasks the child is running. They
+	// outlive their turn, so they are not Active, but stopping the child stops
+	// them.
+	BackgroundTasks int `json:"backgroundTasks"`
 }
 
 // childActivity reads c's activity endpoint, quoting the API token minted for
@@ -120,17 +128,19 @@ func childActivity(c *child) (body childActivityResponse, err error) {
 }
 
 // setActivity records one activity poll of child c on session id: busy, its
-// count of conversations, and when busy, at as its last activity. A poll of any child but the one the
-// entry holds now — one that has crashed, or been replaced — is dropped.
-func (r *registry) setActivity(id string, c *child, busy bool, conversations int, at time.Time) {
+// counts of conversations and running background tasks, and when busy, at as
+// its last activity. A poll of any child but the one the entry holds now — one
+// that has crashed, or been replaced — is dropped.
+func (r *registry) setActivity(id string, c *child, activity childActivityResponse, at time.Time) {
 	r.do(func(m map[string]*sessionEntry) {
 		e, ok := m[id]
 		if !ok || e.child != c {
 			return
 		}
-		e.Busy = busy
-		e.Conversations = conversations
-		if busy {
+		e.Busy = activity.Active
+		e.Conversations = activity.Conversations
+		e.BackgroundTasks = activity.BackgroundTasks
+		if activity.Active {
 			e.LastActive = &at
 		}
 	})

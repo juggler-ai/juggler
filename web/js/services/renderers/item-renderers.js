@@ -142,6 +142,59 @@ function settledStatusText(res) {
 }
 
 /**
+ * The header status of something still running: an element carrying
+ * data-elapsed-since, so the panel's 1s ticker refreshes just the digit without
+ * re-rendering the section. A plain "Running…" when the start is unknown.
+ * @param {unknown} startedAt - When the run started, in Unix ms
+ * @returns {HTMLSpanElement} The status element
+ */
+function runningStatus(startedAt) {
+  const startMs = Number(startedAt);
+  const span = document.createElement('span');
+  span.className = 'properties-panel-title-status';
+  if (Number.isFinite(startMs) && startMs > 0) {
+    span.dataset.elapsedSince = String(startMs);
+    span.textContent = runningStatusText(Math.max(0, Math.round((Date.now() - startMs) / 1000)));
+  } else {
+    span.textContent = t('Running…');
+  }
+  return span;
+}
+
+/**
+ * @typedef {object} BackgroundTaskState
+ * @property {string} status - "running" | "completed" | "failed"
+ * @property {number} [startedAt] - Unix ms the task started
+ * @property {number} [endedAt] - Unix ms it ended; absent while running
+ * @property {boolean} [stopped] - It was stopped rather than exiting
+ */
+
+/**
+ * The latest snapshot of the background task a tool action launched — bash with
+ * run_in_background, or Monitor — which the worker records on the action as it
+ * runs. Null for an action that launched none.
+ * @param {any} toolAction - The tool action
+ * @returns {BackgroundTaskState|null} The snapshot
+ */
+function backgroundTaskOf(toolAction) {
+  const task = /** @type {any} */ (plain(toolAction.get('displayData')))?.backgroundTask;
+  return task && typeof task.status === 'string' ? task : null;
+}
+
+/**
+ * The header status of a tool action that launched a background task. Its own
+ * call returns the moment the task is spawned, so the call's run time says
+ * nothing; the task's does.
+ * @param {BackgroundTaskState} task - The task's latest snapshot
+ * @returns {string|HTMLSpanElement} The status text, or a ticking element while it runs
+ */
+function backgroundTaskStatus(task) {
+  if (task.status === 'running') return runningStatus(task.startedAt);
+  const ran = task.startedAt && task.endedAt ? task.endedAt - task.startedAt : undefined;
+  return settledStatusText({ cancelled: !!task.stopped, isError: task.status === 'failed', fullResult: { durationMs: ran } });
+}
+
+/**
  * Build the approval-provenance badge for a tool-action's properties-panel
  * header — a lozenge matching the item type-name badge, carrying a
  * source-specific leading icon and short label. Returns null when the item
@@ -481,32 +534,17 @@ export function renderToolAction(host, container, toolAction) {
   /** @type {string|HTMLElement|undefined} */
   let statusText = undefined;
   const result = toolAction.get('result');
-  if (result) {
+  const backgroundTask = backgroundTaskOf(toolAction);
+  if (result && backgroundTask) {
+    statusText = backgroundTaskStatus(backgroundTask);
+  } else if (result) {
     statusText = settledStatusText(resolveResult(result));
   } else if (toolAction.get('toolUseId')) {
     const isAwaitingApproval = toolAction.get('state') === TOOL_STATES.PENDING;
-    if (isAwaitingApproval) {
-      statusText = t('Awaiting approval');
-    } else {
-      // Render as an element carrying data-elapsed-since so the panel's
-      // 1s ticker can refresh just the digit without re-rendering the
-      // whole tool-action section. The anchor MUST be runningStartedAt
-      // (stamped at APPROVED→RUNNING in claimRunning); the item's
-      // creation `timestamp` is wrong for re-runs because it's the
-      // original creation time, not the start of the current run.
-      // Falls back to a plain "Running…" when the field is absent.
-      const startMs = Number(toolAction.get('runningStartedAt'));
-      const span = document.createElement('span');
-      span.className = 'properties-panel-title-status';
-      if (Number.isFinite(startMs) && startMs > 0) {
-        span.dataset.elapsedSince = String(startMs);
-        const seconds = Math.max(0, Math.round((Date.now() - startMs) / 1000));
-        span.textContent = runningStatusText(seconds);
-      } else {
-        span.textContent = t('Running…');
-      }
-      statusText = span;
-    }
+    // The anchor MUST be runningStartedAt (stamped at APPROVED→RUNNING in
+    // claimRunning); the item's creation `timestamp` is wrong for re-runs
+    // because it's the original creation time, not the start of the current run.
+    statusText = isAwaitingApproval ? t('Awaiting approval') : runningStatus(toolAction.get('runningStartedAt'));
   }
 
   const isRunning = !toolAction.get('result') && toolAction.get('toolUseId')

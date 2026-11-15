@@ -8,8 +8,11 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"testing"
+	"time"
 
+	"juggler/cmd/juggler/ops"
 	"juggler/cmd/juggler/worker"
 )
 
@@ -46,6 +49,66 @@ func TestHealthRetireAuthAndIdle(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// A background task (bash run_in_background, Monitor) holds the session like a
+// running turn: retiring it stops the task, and nobody is asked — the session
+// retires because nobody is looking. Once the task has ended, the same request
+// commits.
+func TestHealthRetireRefusedWhileABackgroundTaskRuns(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("starts a POSIX sleep")
+	}
+	project := t.TempDir()
+	s := &Server{workerManager: worker.NewManager(), shutdownChan: make(chan struct{})}
+	defer s.workerManager.Shutdown()
+	s.workerManager.GetOrCreate("idle", "user:test")
+	s.projectState.Store(&projectState{projectPath: project})
+
+	res, err := ops.NewShellOperations(ops.NewPathScope(project, nil)).Execute(context.Background(), "startBackground", map[string]any{"command": "sleep 30"})
+	if err != nil {
+		t.Fatalf("startBackground: %v", err)
+	}
+	id, _ := res.(map[string]any)["task_id"].(string)
+	t.Cleanup(func() { ops.KillTask(id) })
+	listed := func() bool {
+		for _, p := range ops.ListProcesses(project) {
+			if p.ID == id {
+				return true
+			}
+		}
+		return false
+	}
+	waitUntil := func(want bool) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for listed() != want {
+			if time.Now().After(deadline) {
+				t.Fatalf("task %s listed = %v, want %v", id, !want, want)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
+	retire := func() (int, bool) {
+		w := httptest.NewRecorder()
+		s.handleHealthRetire(w, httptest.NewRequest(http.MethodPost, "/api/health/retire", nil))
+		select {
+		case <-s.shutdownChan:
+			return w.Code, true
+		default:
+			return w.Code, false
+		}
+	}
+	waitUntil(true)
+	if code, shut := retire(); code != http.StatusConflict || shut {
+		t.Fatalf("background task running: status %d shutdown=%v; want 409 and no shutdown", code, shut)
+	}
+	ops.KillTask(id)
+	waitUntil(false)
+	if code, shut := retire(); code != http.StatusAccepted || !shut {
+		t.Fatalf("background task ended: status %d shutdown=%v; want 202 and shutdown", code, shut)
 	}
 }
 

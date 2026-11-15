@@ -25,6 +25,14 @@ func (s *Server) handleHealthRetire(w http.ResponseWriter, r *http.Request) {
 		handlers.WriteJSON(w, r, http.StatusConflict, map[string]any{"status": "held"})
 		return
 	}
+	// A running background task holds the session as a running turn does:
+	// retiring would stop it, and nobody would be asked — a session retires
+	// because nobody is looking at it. Checked before the workers are asked; a
+	// task starting after this runs inside a tool call, whose turn holds.
+	if s.runningBackgroundTasks() > 0 {
+		handlers.WriteJSON(w, r, http.StatusConflict, map[string]any{"status": "held"})
+		return
+	}
 	accepted := true
 	if s.workerManager != nil {
 		var err error

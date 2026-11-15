@@ -28,7 +28,7 @@ import (
 // (startConn) and every window asks for the server through (serverClient), so
 // they all share one connection. That goroutine only reads and records: it
 // does no network I/O and waits on nothing, so a quick call — attachedClient,
-// sessionsAQuitStops, detachServer — is never held up behind a slow one. The slow
+// whatAQuitStops, detachServer — is never held up behind a slow one. The slow
 // work on the connection — a Connect, an attach, settling an attachment that
 // ended, a restart — is a flight, run on the goroutine that needs it, one at a
 // time (claimFlight): callers arriving meanwhile wait for it, off the owning
@@ -399,30 +399,31 @@ func (a *appState) restartServer(shown *versionMismatchError) error {
 	return err
 }
 
-// sessionsAQuitStops is how many sessions running a turn a quit or an update
-// restart would stop. Letting the server go stops it, and every session on
-// it, only when a client started it on demand and this app is the last local
-// client holding it up. A server started by hand, or held by another client —
-// a terminal's juggler, another app — goes on, and its sessions run their
-// turns to the end with no viewer, so a quit stops none. Read from one status
-// and one sessions list; none when the app is attached to no server, or it
-// does not answer.
-func (a *appState) sessionsAQuitStops() int {
+// whatAQuitStops is what a quit or an update restart would stop: the sessions
+// running a turn, and the background tasks running in any session. Letting the
+// server go stops it, and every session on it, only when a client started it
+// on demand and this app is the last local client holding it up. A server
+// started by hand, or held by another client — a terminal's juggler, another
+// app — goes on, and its sessions run their turns and tasks to the end with no
+// viewer, so a quit stops nothing. Read from one status and one sessions list;
+// nothing when the app is attached to no server, or it does not answer.
+func (a *appState) whatAQuitStops() quitStops {
 	c := a.attachedClient()
 	if c == nil {
-		return 0
+		return quitStops{}
 	}
 	occ, err := c.Occupancy()
 	if err != nil || occ.HandStarted || occ.Clients > 1 {
-		return 0
+		return quitStops{}
 	}
-	n := 0
+	var stops quitStops
 	for _, s := range occ.Sessions {
 		if s.Busy {
-			n++
+			stops.conversations++
 		}
+		stops.tasks += s.BackgroundTasks
 	}
-	return n
+	return stops
 }
 
 // serverLost has every main window onto proc, a server process that has gone,

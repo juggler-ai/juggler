@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"juggler/cmd/juggler/ops"
 	"juggler/cmd/juggler/server/handlers"
 	"juggler/internal/attention"
 	"juggler/internal/jlog"
@@ -26,6 +27,12 @@ import (
 // only by a retirement (handleHealthRetire). attentionRev is the revision of
 // the attention report (handleHealthAttention), which the poller fetches only
 // when it moves; conversations is how many conversations the project has.
+//
+// backgroundTasks is how many background tasks (bash run_in_background,
+// Monitor) are running in the project. They outlive the turn that started them,
+// so no conversation reads as active for them, but a quit that lets the server
+// go stops them, and the quit guard asks first. They are kept out of active,
+// which the machine server also reads as "may not retire".
 func (s *Server) handleHealthActive(w http.ResponseWriter, r *http.Request) {
 	ids := []string{}
 	var rev uint64
@@ -44,7 +51,25 @@ func (s *Server) handleHealthActive(w http.ResponseWriter, r *http.Request) {
 		"conversationIds": ids,
 		"attentionRev":    rev,
 		"conversations":   conversations,
+		"backgroundTasks": s.runningBackgroundTasks(),
 	})
+}
+
+// runningBackgroundTasks is how many background tasks (bash run_in_background,
+// Monitor) are running in the project, workspaces included. Shutting the
+// session down stops every one of them.
+func (s *Server) runningBackgroundTasks() int {
+	project := s.ProjectPath()
+	if project == "" {
+		return 0
+	}
+	n := 0
+	for _, p := range ops.ListProcesses(project) {
+		if p.Kind == ops.ProcessBackground {
+			n++
+		}
+	}
+	return n
 }
 
 // handleHealthAttention reports which of the project's conversations wait on

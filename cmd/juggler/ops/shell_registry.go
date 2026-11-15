@@ -51,6 +51,10 @@ type BackgroundShell struct {
 	exitCode int
 	errMsg   string
 	cmd      *exec.Cmd
+	// endTime is when status left "running"; stopped says a stop put it there.
+	// Both are set by endShell alone.
+	endTime time.Time
+	stopped bool
 
 	// Spill accounting for the full-output file, written after
 	// registerBackgroundShell via the terminal updateStatus op — so, like the
@@ -70,7 +74,7 @@ type BackgroundShell struct {
 
 // snapshot returns a copy of the mutable state. Only call from the registry goroutine.
 func (shell *BackgroundShell) snapshot() TaskOutputState {
-	return TaskOutputState{
+	state := TaskOutputState{
 		Status:          shell.status,
 		Output:          shell.output.String(),
 		ExitCode:        shell.exitCode,
@@ -78,7 +82,26 @@ func (shell *BackgroundShell) snapshot() TaskOutputState {
 		OutputFile:      shell.outputFile,
 		OutputBytes:     shell.outputBytes,
 		OutputTruncated: shell.outputTruncated,
+		Stopped:         shell.stopped,
 	}
+	if !shell.StartTime.IsZero() {
+		state.StartedAt = shell.StartTime.UnixMilli()
+	}
+	if !shell.endTime.IsZero() {
+		state.EndedAt = shell.endTime.UnixMilli()
+	}
+	return state
+}
+
+// endShell moves a running shell to its terminal status, stamping when. Every
+// transition out of "running" goes through here, so EndedAt is never missing
+// from a finished task. Only call from the registry goroutine.
+func (shell *BackgroundShell) endShell(status string, exitCode int, errMsg string, stopped bool) {
+	shell.status = status
+	shell.exitCode = exitCode
+	shell.errMsg = errMsg
+	shell.stopped = stopped
+	shell.endTime = time.Now()
 }
 
 // registryOpKind names the requests the registry goroutine acts on. It is a
@@ -254,9 +277,7 @@ func runShellRegistry() {
 				if task := signalShellStop(shell); task != nil {
 					stopping = append(stopping, *task)
 				}
-				shell.status = "failed"
-				shell.errMsg = op.errMsg
-				shell.exitCode = -1
+				shell.endShell("failed", -1, op.errMsg, true)
 				stopped++
 			}
 			// Escalation is the caller's: it happens off the actor so a slow
@@ -312,9 +333,7 @@ func runShellRegistry() {
 				// the user reads on the tool action, and which of the two writes
 				// the machine ran last is not something to decide it.
 				if shell.status == "running" {
-					shell.status = op.status
-					shell.exitCode = op.exitCode
-					shell.errMsg = op.errMsg
+					shell.endShell(op.status, op.exitCode, op.errMsg, false)
 				}
 				// Output and spill accounting stay the spawner's to report
 				// either way: a task that was stopped still wrote what it wrote,
@@ -344,9 +363,7 @@ func runShellRegistry() {
 				time.AfterFunc(killEscalationGrace, task.forceKillGroup)
 			}
 
-			shell.status = "failed"
-			shell.errMsg = "Killed by user"
-			shell.exitCode = -1
+			shell.endShell("failed", -1, "Killed by user", true)
 
 			op.resp <- registryResp{snapshot: shell.snapshot()}
 

@@ -34,7 +34,7 @@ func TestOnlyLocalClientsHoldImplicitServer(t *testing.T) {
 					c := &child{addr: "127.0.0.1:1", exited: make(chan struct{})}
 					s.reg.setRunning(sess.ID, c, 1)
 					if name == "busy" {
-						s.reg.setActivity(sess.ID, c, true, 0, time.Now())
+						s.reg.setActivity(sess.ID, c, childActivityResponse{Active: true}, time.Now())
 					} else {
 						s.reg.setRestarting(sess.ID, c, "crashed", time.Now())
 					}

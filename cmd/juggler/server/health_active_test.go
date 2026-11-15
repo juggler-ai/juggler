@@ -5,10 +5,14 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http/httptest"
+	"runtime"
 	"testing"
+	"time"
 
+	"juggler/cmd/juggler/ops"
 	"juggler/cmd/juggler/worker"
 )
 
@@ -24,6 +28,67 @@ func TestHealthActiveAsksNoActor(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("health poll beside a stopped actor = %d %s; want 200 — the poll must not go through the actors", w.Code, w.Body.String())
 	}
+}
+
+// A background task (bash run_in_background, Monitor) outlives its turn, so no
+// conversation reads as working while it runs — yet letting the server go stops
+// it. The poll counts the project's running tasks beside the turns, and not
+// another project's, and stops counting one once it has ended. It is not folded
+// into active, which also decides whether an unviewed session may retire.
+func TestHealthActiveCountsBackgroundTasks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("starts a POSIX sleep")
+	}
+	project, other := t.TempDir(), t.TempDir()
+	m := worker.NewManager()
+	defer m.Shutdown()
+	s := &Server{workerManager: m}
+	s.projectState.Store(&projectState{projectPath: project})
+
+	poll := func() (active bool, tasks int) {
+		w := httptest.NewRecorder()
+		s.handleHealthActive(w, httptest.NewRequest("GET", "/api/health/active", nil))
+		var got struct {
+			Active          bool `json:"active"`
+			BackgroundTasks int  `json:"backgroundTasks"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		return got.Active, got.BackgroundTasks
+	}
+	start := func(root string) string {
+		res, err := ops.NewShellOperations(ops.NewPathScope(root, nil)).Execute(context.Background(), "startBackground", map[string]any{"command": "sleep 30"})
+		if err != nil {
+			t.Fatalf("startBackground: %v", err)
+		}
+		id, _ := res.(map[string]any)["task_id"].(string)
+		t.Cleanup(func() { ops.KillTask(id) })
+		return id
+	}
+	waitFor := func(want int) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			active, tasks := poll()
+			if active {
+				t.Fatalf("a background task alone made the session read as running a turn")
+			}
+			if tasks == want {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("health poll counted %d background tasks, want %d", tasks, want)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
+	start(other)
+	ours := start(project)
+	waitFor(1)
+	ops.KillTask(ours)
+	waitFor(0)
 }
 
 func TestHealthActiveQuitWarning(t *testing.T) {

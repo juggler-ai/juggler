@@ -26,6 +26,15 @@ type TaskOutputState struct {
 	OutputFile      string `json:"outputFile,omitempty"`
 	OutputBytes     int64  `json:"outputBytes,omitempty"`
 	OutputTruncated bool   `json:"truncated,omitempty"`
+	// StartedAt and EndedAt (Unix ms) bound the task's own run, which a
+	// background launch's tool call does not: that returns the moment the task
+	// is spawned. EndedAt is zero while it runs.
+	StartedAt int64 `json:"startedAt,omitempty"`
+	EndedAt   int64 `json:"endedAt,omitempty"`
+	// Stopped is set when the task was ended deliberately (a kill, or a stop of
+	// every task under a project) rather than by exiting, failing to start or
+	// outrunning its deadline — all of which also report exit code -1.
+	Stopped bool `json:"stopped,omitempty"`
 }
 
 // TaskSnapshot is an immutable view of a background task's state.

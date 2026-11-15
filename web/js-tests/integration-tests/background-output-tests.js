@@ -120,6 +120,11 @@ const backgroundOutputInPanelTest = {
     if (durable.taskId !== taskId || durable.output !== `${MARKER}\n` || durable.exitCode !== 0) {
       throw new Error(`[background-output] completed output was not persisted on the tool action; got ${JSON.stringify(durable)}`);
     }
+    // The task's own run time, which the panel header shows: the launch call
+    // returned at once, but the command slept for a second.
+    if (!(durable.startedAt > 0 && durable.endedAt - durable.startedAt >= 900)) {
+      throw new Error(`[background-output] the persisted task does not time its own run; got startedAt ${durable.startedAt}, endedAt ${durable.endedAt}`);
+    }
 
     // The text the MODEL was handed stays on show beside the live output: the
     // handle plus how to read it, which is all a background launch returns.

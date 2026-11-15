@@ -1178,9 +1178,10 @@ func (a *appState) handleUpdaterControl(w http.ResponseWriter, r *http.Request, 
 }
 
 // handleUpdaterRestart relaunches into the staged update. It first re-checks
-// the sessions running a turn, which the restart will stop (the exact tally
-// confirmThenQuit does) and, unless force=1, returns 409 with the busy
-// count so the page can confirm the discard and re-POST with force=1.
+// the sessions running a turn and the background tasks running, which the
+// restart will stop (the exact tally confirmThenQuit does) and, unless force=1,
+// returns 409 with both counts so the page can confirm the discard and re-POST
+// with force=1.
 //
 // CRITICAL sequencing: it authorises the quit (st.quitting + notify pages)
 // BEFORE calling updaterRestart(). updaterRestart spawns the swap helper and
@@ -1192,11 +1193,12 @@ func (a *appState) handleUpdaterControl(w http.ResponseWriter, r *http.Request, 
 // the app keeps running and the page can surface the reason.
 func (a *appState) handleUpdaterRestart(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("force") != "1" {
-		if total := a.sessionsAQuitStops(); total > 0 {
+		if stops := a.whatAQuitStops(); stops.any() {
 			writeJSON(w, http.StatusConflict, map[string]any{
-				"busy":        total,
-				"message":     restartBusyMessage(total).English(),
-				"messageText": restartBusyMessage(total),
+				"busy":            stops.conversations,
+				"backgroundTasks": stops.tasks,
+				"message":         restartBusyMessage(stops).English(),
+				"messageText":     restartBusyMessage(stops),
 			})
 			return
 		}

@@ -34,6 +34,10 @@ type stubChild struct {
 	fetches atomic.Int64
 	// conversations is the count every activity answer carries.
 	conversations atomic.Int64
+	// backgroundTasks is the running-task count every activity answer carries.
+	backgroundTasks atomic.Int64
+	// retires counts the retirement requests it was sent, each refused as held.
+	retires atomic.Int64
 }
 
 func newStubChild(t *testing.T) *stubChild {
@@ -50,6 +54,12 @@ func newStubChild(t *testing.T) *stubChild {
 			_ = json.NewEncoder(w).Encode(sc.report.Load())
 			return
 		}
+		if r.URL.Path == apipaths.HealthRetire {
+			sc.retires.Add(1)
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "held"})
+			return
+		}
 		if r.URL.Path != apipaths.HealthActive {
 			http.NotFound(w, r)
 			return
@@ -63,7 +73,7 @@ func newStubChild(t *testing.T) *stubChild {
 		if sc.busy.Load() {
 			ids = append(ids, "conv-a")
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"active": len(ids) > 0, "conversationIds": ids, "attentionRev": sc.report.Load().Rev, "conversations": sc.conversations.Load()})
+		_ = json.NewEncoder(w).Encode(map[string]any{"active": len(ids) > 0, "conversationIds": ids, "attentionRev": sc.report.Load().Rev, "conversations": sc.conversations.Load(), "backgroundTasks": sc.backgroundTasks.Load()})
 	}))
 	t.Cleanup(sc.srv.Close)
 	return sc
@@ -165,6 +175,52 @@ func TestThePollRecordsTheConversationCount(t *testing.T) {
 	}
 }
 
+// Each poll records how many background tasks the child is running, which the
+// app's quit guard counts: they outlive their turn, so the session is not busy
+// for them, but letting the server go stops them.
+func TestThePollRecordsRunningBackgroundTasks(t *testing.T) {
+	sc := newStubChild(t)
+	sc.backgroundTasks.Store(2)
+	r, id, _ := runningSession(t, sc)
+	sc.waitPolls(t, 2)
+	if s, _ := r.get(id); s.BackgroundTasks != 2 || s.Busy {
+		t.Fatalf("session = %+v, want 2 background tasks and not busy", s)
+	}
+	sc.backgroundTasks.Store(0)
+	sc.waitPolls(t, 2)
+	if s, _ := r.get(id); s.BackgroundTasks != 0 {
+		t.Fatalf("after they ended: background tasks = %d, want 0", s.BackgroundTasks)
+	}
+}
+
+// A session running a background task is not asked to retire, however long it
+// has gone unviewed: retiring would stop the task, and each attempt marks the
+// session stopping while it asks, which a window opening onto it has to wait
+// out. Once the task ends, the next poll asks.
+func TestAnUnviewedSessionRunningATaskIsNotAskedToRetire(t *testing.T) {
+	sc := newStubChild(t)
+	sc.backgroundTasks.Store(1)
+	r, id, _ := runningSession(t, sc)
+	r.do(func(m map[string]*sessionEntry) { m[id].unviewedSince = time.Now().Add(-2 * sessionViewerGrace) })
+
+	sc.waitPolls(t, 3)
+	if n := sc.retires.Load(); n != 0 {
+		t.Fatalf("a session running a background task was asked to retire %d times", n)
+	}
+	if s, _ := r.get(id); s.State != SessionRunning {
+		t.Fatalf("session state = %q, want running", s.State)
+	}
+
+	sc.backgroundTasks.Store(0)
+	deadline := time.Now().Add(5 * time.Second)
+	for sc.retires.Load() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("once its task ended, the unviewed session was never asked to retire")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 // A poll that fails says nothing about the child, so it changes nothing: a
 // child that stops answering mid-turn stays busy rather than looking idle.
 func TestActivityPollFailureKeepsLastKnownState(t *testing.T) {
@@ -205,21 +261,22 @@ func TestRegistryActivityBelongsToItsChild(t *testing.T) {
 	r.setRunning(s.ID, c, 1)
 
 	at := time.Now()
-	r.setActivity(s.ID, &child{addr: "127.0.0.1:2"}, true, 0, at)
-	if cur, _ := r.get(s.ID); cur.Busy || cur.LastActive != nil {
+	working := childActivityResponse{Active: true, BackgroundTasks: 1}
+	r.setActivity(s.ID, &child{addr: "127.0.0.1:2"}, working, at)
+	if cur, _ := r.get(s.ID); cur.Busy || cur.BackgroundTasks != 0 || cur.LastActive != nil {
 		t.Fatalf("activity from another child was recorded: %+v", cur)
 	}
 
-	r.setActivity(s.ID, c, true, 0, at)
-	if cur, _ := r.get(s.ID); !cur.Busy || cur.LastActive == nil || !cur.LastActive.Equal(at) {
-		t.Fatalf("activity from the owning child: session = %+v, want busy at %s", cur, at)
+	r.setActivity(s.ID, c, working, at)
+	if cur, _ := r.get(s.ID); !cur.Busy || cur.BackgroundTasks != 1 || cur.LastActive == nil || !cur.LastActive.Equal(at) {
+		t.Fatalf("activity from the owning child: session = %+v, want busy with a task at %s", cur, at)
 	}
 
 	r.setRestarting(s.ID, c, "crashed", time.Now().Add(time.Second))
-	r.setActivity(s.ID, c, true, 0, at.Add(time.Second))
+	r.setActivity(s.ID, c, working, at.Add(time.Second))
 	cur, _ := r.get(s.ID)
-	if cur.Busy {
-		t.Fatalf("crashed session still busy: %+v", cur)
+	if cur.Busy || cur.BackgroundTasks != 0 {
+		t.Fatalf("crashed session still busy or running tasks: %+v", cur)
 	}
 	if cur.LastActive == nil || !cur.LastActive.Equal(at) {
 		t.Fatalf("crashed session: last activity = %v, want %s kept", cur.LastActive, at)

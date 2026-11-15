@@ -6,6 +6,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -106,10 +107,12 @@ func TestDialogsSpeakTheUILanguage(t *testing.T) {
 		"lost heading":     a.tr(lostPageTitle),
 		"picker title":     a.tr(defaultPickerTitle),
 		"remote refusal":   a.tr(remoteWindowRefusal),
-		"quitting, one":    a.tr(quitBusyMessage(1)),
-		"quitting, two":    a.tr(quitBusyMessage(2)),
-		"restarting, one":  a.tr(restartBusyMessage(1)),
-		"restarting, two":  a.tr(restartBusyMessage(3)),
+	}
+	// Each action words every mix of what it stops — turns, background tasks,
+	// both — as whole sentences of its own.
+	for _, stops := range []quitStops{{conversations: 1}, {conversations: 2}, {tasks: 1}, {tasks: 2}, {conversations: 1, tasks: 1}, {conversations: 2, tasks: 3}} {
+		texts[fmt.Sprintf("quitting, %+v", stops)] = a.tr(quitBusyMessage(stops))
+		texts[fmt.Sprintf("restarting, %+v", stops)] = a.tr(restartBusyMessage(stops))
 	}
 	for name, text := range texts {
 		// The counts are data, so they are digits here.

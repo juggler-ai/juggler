@@ -560,5 +560,52 @@ export async function runTests() {
   } catch (e) { failed++; errors.push(`en-XA tool-action row: ${e.message}`); }
   finally { Object.assign(contextItemRegistry, realRegistry); }
 
+  // H — a background launch (bash run_in_background, Monitor) returns the moment
+  // its task is spawned, so the panel header times the task, not the call: a
+  // call that took 5ms for a task that ran three minutes reads "3m", ticks while
+  // the task runs, and a task that was stopped reads as cancelled.
+  try {
+    const header = (/** @type {Record<string, any>} */ backgroundTask) => {
+      /** @type {string|HTMLElement|undefined} */
+      let shown;
+      const host = /** @type {any} */ ({
+        _conversation: null,
+        _messageThread: { items: [] },
+        _selectedItemId: '1',
+        _liveUpdater: null,
+        _createSectionWithControls: (/** @type {any} */ _t, /** @type {any} */ _b, /** @type {any} */ _c, /** @type {string|HTMLElement|undefined} */ statusText) => {
+          shown = statusText;
+          return document.createElement('properties-panel-section');
+        },
+        _renderToolActionControls: () => document.createElement('properties-panel-controls'),
+      });
+      const fields = /** @type {Record<string, any>} */ ({
+        type: 'tool-action', toolName: '1', toolUseId: '2', itemId: '3', toolInput: {}, state: 'completed',
+        result: { content: '6', fullResult: { durationMs: 5 } },
+        displayData: { backgroundTask },
+      });
+      renderToolAction(host, document.createElement('div'), { get: (/** @type {string} */ k) => fields[k] });
+      return shown;
+    };
+    const startedAt = Date.now() - 600000;
+    const endedAt = startedAt + 180000;
+
+    const done = header({ status: 'completed', exitCode: 0, startedAt, endedAt });
+    if (done !== `Completed in ${formatDuration(180)}`) throw new Error(`completed task: got ${JSON.stringify(done)}`);
+    const stopped = header({ status: 'failed', exitCode: -1, stopped: true, startedAt, endedAt });
+    if (stopped !== `Cancelled in ${formatDuration(180)}`) throw new Error(`stopped task: got ${JSON.stringify(stopped)}`);
+    const failed = header({ status: 'failed', exitCode: 2, startedAt, endedAt });
+    if (failed !== `Failed in ${formatDuration(180)}`) throw new Error(`failed task: got ${JSON.stringify(failed)}`);
+    // A snapshot recorded without timestamps has no run time to give, and the
+    // call's 5ms is not one.
+    const untimed = header({ status: 'completed', exitCode: 0 });
+    if (untimed !== 'Completed') throw new Error(`untimed task: got ${JSON.stringify(untimed)}`);
+
+    const running = header({ status: 'running', exitCode: 0, startedAt });
+    if (!(running instanceof HTMLElement) || running.dataset.elapsedSince !== String(startedAt))
+      throw new Error(`running task: expected a ticker from the task's start, got ${running instanceof HTMLElement ? running.outerHTML : JSON.stringify(running)}`);
+    passed++;
+  } catch (e) { failed++; errors.push(`background task header: ${e.message}`); }
+
   return { passed, failed, errors };
 }

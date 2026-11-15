@@ -854,25 +854,58 @@ func TestAttachOpensTheSessionAtTheConversationItNames(t *testing.T) {
 
 // TestQuitTalliesBusySessionsFromOneList: what a quit or an update restart
 // would stop, on a server only this app holds up, is every busy session on
-// it, read from one sessions list.
+// it and every background task running in any session, read from one
+// sessions list.
 func TestQuitTalliesBusySessionsFromOneList(t *testing.T) {
 	a := newTestAppState(t)
 	srv := newStubMachineServer(t, a, core.Version)
 	srv.list.Store(&[]machineserver.Session{
 		{ID: "a", Project: "/a", State: machineserver.SessionRunning, Busy: true},
-		{ID: "b", Project: "/b", State: machineserver.SessionRunning},
-		{ID: "c", Project: "/c", State: machineserver.SessionRunning, Busy: true},
+		{ID: "b", Project: "/b", State: machineserver.SessionRunning, BackgroundTasks: 1},
+		{ID: "c", Project: "/c", State: machineserver.SessionRunning, Busy: true, BackgroundTasks: 2},
 	})
 	if _, err := a.serverClient(true); err != nil {
 		t.Fatal(err)
 	}
-	if n := a.sessionsAQuitStops(); n != 2 {
-		t.Fatalf("sessionsAQuitStops = %d, want 2", n)
+	if got := a.whatAQuitStops(); got != (quitStops{conversations: 2, tasks: 3}) {
+		t.Fatalf("whatAQuitStops = %+v, want 2 conversations and 3 tasks", got)
 	}
 	rec := httptest.NewRecorder()
 	a.handleUpdaterRestart(rec, httptest.NewRequest(http.MethodPost, "/win/w1/updater?op=restart", nil))
-	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"busy":2`) {
-		t.Fatalf("update restart with two busy sessions: %d %s; want 409 with busy 2", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"busy":2`) || !strings.Contains(rec.Body.String(), `"backgroundTasks":3`) {
+		t.Fatalf("update restart with two busy sessions and three tasks: %d %s; want 409 with busy 2, backgroundTasks 3", rec.Code, rec.Body.String())
+	}
+}
+
+// TestQuitAsksForBackgroundTasksAlone: a background task outlives the turn
+// that started it, so a quit can stop one while no conversation is working.
+// Both the quit and an update restart ask first.
+func TestQuitAsksForBackgroundTasksAlone(t *testing.T) {
+	a := newTestAppState(t)
+	srv := newStubMachineServer(t, a, core.Version)
+	srv.list.Store(&[]machineserver.Session{{ID: "a", Project: "/a", State: machineserver.SessionRunning, BackgroundTasks: 1}})
+	if _, err := a.serverClient(true); err != nil {
+		t.Fatal(err)
+	}
+
+	var asked []quitStops
+	orig := confirmQuitDiscard
+	confirmQuitDiscard = func(_ *appState, stops quitStops) bool {
+		asked = append(asked, stops)
+		return false
+	}
+	t.Cleanup(func() { confirmQuitDiscard = orig })
+	if a.confirmThenQuit() {
+		t.Fatal("the quit went ahead though the user chose to keep working")
+	}
+	if len(asked) != 1 || asked[0] != (quitStops{tasks: 1}) {
+		t.Fatalf("quit asked %+v, want once about one background task", asked)
+	}
+
+	rec := httptest.NewRecorder()
+	a.handleUpdaterRestart(rec, httptest.NewRequest(http.MethodPost, "/win/w1/updater?op=restart", nil))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("update restart with a background task running: %d %s; want 409", rec.Code, rec.Body.String())
 	}
 }
 
@@ -892,13 +925,13 @@ func TestQuitStopsNothingOnAServerThatOutlivesTheApp(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			a := newTestAppState(t)
 			srv := newStubMachineServer(t, a, core.Version)
-			srv.list.Store(&[]machineserver.Session{{ID: "a", Project: "/a", State: machineserver.SessionRunning, Busy: true}})
+			srv.list.Store(&[]machineserver.Session{{ID: "a", Project: "/a", State: machineserver.SessionRunning, Busy: true, BackgroundTasks: 1}})
 			tc.setup(srv)
 			if _, err := a.serverClient(true); err != nil {
 				t.Fatal(err)
 			}
-			if n := a.sessionsAQuitStops(); n != 0 {
-				t.Fatalf("sessionsAQuitStops = %d, want 0", n)
+			if got := a.whatAQuitStops(); got.any() {
+				t.Fatalf("whatAQuitStops = %+v, want nothing", got)
 			}
 			saved := updaterRestart
 			updaterRestart = func() error { return errors.New("nothing staged") }
@@ -938,7 +971,7 @@ func returnsPromptly(t *testing.T, name string, fn func()) {
 
 // TestARestartWaitingOnTheServerHoldsUpNoQuickCall: a restart waits for the
 // old server to go, for as long as its drain takes. Meanwhile what Cmd+Q
-// reads (sessionsAQuitStops) and what a quit does (detachServer) still return,
+// reads (whatAQuitStops) and what a quit does (detachServer) still return,
 // bounded by their own work.
 func TestARestartWaitingOnTheServerHoldsUpNoQuickCall(t *testing.T) {
 	a := newTestAppState(t)
@@ -951,7 +984,7 @@ func TestARestartWaitingOnTheServerHoldsUpNoQuickCall(t *testing.T) {
 	go func() { restarted <- a.restartServer(&versionMismatchError{app: a.wantBuild(), server: "v0.0.1-old"}) }()
 	<-old.shutdownAsked
 
-	returnsPromptly(t, "sessionsAQuitStops", func() { a.sessionsAQuitStops() })
+	returnsPromptly(t, "whatAQuitStops", func() { a.whatAQuitStops() })
 	returnsPromptly(t, "detachServer", a.detachServer)
 	select {
 	case err := <-restarted:
@@ -966,7 +999,7 @@ func TestARestartWaitingOnTheServerHoldsUpNoQuickCall(t *testing.T) {
 
 // TestAWindowWaitingForItsServerToGoHoldsUpNoQuickCall: a window whose open
 // caught the server on its way out (503) waits for that server to end the
-// app's attachment. Meanwhile sessionsAQuitStops still reads the server's list, and
+// app's attachment. Meanwhile whatAQuitStops still reads the server's list, and
 // detachServer still lets the server go — which ends the wait.
 func TestAWindowWaitingForItsServerToGoHoldsUpNoQuickCall(t *testing.T) {
 	a := newTestAppState(t)
@@ -985,9 +1018,9 @@ func TestAWindowWaitingForItsServerToGoHoldsUpNoQuickCall(t *testing.T) {
 	}()
 	<-srv.opened
 
-	returnsPromptly(t, "sessionsAQuitStops", func() {
-		if n := a.sessionsAQuitStops(); n != 1 {
-			t.Errorf("sessionsAQuitStops = %d, want 1", n)
+	returnsPromptly(t, "whatAQuitStops", func() {
+		if got := a.whatAQuitStops(); got.conversations != 1 {
+			t.Errorf("whatAQuitStops = %+v, want 1 conversation", got)
 		}
 	})
 	returnsPromptly(t, "detachServer", a.detachServer)

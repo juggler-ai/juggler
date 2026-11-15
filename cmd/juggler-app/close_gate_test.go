@@ -7,7 +7,77 @@ package main
 import (
 	"sync"
 	"testing"
+
+	"juggler/cmd/juggler/core"
+	"juggler/cmd/juggler/machineserver"
 )
+
+// Closing the last main window quits the app (handleWindowClosed), so it stops
+// whatever a quit would, and asks first exactly as a quit does. Closing any
+// other window ends nothing — the app stays, and so does its server — and a
+// board closes with the window that opened it, which has already asked. Kept
+// working, the window stays, and a later close asks again.
+func TestClosingTheLastWindowAsksAsAQuitDoes(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		running  machineserver.Session
+		others   []string // other windows open: "main" or "board"
+		closing  string   // the closing window: "main" or "board"
+		wantAsk  bool
+		keepWork bool
+	}{
+		{name: "last window, a turn running", running: machineserver.Session{Busy: true}, closing: "main", wantAsk: true, keepWork: true},
+		{name: "last window, a background task running", running: machineserver.Session{BackgroundTasks: 1}, closing: "main", wantAsk: true},
+		{name: "last window, nothing running", closing: "main"},
+		{name: "another main window open", running: machineserver.Session{Busy: true}, others: []string{"main"}, closing: "main"},
+		{name: "last main window beside its boards", running: machineserver.Session{BackgroundTasks: 1}, others: []string{"board"}, closing: "main", wantAsk: true},
+		{name: "a board", running: machineserver.Session{Busy: true}, others: []string{"main"}, closing: "board"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := newTestAppState(t)
+			srv := newStubMachineServer(t, a, core.Version)
+			running := tc.running
+			running.ID, running.Project, running.State = "a", "/a", machineserver.SessionRunning
+			srv.list.Store(&[]machineserver.Session{running})
+			if _, err := a.serverClient(true); err != nil {
+				t.Fatal(err)
+			}
+			window := func(id, kind string) *winEntry {
+				e := registerTestWindow(a, id)
+				if kind == "board" {
+					a.reg(func(*regState) { e.board = "b-" + id })
+				}
+				return e
+			}
+			for i, kind := range tc.others {
+				window("other"+string(rune('0'+i)), kind)
+			}
+			e := window("closing", tc.closing)
+
+			asks := 0
+			orig := confirmQuitDiscard
+			confirmQuitDiscard = func(*appState, quitStops) bool {
+				asks++
+				return !tc.keepWork
+			}
+			t.Cleanup(func() { confirmQuitDiscard = orig })
+
+			if !a.claimSettle(e) {
+				t.Fatal("the gate could not be claimed")
+			}
+			goAhead := a.confirmCloseEndingTheApp(e)
+			if want := map[bool]int{true: 1, false: 0}[tc.wantAsk]; asks != want {
+				t.Fatalf("asked %d times, want %d", asks, want)
+			}
+			if goAhead == tc.keepWork {
+				t.Fatalf("close goes ahead = %v, but the user chose keep working = %v", goAhead, tc.keepWork)
+			}
+			if tc.keepWork && !a.claimSettle(e) {
+				t.Fatal("after keeping the window, a later close could not run the gate again")
+			}
+		})
+	}
+}
 
 // A close arriving at a window that has not been through the gate must be
 // cancelled, or the flush would be announced to a webview Wails has already

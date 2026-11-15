@@ -181,16 +181,21 @@ export async function fetchExtensions() {
   // the read in flight is shared: one request however many of them ask. A reset
   // while it is out drops it (resetExtensionsCache), and the stale read then
   // neither fills the cache nor clears the newer read's slot.
+  //
+  // Sharing it means a failed read fails every registry at once, so it is tried
+  // once more before they are all handed an empty catalogue: one blip on a
+  // remote link would otherwise boot the window with no strategies, context
+  // items, commands or hooks.
   const generation = catalogGeneration;
+  /** @returns {Promise<Extension[]|null>} The catalogue, or null when it could not be read */
+  const readCatalogue = () => fetchJson(apiUrl('/extensions'), {
+    errorPrefix: '[Extensions] Failed to fetch extensions',
+    fallback: null,
+  });
   const read = (async () => {
     /** @type {[Extension[]|null, void]} */
-    const [result] = await Promise.all([
-      fetchJson(apiUrl('/extensions'), {
-        errorPrefix: '[Extensions] Failed to fetch extensions',
-        fallback: null,
-      }),
-      loadExtensionCatalogs(),
-    ]);
+    const [first] = await Promise.all([readCatalogue(), loadExtensionCatalogs()]);
+    const result = first ?? await readCatalogue();
     if (result === null) return [];
     const list = Array.isArray(result) ? result : [];
     if (generation === catalogGeneration) cached = list;

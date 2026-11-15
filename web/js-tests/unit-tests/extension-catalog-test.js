@@ -1057,6 +1057,34 @@ export async function runTests(_ctx) {
     }
   });
 
+  // The registries load side by side and share one catalogue read. A read that
+  // fails once — a blip on a remote link — must not hand every registry an
+  // empty catalogue: the window would boot with no strategies, context items,
+  // commands or hooks at all.
+  await run('a shared catalogue read that fails once is tried again for everyone', async () => {
+    const { resetExtensionsCache, fetchExtensions } = await import('../../js/services/extensions.js');
+    const orig = window.fetch;
+    let reads = 0;
+    window.fetch = async (/** @type {any} */ url) => {
+      if (new URL(String(url), location.href).pathname.endsWith('/api/extensions')) {
+        reads++;
+        if (reads === 1) throw new Error('offline');
+        return /** @type {any} */ ({ ok: true, json: async () => [{ id: 'pack', path: '/pack' }] });
+      }
+      return /** @type {any} */ ({ ok: true, json: async () => ({}) });
+    };
+    try {
+      resetExtensionsCache();
+      const lists = await Promise.all([fetchExtensions(), fetchExtensions(), fetchExtensions()]);
+      const sizes = lists.map((list) => list.length);
+      assert(sizes.every((n) => n === 1), `every registry should get the catalogue; got sizes ${JSON.stringify(sizes)}`);
+      assert(reads === 2, `the retry should be one read shared by all; made ${reads}`);
+    } finally {
+      window.fetch = orig;
+      resetExtensionsCache();
+    }
+  });
+
   // The disabled filter runs at the end of init(), and init() marks itself
   // initialized only once it has finished — so two overlapping inits (app
   // startup racing the `plugin-changed` broadcast a config write triggers) both

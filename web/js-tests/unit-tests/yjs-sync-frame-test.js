@@ -184,5 +184,35 @@ export async function runTests() {
     assert(typeof sent[2] === 'string', 'every other worker message stays JSON');
   });
 
+  // The frame's fields are fixed-width: sinceEditMs is an int32 and the
+  // conversation id's length a uint16. A value past either would wrap — a
+  // sinceEditMs of 24.8 days turning negative, and so joining an undo group
+  // from weeks before — so a sync the frame cannot carry goes as JSON, as the
+  // server's encoder does with one (ws_yjs_frame.go).
+  check('a sync the frame cannot carry goes as JSON with its true values', () => {
+    const { ws, sent } = fakeService();
+    ws._handleMessageData(JSON.stringify({ type: 'session', clientId: 'client_x', viewerId: '', bootId: 'boot', binarySync: true }));
+    const update = new Uint8Array([1, 2, 3]);
+
+    const longAgo = 2 ** 31 + 5;
+    ws.sendWorkerMessage('conv_out', { type: 'yjs-sync', bytes: update, sinceEditMs: longAgo });
+    assert(typeof sent[0] === 'string', 'a sinceEditMs past int32 must not go in a frame');
+    assert(JSON.parse(sent[0]).payload.sinceEditMs === longAgo,
+      `the JSON must carry the true sinceEditMs, got ${JSON.parse(sent[0]).payload.sinceEditMs}`);
+
+    const longId = 'c'.repeat(70000);
+    ws.sendWorkerMessage(longId, { type: 'yjs-sync', bytes: update });
+    assert(typeof sent[1] === 'string', 'a conversation id past 65535 bytes must not go in a frame');
+    assert(JSON.parse(sent[1]).conversationId === longId, 'the JSON must carry the whole conversation id');
+
+    let threw = false;
+    try {
+      encodeYjsSyncFrame({ conversationId: 'ab', update, sinceEditMs: longAgo });
+    } catch {
+      threw = true;
+    }
+    assert(threw, 'the encoder must refuse a value it would wrap, never write it');
+  });
+
   return { passed, failed, errors };
 }

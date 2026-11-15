@@ -150,7 +150,8 @@ type WSClient struct {
 	// (sync=binary on the upgrade; see ws_yjs_frame.go). Set once, before the
 	// client's message loop starts, and only read after.
 	binarySync bool
-	// deflates is whether this connection may compress what it writes, which
+	// deflates is whether this connection compresses what it writes (a remote
+	// peer that offered permessage-deflate; offersDeflate), which
 	// keeps every binary message it writes inside one frame
 	// (wsDeflatedChunkSize). Set once, before the first message is queued.
 	deflates bool

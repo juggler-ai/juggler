@@ -274,6 +274,35 @@ func TestADeflatedBinaryMessageIsNeverFragmented(t *testing.T) {
 	}
 }
 
+// TestOffersDeflate pins when a connection counts as compressing: gorilla
+// agrees permessage-deflate only when the client offers it, and a remote peer
+// that does not — the juggler.studio bridge dials without it — must not have its
+// binary messages chunked for a compression that never happens.
+func TestOffersDeflate(t *testing.T) {
+	cases := []struct {
+		name   string
+		header []string
+		want   bool
+	}{
+		{"no extensions", nil, false},
+		{"a browser's offer", []string{"permessage-deflate; client_max_window_bits"}, true},
+		{"offered among others", []string{"x-webkit-deflate-frame, permessage-deflate"}, true},
+		{"in a second header line", []string{"x-other", "permessage-deflate"}, true},
+		{"case and spacing", []string{"  Permessage-Deflate ;client_no_context_takeover"}, true},
+		{"only another extension", []string{"x-webkit-deflate-frame"}, false},
+		{"a name that merely contains it", []string{"permessage-deflate-v2"}, false},
+	}
+	for _, c := range cases {
+		r := httptest.NewRequest(http.MethodGet, "/api/ws", nil)
+		for _, v := range c.header {
+			r.Header.Add("Sec-WebSocket-Extensions", v)
+		}
+		if got := offersDeflate(r); got != c.want {
+			t.Errorf("%s: offersDeflate = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
 // wsDeflatingPair is wsPair for a connection that negotiates permessage-deflate,
 // set up as handleWebSocket sets up a remote peer's, with the peer's socket
 // tapped: wire holds every byte the peer read. The peer reads only in the

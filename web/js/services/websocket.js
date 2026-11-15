@@ -6,7 +6,7 @@ import { recordTape } from '../utils/event-tape.js';
 import { isEngine } from '../../sdk/lib/client-role.js';
 import { wsUrl } from '../utils/api-url.js';
 import { WSChunkReassembler, WS_CHUNK_KIND_TEXT, WS_CHUNK_KIND_BINARY } from '../utils/ws-chunk.js';
-import { encodeYjsSyncFrame, decodeYjsSyncFrame, isYjsSyncFrame } from '../utils/yjs-sync-frame.js';
+import { encodeYjsSyncFrame, decodeYjsSyncFrame, isYjsSyncFrame, fitsYjsSyncFrame } from '../utils/yjs-sync-frame.js';
 import { bytesToBase64 } from '../utils/base64.js';
 import { viewerId } from '../utils/viewer-id.js';
 import { ownerViewerId } from '../utils/view-mode.js';
@@ -1008,18 +1008,21 @@ class WebSocketService {
       ackId: /** @type {any} */ (message).ackId
     });
 
-    // A sync's bytes go raw in a binary frame where the server takes one, and
-    // as base64 in the JSON envelope where it does not.
+    // A sync's bytes go raw in a binary frame where the server takes one and the
+    // frame can carry the sync's fields, and as base64 in the JSON envelope
+    // otherwise.
     let payload = message;
     if (message.type === 'yjs-sync' && message.bytes instanceof Uint8Array) {
-      if (this._binarySync) {
+      /** @type {import('../utils/yjs-sync-frame.js').YjsSyncFrameFields} */
+      const fields = {
+        conversationId,
+        update: message.bytes,
+        engineDerived: message.engineDerived === true,
+        sinceEditMs: typeof message.sinceEditMs === 'number' ? message.sinceEditMs : undefined
+      };
+      if (this._binarySync && fitsYjsSyncFrame(fields)) {
         try {
-          this._sendTransport(encodeYjsSyncFrame({
-            conversationId,
-            update: message.bytes,
-            engineDerived: message.engineDerived === true,
-            sinceEditMs: typeof message.sinceEditMs === 'number' ? message.sinceEditMs : undefined
-          }));
+          this._sendTransport(encodeYjsSyncFrame(fields));
           return true;
         } catch (error) {
           console.error(`[ESSENTIAL] [WebSocket] Failed to send worker message: ${error}`);

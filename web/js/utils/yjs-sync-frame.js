@@ -73,11 +73,33 @@ export function isYjsSyncFrame(raw) {
 }
 
 /**
+ * The fields a frame is written from.
+ * @typedef {{kind?: number, conversationId: string, update: Uint8Array, engineDerived?: boolean, sinceEditMs?: number, stateVector?: Uint8Array|null}} YjsSyncFrameFields
+ */
+
+/**
+ * Whether a frame can carry these fields as they are. Its sinceEditMs is an
+ * int32 and its conversation id's length a uint16, so a value past either
+ * would wrap; such a sync goes as JSON instead, as the server's encoder sends
+ * one (ws_yjs_frame.go).
+ * @param {YjsSyncFrameFields} frame - The fields
+ * @returns {boolean} True when encodeYjsSyncFrame can write them
+ */
+export function fitsYjsSyncFrame(frame) {
+  const since = frame.sinceEditMs;
+  if (typeof since === 'number' && !(Number.isInteger(since) && since >= -(2 ** 31) && since < 2 ** 31)) return false;
+  const convLength = new TextEncoder().encode(frame.conversationId).length;
+  return convLength > 0 && convLength <= 0xffff;
+}
+
+/**
  * Write one frame.
- * @param {{kind?: number, conversationId: string, update: Uint8Array, engineDerived?: boolean, sinceEditMs?: number, stateVector?: Uint8Array|null}} frame - Its fields; kind defaults to a yjs-sync
+ * @param {YjsSyncFrameFields} frame - Its fields; kind defaults to a yjs-sync
  * @returns {Uint8Array} The frame
+ * @throws {RangeError} For fields the frame cannot carry (see fitsYjsSyncFrame)
  */
 export function encodeYjsSyncFrame(frame) {
+  if (!fitsYjsSyncFrame(frame)) throw new RangeError('a sync frame cannot carry these fields');
   const conv = new TextEncoder().encode(frame.conversationId);
   const hasSince = typeof frame.sinceEditMs === 'number';
   const vector = frame.stateVector ?? null;

@@ -6,6 +6,8 @@ package server
 
 import (
 	"encoding/binary"
+	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -115,6 +117,21 @@ func (c *WSClient) chunkSize() int {
 		return wsDeflatedChunkSize
 	}
 	return wsChunkThreshold
+}
+
+// offersDeflate reports whether an upgrade request offers permessage-deflate,
+// which is when gorilla agrees it for an upgrader that allows compression: the
+// connection compresses only then, whatever the peer is.
+func offersDeflate(r *http.Request) bool {
+	for _, line := range r.Header.Values("Sec-WebSocket-Extensions") {
+		for _, ext := range strings.Split(line, ",") {
+			name, _, _ := strings.Cut(ext, ";")
+			if strings.EqualFold(strings.TrimSpace(name), "permessage-deflate") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // writesWhole reports whether a message of this size and type goes as one

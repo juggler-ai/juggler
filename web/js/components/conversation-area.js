@@ -58,6 +58,7 @@ import { reportInstructionFiles } from '../model/conversation-seeder.js';
 import { isFileDrag, installFileDropGuard, markFileDropAccepted } from '../utils/file-drop.js';
 import { ReplySuggestionsController } from '../services/reply-suggestions-controller.js';
 import { STARTER_PROMPTS } from '../utils/starter-prompts.js';
+import { FILE_REF_CLASS } from '../utils/file-refs.js';
 import { areReplySuggestionsEnabled, REPLY_SUGGESTIONS_SETTING_EVENT } from '../services/reply-suggestions-setting.js';
 import { GUIDANCE_CHANGED_EVENT } from '../services/guidance/nudge-engine.js';
 import { COMMAND_MENU_REQUESTED_EVENT } from './juggler-nudge.js';
@@ -144,7 +145,7 @@ function changedItemIds(events) {
  * triggers a reveal of the item's child column.
  */
 const INTERACTIVE_SELECTOR =
-  'button, a, input, textarea, select, summary, [role="button"], [contenteditable="true"]';
+  'button, a, input, textarea, select, summary, [role="button"], [role="link"], [contenteditable="true"]';
 
 /**
  * ConversationArea - one column of a conversation tab: a thread's transcript
@@ -1273,7 +1274,10 @@ class ConversationArea extends JugglerElement {
           // app's link safety net is a delegated handler on document, so
           // stopping propagation here would leave the anchor to its default
           // same-window navigation — off the app's page, with no way back.
-          if (!target.closest?.('a[href]')) {
+          // A file reference is the same: its pin handler is delegated on
+          // document too (services/file-ref-links.js), and one click both
+          // selects the item and pins the file.
+          if (!target.closest?.(`a[href], .${FILE_REF_CLASS}[data-file-path]`)) {
             e.stopPropagation();
           }
           return;

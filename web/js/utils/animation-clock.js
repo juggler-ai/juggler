@@ -18,12 +18,17 @@
  */
 
 /**
- * The animations running on `el` itself (not its descendants).
+ * The animations running on `el` itself (not its descendants), without its CSS
+ * transitions. A transition is a one-off glide on real time, not a clock:
+ * `getAnimations()` returns it beside the animations, and giving it a cycle's
+ * time or rate would warp it — the fire's upright wrapper, say, would stop
+ * gliding with the pivot it cancels.
  * @param {Element|null|undefined} el - The animated element.
  * @returns {Animation[]} Its animations, or none.
  */
 export function animationsOf(el) {
-  return typeof el?.getAnimations === 'function' ? el.getAnimations() : [];
+  if (typeof el?.getAnimations !== 'function') return [];
+  return el.getAnimations().filter((a) => !('transitionProperty' in a));
 }
 
 /**

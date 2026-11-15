@@ -558,15 +558,32 @@ export async function runTests() {
         asked.set(this, r);
         return realUpdate.call(this, r);
       };
+      // The re-space to 5 clubs left the survivors' upright wrappers gliding to
+      // their new slots: CSS transitions, which getAnimations() returns beside
+      // the clocks. They run on real time, as the pivot's own glide does, and
+      // how long they stay in the list depends on whether the page paints — so
+      // the clocks are the CSS animations alone, and the glides are checked
+      // apart from them. Whether a glide meets the rate depends on whether it is
+      // still running when the spinner's list is resolved and its coalesced
+      // application fires, so do both now, while the glides are known to run:
+      // drop the list, as a visibility restart or the fire changing does, and
+      // apply the rate the deferred application will.
       el.rate = 1.5;
-      const clocked = () => Array.from(el.querySelectorAll('.spinner-fire-unspin, .spinner-fire-upright, .spinner-fire-lean'))
+      el._animCache = null;
+      el._applyRate(el.rate);
+      const isTransition = (/** @type {any} */ a) => 'transitionProperty' in a;
+      const onFire = () => Array.from(el.querySelectorAll('.spinner-fire-unspin, .spinner-fire-upright, .spinner-fire-lean'))
         .flatMap((n) => /** @type {any} */ (n).getAnimations());
-      let missed = -1;
+      const glides = onFire().filter(isTransition);
+      let count = 0, missed = 0;
       await waitFor(() => {
-        const list = clocked();
+        const list = onFire().filter((a) => !isTransition(a));
+        count = list.length;
         missed = list.filter((a) => Math.abs((asked.get(a) ?? 0) - 1.5) > 0.001).length;
-        return list.length === 15 && missed === 0;
-      }, { timeoutMs: 1000, description: () => `all 15 fire clocks to be asked for 1.5 (${missed} never were)` });
+        return count === 15 && missed === 0;
+      }, { timeoutMs: 1000, description: () => `all 15 fire clocks to be asked for 1.5 (saw ${count}, of which ${missed} never were)` });
+      assert(glides.every((a) => !asked.has(a)),
+        `the slot glide should keep real time with its pivot, but ${glides.filter((a) => asked.has(a)).length} of ${glides.length} took the cascade rate`);
       const flickers = Array.from(el.querySelectorAll('.spinner-flame, .spinner-fire-glow'))
         .flatMap((n) => /** @type {any} */ (n).getAnimations());
       assert(flickers.every((a) => !asked.has(a)), 'the flicker should keep real time, not the cascade rate');

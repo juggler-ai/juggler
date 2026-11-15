@@ -80,6 +80,16 @@ import { loadExtensionCatalogs } from './extension-catalogs.js';
 let cached = null;
 
 /**
+ * The catalogue read in flight, shared by every caller that arrives before it
+ * settles.
+ * @type {Promise<Extension[]>|null}
+ */
+let catalogInFlight = null;
+
+/** Bumped by every reset, so a read started before one never fills the cache. */
+let catalogGeneration = 0;
+
+/**
  * @typedef {object} PluginConfig
  * @property {Set<string>} disabled - Ids switched off for this project, already resolved by the server
  * @property {Record<string, {extension?: string, file?: string, type?: string, name?: string}>} attribution - What each switched-off id was
@@ -165,18 +175,33 @@ export async function fetchExtensions() {
   if (cached) {
     return cached;
   }
+  if (catalogInFlight) return catalogInFlight;
 
-  /** @type {[Extension[]|null, void]} */
-  const [result] = await Promise.all([
-    fetchJson(apiUrl('/extensions'), {
-      errorPrefix: '[Extensions] Failed to fetch extensions',
-      fallback: null,
-    }),
-    loadExtensionCatalogs(),
-  ]);
-  if (result === null) return [];
-  cached = Array.isArray(result) ? result : [];
-  return cached;
+  // The registries load side by side and each asks for the catalogue first, so
+  // the read in flight is shared: one request however many of them ask. A reset
+  // while it is out drops it (resetExtensionsCache), and the stale read then
+  // neither fills the cache nor clears the newer read's slot.
+  const generation = catalogGeneration;
+  const read = (async () => {
+    /** @type {[Extension[]|null, void]} */
+    const [result] = await Promise.all([
+      fetchJson(apiUrl('/extensions'), {
+        errorPrefix: '[Extensions] Failed to fetch extensions',
+        fallback: null,
+      }),
+      loadExtensionCatalogs(),
+    ]);
+    if (result === null) return [];
+    const list = Array.isArray(result) ? result : [];
+    if (generation === catalogGeneration) cached = list;
+    return list;
+  })();
+  catalogInFlight = read;
+  try {
+    return await read;
+  } finally {
+    if (catalogInFlight === read) catalogInFlight = null;
+  }
 }
 
 /**
@@ -213,6 +238,8 @@ export async function getExtensionCapabilities(type) {
  */
 export function resetExtensionsCache() {
   cached = null;
+  catalogInFlight = null;
+  catalogGeneration++;
   // A genuine reload (plugin toggle) must re-read the disabled set fresh. The
   // set itself is kept as the failure fallback; only its freshness is dropped.
   disabledStale = true;

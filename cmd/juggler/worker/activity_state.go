@@ -5,6 +5,7 @@
 package worker
 
 import (
+	"reflect"
 	"time"
 
 	ycrdt "github.com/skyterra/y-crdt"
@@ -286,7 +287,7 @@ func (w *ConversationWorker) releaseAllLLM() {
 // cond returns false the transaction is a no-op and the call returns false.
 // Otherwise it shallow-clones the map (starting empty when absent — callers whose
 // cond accepts nil create fresh state), applies mutate, writes it back inside the
-// single Yjs transaction, and returns true.
+// single Yjs transaction unless mutate left it unchanged, and returns true.
 func (w *ConversationWorker) patchProcessingStateIf(
 	cond func(existing map[string]any) bool,
 	mutate func(updated map[string]any),
@@ -314,8 +315,19 @@ func (w *ConversationWorker) patchProcessingStateIfLocked(
 			updated[k] = v
 		}
 		mutate(updated)
-		w.doc.metadata.Set(keyProcessingState, toYcrdt(updated))
 		applied = true
+		// The frame is one plain value, so any Set re-sends all of it to every
+		// client, and y-crdt integrates a fresh item even for an equal value. A
+		// patch that leaves the frame as it was — clearing a description that is
+		// not there, re-seeding a field with what it holds — writes nothing. The
+		// comparison is between encoded forms: a value whose decoded types differ
+		// from what toYcrdt produces reads as changed and is written, never the
+		// reverse.
+		next := toYcrdt(updated)
+		if reflect.DeepEqual(raw, next) {
+			return
+		}
+		w.doc.metadata.Set(keyProcessingState, next)
 	})
 	return applied
 }

@@ -117,11 +117,14 @@ function conversationOf(wm, conversationId) {
 }
 
 /**
- * Decode a base64 byte field Go marshalled from a `[]byte`.
+ * Read a byte field Go marshalled from a `[]byte`: base64 when it came in a
+ * JSON envelope, bytes already when it came in a binary sync frame
+ * (utils/yjs-sync-frame.js).
  * @param {unknown} field - The field as it arrived
  * @returns {Uint8Array|null} The bytes, or null when the field is absent
  */
 function bytesField(field) {
+  if (field instanceof Uint8Array) return field;
   return field ? base64ToBytes(/** @type {string} */ (field)) : null;
 }
 
@@ -158,7 +161,7 @@ function onYjsSync(wm, conversationId, data) {
     // shows only the conversations the user explicitly opened and runs no
     // session-wide flow, so loading siblings' convs would be pure waste.
     if (isEngine()) {
-      wm.loader.autoLoad(conversationId, data.bytes);
+      wm.loader.autoLoad(conversationId, /** @type {Uint8Array} */ (bytesField(data.bytes)));
     }
     return;
   }
@@ -217,7 +220,7 @@ function onResyncResponse(wm, conversationId, data) {
   if (update) {
     wm.sendToWorker(conversationId, {
       type: 'yjs-sync',
-      bytes: bytesToBase64(update)
+      bytes: update
     });
   }
 }

@@ -699,20 +699,26 @@ class ActionExecutor {
     if (!runningAction) return;
 
     // Emit progress event - UI elements can listen to this for streaming display
-    // Include accumulated output so listeners display current state instead of reassembling chunks
     const detail = {
       executionId,
       actionId: runningAction.actionId,
       toolUseId: runningAction.toolUseId, // For UI element correlation
       conversationId: runningAction.conversationId,
       event,
-      accumulatedOutput: /** @type {any} */ (runningAction.action).output || '',
       startTime: runningAction.startTime
     };
-    // The local document event drives same-process UI; the engine worker has
-    // no document, so progress reaches viewers solely via the engine bridge.
+    // The local document event drives same-process UI, and carries the
+    // accumulated output so its listeners display current state instead of
+    // reassembling chunks. The engine worker has no document, so progress
+    // reaches viewers solely via the engine bridge — which carries only this
+    // event's own chunk. The bridge goes to every viewer of the project on every
+    // output read, so the running total there would resend the whole output so
+    // far each time: megabytes per command over a remote link. A listener that
+    // wants the total adds up the chunks (test-harness.js does).
     if (typeof document !== 'undefined') {
-      document.dispatchEvent(new CustomEvent('action-progress', { detail }));
+      document.dispatchEvent(new CustomEvent('action-progress', {
+        detail: { ...detail, accumulatedOutput: /** @type {any} */ (runningAction.action).output || '' }
+      }));
     }
     wsService.sendEngineBridge(__ACTION_PROGRESS_CHANNEL, detail);
   }

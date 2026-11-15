@@ -34,9 +34,11 @@ const (
 )
 
 type hubOp struct {
-	kind       hubOpKind
-	client     RealtimeClient
-	msg        any
+	kind   hubOpKind
+	client RealtimeClient
+	msg    any
+	// except names the one client a broadcast skips; empty skips none.
+	except     string
 	doneCh     chan struct{}
 	boolResult chan bool
 	intResult  chan int
@@ -177,7 +179,10 @@ func (h *clientHub) run() {
 				}
 			}
 		case hubBroadcast:
-			for _, hc := range clients {
+			for id, hc := range clients {
+				if op.except != "" && id == op.except {
+					continue
+				}
 				hc.mb.Enqueue(outboundMsg{json: op.msg})
 			}
 		case hubViewerCount:
@@ -226,6 +231,11 @@ func (h *clientHub) register(c RealtimeClient) bool {
 
 func (h *clientHub) unregister(c RealtimeClient) { h.ch <- hubOp{kind: hubUnregister, client: c} }
 func (h *clientHub) broadcast(msg any)           { h.ch <- hubOp{kind: hubBroadcast, msg: msg} }
+
+// broadcastExcept sends msg to every client but the one registered as clientID.
+func (h *clientHub) broadcastExcept(msg any, clientID string) {
+	h.ch <- hubOp{kind: hubBroadcast, msg: msg, except: clientID}
+}
 
 // viewerCount returns the number of connected viewer (user-facing) clients,
 // excluding the engine's hidden headless browser.

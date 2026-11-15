@@ -5,7 +5,9 @@
 import { recordTape } from '../utils/event-tape.js';
 import { isEngine } from '../../sdk/lib/client-role.js';
 import { wsUrl } from '../utils/api-url.js';
-import { WSChunkReassembler, WS_CHUNK_KIND_TEXT } from '../utils/ws-chunk.js';
+import { WSChunkReassembler, WS_CHUNK_KIND_TEXT, WS_CHUNK_KIND_BINARY } from '../utils/ws-chunk.js';
+import { encodeYjsSyncFrame, decodeYjsSyncFrame, isYjsSyncFrame } from '../utils/yjs-sync-frame.js';
+import { bytesToBase64 } from '../utils/base64.js';
 import { viewerId } from '../utils/viewer-id.js';
 import { ownerViewerId } from '../utils/view-mode.js';
 import { reportFault } from '../utils/fault-report.js';
@@ -269,6 +271,13 @@ class WebSocketService {
      */
     this._wsChunks = new WSChunkReassembler();
     /**
+     * Whether the server on the current link takes Yjs sync as binary frames
+     * (utils/yjs-sync-frame.js). Granted by the session message, and forgotten
+     * with the link: until the next server says so, sync goes as JSON.
+     * @type {boolean} @private
+     */
+    this._binarySync = false;
+    /**
      * What has arrived on the link, for waits that are bounded by progress
      * rather than by wall time (see {@link WebSocketService#receiveProgress}).
      * Updated in place on every inbound frame, so reading it costs nothing.
@@ -352,7 +361,8 @@ class WebSocketService {
     // part of that window rather than as one more client sharing the session.
     const owner = role === 'viewer' ? ownerViewerId() : '';
     const ownerParam = owner ? `&owner=${encodeURIComponent(owner)}` : '';
-    return `role=${role}${tokenParam}${viewerParam}${ownerParam}`;
+    // This client reads Yjs sync as binary frames (utils/yjs-sync-frame.js).
+    return `role=${role}${tokenParam}${viewerParam}${ownerParam}&sync=binary`;
   }
 
   /**
@@ -385,7 +395,7 @@ class WebSocketService {
     // A minimal send-adapter, not the raw RTCDataChannel: studio.sendFrame
     // applies the channel's own chunking.
     this._transport = /** @type {any} */ ({
-      send: (/** @type {string} */ payload) => studio.sendFrame(payload),
+      send: (/** @type {string|Uint8Array} */ payload) => studio.sendFrame(/** @type {any} */ (payload)),
       close: () => {}
     });
     const socket = new URL(wsUrl(this._socketQuery('viewer')));
@@ -515,17 +525,21 @@ class WebSocketService {
   }
 
   /**
-   * Feed one received binary message to the chunk reassembler, and hand on
-   * whatever it completes.
+   * Handle one received binary message: a Yjs sync frame, or a chunk frame of
+   * a message the server had to split, which is fed to the reassembler and
+   * handed on once whole — as text, or as the sync frame it was.
    *
-   * Binary is not otherwise part of this protocol, so anything arriving that is
-   * not a chunk frame is dropped rather than guessed at — and said out loud,
+   * Anything else is dropped rather than guessed at — and said out loud,
    * because a binary message nobody sent means the two ends disagree about the
    * wire format.
    * @param {ArrayBuffer} raw - The received binary message
    * @private
    */
   _handleBinaryMessage(raw) {
+    if (isYjsSyncFrame(raw)) {
+      this._deliverSyncFrame(raw);
+      return;
+    }
     this._noteChunkFrame();
     const message = this._wsChunks.accept(raw);
     if (!message) return;
@@ -533,9 +547,35 @@ class WebSocketService {
       this._handleMessageData(new TextDecoder().decode(message.bytes));
       return;
     }
+    if (message.kind === WS_CHUNK_KIND_BINARY && isYjsSyncFrame(message.bytes)) {
+      this._deliverSyncFrame(message.bytes);
+      return;
+    }
     console.error(
       `[ESSENTIAL] [WebSocket] Dropped a reassembled message of kind ${message.kind}, which this client cannot read`
     );
+  }
+
+  /**
+   * Deliver a Yjs sync frame as the worker-message its JSON envelope would
+   * have been, with its byte fields as bytes rather than base64.
+   * @param {ArrayBuffer|Uint8Array} raw - The frame
+   * @private
+   */
+  _deliverSyncFrame(raw) {
+    const decoded = decodeYjsSyncFrame(raw);
+    if (!decoded) {
+      console.error('[ESSENTIAL] [WebSocket] Dropped a malformed Yjs sync frame');
+      return;
+    }
+    const data = {
+      type: 'worker-message',
+      conversationId: decoded.conversationId,
+      workerMsgType: decoded.workerMsgType,
+      payload: decoded.payload
+    };
+    recordTape('ws-in', data.conversationId, { type: data.type, workerMsgType: data.workerMsgType });
+    this._emit('message', data);
   }
 
   /**
@@ -566,6 +606,7 @@ class WebSocketService {
     }
     this.connected = false;
     this._connecting = false;
+    this._binarySync = false;
     // Frames of a message the dead socket never finished sending. The next
     // connection numbers its runs from one again, so keeping them would let a
     // fragment of the old link be spliced onto the new one.
@@ -721,9 +762,9 @@ class WebSocketService {
       // viewer's tape so a failure block shows the engine's
       // tool-exec timeline interleaved with local events.
       // Record a COMPACT summary, never the raw payload: progress
-      // events carry the tool's accumulated output, and retaining
-      // those strings in a 2000-entry ring across every iframe
-      // turns a large-output tool run into a memory bomb.
+      // events carry chunks of tool output, and retaining those
+      // strings in a 2000-entry ring across every iframe turns a
+      // large-output tool run into a memory bomb.
       const p = /** @type {any} */ (data.payload) || {};
       recordTape('engine:' + data.channel.replace(/^juggler-/, ''),
         p.conversationId ?? null, {
@@ -734,8 +775,7 @@ class WebSocketService {
           status: p.status,
           aborted: p.aborted,
           eventType: p.event?.type,
-          contentLen: typeof p.event?.content === 'string' ? p.event.content.length : undefined,
-          accumulatedLen: typeof p.accumulatedOutput === 'string' ? p.accumulatedOutput.length : undefined
+          contentLen: typeof p.event?.content === 'string' ? p.event.content.length : undefined
         });
       ws._emit('engine-bridge', { channel: data.channel, payload: data.payload });
       return true;
@@ -773,9 +813,8 @@ class WebSocketService {
     // be complete for several more frames.
     this._lastInboundAt = Date.now();
 
-    // The only binary this protocol carries is a message the server had to
-    // split. It is held here until its last frame arrives, then re-enters as
-    // the text it always was.
+    // Binary is a Yjs sync frame, or a frame of a message the server had to
+    // split, held until its last frame arrives.
     if (rawData instanceof ArrayBuffer || ArrayBuffer.isView(rawData)) {
       this._handleBinaryMessage(/** @type {ArrayBuffer} */ (rawData));
       return;
@@ -814,6 +853,8 @@ class WebSocketService {
         // Our own id as the server took it: empty means this viewer sent none, or
         // sent one the server would not accept, and so cannot be addressed.
         this.viewerId = data.viewerId || '';
+        // Whether this server takes Yjs sync as binary frames, as this client asked.
+        this._binarySync = data.binarySync === true;
         // The boot id rides the same message, and on a reconnect it decides
         // whether this page carries on or reloads. A page on its way out has
         // nothing worth handing to listeners.
@@ -831,9 +872,9 @@ class WebSocketService {
   }
 
   /**
-   * Send text over the selected transport. (The studio channel's adapter
-   * chunks for itself.)
-   * @param {string} payload
+   * Send a message over the selected transport: text, or a binary Yjs sync
+   * frame. (The studio channel's adapter chunks for itself.)
+   * @param {string|Uint8Array} payload
    * @private
    */
   _sendTransport(payload) {
@@ -841,7 +882,7 @@ class WebSocketService {
     // Real traffic is a beat as far as the server is concerned, so record it and
     // spare the link a beat it does not need.
     this._lastOutboundAt = Date.now();
-    this._transport.send(payload);
+    this._transport.send(/** @type {string|ArrayBufferView<ArrayBuffer>} */ (payload));
   }
 
   /**
@@ -933,7 +974,8 @@ class WebSocketService {
 
   /**
    * Send a message to the worker via WebSocket
-   * Wraps message in worker-message envelope for server routing
+   * Wraps message in worker-message envelope for server routing. A yjs-sync's
+   * `bytes` may be a Uint8Array, which travels raw where the server allows it.
    * @param {string} conversationId - Conversation ID to route message to
    * @param {{type: string, [key: string]: unknown}} message - Message to send to worker
    * @returns {boolean} True if sent successfully
@@ -958,16 +1000,38 @@ class WebSocketService {
       return false;
     }
 
-    const envelope = {
-      type: 'worker-message',
-      conversationId,
-      workerMsgType: message.type,
-      payload: message
-    };
     recordTape('ws-out', conversationId, {
       workerMsgType: message.type,
       ackId: /** @type {any} */ (message).ackId
     });
+
+    // A sync's bytes go raw in a binary frame where the server takes one, and
+    // as base64 in the JSON envelope where it does not.
+    let payload = message;
+    if (message.type === 'yjs-sync' && message.bytes instanceof Uint8Array) {
+      if (this._binarySync) {
+        try {
+          this._sendTransport(encodeYjsSyncFrame({
+            conversationId,
+            update: message.bytes,
+            engineDerived: message.engineDerived === true,
+            sinceEditMs: typeof message.sinceEditMs === 'number' ? message.sinceEditMs : undefined
+          }));
+          return true;
+        } catch (error) {
+          console.error(`[ESSENTIAL] [WebSocket] Failed to send worker message: ${error}`);
+          return false;
+        }
+      }
+      payload = { ...message, bytes: bytesToBase64(message.bytes) };
+    }
+
+    const envelope = {
+      type: 'worker-message',
+      conversationId,
+      workerMsgType: message.type,
+      payload
+    };
     return this._sendJson(envelope, 'worker message');
   }
 
@@ -1172,8 +1236,10 @@ class WebSocketService {
    * everything missed while the socket was down is recovered by the Yjs
    * state-vector resync that releasing 'open' sets off. Changed, the server
    * restarted: this page was served by a process that no longer exists, so its
-   * token is refused, its `/v<version>/` module URLs 404, and its project may
-   * not even be the same one. Nothing short of a reload recovers from that.
+   * token is refused, its `/v<version>/` module URLs 404 unless the new
+   * server's assets are byte-identical (the version is a hash of them), and its
+   * project may not even be the same one. Nothing short of a reload recovers
+   * from that.
    *
    * A reconnect that arrives with no boot id to compare — the server sent none,
    * or this page never received a session message to record one from — is

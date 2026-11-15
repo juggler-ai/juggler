@@ -210,7 +210,7 @@ export async function runTests(_ctx) {
     const convId = 'conv_autoload_creating';
     const { probe, sync, applied, adopt, consulted } = creating(convId);
 
-    probe.wm.loader.autoLoad(convId, 'AAEC');
+    probe.wm.loader.autoLoad(convId, new Uint8Array([0, 1, 2]));
     const pending = probe.wm.loader.pendingAutoLoad(convId);
     // Fenced on the load's decision: once it has asked about the create, it has
     // either parked on it or gone on to load, so a load that raced the create
@@ -232,7 +232,7 @@ export async function runTests(_ctx) {
     const convId = 'conv_autoload_create_failed';
     const { probe, sync } = creating(convId);
 
-    probe.wm.loader.autoLoad(convId, 'AAEC');
+    probe.wm.loader.autoLoad(convId, new Uint8Array([0, 1, 2]));
     const pending = probe.wm.loader.pendingAutoLoad(convId);
     sync.endLocalCreate(convId);
     await pending;

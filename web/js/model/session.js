@@ -1454,13 +1454,13 @@ class Session {
     try {
       // Atomic server-side create: server creates the folder with the
       // collision-resolved canonical name, appends to order, broadcasts
-      // session-changed, and returns the canonical name. By the time this
+      // conversations-changed, and returns the canonical name. By the time this
       // resolves, the name question is permanently answered — no "Untitled"
       // stage, no follow-up rename.
-      // Where it goes travels with the create. The server keeps the order and
-      // broadcasts it, and the persistence's refreshFromServer re-slots the map into what it
-      // sent — so a placement the server was not told about is undone by its
-      // own echo a moment later, and lost entirely by the next launch.
+      // Where it goes travels with the create. The server keeps the order, and
+      // every other window's refreshFromServer re-slots its map into the order
+      // the server holds — so a placement the server was not told about is
+      // undone in every other window, and lost here by the next launch.
       const { where: place, after } = placementForNewConversation(this, workspaceId);
       response = await this._apiService.createConversation(requestedName, requestedId, { origin, focus, focusFrom, place, after });
       const { id, name: canonicalName } = response;
@@ -2067,10 +2067,9 @@ class Session {
     // Other viewers learn of this from the server's `conversations-changed`
     // op="binned" broadcast, which the bin endpoint sends once the folder has
     // actually moved. Announcing it a second time over `session-changed` would
-    // make every viewer — this one included, since the broadcast goes to the
-    // sender too — re-read the whole manifest, and a manifest read is answered
-    // ahead of a queued bin write. The reply can still list this conversation,
-    // and a refresh treats an id it doesn't hold as one to load.
+    // make every other viewer re-read the whole manifest, and a manifest read is
+    // answered ahead of a queued bin write. The reply can still list this
+    // conversation, and a refresh treats an id it doesn't hold as one to load.
     this.events.notify('conversation:deleted', conv);
     return true;
   }

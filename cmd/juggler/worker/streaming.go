@@ -57,6 +57,12 @@ type streamingState struct {
 	lastTextWriteMs     int64
 	lastThinkingWriteMs int64
 
+	// planWritten is the <plan> text this text block last wrote as nextSteps.
+	// A closed tag is re-extracted from every later chunk of the block, and
+	// only a plan that differs from this one is written again. Reset with the
+	// block, so a later block checks the doc itself instead.
+	planWritten string
+
 	// Input usage the provider reported mid-stream for the round-trip in
 	// flight. A cancelled round-trip writes a transaction blob like any other,
 	// and this is the only account it can give of the prompt it sent: the
@@ -267,6 +273,7 @@ func (r *run) resetStreamingText() {
 	r.t.streaming.textContent = ""
 	r.t.streaming.textWrittenLen = 0
 	r.t.streaming.lastTextWriteMs = 0
+	r.t.streaming.planWritten = ""
 }
 
 // resetStreamingThinking is resetStreamingText's counterpart for thinking blocks.
@@ -377,15 +384,18 @@ func (r *run) extractPlanTag() {
 	}
 
 	plan := strings.TrimSpace(r.t.streaming.textContent[openIdx+len(openTag) : closeIdx])
-	if plan != "" {
-		// Per-thread: a sub-thread's plan lives on its own thread Y.Map so each
-		// column reads its own plan and concurrent threads never share one slot.
-		// The root thread has no Y.Map, so its plan lives on conversation metadata.
-		if r.t.thread.itemID == "" {
-			r.doc.SetMetadata(keyNextSteps, plan)
-		} else {
-			r.doc.SetThreadField(r.t.thread.itemID, keyNextSteps, plan)
-		}
+	if plan == "" || plan == r.t.streaming.planWritten {
+		return
+	}
+	r.t.streaming.planWritten = plan
+	// Per-thread: a sub-thread's plan lives on its own thread Y.Map so each
+	// column reads its own plan and concurrent threads never share one slot.
+	// The root thread has no Y.Map, so its plan lives on conversation metadata.
+	// A later block repeating a plan the doc already holds writes nothing.
+	if r.t.thread.itemID == "" {
+		r.doc.SetMetadataIfChanged(keyNextSteps, plan)
+	} else {
+		r.doc.SetThreadFieldIfChanged(r.t.thread.itemID, keyNextSteps, plan)
 	}
 }
 

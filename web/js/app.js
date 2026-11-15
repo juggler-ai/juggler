@@ -312,14 +312,21 @@ class JugglerApp {
       return;
     }
 
-    // Boot all capability registries in dependency order and signal
-    // registries-ready once the attempt settles — even on failure, so the
-    // system-prompt gate can never permanently hang a turn.
+    // Boot all capability registries and signal registries-ready once the
+    // attempt settles — even on failure, so the system-prompt gate can never
+    // permanently hang a turn. Not awaited here: the socket connects while they
+    // load, each a run of round trips, and the connection manager creates the
+    // session only once they have settled (ConnectionManagerOptions.registriesReady).
     setAppPhase('extensions');
-    await initAllRegistries();
-    // Baseline for the reload notices below: whatever is already broken at boot
-    // is the user's status quo, not news.
-    lastFailedModules = collectFailedModules();
+    const registriesBooted = initAllRegistries()
+      .catch((err) => console.error('[Juggler] Capability registries failed to load:', err))
+      .then(() => {
+        // Baseline for the reload notices below: whatever is already broken at
+        // boot is the user's status quo, not news.
+        lastFailedModules = collectFailedModules();
+      });
+    /** @type {Promise<void>} @private */
+    this._registriesBooted = registriesBooted;
 
     // A detached board has no composer to switch a strategy, model or thinking
     // level for. Everything skipped in this mode is skipped because the surface
@@ -345,7 +352,12 @@ class JugglerApp {
     // waits for any running turn to end, and a command the define_command tool
     // just wrote mid-turn should not. One cheap fetch, so it is not worth
     // working out from the path whether a command file is what changed.
+    //
+    // The socket is up before the boot load has finished, so a change heard
+    // then waits for it: a rebuild that reset the registries mid-load would
+    // race the load it was resetting.
     wsService.on('plugin-changed', async () => {
+      await registriesBooted;
       void commandRegistry.refreshUserCommands();
       console.info('[Juggler] Plugin changed — reloading registries');
       await reloadRegistries();
@@ -505,6 +517,7 @@ class JugglerApp {
       llmState: this._llmState,
       onServerMessage: (data) => this._handleServerMessage(data),
       onSessionInitialized: () => this._initializeSessionServices(),
+      registriesReady: this._registriesBooted,
       // Services for Conversation instances. conversationArea and
       // conversationControls come from each conversation's own tab.
       services: {

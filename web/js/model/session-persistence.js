@@ -15,7 +15,8 @@
  *   conversation list from it without undoing removals still on the wire.
  * - **The save** ({@link SessionPersistence#save}) is debounced, and carries
  *   only session-level state: the visible conversation, the prompt history and
- *   the metadata. Each conversation's content is saved by its own worker.
+ *   the metadata — the history only when the server does not already hold it.
+ *   Each conversation's content is saved by its own worker.
  *
  * Where a new arrival goes in the bar is not decided here: the refresh asks
  * the session ({@link SessionPersistenceHost#foldArrivals}), which owns
@@ -136,6 +137,17 @@ export default class SessionPersistence {
     this._saveTimer = null;
 
     /**
+     * The prompt history the server is known to hold, serialised: what the last
+     * successful save sent, or what the manifest last read carried. Null until
+     * either has happened. A save whose history matches it leaves the history
+     * out of the PUT, which keeps what is stored — so the save that follows a
+     * tab switch carries the active id and the metadata, not a hundred entries.
+     * @type {string|null}
+     * @private
+     */
+    this._serverHistory = null;
+
+    /**
      * The load in flight, which a second caller joins rather than repeats.
      * @type {Promise<void>|null}
      * @private
@@ -197,6 +209,7 @@ export default class SessionPersistence {
     state.messageHistory = Array.isArray(data.messageHistory)
       ? data.messageHistory.map(normalizeHistoryEntry)
       : [];
+    this._serverHistory = JSON.stringify(state.messageHistory);
     const metadata = data.metadata || {};
     state.metadata = metadata;
     if (notify) {
@@ -481,12 +494,18 @@ export default class SessionPersistence {
       // saved by its own worker; names live on the on-disk folder name; and
       // conversation order is owned by POST /api/conversations and POST
       // /api/session/conversations/reorder.
+      // The history is left out when the server already holds it (an absent
+      // field keeps the stored one). Sending it anyway would also overwrite a
+      // history another window saved since this one last read the manifest.
       const state = host.state();
+      const history = JSON.stringify(state.messageHistory);
+      const sendHistory = history !== this._serverHistory;
       await host.api().updateSession(
         host.registry().loadedConversationId ?? null,
-        state.messageHistory,
+        sendHistory ? state.messageHistory : undefined,
         state.metadata
       );
+      if (sendHistory) this._serverHistory = history;
 
       host.notify('session:saved', host.session());
       this._notifyOtherViews();
@@ -632,6 +651,9 @@ export default class SessionPersistence {
 
   /**
    * Notify other views that session-level state has changed, so they re-read it.
+   * The server sends this on to every client but this one: everything the PUT
+   * wrote is already held here, and nothing else the refresh would read changes
+   * with it.
    *
    * For session-level metadata only — messageHistory, metadata flags, the
    * visible conversation — which is exactly what PUT /session writes, and its

@@ -17,7 +17,7 @@
  * @module lib/live-file
  */
 
-import { readFile, getTree, stat } from 'juggler/ops';
+import { readFile, getTree } from 'juggler/ops';
 import { formatFileSizeForDisplay, injectFileContentStyles } from 'juggler/item-utils';
 import { fileSourceFromReadResult } from 'juggler/file-source';
 import { createElement } from 'juggler/ui';
@@ -61,7 +61,7 @@ injectFileContentStyles();
  * says so: a path the agent chose is held to the project, and a path outside it
  * fails as "path is outside the working directory".
  *
- * Only the read op takes a signal; `stat` and `getTree` do not, so a caller that
+ * Only the read op takes a signal; `getTree` does not, so a caller that
  * can be torn down mid-read must check its own signal before using what comes
  * back rather than assuming this rejected.
  *
@@ -85,25 +85,30 @@ export async function fetchLiveFile(path, options = {}) {
     return { path: '', isDirectory: false, exists: false, content: '' };
   }
   const userInitiated = options.userInitiated === true;
-  // All three reads go through one scope, so the probe below cannot answer for a
-  // different tree than the read it is deciding.
-  const ops = options.ops || { readFile, getTree, stat };
+  // Both reads go through one scope, so the read that finds a folder cannot
+  // answer for a different tree than the listing that follows it.
+  const ops = options.ops || { readFile, getTree };
 
   // Completion paths conventionally carry a trailing slash for directories, but a
-  // user may type or paste an absolute directory path without one. Probe first in
-  // that ambiguous case so folders never reach `readFile`.
-  let isDirectory = path.endsWith('/');
-  if (!isDirectory) {
+  // user may type or paste a directory path without one. The file read is asked
+  // to report a folder rather than refuse it, so a file costs one request — each
+  // is a round trip over a remote link — and a folder only the listing besides.
+  /** @type {import('../../../js/services/ops-api.js').ReadFileLoadResult|null} */
+  let read = null;
+  if (!path.endsWith('/')) {
     try {
-      const metadata = await ops.stat({ path, userInitiated });
-      isDirectory = metadata.isDirectory === true;
+      /** @type {import('../../../js/services/ops-api.js').ReadFileLoadParams} */
+      const readParams = { path, userInitiated, reportDirectory: true };
+      if (options.head && options.head > 0) readParams.head = options.head;
+      else if (options.whole) readParams.maxLines = 0;
+      read = await ops.readFile(readParams, options.signal);
     } catch (err) {
-      // Preserve the read operation's error/result behavior when metadata is
-      // unavailable (for example, a deleted path).
+      console.error(`[LiveFile] Couldn't load ${path}:`, err);
+      return { path, isDirectory: false, exists: false, content: '', error: errorText(err) };
     }
   }
 
-  if (isDirectory) {
+  if (!read || read.isDirectory === true) {
     try {
       const treeParams = /** @type {Record<string, unknown>} */ (
         { path, depth: 2, maxTokens: 4000, userInitiated });
@@ -127,34 +132,24 @@ export async function fetchLiveFile(path, options = {}) {
     }
   }
 
-  try {
-    /** @type {import('../../../js/services/ops-api.js').ReadFileLoadParams} */
-    const readParams = { path, userInitiated };
-    if (options.head && options.head > 0) readParams.head = options.head;
-    else if (options.whole) readParams.maxLines = 0;
-
-    const r = await ops.readFile(readParams, options.signal);
-    return {
-      path: r.path || path,
-      isDirectory: false,
-      exists: r.exists !== false,
-      content: r.content || '',
-      language: r.language || languageFromPath(r.path || path),
-      size: r.size || 0,
-      totalLines: r.totalLines || 0,
-      lineOffset: r.lineOffset || 1,
-      lineCount: r.lineCount || 0,
-      warning: r.warning || null,
-      // Carried, not interpreted: a binary file has no `content`, and both the
-      // viewer and the LLM-side extraction need these to hand the file to the
-      // right reader rather than treating it as an empty text file.
-      mime: r.mime || '',
-      isBinary: r.isBinary === true,
-    };
-  } catch (err) {
-    console.error(`[LiveFile] Couldn't load ${path}:`, err);
-    return { path, isDirectory: false, exists: false, content: '', error: errorText(err) };
-  }
+  const r = read;
+  return {
+    path: r.path || path,
+    isDirectory: false,
+    exists: r.exists !== false,
+    content: r.content || '',
+    language: r.language || languageFromPath(r.path || path),
+    size: r.size || 0,
+    totalLines: r.totalLines || 0,
+    lineOffset: r.lineOffset || 1,
+    lineCount: r.lineCount || 0,
+    warning: r.warning || null,
+    // Carried, not interpreted: a binary file has no `content`, and both the
+    // viewer and the LLM-side extraction need these to hand the file to the
+    // right reader rather than treating it as an empty text file.
+    mime: r.mime || '',
+    isBinary: r.isBinary === true,
+  };
 }
 
 /**

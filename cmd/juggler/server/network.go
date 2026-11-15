@@ -197,6 +197,14 @@ func isRemoteIngress(r *http.Request) bool {
 	return RemoteIngressKind(r) != ""
 }
 
+// isRemotePeer reports whether a request came from beyond this machine:
+// through an explicitly-granted remote transport (isRemoteIngress, which looks
+// loopback by address) or from a non-loopback address. It decides who is
+// offered compression, over HTTP and on the WebSocket.
+func isRemotePeer(r *http.Request) bool {
+	return isRemoteIngress(r) || !isLoopbackAddr(r.RemoteAddr)
+}
+
 // clientInfoFromRequest derives display metadata for a client from the request
 // that opened its connection: how it reached us (local / LAN / remote transport),
 // a human detail (LAN IP, or the transport label), its User-Agent, and now as the

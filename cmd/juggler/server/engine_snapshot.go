@@ -75,9 +75,10 @@ type EngineHostSpec struct {
 // directory and returns the spec the Node host launches from.
 //
 // The snapshot is per-boot (a temp dir, GC'd by the OS) rather than a
-// content-keyed cache: staticVersion is randomised per process, so a cache
-// keyed on it would never hit across boots anyway. Writing ~100 small files
-// costs a few milliseconds and only happens on the node path.
+// content-keyed cache: writing ~100 small files costs a few milliseconds and
+// only happens on the node path, and a per-boot directory never needs
+// invalidating — staticVersion would not key one when assets are served from
+// disk, where it is random per process (see mintStaticVersion).
 func (s *Server) PrepareNodeEngineHost() (EngineHostSpec, error) {
 	dir, err := os.MkdirTemp("", "juggler-engine-snapshot-")
 	if err != nil {

@@ -1522,15 +1522,23 @@ export class IntegrationTestHarness {
   startCapturingProgress(toolUseId) {
     /** @type {ProgressEvent[]} */
     const events = [];
+    // The action's running output total. Events relayed from the engine carry
+    // only their own chunk, so the total is the sum of the stdout chunks seen
+    // since capture began — which is from the start of the action, as a test
+    // must capture before approving the tool.
+    let running = '';
     /** @type {(e: CustomEvent) => void} */
     const handler = (e) => {
       if (e.detail?.toolUseId === toolUseId) {
-        // accumulatedOutput is the executor's running total for the action,
-        // not this chunk — it is what waitForActionOutput matches against, and
-        // what the tool-action's displayData.output ends up holding.
+        const event = e.detail.event;
+        if (event?.type === 'stdout' && typeof event.content === 'string') running += event.content;
+        // accumulatedOutput is the running total for the action, not this
+        // chunk — it is what waitForActionOutput matches against, and what the
+        // tool-action's displayData.output ends up holding. A same-window
+        // event states the executor's own total; prefer it.
         events.push({
-          ...e.detail.event,
-          accumulatedOutput: e.detail.accumulatedOutput ?? '',
+          ...event,
+          accumulatedOutput: e.detail.accumulatedOutput ?? running,
           timestamp: Date.now()
         });
       }

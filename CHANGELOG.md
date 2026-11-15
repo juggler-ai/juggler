@@ -6,6 +6,7 @@ the current release). The project follows semantic versioning.
 
 ## [Unreleased]
 
+- Faster loading and much lighter traffic over remote and slow connections
 - Add several accounts per provider and choose one per conversation
 - On Windows and Linux, double-clicking the title bar maximises or restores the window
 - Reads AGENTS.md from subfolders as the agent works there, plus .local and global ones

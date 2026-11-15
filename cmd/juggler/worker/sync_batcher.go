@@ -68,7 +68,7 @@ func newSyncBatcher(doc *ConversationDocument, throttle time.Duration) *syncBatc
 // one a mid-turn conversation gets — so the actor lives until it is told to stop.
 func (b *syncBatcher) run() {
 	defer close(b.retired)
-	var pending [][]byte
+	var pending []pendingUpdate
 	var timer *time.Timer
 	var timerC <-chan time.Time
 
@@ -80,15 +80,18 @@ func (b *syncBatcher) run() {
 	}
 
 	// flush drains any updates still buffered in the doc, merges the pending
-	// batch, and broadcasts a single combined update. The drain, the merge and
-	// the sink lookup happen under one hold inside the document; the broadcast
-	// itself runs out here, off the lock.
+	// batch, and broadcasts it — one combined update per run of deltas with the
+	// same audience, in order (takeBatchForBroadcast). The drain, the merge and
+	// the sink lookup happen under one hold inside the document; the broadcasts
+	// themselves run out here, off the lock.
 	flush := func() {
 		stopTimer()
-		remaining, merged, sink := b.doc.takeBatchForBroadcast(pending)
+		remaining, runs, sink := b.doc.takeBatchForBroadcast(pending)
 		pending = remaining
 		if sink != nil {
-			sink(merged)
+			for _, run := range runs {
+				sink(run.update, run.except)
+			}
 		}
 	}
 

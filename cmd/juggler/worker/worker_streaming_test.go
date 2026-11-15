@@ -8,8 +8,11 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	ycrdt "github.com/skyterra/y-crdt"
 )
 
 // Streaming assembly: a streamed turn lands as one message per block, updates
@@ -654,5 +657,95 @@ func TestStatusChunkIgnoredWhenIdle(t *testing.T) {
 		if _, has := state["phase"]; has {
 			t.Errorf("phase written into a non-live processingState: %+v", state)
 		}
+	}
+}
+
+// TestStreamingSkipsRedundantDocWrites pins that a streamed turn writes only
+// what changed. Every doc write is a Yjs update broadcast to every client on
+// the conversation, so a value rewritten unchanged on each chunk is pure wire
+// cost: the closed <plan> tag re-extracted from the growing text, a status
+// event resent for a run that is already in that status, and a
+// processingState patch that leaves the frame as it was.
+//
+// A plan write is counted by the Yjs item behind metadata.nextSteps: y-crdt
+// integrates a fresh item on every Set, identical value or not.
+func TestStreamingSkipsRedundantDocWrites(t *testing.T) {
+	w := NewConversationWorker("test-conv", "user:test")
+	defer w.doc.Destroy()
+
+	// Delivery is asynchronous but ordered per client, so a marker sent down the
+	// same path arrives only after every status event sent before it.
+	var statusEvents atomic.Int64
+	fences := make(chan struct{}, 1)
+	w.SetCallback("viewer", func(raw []byte) {
+		var m struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(raw, &m) != nil {
+			return
+		}
+		switch m.Type {
+		case "status":
+			statusEvents.Add(1)
+		case "test-fence":
+			fences <- struct{}{}
+		}
+	})
+	statusCount := func() int {
+		w.sendWS([]byte(`{"type":"test-fence"}`))
+		select {
+		case <-fences:
+		case <-time.After(5 * time.Second):
+			t.Fatal("the delivery fence never arrived")
+		}
+		return int(statusEvents.Load())
+	}
+
+	r := w.currentRun()
+	r.sendStatus("streaming", "")
+	r.sendStatus("streaming", "")
+	if n := statusCount(); n != 1 {
+		t.Errorf("two identical streaming statuses sent %d status events, want 1", n)
+	}
+
+	planItem := func() any {
+		ycrdtMu.Lock()
+		defer ycrdtMu.Unlock()
+		return w.doc.metadata.GetMap()[keyNextSteps]
+	}
+	planWrites := 0
+	var lastItem any
+	chunks := append([]StreamChunk{{Type: "text", Content: "<plan>1. Read\n2. Fix</plan>"}},
+		textChunks(generateLongText(200))...)
+	for _, chunk := range chunks {
+		r.processStreamChunk(chunk)
+		if item := planItem(); item != lastItem {
+			planWrites++
+			lastItem = item
+		}
+	}
+	if planWrites != 1 {
+		t.Errorf("an unchanged closed <plan> was written %d times over %d chunks, want 1", planWrites, len(chunks))
+	}
+	if got := w.doc.GetMetadata(keyNextSteps); got != "1. Read\n2. Fix" {
+		t.Errorf("nextSteps = %q, want the plan", got)
+	}
+
+	var updates atomic.Int64
+	ycrdtMu.Lock()
+	w.doc.doc.On("update", &ycrdt.ObserverHandler{Callback: func(...any) { updates.Add(1) }})
+	ycrdtMu.Unlock()
+	r.clearProcessingDescription()
+	r.clearProcessingDescription()
+	if n := updates.Load(); n != 0 {
+		t.Errorf("clearing an absent description wrote %d document updates, want 0", n)
+	}
+
+	// A real transition is always announced, and a rest is never deduplicated.
+	before := statusCount()
+	r.sendStatus("idle", "")
+	r.sendStatus("streaming", "")
+	if n := statusCount() - before; n != 2 {
+		t.Errorf("idle then streaming sent %d status events, want 2", n)
 	}
 }

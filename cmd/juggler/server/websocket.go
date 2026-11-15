@@ -107,8 +107,9 @@ func newWSUpgrader() websocket.Upgrader {
 // wsMessage represents a message to be written to the websocket.
 // Either json (for WriteJSON) or raw (for WriteMessage) should be set, not both.
 type wsMessage struct {
-	json any    // For JSON-encoded messages
-	raw  []byte // For raw text messages (streaming chunks)
+	json   any    // For JSON-encoded messages
+	raw    []byte // For raw messages: text unless binary is set
+	binary bool   // raw is a binary message (a Yjs sync frame, ws_yjs_frame.go)
 }
 
 // ClientRole identifies the type of WebSocket client
@@ -143,6 +144,10 @@ type WSClient struct {
 	// atomic because only writePump ever touches it — unlike lastSendAt, which
 	// crosses goroutines. See writeChunked.
 	chunkSeq uint64
+	// binarySync is whether this client asked for Yjs sync as binary frames
+	// (sync=binary on the upgrade; see ws_yjs_frame.go). Set once, before the
+	// client's message loop starts, and only read after.
+	binarySync bool
 }
 
 // generateClientID creates a unique client ID using crypto/rand
@@ -252,6 +257,10 @@ func (c *WSClient) writeOne(msg wsMessage) bool {
 		}
 	}
 	c.stats.record(statsOut, payload, c.Role)
+	messageType, chunkKind := websocket.TextMessage, wsChunkKindText
+	if msg.binary {
+		messageType, chunkKind = websocket.BinaryMessage, wsChunkKindBinary
+	}
 
 	// Accounting above covers the logical message, so a chunked send is one
 	// entry there however many frames it takes on the wire.
@@ -264,14 +273,14 @@ func (c *WSClient) writeOne(msg wsMessage) bool {
 		jlog.Info("Splitting a %d byte %s message into %d frames for %s client %p; "+
 			"no client accepts one this large whole",
 			len(payload), describeWSMessage(payload), wsChunkCount(len(payload)), c.Role, c)
-		err = c.writeChunked(payload, wsChunkKindText)
+		err = c.writeChunked(payload, chunkKind)
 	} else {
 		// Armed fresh per write. SetWriteDeadline only records the time; gorilla
 		// applies it to the socket inside its write lock, in the same critical
 		// section as the write itself, so this cannot be clobbered by the pong and
 		// close frames gorilla sends from the read goroutine via WriteControl.
 		_ = c.conn.SetWriteDeadline(time.Now().Add(wsWriteTimeout))
-		err = c.conn.WriteMessage(websocket.TextMessage, payload)
+		err = c.conn.WriteMessage(messageType, payload)
 	}
 	if err != nil {
 		// What failed matters as much as that it failed: a peer that hangs up
@@ -305,6 +314,9 @@ func (c *WSClient) writeOne(msg wsMessage) bool {
 // It never fails: a payload too broken to describe still has a size worth
 // logging, and swallowing the line to report a parse error would lose it.
 func describeWSMessage(payload []byte) string {
+	if isYjsFrame(payload) {
+		return describeYjsFrame(payload)
+	}
 	msgType, err := jsonparser.GetString(payload, "type")
 	if err != nil {
 		return "unlabelled"
@@ -359,6 +371,17 @@ func (c *WSClient) Send(msg any) bool {
 func (c *WSClient) SendRaw(data []byte) bool {
 	return c.trySend(wsMessage{raw: data})
 }
+
+// SendBinary queues a binary message — a Yjs sync frame — on the same queue as
+// every other message, so it keeps its place among them.
+// Blocks if buffer is full. Returns false only if the client is closed.
+func (c *WSClient) SendBinary(data []byte) bool {
+	return c.trySend(wsMessage{raw: data, binary: true})
+}
+
+// AcceptsBinarySync reports whether this client asked for Yjs sync as binary
+// frames (see ws_yjs_frame.go).
+func (c *WSClient) AcceptsBinarySync() bool { return c.binarySync }
 
 // Close stops the writer goroutine and closes the connection. Safe to call
 // multiple times, and from any goroutine — including one that is not the

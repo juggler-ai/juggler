@@ -41,7 +41,7 @@ const multiViewerConvergeTest = {
     // Viewer-1 creates the conversation and runs one turn.
     { type: 'send-message', message: 'Hello' },
     // Attach a second real WS client to the same conversation; it must
-    // receive the full state broadcast on subscribe.
+    // receive the full state, addressed to it, on subscribe.
     { type: 'open-second-viewer' },
     { type: 'assert-second-viewer-converges' },
     // Live broadcast: viewer-1 runs another turn; the second client must

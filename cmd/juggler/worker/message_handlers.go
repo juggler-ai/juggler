@@ -55,22 +55,25 @@ func (r *run) handleInit(payload json.RawMessage) {
 
 		// Sync the attaching client with current Yjs state. That sync already
 		// carries metadata.undoState, so no separate undo-state write is needed —
-		// and none is safe: an attach must be read-only on the doc. Other viewers
-		// can see this sync, so a doc mutation here would let one client's mere
-		// attach perturb a turn (and its undo capture window) another viewer has
-		// in flight.
+		// and none is safe: an attach must be read-only on the doc. A doc mutation
+		// here would be broadcast to every viewer, letting one client's mere attach
+		// perturb a turn (and its undo capture window) another viewer has in
+		// flight.
 		//
 		// A client that already holds the document says so with its state vector
-		// and gets only the ops it lacks, addressed to it alone. A client that
-		// sends none holds nothing, so full state is what it needs — and that goes
-		// out on the broadcast path, which is also how a freshly attached engine
-		// picks up a conversation it has never seen.
+		// and gets only the ops it lacks. A client that sends none holds nothing,
+		// so full state is what it needs. Either goes to the attaching client
+		// alone: a page load inits every conversation it shows, so a broadcast
+		// would ship each whole document to every other viewer and the engine once
+		// per tab per load, and none of them needs it. The engine is seeded by its
+		// own paths — the first-init broadcast below, resync-to-origin when it
+		// attaches, and pushStateToEngine ahead of every tool command.
 		if len(msg.StateVector) > 0 {
 			if delta := r.doc.GetStateUpdate(msg.StateVector); len(delta) > 0 {
 				r.replyWS(marshalYjsSync(delta, false))
 			}
-		} else {
-			r.broadcastFullState()
+		} else if state := r.doc.ToState(); len(state) > 0 {
+			r.replyWS(marshalYjsSync(state, false))
 		}
 
 		// Send ready with metadata if requested. The conversation name is
@@ -871,7 +874,7 @@ func (r *run) handleYjsSync(payload json.RawMessage) {
 
 	var applyErr error
 	if msg.EngineDerived {
-		applyErr = r.doc.ApplyEngineDerivedSyncUpdate(msg.Bytes)
+		applyErr = r.doc.ApplyEngineDerivedSyncUpdate(msg.Bytes, r.inbox.origin())
 	} else if origin := r.inbox.origin(); origin != "" && origin == r.callbacks.engineClientID() {
 		r.tracker.ApplyEngineEdit(origin, msg.Bytes, msg.SinceEditMs)
 	} else {

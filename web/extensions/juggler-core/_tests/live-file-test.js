@@ -103,5 +103,39 @@ export async function runTests() {
     errors.push(`userInitiated default: ${e.message}`);
   }
 
+  // Every op is a round trip, and over a remote link each one is felt: a file
+  // is one read, not a stat and then a read. A folder named without its
+  // trailing slash is learned from that same read, which answers for it
+  // instead of refusing it, and only then listed.
+  try {
+    /** @type {string[]} */
+    const calls = [];
+    const ops = /** @type {any} */ ({
+      stat: async () => { calls.push('stat'); return { exists: true, isDirectory: false }; },
+      readFile: async (/** @type {Record<string, any>} */ params) => {
+        calls.push('readFile');
+        if (params.reportDirectory !== true) throw new Error('path is a directory, not a file');
+        return params.path === '/7/folder'
+          ? { path: params.path, exists: true, isDirectory: true }
+          : { path: params.path, exists: true, content: 'x', size: 1, totalLines: 1 };
+      },
+      getTree: async () => { calls.push('getTree'); return { content: 'tree', fileCount: 2, dirCount: 1 }; },
+    });
+
+    const file = await fetchLiveFile('/7/file.txt', { ops });
+    if (calls.join() !== 'readFile' || file.content !== 'x' || file.isDirectory) {
+      throw new Error(`a file took ${JSON.stringify(calls)} and read as ${JSON.stringify(file)}`);
+    }
+    calls.length = 0;
+    const folder = await fetchLiveFile('/7/folder', { ops });
+    if (calls.join() !== 'readFile,getTree' || !folder.isDirectory || folder.content !== 'tree' || folder.totalLines !== 3) {
+      throw new Error(`a folder took ${JSON.stringify(calls)} and read as ${JSON.stringify(folder)}`);
+    }
+    passed++;
+  } catch (/** @type {any} */ e) {
+    failed++;
+    errors.push(`one request per file: ${e.message}`);
+  }
+
   return { passed, failed, errors };
 }

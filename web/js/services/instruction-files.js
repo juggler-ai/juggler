@@ -21,7 +21,7 @@
  * @module services/instruction-files
  */
 
-import { createBoundOps } from '../../sdk/ops.js';
+import { createBoundOps, MAX_READ_FILES_PATHS } from '../../sdk/ops.js';
 import { posixNormalize } from '../../sdk/lib/path-containment.js';
 import { isToolActionMessage, itemField } from '../../sdk/lib/message.js';
 import { plain } from '../model/item-accessor.js';
@@ -238,18 +238,33 @@ export async function loadFolderInstructions({ conversation, messageThread, tool
       .filter(rel => !held.has(comparable(`${base}/${rel}`)));
     if (!candidates.length) return [];
 
+    // One request for the whole scan, not one per candidate: most candidates
+    // are names that are not there, and each request is a round trip over a
+    // remote link, paid after every file the agent touches. A list past the
+    // op's cap goes as several requests, side by side.
     const workspaceId = conversation.workspaceId;
     const ops = createBoundOps(() => ({ workspaceId }));
-    const found = await Promise.all(candidates.map(async (path) => {
+    /** @type {string[][]} */
+    const chunks = [];
+    for (let i = 0; i < candidates.length; i += MAX_READ_FILES_PATHS) {
+      chunks.push(candidates.slice(i, i + MAX_READ_FILES_PATHS));
+    }
+    // Answers come back in the order asked, and a chunk that failed answers
+    // nothing for each of its paths, so they line up with `candidates`.
+    const answers = (await Promise.all(chunks.map(async (paths) => {
       try {
-        const result = await ops.readFile({ path }, signal);
-        return result && typeof result.content === 'string' && result.content.trim()
-          ? { path, content: result.content, contentHash: result.contentHash, own: own.has(comparable(`${base}/${path}`)) }
-          : null;
+        const { files } = await ops.readFiles({ paths }, signal);
+        return paths.map((_, i) => files?.[i]);
       } catch {
-        return null;
+        return paths.map(() => undefined);
       }
-    }));
+    }))).flat();
+    const found = candidates.map((path, i) => {
+      const result = /** @type {Record<string, any>|undefined} */ (answers[i]);
+      return result && result.path === path && !result.error && typeof result.content === 'string' && result.content.trim()
+        ? { path, content: String(result.content), contentHash: result.contentHash, own: own.has(comparable(`${base}/${path}`)) }
+        : null;
+    });
     for (const file of found) {
       if (file?.own && file.contentHash) seenHashes.add(file.contentHash);
     }

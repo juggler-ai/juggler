@@ -62,10 +62,7 @@ func (s *Server) runRealtimeClientLoop(ctx context.Context, client RealtimeClien
 		// engine is here, this one notices how often it has had to say so.
 		s.noteEngineAttached()
 		s.workerManager.SetEngineClient(client.ClientID(), func(convID string, msg []byte) {
-			envelope := worker.FormatWorkerMessage(convID, msg)
-			if envelope != nil {
-				client.SendRaw(envelope)
-			}
+			sendWorkerMessage(client, convID, msg)
 		})
 		jlog.Debug("Internal browser connected")
 		defer func() {
@@ -94,7 +91,11 @@ func (s *Server) runRealtimeClientLoop(ctx context.Context, client RealtimeClien
 	// The viewer id is echoed back as the server accepted it, which is empty when
 	// the client sent nothing usable — so a viewer can tell whether anything can
 	// address it before it hands its id to another viewer.
-	client.Send(sessionFrame{Type: frameSession, ClientID: client.ClientID(), ViewerID: client.ViewerID(), BootID: s.bootID})
+	binarySync := false
+	if b, ok := client.(binarySyncSender); ok {
+		binarySync = b.AcceptsBinarySync()
+	}
+	client.Send(sessionFrame{Type: frameSession, ClientID: client.ClientID(), ViewerID: client.ViewerID(), BootID: s.bootID, BinarySync: binarySync})
 
 	// Register with server state for broadcasts. Done AFTER the session send so
 	// the client already knows its own id before the first clients-changed
@@ -149,8 +150,19 @@ func (s *Server) runRealtimeClientLoop(ctx context.Context, client RealtimeClien
 				}
 				return
 			}
+			// A binary sync frame is a worker-message in another form
+			// (ws_yjs_frame.go), and goes through every check below as one.
 			var generic GenericWSMessage
-			if err := json.Unmarshal(msgBytes, &generic); err != nil {
+			var binaryWM *worker.WorkerMessage
+			if isYjsFrame(msgBytes) {
+				wm, err := workerMessageFromYjsFrame(msgBytes)
+				if err != nil {
+					jlog.Error("Realtime: refused a sync frame from %s client %s: %v", role, client.ClientID(), err)
+					continue
+				}
+				binaryWM = &wm
+				generic = GenericWSMessage{Type: wm.Type, WorkerMsgType: wm.WorkerMsgType}
+			} else if err := json.Unmarshal(msgBytes, &generic); err != nil {
 				jlog.Error("Realtime: failed to parse message: %v", err)
 				continue
 			}
@@ -244,22 +256,23 @@ func (s *Server) runRealtimeClientLoop(ctx context.Context, client RealtimeClien
 				s.oneShot.deliver(res)
 
 			case frameSessionChanged:
-				s.broadcastToAll(bareFrame{Type: frameSessionChanged})
+				// Every other client re-reads the session on this; the sender
+				// wrote it and already holds what it wrote.
+				s.broadcastToOthers(bareFrame{Type: frameSessionChanged}, client.ClientID())
 
 			case frameWorkerMessage:
 				if s.workerManager == nil {
 					continue
 				}
-				wm, ok := unmarshalWS[worker.WorkerMessage](msgBytes, "worker-message")
-				if !ok {
+				var wm worker.WorkerMessage
+				if binaryWM != nil {
+					wm = *binaryWM
+				} else if wm, ok = unmarshalWS[worker.WorkerMessage](msgBytes, "worker-message"); !ok {
 					continue
 				}
 				convID := wm.ConversationID
 				sendCallback := func(msg []byte) {
-					envelope := worker.FormatWorkerMessage(convID, msg)
-					if envelope != nil {
-						client.SendRaw(envelope)
-					}
+					sendWorkerMessage(client, convID, msg)
 				}
 				if !s.workerManager.HandleMessageWithClient(wm.ConversationID, client.ClientID(), wm.WorkerMsgType, wm.Payload, sendCallback) {
 					// The manager declined to create a worker for this id: it
@@ -358,7 +371,8 @@ func (s *Server) runRealtimeClientLoop(ctx context.Context, client RealtimeClien
 //   - viewer-relay is a viewer addressing a named viewer; the engine has
 //     nothing to say to one viewer that engine-bridge does not already carry.
 //   - session-changed follows a PUT /session, which the session model in either
-//     realm makes, and carries nothing but "re-read it".
+//     realm makes, and carries nothing but "re-read it" to every client but the
+//     one that wrote it.
 //   - worker-message is how both realms talk to a conversation's worker.
 var inboundFrameRoles = map[frameType][]ClientRole{
 	frameEngineHeartbeat: {ClientRoleEngine},

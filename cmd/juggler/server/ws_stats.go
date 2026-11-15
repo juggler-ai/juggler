@@ -138,7 +138,15 @@ func (s *wsStats) flush(accs map[string]*wsStatAcc) {
 
 // wsMsgLabel extracts the message's logical type for grouping. Worker envelopes
 // carry the meaningful type one level down in workerMsgType.
+// A binary sync frame is labelled apart from the JSON form of the same worker
+// message, so the two can be compared.
 func wsMsgLabel(payload []byte) string {
+	if isYjsFrame(payload) {
+		if f, err := parseYjsFrame(payload); err == nil {
+			return "worker:" + yjsFrameMsgType[f.kind] + " (bin)"
+		}
+		return "(bad sync frame)"
+	}
 	var g struct {
 		Type          string `json:"type"`
 		WorkerMsgType string `json:"workerMsgType"`

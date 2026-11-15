@@ -8,11 +8,11 @@ package worker
 // client inits every conversation it opens — and these tests pin what it costs.
 //
 // A client that already holds the document says so with its Yjs state vector,
-// and is answered with only the ops that vector does not cover, addressed to it
-// alone. A client that sends none holds nothing, so it gets full state, and that
-// goes out on the broadcast path. What must never happen is the first case
-// costing what the second does: a document runs to megabytes, and broadcasting
-// one on every attach charges it to every other viewer and to the engine too.
+// and is answered with only the ops that vector does not cover. A client that
+// sends none holds nothing, so it gets full state. Either answer is addressed
+// to the attaching client alone: a document runs to megabytes, and
+// broadcasting one on every attach charges it to every other viewer and to the
+// engine too. Nor may the first case ever cost what the second does.
 
 import (
 	"context"
@@ -118,25 +118,33 @@ func TestAttachWithStateVectorAnswersTheSenderWithADelta(t *testing.T) {
 	}
 }
 
-// TestAttachWithoutStateVectorBroadcastsFullState pins the fallback a client
+// TestAttachWithoutStateVectorAnswersTheSenderAlone pins the fallback a client
 // with no document depends on — including SecondViewer in the browser suite,
-// which subscribes with a vector-less init precisely to be sent everything.
-func TestAttachWithoutStateVectorBroadcastsFullState(t *testing.T) {
+// which subscribes with a vector-less init precisely to be sent everything —
+// and that the whole document goes to that client only. A page load inits
+// every conversation it shows, so a broadcast here would ship each document to
+// every other viewer and the engine once per open tab per load.
+func TestAttachWithoutStateVectorAnswersTheSenderAlone(t *testing.T) {
 	w, _ := startAttachableWorker(t)
 
 	asker := newMsgChan()
 	w.SetCallback("client-asking", asker.callback)
+	bystander := newMsgChan()
+	w.SetCallback("client-bystander", bystander.callback)
 	// Setting up the worker left traffic owed to every registered client — the
 	// undo-state write that follows the seeded item is a broadcast of its own,
 	// and it carries no item at all. Drain it, or the attach below is answered
 	// by a frame written before it was ever sent.
-	quiesce(t, w, asker)
+	quiesce(t, w, asker, bystander)
 
 	w.SendFromClient("client-asking", "init", initPayload(t, "conv-attach", nil))
 
 	update := waitForYjsSync(t, asker)
 	if isDelta(t, update, attachedContent) {
 		t.Fatal("a vector-less attach must be answered with full state")
+	}
+	if framesUntilBarrier(t, w, bystander).saw("yjs-sync") {
+		t.Fatal("a vector-less attach's full state was broadcast; it must be addressed to the attaching client alone")
 	}
 }
 

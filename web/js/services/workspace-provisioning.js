@@ -490,9 +490,9 @@ export function placeForNewConversation(session, workspaceId, { ignore = '' } = 
  *
  * {@link placeForNewConversation}'s answer, said in terms the server can act on.
  * Placing the tab locally settles nothing on its own: the server keeps the
- * conversation order, broadcasts it on every create, and `refreshFromServer`
- * re-slots the map into what it sent — so an order the server decided for itself
- * is the one that survives the create, and the one the next launch reads back.
+ * conversation order, and every other window's `refreshFromServer` re-slots its
+ * map into that order — so an order the server decided for itself is the one
+ * the other windows show, and the one the next launch reads back.
  *
  * An index would not survive the trip: the server's order counts conversations
  * this client has never loaded, and the client's counts none of them. So each

@@ -249,14 +249,14 @@ type Server struct {
 	bootProjectPath string
 
 	indexTemplate *template.Template // Template for index.html with cache busting
-	staticVersion string             // Random version string for cache-busted static paths
+	staticVersion string             // Cache-busting segment of static paths, /v<staticVersion>/ (see mintStaticVersion)
 	apiToken      string             // Per-instance token gating the sensitive /api surface + viewer WS (see api_auth.go)
 	// bootID names this server instance to its clients, in the session message
 	// every connection is seeded with. It is minted next to staticVersion and
-	// apiToken because it stands for exactly those two: a page served by one
-	// instance carries that instance's token and its cache-busted asset URLs, so
-	// against a different instance every guarded API call is refused and every
-	// dynamic import 404s. A client that reconnects and reads an unchanged boot
+	// apiToken because it stands for both: a page served by one instance carries
+	// that instance's token and its cache-busted asset URLs, so against a
+	// different instance every guarded API call is refused, and every dynamic
+	// import 404s unless the two serve identical assets. A client that reconnects and reads an unchanged boot
 	// id knows the link merely blipped and can catch up with a Yjs state-vector
 	// resync; a changed one means the page itself is stale and must be reloaded.
 	bootID           string
@@ -418,7 +418,7 @@ func New(cfg Config) (*Server, error) {
 
 	extensionsAPI := createExtensionsAPI(cfg.AssetsFromDisk)
 
-	staticVersion := generateStaticVersion()
+	staticVersion := mintStaticVersion(cfg.AssetsFromDisk)
 	recentModels, _ := core.NewRecentModelsStore()
 
 	// Field-by-field initialization of the up-front skeleton — NEVER replace

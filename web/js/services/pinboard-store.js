@@ -66,6 +66,13 @@ let _pins = [];
 /** @type {boolean} */
 let _loaded = false;
 
+/**
+ * Whether the last board read said its seed claim is already spent. False until
+ * a read says otherwise, so a server that does not report it is always asked.
+ * @type {boolean}
+ */
+let _seeded = false;
+
 /** @type {Set<(pins: Pin[]) => void>} */
 const _subscribers = new Set();
 
@@ -207,8 +214,19 @@ const pinboardStore = {
       errorPrefix: '[Pinboard] Failed to load the pinboard',
     });
     const pins = sanitize(data?.pins);
+    _seeded = data?.seeded === true;
     adopt(pins);
     return pins;
+  },
+
+  /**
+   * Whether the board's last read said its seed claim is already spent, so
+   * asking with {@link claimSeed} could only be told no. Advice, never the
+   * claim: false means "ask", not "furnish".
+   * @returns {boolean} True when the server reported the board seeded.
+   */
+  isSeeded() {
+    return _seeded;
   },
 
   /**

@@ -5,10 +5,8 @@
 package server
 
 import (
-	"crypto/rand"
 	"fmt"
 	"io/fs"
-	"math/big"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -44,19 +42,6 @@ func createExtensionsAPI(assetsFromDisk bool) *handlers.ExtensionsAPI {
 
 	userExtensionDir := filepath.Join(userpaths.ConfigDir(), "extensions")
 	return handlers.NewExtensionsAPI(builtinFS, builtinDir, userExtensionDir)
-}
-
-// generateStaticVersion produces a random 4-char base36 string for cache-busting asset URLs.
-func generateStaticVersion() string {
-	versionBytes := make([]byte, 3)
-	_, _ = rand.Read(versionBytes)
-	n := new(big.Int).SetBytes(versionBytes)
-	n.Mod(n, big.NewInt(36*36*36*36))
-	v := n.Text(36)
-	for len(v) < 4 {
-		v = "0" + v
-	}
-	return v
 }
 
 // seedProjectState initialises the atomic projectState from the boot configuration.
@@ -434,16 +419,22 @@ func (s *Server) setupRoutes() {
 	vPrefix := "/v" + s.staticVersion
 	// machine/ is the machine server's sessions page (served there, not here);
 	// it is served here too so its modules run in the browser test harness.
-	prodPrefixes := []string{"/css/", "/js/", "/extensions/", "/sdk/", "/resources/", "/machine/"}
+	// mintStaticVersion hashes exactly these roots, so they share one list.
+	prodPrefixes := make([]string, 0, len(versionedAssetRoots))
+	for _, root := range versionedAssetRoots {
+		prodPrefixes = append(prodPrefixes, "/"+root+"/")
+	}
 	// Captured so the absolute-project-path route below can reuse it. Serves the
 	// web root, so a request path of "/js/foo.js" maps to web/js/foo.js.
 	var staticFileServer http.Handler
 	// registerStatic mounts each prefix under the cache-busting version path,
 	// stripping the version back off before staticFileServer sees the request.
 	// staticFileServer is captured by reference, so each caller assigns it first.
+	// Embedded, the files are immutable, so remote peers get them gzipped from
+	// the cache (gzipCachedAssets).
 	registerStatic := func(prefixes ...string) {
 		for _, prefix := range prefixes {
-			s.router.PathPrefix(vPrefix + prefix).Handler(http.StripPrefix(vPrefix, staticFileServer))
+			s.router.PathPrefix(vPrefix + prefix).Handler(http.StripPrefix(vPrefix, s.gzipCachedAssets(web.Files, staticFileServer)))
 		}
 	}
 	if s.assetsFromDisk {
@@ -522,6 +513,8 @@ func (s *Server) setupRoutes() {
 	// Add middleware
 	s.router.Use(corsMiddleware)
 	s.router.Use(s.cacheControlMiddleware)
+	// Innermost, so it sees the remote-ingress tag supervisorIngressMiddleware sets.
+	s.router.Use(s.compressMiddleware)
 }
 
 // serveEmbeddedTestAssets registers the version-prefixed /js-tests/ route from
@@ -535,5 +528,5 @@ func (s *Server) serveEmbeddedTestAssets(vPrefix string) {
 		return
 	}
 	fileServer := webui.AssetHandler(http.FileServer(http.FS(testFS)))
-	s.router.PathPrefix(vPrefix + "/js-tests/").Handler(http.StripPrefix(vPrefix, fileServer))
+	s.router.PathPrefix(vPrefix + "/js-tests/").Handler(http.StripPrefix(vPrefix, s.gzipCachedAssets(testFS, fileServer)))
 }

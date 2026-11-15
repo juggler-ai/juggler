@@ -149,8 +149,14 @@ async function waitForLocalQuiescence() {
 }
 
 /**
- * Initialize the capability registries in dependency order (strategies
- * first — they gate the whole flow), then flip the registries-ready gate.
+ * Initialize the capability registries, then flip the registries-ready gate.
+ *
+ * The registries load side by side: none reads another while it loads, and what
+ * they share — the extension catalogue and the plugin config — is one read in
+ * flight however many ask (services/extensions.js). The one ordering is
+ * {@link registerItemOwnedStrategies}, which needs both strategies and context
+ * items loaded and so waits for that pair. Every load is awaited before this
+ * resolves, so a caller sees the same fully-loaded set a serial pass gave.
  *
  * The single shared boot/rebuild sequence: first-boot (app.js / engine-app.js)
  * and hot-reload (rebuildRegistriesNow) both call it, so the order and the ready
@@ -161,28 +167,35 @@ async function waitForLocalQuiescence() {
  */
 export async function initAllRegistries() {
   try {
-    await strategyRegistry.init();
-    await contextItemRegistry.init();
-    registerItemOwnedStrategies();
-    await commandRegistry.init();
-    // File viewers run in BOTH realms — render() in the viewer, extract() in the
-    // engine worker — so unlike info cards this registry is initialised
-    // unconditionally.
-    await fileViewerRegistry.init();
-    // Hooks are loaded in both realms too: the engine is where the hook runtime
-    // calls them, and the viewer's catalog lists them.
-    await hookRegistry.init();
+    const loads = [
+      Promise.all([strategyRegistry.init(), contextItemRegistry.init()])
+        .then(() => registerItemOwnedStrategies()),
+      commandRegistry.init(),
+      // File viewers run in BOTH realms — render() in the viewer, extract() in
+      // the engine worker — so unlike info cards this registry is initialised
+      // unconditionally.
+      fileViewerRegistry.init(),
+      // Hooks are loaded in both realms too: the engine is where the hook
+      // runtime calls them, and the viewer's catalog lists them.
+      hookRegistry.init(),
+    ];
     // Info cards and pinboard items touch the DOM and only render in the viewer —
     // never init these registries (which would import DOM-touching modules) in the
     // engine worker, which has no document.
     if (typeof document !== 'undefined') {
-      await infoCardRegistry.init();
-      await pinboardItemRegistry.init();
-      // Workspace providers are viewer-only for the same reason, one step
-      // removed: their whole lifecycle is user-driven, and the engine resolves a
-      // workspace from the session's row without asking whoever made it.
-      await workspaceProviderRegistry.init();
+      loads.push(
+        infoCardRegistry.init(),
+        pinboardItemRegistry.init(),
+        // Workspace providers are viewer-only for the same reason, one step
+        // removed: their whole lifecycle is user-driven, and the engine resolves
+        // a workspace from the session's row without asking whoever made it.
+        workspaceProviderRegistry.init(),
+      );
     }
+    // allSettled, then rethrow the first failure: a throw must not end the wait
+    // while sibling loads are still filling their registries.
+    const failure = (await Promise.allSettled(loads)).find((r) => r.status === 'rejected');
+    if (failure) throw /** @type {PromiseRejectedResult} */ (failure).reason;
   } finally {
     markRegistriesReady();
   }
@@ -195,7 +208,7 @@ export async function initAllRegistries() {
  * tool filter and approval policy the item defines, pinned by id from
  * `buildSubthreadSpec`.
  *
- * Placed here, between the two registries' inits, for three reasons:
+ * Run once both of those registries' inits have finished, for three reasons:
  *   - `strategyRegistry.init()` has already run, so file-based strategies hold
  *     their ids and win any collision — item-owned registration is purely
  *     additive, never a shadow.

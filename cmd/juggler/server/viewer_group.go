@@ -252,19 +252,21 @@ func (s *Server) broadcastToAll(msg any) {
 	s.hub.broadcast(msg)
 }
 
+// broadcastToOthers sends a message to every connected WebSocket client except
+// the connection clientID, for news that connection is the source of and
+// already holds.
+func (s *Server) broadcastToOthers(msg any, clientID string) {
+	if s.hub == nil {
+		return
+	}
+	s.hub.broadcastExcept(msg, clientID)
+}
+
 // serverBroadcaster adapts *Server to the handlers.Broadcaster interface so
-// HTTP handlers can publish session-changed without depending on the full
+// HTTP handlers can publish their changes without depending on the full
 // Server type.
 type serverBroadcaster struct {
 	srv *Server
-}
-
-// BroadcastSessionChanged signals viewers that session-level metadata
-// (messageHistory, metadata flags) was updated via PUT /session. This is
-// the ONLY thing it's for — any conversation-list mutation must go
-// through BroadcastConversationsChanged, never here.
-func (b serverBroadcaster) BroadcastSessionChanged() {
-	b.srv.broadcastToAll(bareFrame{Type: frameSessionChanged})
 }
 
 // BroadcastSessionMetadataChanged publishes a targeted metadata patch. Unlike

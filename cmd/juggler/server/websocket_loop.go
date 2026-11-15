@@ -70,7 +70,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// loopback, where deflate is pure CPU cost with zero bandwidth benefit, so
 	// they upgrade with no extension negotiated. EnableCompression is per-request
 	// here via a copy of the shared upgrader.
-	remotePeer := isRemoteIngress(r) || !isLoopbackAddr(r.RemoteAddr)
+	remotePeer := isRemotePeer(r)
 	upgrader := s.upgrader
 	upgrader.EnableCompression = remotePeer
 
@@ -98,6 +98,9 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// alphabet as a viewer id, because it is one and is relayed the same way.
 	info.Owner = sanitiseViewerID(query.Get("owner"))
 	client := NewWSClient(conn, role, viewerID, info, s.stats)
+	// A client that can read Yjs sync as binary frames says so; one that does
+	// not is sent JSON (ws_yjs_frame.go).
+	client.binarySync = query.Get("sync") == "binary"
 	defer client.Close()
 
 	msgCh := make(chan []byte, 100)

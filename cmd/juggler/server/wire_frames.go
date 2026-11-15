@@ -43,12 +43,14 @@ type textFrame struct {
 
 // sessionFrame is the first frame a client admitted to the socket is sent: its
 // own server-assigned id, its viewer id as the server accepted it (empty when
-// it sent none usable), and this server instance's boot id.
+// it sent none usable), this server instance's boot id, and whether the client
+// may send Yjs sync as binary frames — set when it asked (ws_yjs_frame.go).
 type sessionFrame struct {
-	Type     frameType `json:"type"`
-	ClientID string    `json:"clientId"`
-	ViewerID string    `json:"viewerId"`
-	BootID   string    `json:"bootId"`
+	Type       frameType `json:"type"`
+	ClientID   string    `json:"clientId"`
+	ViewerID   string    `json:"viewerId"`
+	BootID     string    `json:"bootId"`
+	BinarySync bool      `json:"binarySync,omitempty"`
 }
 
 // viewerRelayFrame delivers one viewer's message to another. From is the

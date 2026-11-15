@@ -200,11 +200,13 @@ function rootedArgs(signal, allowedPaths, workspaceId) {
  * @property {{line: number, context: number}} [around] - Read lines around specific line
  * @property {number} [maxLines] - Line ceiling for a whole-file read; 0 means no ceiling. Omitted, the op's own default applies
  * @property {boolean} [userInitiated] - If true (a user pin), paths outside the project root are allowed, relative or absolute
+ * @property {boolean} [reportDirectory] - If true, a folder answers `{exists: true, isDirectory: true}` instead of failing, so a caller need not stat first
  */
 
 /**
  * Result from loadFile operation
  * @typedef {object} ReadFileLoadResult
+ * @property {boolean} [isDirectory] - The path is a folder; only with `reportDirectory`, and then nothing else but `path` and `exists` is set
  * @property {string} content - File content
  * @property {string} path - File path
  * @property {string} language - Detected programming language
@@ -610,6 +612,35 @@ async function callOp(toolId, operation, params, signal, allowedPaths, workspace
 export async function readFile(params, signal, allowedPaths, workspaceId) {
   requireParam(params, 'path');
   return callOp('read-file', 'loadFile', params, signal, allowedPaths, workspaceId);
+}
+
+/**
+ * Most paths one {@link readFiles} call may carry (the op's MaxLoadFilesPaths).
+ * @type {number}
+ */
+export const MAX_READ_FILES_PATHS = 64;
+
+/**
+ * One path's answer from {@link readFiles}: what {@link readFile} with `{path}`
+ * alone returns for it, or, where that read is refused, the refusal.
+ * @typedef {(ReadFileLoadResult & {error?: undefined}) | {path: string, error: string, code?: string, detail?: Record<string, unknown>}} ReadFilesEntry
+ */
+
+/**
+ * Read several files in one request: one answer per path, in the order given.
+ * Each answer is what {@link readFile} with `{path}` alone would give, or
+ * `{path, error}` where that read is refused — a failure of one path never fails
+ * the others. Held to the caller's scope: unlike a single read, it takes no flag
+ * that reaches outside it.
+ * @param {{paths: string[]}} params - Up to {@link MAX_READ_FILES_PATHS} paths
+ * @param {AbortSignal} [signal] - Abort signal for cancellation
+ * @param {string[]} [allowedPaths] - Standing allowed-paths grant (top-level transport)
+ * @param {string} [workspaceId] - Where to run it (top-level transport; see callOp)
+ * @returns {Promise<{files: ReadFilesEntry[]}>} The answers, in order
+ */
+export async function readFiles(params, signal, allowedPaths, workspaceId) {
+  requireParam(params, 'paths');
+  return callOp('read-file', 'loadFiles', params, signal, allowedPaths, workspaceId);
 }
 
 /**

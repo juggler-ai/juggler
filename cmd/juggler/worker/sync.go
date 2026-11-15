@@ -92,6 +92,27 @@ func marshalYjsSync(update []byte, engineDerived bool) []byte {
 	return append(buf, '}')
 }
 
+// MarshalYjsSyncMessage is the yjs-sync payload a client's JSON envelope would
+// have carried for these fields. The server builds it for a client that sent
+// its sync as a binary frame, so the worker receives the one form whichever
+// way the sync travelled.
+//
+// Only a single local edit carries sinceEditMs, and those are small, so that
+// case goes through encoding/json; the rest — full-state pushes and resync
+// replies, which can be megabytes — through marshalYjsSync's exact sizing.
+func MarshalYjsSyncMessage(update []byte, engineDerived bool, sinceEditMs *int) []byte {
+	if sinceEditMs == nil {
+		return marshalYjsSync(update, engineDerived)
+	}
+	data, err := json.Marshal(YjsSyncMessage{Type: msgYjsSync, Bytes: update, EngineDerived: engineDerived, SinceEditMs: sinceEditMs})
+	if err != nil {
+		// Cannot happen for these field types; the payload without the timing
+		// is still the edit.
+		return marshalYjsSync(update, engineDerived)
+	}
+	return data
+}
+
 // FormatWorkerMessage creates a worker message for sending to browser.
 //
 // This is the server's hottest function: every worker message bound for a

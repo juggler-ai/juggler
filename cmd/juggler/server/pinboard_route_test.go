@@ -40,7 +40,6 @@ type pinboardReveal struct {
 	from  string
 }
 
-func (b *recordingBroadcaster) BroadcastSessionChanged()                          {}
 func (b *recordingBroadcaster) BroadcastSessionMetadataChanged(map[string]any)    {}
 func (b *recordingBroadcaster) BroadcastConversationsChanged(op, id, name string) {}
 func (b *recordingBroadcaster) BroadcastConversationsReordered([]string)          {}

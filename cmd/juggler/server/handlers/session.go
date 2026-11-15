@@ -83,10 +83,11 @@ type WorkerManager interface {
 // Broadcaster lets the API notify all connected clients of session-level
 // changes so engine and other viewers can apply the change locally.
 //
-// `BroadcastSessionChanged` is for messageHistory + metadata sync only
-// (PUT /session). It has no conversation-list semantics — any
-// conversation-list mutation (create/delete/rename/bin/restore/
-// bin-delete/bin-emptied) MUST go through `BroadcastConversationsChanged`.
+// PUT /session publishes nothing here. Its writer announces it over the socket
+// as `session-changed`, which the server relays to every client but that
+// writer's connection — the one client with nothing to re-read. Any
+// conversation-list mutation (create/delete/rename/bin/restore/bin-delete/
+// bin-emptied) MUST go through `BroadcastConversationsChanged`.
 //
 // `BroadcastConversationsChanged` carries every per-conversation mutation
 // as `{op, id, name?}` — a single op-tagged diff event with the minimum
@@ -125,7 +126,6 @@ type WorkerManager interface {
 // operations. It is also how a window that is merely watching learns that a
 // workspace another window was provisioning has become usable.
 type Broadcaster interface {
-	BroadcastSessionChanged()
 	BroadcastSessionMetadataChanged(metadata map[string]any)
 	BroadcastWorkspacesChanged(workspaces []workspace.Row)
 	BroadcastConversationsChanged(op, id, name string)
@@ -223,12 +223,16 @@ func boardID(w http.ResponseWriter, r *http.Request) (string, bool) {
 // active, how wide the panel is, whether it is open at all — is deliberately
 // absent. That is per-viewer state, and a laptop and a detached display must not
 // fight over it.
+//
+// `seeded` says whether the board's seed claim is already spent, so a loading
+// viewer skips POST /session/pinboard/seed when it would only be told no.
 func (api *SessionAPI) HandleGetPinboard(w http.ResponseWriter, r *http.Request) {
 	board, ok := boardID(w, r)
 	if !ok {
 		return
 	}
-	WriteJSON(w, r, 0, map[string]any{"board": board, "pins": api.manager().GetPinboard(board)})
+	pins, seeded := api.manager().GetPinboardState(board)
+	WriteJSON(w, r, 0, map[string]any{"board": board, "pins": pins, "seeded": seeded})
 }
 
 // HandlePinboardOperations applies a batch of semantic edits (add, remove, move,
@@ -437,6 +441,11 @@ func (api *SessionAPI) HandleGetSession(w http.ResponseWriter, r *http.Request) 
 // HandleUpdateSession replaces the session-level state the viewer owns: the
 // active conversation, message history and metadata. No validation — the
 // frontend manages their structure.
+//
+// A messageHistory or metadata field that is absent (or null) keeps the stored
+// value, and an empty one replaces it. The viewer relies on the first: it
+// leaves out a history the server already holds, so the save behind a tab
+// switch does not carry the whole prompt history.
 func (api *SessionAPI) HandleUpdateSession(w http.ResponseWriter, r *http.Request) {
 	req, ok := DecodeJSON[struct {
 		ActiveConversationID string            `json:"activeConversationId"`

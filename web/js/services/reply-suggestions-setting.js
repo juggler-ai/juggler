@@ -28,8 +28,7 @@
  * @module services/reply-suggestions-setting
  */
 
-import { fetchJson } from './http.js';
-import { apiUrl } from '../utils/api-url.js';
+import { getConfigShared } from './settings-api.js';
 
 /** Fired on `window` whenever the cached state changes, seeding included. */
 export const REPLY_SUGGESTIONS_SETTING_EVENT = 'juggler:reply-suggestions-setting-changed';
@@ -83,7 +82,7 @@ export function setReplySuggestionsEnabledCached(enabled) {
  * @returns {Promise<boolean>} The refreshed enabled state.
  */
 export async function refreshReplySuggestionsSetting() {
-  const config = await fetchJson(apiUrl('/config'), { fallback: null });
+  const config = await getConfigShared();
   if (config) setCached(!(/** @type {any} */ (config).replySuggestionsDisabled));
   return cachedEnabled === true;
 }

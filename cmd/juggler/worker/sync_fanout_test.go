@@ -257,7 +257,7 @@ func TestSyncFanoutIntakeNoLoss(t *testing.T) {
 func TestDocUpdateNoLoss(t *testing.T) {
 	const n = 5000 // far more than any plausible fixed buffer
 	doc := NewConversationDocument("conv-updates", "user:test")
-	doc.RegisterSyncCallbacks(func([]byte) {}, func(bool, bool) {})
+	doc.RegisterSyncCallbacks(func([]byte, string) {}, func(bool, bool) {})
 
 	for i := 0; i < n; i++ {
 		doc.AppendMessage(ConversationItem{

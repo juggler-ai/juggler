@@ -20,8 +20,7 @@
  * @module services/auto-name-setting
  */
 
-import { fetchJson } from './http.js';
-import { apiUrl } from '../utils/api-url.js';
+import { getConfigShared } from './settings-api.js';
 
 /** @type {boolean} Cached "auto-naming enabled" state; default-on until seeded. */
 let cachedEnabled = true;
@@ -50,7 +49,7 @@ export function setAutoNameEnabledCached(enabled) {
  */
 export async function refreshAutoNameSetting() {
   // Offline / transient failure — keep the last-known value.
-  const config = await fetchJson(apiUrl('/config'), { fallback: null });
+  const config = await getConfigShared();
   if (config) cachedEnabled = !(/** @type {any} */ (config).autoNameDisabled);
   return cachedEnabled;
 }

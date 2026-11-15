@@ -7,6 +7,7 @@ package worker
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"sort"
 
 	ycrdt "github.com/skyterra/y-crdt"
@@ -76,8 +77,9 @@ type ConversationDocument struct {
 	metadata *ycrdt.YMap
 	authors  *ycrdt.YMap
 
-	// Sync callbacks
-	onSyncBroadcast   func(update []byte)
+	// Sync callbacks. onSyncBroadcast sends one update to every client except
+	// the one named ("" = everyone).
+	onSyncBroadcast   func(update []byte, except string)
 	onUndoStateChange func(canUndo, canRedo bool)
 
 	// Item change observer (called after any items mutation)
@@ -92,8 +94,28 @@ type ConversationDocument struct {
 	// takes it to swap. Blocking the observer on a channel instead is not an
 	// option — it runs under ycrdtMu, so waiting on a consumer that also needs
 	// ycrdtMu would deadlock.
-	pendingUpdates [][]byte
+	pendingUpdates []pendingUpdate
 	updateSignal   chan struct{}
+
+	// applyingFrom names the client whose yjs-sync is being applied, for the
+	// length of that apply, and is "" otherwise. The update observer reads it to
+	// tag the delta that apply produces with its writer. Guarded by ycrdtMu.
+	applyingFrom string
+}
+
+// pendingUpdate is one outbound Yjs delta and the client it must not be sent
+// to: the client whose own yjs-sync produced it, which already holds every op
+// in it. except is "" for a delta the worker wrote, which every client needs.
+type pendingUpdate struct {
+	bytes  []byte
+	except string
+}
+
+// syncRun is one outbound broadcast: consecutive pending deltas with the same
+// audience, merged into a single update.
+type syncRun struct {
+	update []byte
+	except string
 }
 
 // txOrigin returns the transaction origin to use for document mutations.
@@ -158,7 +180,7 @@ func NewConversationDocument(conversationID, authorID string) *ConversationDocum
 // RegisterSyncCallbacks registers callbacks for sync and undo state changes.
 // Updates are batched by the worker goroutine — no separate batching goroutine needed.
 func (cd *ConversationDocument) RegisterSyncCallbacks(
-	onSyncBroadcast func(update []byte),
+	onSyncBroadcast func(update []byte, except string),
 	onUndoStateChange func(canUndo, canRedo bool),
 ) {
 	ycrdtMu.Lock()
@@ -173,7 +195,7 @@ func (cd *ConversationDocument) RegisterSyncCallbacks(
 					// Fires inside Transact, so ycrdtMu is already held —
 					// append directly (unbounded, never dropped) and nudge the
 					// coalesced wake-up.
-					cd.pendingUpdates = append(cd.pendingUpdates, update)
+					cd.pendingUpdates = append(cd.pendingUpdates, pendingUpdate{bytes: update, except: cd.updateWriter(v)})
 					select {
 					case cd.updateSignal <- struct{}{}:
 					default:
@@ -182,6 +204,23 @@ func (cd *ConversationDocument) RegisterSyncCallbacks(
 			}
 		},
 	})
+}
+
+// updateWriter names the client an "update" event's delta must not be sent
+// back to, or "" when every client needs it. Only the transaction that applies
+// a client's yjs-sync is that client's: y-crdt runs an applied update as a
+// non-local transaction, and anything the worker writes in reaction — an
+// UndoManager handler moving undoState — runs as a local transaction of its own
+// with its own event, so it stays the worker's and reaches the writer too.
+// Called from the observer, under ycrdtMu.
+func (cd *ConversationDocument) updateWriter(event []any) string {
+	if cd.applyingFrom == "" || len(event) < 4 {
+		return ""
+	}
+	if trans, ok := event[3].(*ycrdt.Transaction); ok && !trans.Local {
+		return cd.applyingFrom
+	}
+	return ""
 }
 
 // UpdateSignal returns the coalesced wake-up channel. The doc "update" observer
@@ -201,7 +240,10 @@ func (cd *ConversationDocument) DrainUpdates() [][]byte {
 	if len(cd.pendingUpdates) == 0 {
 		return nil
 	}
-	out := cd.pendingUpdates
+	out := make([][]byte, len(cd.pendingUpdates))
+	for i, p := range cd.pendingUpdates {
+		out[i] = p.bytes
+	}
 	cd.pendingUpdates = nil
 	return out
 }
@@ -213,12 +255,21 @@ func (cd *ConversationDocument) DrainUpdates() [][]byte {
 // real race once the batcher drains on its own goroutine rather than the
 // worker's.
 //
-// Returns (remaining, merged, sink). The sink is returned rather than invoked so
+// The batch is merged run by run: each maximal stretch of consecutive deltas
+// with the same audience becomes one update, and the runs come back in the
+// order their deltas were written. So every client receives what it lacks in
+// the order it happened — a run withheld from a client is one made only of its
+// own ops, which it already holds — and no client is ever handed an op before
+// one it depends on. Merging every delta into one update instead would leave
+// nothing to withhold from a writer without also withholding the worker's own
+// writes interleaved with it.
+//
+// Returns (remaining, runs, sink). The sink is returned rather than invoked so
 // the caller runs it outside the lock: it broadcasts to clients and must never
 // execute under the process-wide y-crdt mutex. A nil sink means there is nobody
 // to broadcast to — no callback registered yet, or the document is destroyed —
 // and the batch comes back untouched for a later flush.
-func (cd *ConversationDocument) takeBatchForBroadcast(batch [][]byte) (remaining [][]byte, merged []byte, sink func([]byte)) {
+func (cd *ConversationDocument) takeBatchForBroadcast(batch []pendingUpdate) (remaining []pendingUpdate, runs []syncRun, sink func([]byte, string)) {
 	ycrdtMu.Lock()
 	defer ycrdtMu.Unlock()
 
@@ -227,7 +278,22 @@ func (cd *ConversationDocument) takeBatchForBroadcast(batch [][]byte) (remaining
 	if len(batch) == 0 || cd.onSyncBroadcast == nil {
 		return batch, nil, nil
 	}
-	return nil, ycrdt.MergeUpdates(batch, ycrdt.NewUpdateDecoderV1, ycrdt.NewUpdateEncoderV1, false), cd.onSyncBroadcast
+	for start := 0; start < len(batch); {
+		end := start + 1
+		for end < len(batch) && batch[end].except == batch[start].except {
+			end++
+		}
+		updates := make([][]byte, 0, end-start)
+		for _, p := range batch[start:end] {
+			updates = append(updates, p.bytes)
+		}
+		runs = append(runs, syncRun{
+			update: ycrdt.MergeUpdates(updates, ycrdt.NewUpdateDecoderV1, ycrdt.NewUpdateEncoderV1, false),
+			except: batch[start].except,
+		})
+		start = end
+	}
+	return nil, runs, cd.onSyncBroadcast
 }
 
 // RegisterItemsObserver registers an observer for items changes.
@@ -282,7 +348,7 @@ func (cd *ConversationDocument) refreshItemsCache() {
 // The ycrdt observer registered in RegisterItemsObserver will fire automatically
 // if items changed, so we don't need to manually trigger it here.
 func (cd *ConversationDocument) ApplySyncUpdate(update []byte) error {
-	return cd.applySyncUpdateWithOrigin(update, nil)
+	return cd.applySyncUpdateWithOrigin(update, nil, "")
 }
 
 // EngineDerivedOrigin is the transaction origin used when applying sync
@@ -295,26 +361,41 @@ const EngineDerivedOrigin = "engine-derived"
 // ApplyEngineDerivedSyncUpdate applies a sync update that the browser
 // engine identified as a pure derivation of already-undoable state. The
 // update is tagged with EngineDerivedOrigin so the UndoManager does not
-// record it.
-func (cd *ConversationDocument) ApplyEngineDerivedSyncUpdate(update []byte) error {
-	return cd.applySyncUpdateWithOrigin(update, EngineDerivedOrigin)
+// record it. from is the client that sent it (see applySyncUpdateLocked).
+func (cd *ConversationDocument) ApplyEngineDerivedSyncUpdate(update []byte, from string) error {
+	return cd.applySyncUpdateWithOrigin(update, EngineDerivedOrigin, from)
 }
 
-func (cd *ConversationDocument) applySyncUpdateWithOrigin(update []byte, origin any) error {
+func (cd *ConversationDocument) applySyncUpdateWithOrigin(update []byte, origin any, from string) error {
 	if len(update) == 0 {
 		return nil
 	}
 	ycrdtMu.Lock()
 	defer ycrdtMu.Unlock()
-	cd.applySyncUpdateLocked(update, origin)
+	cd.applySyncUpdateLocked(update, origin, from)
 	return nil
 }
 
 // applySyncUpdateLocked is the apply for a caller already holding ycrdtMu.
-func (cd *ConversationDocument) applySyncUpdateLocked(update []byte, origin any) {
+// origin is the y-crdt transaction origin, which the UndoManager reads. from is
+// the client whose yjs-sync this is, so the delta it produces is not echoed to
+// it ("" for state the worker itself loaded, which goes to everyone).
+//
+// The sender is named only when the store holds no pending structs or
+// deletes. Those are ops some earlier update could not integrate yet, and this
+// apply may be the one that completes them: the delta it produces then carries
+// another writer's ops too, which this sender does not hold. Such a delta goes
+// to everyone; for the sender it is an echo of its own part and nothing worse.
+func (cd *ConversationDocument) applySyncUpdateLocked(update []byte, origin any, from string) {
 	if len(update) == 0 {
 		return
 	}
+	writer := ""
+	if store := cd.doc.Store; store.PendingStructs == nil && len(store.PendingDs) == 0 {
+		writer = from
+	}
+	cd.applyingFrom = writer
+	defer func() { cd.applyingFrom = "" }()
 	ycrdt.ApplyUpdate(cd.doc, update, origin)
 	cd.refreshItemsCache()
 }
@@ -1222,6 +1303,22 @@ func (cd *ConversationDocument) setMetadata(key string, value any) {
 	}, cd.txOrigin())
 }
 
+// SetMetadataIfChanged is SetMetadata for a value that is rewritten far more
+// often than it changes. y-crdt integrates a fresh item on every Set, equal
+// value or not, and every item is a Yjs update broadcast to each client — so
+// an unchanged value is left alone and no transaction is opened.
+func (cd *ConversationDocument) SetMetadataIfChanged(key string, value any) {
+	ycrdtMu.Lock()
+	defer ycrdtMu.Unlock()
+	next := toYcrdt(value)
+	if reflect.DeepEqual(cd.metadata.Get(key), next) {
+		return
+	}
+	cd.doc.Transact(func(_ *ycrdt.Transaction) {
+		cd.metadata.Set(key, next)
+	}, cd.txOrigin())
+}
+
 // SetThreadField sets a key on a single thread's own Y.Map — thread-scoped
 // state such as the per-thread <plan> next-steps, living alongside goal/result/
 // resultSpec. Resolve and write happen under one ycrdtMu critical section so a
@@ -1237,6 +1334,24 @@ func (cd *ConversationDocument) SetThreadField(threadItemID, key string, value a
 	}
 	cd.doc.Transact(func(_ *ycrdt.Transaction) {
 		m.Set(key, toYcrdt(value))
+	}, cd.txOrigin())
+}
+
+// SetThreadFieldIfChanged is SetThreadField that opens no transaction when the
+// thread's Y.Map already holds the value (see SetMetadataIfChanged).
+func (cd *ConversationDocument) SetThreadFieldIfChanged(threadItemID, key string, value any) {
+	ycrdtMu.Lock()
+	defer ycrdtMu.Unlock()
+	m := findThreadYMap(cd.getItems(), threadItemID)
+	if m == nil {
+		return
+	}
+	next := toYcrdt(value)
+	if reflect.DeepEqual(m.Get(key), next) {
+		return
+	}
+	cd.doc.Transact(func(_ *ycrdt.Transaction) {
+		m.Set(key, next)
 	}, cd.txOrigin())
 }
 

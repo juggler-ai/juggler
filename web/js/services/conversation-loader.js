@@ -32,7 +32,6 @@
  * @module services/conversation-loader
  */
 
-import { base64ToBytes } from '../utils/base64.js';
 import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
 import { fetchJson } from './http.js';
 import { apiUrl } from '../utils/api-url.js';
@@ -93,7 +92,7 @@ export class ConversationLoader {
     /**
      * In-flight auto-loads, by conversation id, with the yjs-sync bytes that
      * arrived while each was running. Applied once the load completes.
-     * @type {Map<string, {promise: Promise<void>, queuedBytes: string[]}>}
+     * @type {Map<string, {promise: Promise<void>, queuedBytes: Uint8Array[]}>}
      * @private
      */
     this._pendingAutoLoads = new Map();
@@ -513,17 +512,17 @@ export class ConversationLoader {
    * prompted the load and must not lose them, but a resync-offer is only a
    * pointer to a conversation, and the load itself brings the state.
    * @param {string} conversationId - Conversation to load
-   * @param {string} [base64Bytes] - Base64-encoded yjs-sync bytes to apply once loaded
+   * @param {Uint8Array} [update] - The yjs-sync update to apply once loaded
    * @returns {void}
    */
-  autoLoad(conversationId, base64Bytes) {
+  autoLoad(conversationId, update) {
     // Skip internal conversations
     if (conversationId.startsWith('_internal:')) return;
 
     const existing = this._pendingAutoLoads.get(conversationId);
     if (existing) {
       // Load already in flight — just queue the bytes
-      if (base64Bytes !== undefined) existing.queuedBytes.push(base64Bytes);
+      if (update !== undefined) existing.queuedBytes.push(update);
       return;
     }
 
@@ -535,8 +534,8 @@ export class ConversationLoader {
       return;
     }
 
-    /** @type {string[]} */
-    const queuedBytes = base64Bytes === undefined ? [] : [base64Bytes];
+    /** @type {Uint8Array[]} */
+    const queuedBytes = update === undefined ? [] : [update];
 
     const promise = (async () => {
       try {
@@ -553,7 +552,7 @@ export class ConversationLoader {
           await creating;
           const adopted = session.getConversation?.(conversationId);
           if (adopted) {
-            for (const b64 of queuedBytes) adopted.handleYjsSyncMessage(base64ToBytes(b64));
+            for (const bytes of queuedBytes) adopted.handleYjsSyncMessage(bytes);
             return;
           }
         }
@@ -564,8 +563,8 @@ export class ConversationLoader {
         this._autoLoadFailures.delete(conversationId);
 
         // Apply all queued yjs-sync updates
-        for (const b64 of queuedBytes) {
-          conversation.handleYjsSyncMessage(base64ToBytes(b64));
+        for (const bytes of queuedBytes) {
+          conversation.handleYjsSyncMessage(bytes);
         }
       } catch (err) {
         const failures = (this._autoLoadFailures.get(conversationId)?.failures ?? 0) + 1;

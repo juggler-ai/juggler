@@ -61,6 +61,28 @@ export function getConfig(policy = {}) {
   return fetchJson(apiUrl('/config'), { ...policy });
 }
 
+/** @type {Promise<any>|null} */
+let sharedConfigRead = null;
+
+/**
+ * GET /api/config for the mirrors that read one switch out of it at startup
+ * (auto-naming, reply suggestions): callers arriving while a read is out share
+ * it, so a page asks once per round trip however many mirrors seed together.
+ *
+ * Only the request in flight is shared, never its answer. A config write
+ * publishes no broadcast, so a remembered answer would hide another window's
+ * change from every later refresh; a read that starts after this one settles
+ * fetches afresh. Best-effort: resolves null when the config can't be read.
+ * @returns {Promise<any>} The config object, or null.
+ */
+export function getConfigShared() {
+  if (!sharedConfigRead) {
+    sharedConfigRead = fetchJson(apiUrl('/config'), { fallback: null })
+      .finally(() => { sharedConfigRead = null; });
+  }
+  return sharedConfigRead;
+}
+
 /**
  * PUT /api/config with one key. The server merges a PUT into what is stored,
  * so every other key keeps its value; an empty string clears a stored key.

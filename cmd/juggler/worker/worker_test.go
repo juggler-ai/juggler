@@ -69,6 +69,21 @@ const barrierBudget = 20 * time.Second
 // document push that never happened came to be reported as one that did.
 func framesUntilBarrier(t *testing.T, w *ConversationWorker, mc *msgChan) frameLog {
 	t.Helper()
+	var seen frameLog
+	for _, raw := range rawFramesUntilBarrier(t, w, mc) {
+		var msg struct {
+			Type string `json:"type"`
+		}
+		_ = json.Unmarshal(raw, &msg)
+		seen = append(seen, msg.Type)
+	}
+	return seen
+}
+
+// rawFramesUntilBarrier is framesUntilBarrier returning each frame whole, for a
+// test that has to read what a frame carried rather than only its type.
+func rawFramesUntilBarrier(t *testing.T, w *ConversationWorker, mc *msgChan) [][]byte {
+	t.Helper()
 	ackID := fmt.Sprintf("%s%d", barrierAckPrefix, barrierSeq.Add(1))
 	payload, err := json.Marshal(map[string]string{"ackId": ackID})
 	if err != nil {
@@ -76,7 +91,7 @@ func framesUntilBarrier(t *testing.T, w *ConversationWorker, mc *msgChan) frameL
 	}
 	w.Send("ping", payload)
 
-	var seen frameLog
+	var seen [][]byte
 	deadline := time.After(barrierBudget)
 	for {
 		select {
@@ -94,7 +109,7 @@ func framesUntilBarrier(t *testing.T, w *ConversationWorker, mc *msgChan) frameL
 			case strings.HasPrefix(msg.AckID, barrierAckPrefix):
 				// Another client's barrier passing through this stream.
 			default:
-				seen = append(seen, msg.Type)
+				seen = append(seen, raw)
 			}
 		case <-deadline:
 			t.Fatalf("barrier %s never came back; the worker's outbound path is stuck", ackID)

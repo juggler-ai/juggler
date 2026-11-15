@@ -84,7 +84,7 @@ func (s *Server) GetAddr() string {
 	return s.addr
 }
 
-// GetStaticVersion returns the random version string used for cache-busted paths
+// GetStaticVersion returns the cache-busting segment of static paths (see mintStaticVersion)
 func (s *Server) GetStaticVersion() string {
 	return s.staticVersion
 }

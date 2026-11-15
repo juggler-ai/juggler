@@ -49,6 +49,21 @@ function prettyTimeout(ms) {
 const TASKS_SOURCE = { kind: 'tasks' };
 
 /**
+ * The clock the streamed preview is paced by.
+ * @typedef {object} PreviewClock
+ * @property {() => number} now - Milliseconds on a monotonic clock
+ * @property {(fn: () => void, ms: number) => number} setTimeout - Schedule a call
+ * @property {(id: number) => void} clearTimeout - Cancel a scheduled call
+ */
+
+/** @type {PreviewClock} */
+const REAL_PREVIEW_CLOCK = {
+  now: () => performance.now(),
+  setTimeout: (fn, ms) => /** @type {number} */ (/** @type {unknown} */ (setTimeout(fn, ms))),
+  clearTimeout: (id) => clearTimeout(id)
+};
+
+/**
  * Describe a background task's state for the live output section's status line.
  * A background run's exit is otherwise invisible: the tool-action's own outcome
  * froze at "started OK" the moment the process was spawned.
@@ -242,6 +257,11 @@ class ExecuteContextItem extends ContextItem {
      * @type {string}
      */
     this.output = '';
+    /**
+     * The clock the streamed preview is paced by; tests put a simulated one here.
+     * @type {PreviewClock}
+     */
+    this._previewClock = REAL_PREVIEW_CLOCK;
   }
 
   // Unix shell interpreters - too dangerous to wildcard
@@ -860,14 +880,31 @@ class ExecuteContextItem extends ContextItem {
     // Track accumulated output for cancellation recovery
     this.output = '';
 
-    // Throttle Yjs displayData writes to avoid overwhelming observers.
-    // Cap the preview to the last 100KB — full output is in this.output for the result.
+    // The preview the panel shows while the command runs. Cap it to the last
+    // 100KB — full output is in this.output for the result.
     const DISPLAY_DATA_MAX = 100_000;
+    // Every write carries the whole preview to every viewer, so writes are
+    // spaced by how much the preview grew, not by a fixed rate: a write waits
+    // for 1KB or a quarter of the preview to be new, which keeps the bytes a
+    // command sends to a few times its output. A trickle too slow to reach that
+    // is still shown, every 2s — longer once the preview is large enough for
+    // that to cost more than ~8KB a second. No two writes come within 250ms.
+    const PREVIEW_MIN_GAP_MS = 250;
+    const PREVIEW_MIN_NEW_CHARS = 1024;
+    const PREVIEW_GROWTH_DIVISOR = 4;
+    const PREVIEW_STALL_MS = 2000;
+    const PREVIEW_STALL_CHARS_PER_MS = 8;
+    const clock = this._previewClock;
     let displayDataTimer = 0;
+    let displayDataTimerDue = 0;
     let displayDataDirty = false;
+    let previewWrittenAt = clock.now();
+    let previewWrittenLength = 0;
     const flushDisplayData = () => {
       displayDataTimer = 0;
       displayDataDirty = false;
+      previewWrittenAt = clock.now();
+      previewWrittenLength = this.output.length;
       if (this.messageThread && this.toolUseId) {
         const preview = this.output.length > DISPLAY_DATA_MAX
           ? t('… (truncated)') + '\n' + this.output.slice(-DISPLAY_DATA_MAX)
@@ -880,6 +917,21 @@ class ExecuteContextItem extends ContextItem {
           }
         }
       }
+    };
+    // Schedule the next preview write for when the output that has arrived
+    // earns it, bringing an already scheduled one forward when new output does.
+    const schedulePreview = () => {
+      const previewLength = Math.min(this.output.length, DISPLAY_DATA_MAX);
+      const fresh = this.output.length - previewWrittenLength;
+      const enough = previewWrittenLength === 0 ||
+        fresh >= Math.max(PREVIEW_MIN_NEW_CHARS, previewLength / PREVIEW_GROWTH_DIVISOR);
+      const due = previewWrittenAt + (enough
+        ? PREVIEW_MIN_GAP_MS
+        : Math.max(PREVIEW_STALL_MS, previewLength / PREVIEW_STALL_CHARS_PER_MS));
+      if (displayDataTimer && due >= displayDataTimerDue) return;
+      clock.clearTimeout(displayDataTimer);
+      displayDataTimerDue = due;
+      displayDataTimer = clock.setTimeout(flushDisplayData, Math.max(0, due - clock.now()));
     };
 
     // Tag the command with its owning conversation so the backend buckets any
@@ -920,11 +972,8 @@ class ExecuteContextItem extends ContextItem {
             this.output += chunk.data;
           }
 
-          // Throttle Yjs displayData writes (max ~4/sec)
           displayDataDirty = true;
-          if (!displayDataTimer) {
-            displayDataTimer = setTimeout(flushDisplayData, 250);
-          }
+          schedulePreview();
 
           // Stream output chunks to UI via onProgress
           if (chunk.data && this.onProgress) {
@@ -938,7 +987,7 @@ class ExecuteContextItem extends ContextItem {
       );
 
       // Flush any pending displayData write
-      clearTimeout(displayDataTimer);
+      clock.clearTimeout(displayDataTimer);
       if (displayDataDirty) flushDisplayData();
 
       // Check if cancelled during execution (either via signal or result)
@@ -976,7 +1025,7 @@ class ExecuteContextItem extends ContextItem {
       // The progress event is immediate but the durable Yjs preview is throttled.
       // Preserve chunks the user has already seen before cancellation or a
       // streaming transport failure unwinds this execution.
-      clearTimeout(displayDataTimer);
+      clock.clearTimeout(displayDataTimer);
       if (displayDataDirty) flushDisplayData();
 
       // If streaming fails due to WebSocket issues, fall back to blocking execution

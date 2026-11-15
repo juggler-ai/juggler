@@ -585,14 +585,11 @@ export async function runTests(ctx) {
       const doomed = mount({ path: doomedPath });
       const control = mount({ path: controlPath });
       try {
-        // The first stat is the read's own probe; the second is the arrival
+        // The read finds nothing at once; the first stat is the arrival
         // check's first round, held in flight.
-        await waitFor(() => ops.stats(doomedPath) === 1 && ops.stats(controlPath) === 1, 'both pins to probe their path');
-        ops.answer(doomedPath, false);
-        ops.answer(controlPath, false);
         assert((await settled(doomed.body)).includes('File not found'), 'it starts missing');
         assert((await settled(control.body)).includes('File not found'), 'and so does its control');
-        await waitFor(() => ops.stats(doomedPath) === 2 && ops.stats(controlPath) === 2,
+        await waitFor(() => ops.stats(doomedPath) === 1 && ops.stats(controlPath) === 1,
           'both arrival checks to have a stat in flight', 8000);
 
         doomed.controller.teardown?.();
@@ -600,10 +597,10 @@ export async function runTests(ctx) {
         ops.answer(doomedPath, present);
         ops.answer(controlPath, present);
 
-        await waitFor(() => ops.stats(controlPath) > 2,
+        await waitFor(() => ops.stats(controlPath) > 1,
           `the control to act on its answer (${present ? 'read the file' : 'check again'})`, 8000);
-        assert(ops.stats(doomedPath) === 2,
-          `a torn-down pin's stat answering ${present ? 'present' : 'missing'} must start nothing, but it made ${ops.stats(doomedPath) - 2} more call(s)`);
+        assert(ops.stats(doomedPath) === 1,
+          `a torn-down pin's stat answering ${present ? 'present' : 'missing'} must start nothing, but it made ${ops.stats(doomedPath) - 1} more call(s)`);
         assert(doomed.body.textContent === shown,
           `and draws nothing, but it went from "${shown}" to "${doomed.body.textContent}"`);
       } finally {
@@ -625,9 +622,6 @@ export async function runTests(ctx) {
     try {
       doomed.body.style.display = 'none';
       control.body.style.display = 'none';
-      await waitFor(() => ops.stats(doomedPath) === 1 && ops.stats(controlPath) === 1, 'both pins to probe their path');
-      ops.answer(doomedPath, false);
-      ops.answer(controlPath, false);
       await waitFor(() => doomedArrival.hidden() > 0 && controlArrival.hidden() > 0,
         'both arrival checks to find their pin hidden', 8000);
 
@@ -635,9 +629,9 @@ export async function runTests(ctx) {
       doomed.body.style.display = '';
       control.body.style.display = '';
 
-      await waitFor(() => ops.stats(controlPath) > 1, 'the control, shown, to check again', 8000);
-      assert(ops.stats(doomedPath) === 1,
-        `a torn-down pin must not check when shown, but it made ${ops.stats(doomedPath) - 1} more stat(s)`);
+      await waitFor(() => ops.stats(controlPath) > 0, 'the control, shown, to check again', 8000);
+      assert(ops.stats(doomedPath) === 0,
+        `a torn-down pin must not check when shown, but it made ${ops.stats(doomedPath)} stat(s)`);
     } finally {
       controlArrival.restore();
       doomedArrival.restore();

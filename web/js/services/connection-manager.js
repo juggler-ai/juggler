@@ -24,6 +24,7 @@ import { revealLinkedConversation } from './conversation-commands.js';
  * @property {import('../model/session.js').ConversationServices} services - Services for Conversation instances
  * @property {{show: () => void, hide: () => void, startCountdown: (delayMs: number) => void}|null} [disconnectionOverlay] - Overlay for connection loss (null for engine)
  * @property {(message: string) => void} [showPersistentNotice] - Shows a notice that stays until dismissed (absent for engine, which has nowhere to show one)
+ * @property {Promise<void>} [registriesReady] - Settles (never rejects) once the capability registries have loaded. Given, the socket may connect while they load; the session is created only after it settles.
  */
 
 /**
@@ -82,6 +83,22 @@ class ConnectionManager {
 
     /** @type {boolean} @private - The server turned this viewer away as full; see setup() */
     this._refusedAsFull = false;
+
+    // The registries load while the socket connects, and the session is created
+    // only once they have: a session handles frames, and some of them (a
+    // conversation another window created) load a conversation, which needs
+    // every registry. Frames that arrive before the session exists are held
+    // here and replayed in order the moment it does, so each is handled in the
+    // state it always was — a session that exists and is still loading. The
+    // GET behind that load is sent only after the session frame, as ever, so it
+    // reads everything the held frames announced.
+    /** @type {Promise<void>|null} @private */
+    this._registriesReady = options.registriesReady || null;
+    /** @type {boolean} @private */
+    this._registriesSettled = !this._registriesReady;
+    void this._registriesReady?.then(() => { this._registriesSettled = true; });
+    /** @type {unknown[]|null} @private - Frames held until the session exists; null once it does, or when nothing is held */
+    this._earlyFrames = this._registriesReady ? [] : null;
 
     // Settled when the session has finished loading, which is the point at which
     // the realm can spawn a worker: workerManager.init runs at the end of that
@@ -180,7 +197,7 @@ class ConnectionManager {
 
     // Handle incoming messages
     const messageCallback = (/** @type {any} */ data) => {
-      this._onServerMessage(data);
+      this._routeFrame(data);
     };
     this._wsUnsubscribes.push(wsService.on('message', messageCallback));
 
@@ -190,6 +207,31 @@ class ConnectionManager {
     // delivered. Don't call _initializeSession here — the 'session'/'open'
     // handlers above drive it once the connection is established.
     wsService.connect();
+  }
+
+  /**
+   * Hand one inbound frame to the app, or hold it while the session it is for
+   * does not exist yet (see the constructor's `_earlyFrames`).
+   * @param {any} data - The frame
+   * @private
+   */
+  _routeFrame(data) {
+    if (this._earlyFrames) {
+      this._earlyFrames.push(data);
+      return;
+    }
+    this._onServerMessage(data);
+  }
+
+  /**
+   * The session exists: handle the frames held for it, in the order they
+   * arrived, and let every later one straight through.
+   * @private
+   */
+  _releaseEarlyFrames() {
+    const early = this._earlyFrames;
+    this._earlyFrames = null;
+    for (const frame of early || []) this._onServerMessage(/** @type {any} */ (frame));
   }
 
   /**
@@ -302,6 +344,12 @@ class ConnectionManager {
    * @private
    */
   async _loadSession() {
+    // The registries are still loading: the socket outran them. Say what the
+    // wait is for, and wait — nothing below may run against a partial set.
+    if (!this._registriesSettled) {
+      setAppPhase('extensions');
+      await this._registriesReady;
+    }
     setAppPhase('session');
 
     // Create session instance
@@ -318,6 +366,8 @@ class ConnectionManager {
     // conversation works in. Here rather than in a card or a pin because it is
     // the window's answer, not any one surface's: they share it, and they must.
     this._unfollowGit = followSession(this._session);
+
+    this._releaseEarlyFrames();
 
     // Load session data from backend.
     //

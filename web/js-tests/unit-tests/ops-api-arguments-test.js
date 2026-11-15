@@ -17,6 +17,7 @@
 import { assert } from '../utilities/test-helpers.js';
 import {
   readFile,
+  readFiles,
   writeFile,
   editFile,
   editFileLines,
@@ -94,6 +95,7 @@ export async function runTests() {
   /** @type {[string, (signal: AbortSignal, paths: string[], ws: string) => Promise<any>][]} */
   const rooted = [
     ['readFile', (s, p, w) => readFile({ path: 'a' }, s, p, w)],
+    ['readFiles', (s, p, w) => readFiles({ paths: ['a'] }, s, p, w)],
     ['writeFile', (s, p, w) => writeFile({ path: 'a', content: '' }, s, p, w)],
     ['editFile', (s, p, w) => editFile({ path: 'a', old_str: 'x', new_str: 'y' }, s, p, w)],
     ['editFileLines', (s, p, w) => editFileLines({ path: 'a', startLine: 1, endLine: 1, newContent: '' }, s, p, w)],

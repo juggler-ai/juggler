@@ -2729,5 +2729,74 @@ export async function runTests() {
     errors.push(`preview origin: ${e instanceof Error ? e.message : String(e)}`);
   }
 
+  // === The streamed preview costs bytes in proportion to the output ===
+  // Every preview write carries the whole preview to every viewer, so writing
+  // it at a fixed rate costs the square of the output. 100 KB arriving in
+  // 500-byte chunks every 20 ms of simulated time must cost a few times its
+  // length, and the last write before the result still holds all of it.
+  try {
+    /** @type {string[]} */
+    const previews = [];
+    const thread = {
+      getAllowedPaths: () => [],
+      getRulesFor: () => [],
+      items: [{ get: (/** @type {string} */ k) => (k === 'toolUseId' ? 'tu-cadence' : undefined) }],
+      updateDerivedItemField: (/** @type {number} */ _i, /** @type {string} */ _f, /** @type {any} */ v) => { previews.push(v.output); },
+    };
+    // A simulated clock: timers fire only as the stub advances time.
+    let now = 0;
+    let nextId = 1;
+    /** @type {Map<number, {at: number, fn: () => void}>} */
+    const timers = new Map();
+    const advance = (/** @type {number} */ ms) => {
+      const until = now + ms;
+      for (;;) {
+        let dueId = 0;
+        /** @type {{at: number, fn: () => void}|null} */
+        let due = null;
+        for (const [id, tm] of timers) {
+          if (tm.at <= until && (!due || tm.at < due.at)) { dueId = id; due = tm; }
+        }
+        if (!due) break;
+        timers.delete(dueId);
+        now = Math.max(now, due.at);
+        due.fn();
+      }
+      now = until;
+    };
+    const streamer = probeItem('preview-cadence', { platform: 'darwin', home: TEST_HOME, projectPath: '/p' }, thread);
+    streamer.toolUseId = 'tu-cadence';
+    /** @type {any} */ (streamer)._previewClock = {
+      now: () => now,
+      setTimeout: (/** @type {() => void} */ fn, /** @type {number} */ ms) => { const id = nextId++; timers.set(id, { at: now + ms, fn }); return id; },
+      clearTimeout: (/** @type {number} */ id) => { timers.delete(id); },
+    };
+    const CHUNK = 'x'.repeat(499) + '\n';
+    const CHUNKS = 200;
+    const total = CHUNK.repeat(CHUNKS);
+    /** @type {any} */ (streamer)._ops = {
+      shellStreaming: async (/** @type {any} */ _p, /** @type {(c: any) => void} */ onChunk) => {
+        for (let i = 0; i < CHUNKS; i++) {
+          onChunk({ data: CHUNK });
+          advance(20);
+        }
+        return { command: 'gen', stdout: total, exitCode: 0, success: true };
+      },
+    };
+    await streamer.execute({ command: 'gen' });
+    // The first write is the clear that opens the run; the rest are previews.
+    const live = previews.slice(1);
+    const written = live.reduce((sum, p) => sum + p.length, 0);
+    assertTrue(live.length > 1, `expected the preview to update while output arrived, got ${live.length} writes`);
+    assertTrue(written < 6 * total.length,
+      `preview writes cost ${written} chars for ${total.length} of output (${live.length} writes)`);
+    assertTrue(live[live.length - 1] === total,
+      `the last preview write did not hold the whole output: ${live[live.length - 1]?.length} of ${total.length} chars`);
+    passed++;
+  } catch (e) {
+    failed++;
+    errors.push(`preview cadence: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
   return { passed, failed, errors };
 }

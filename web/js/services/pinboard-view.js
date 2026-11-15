@@ -562,6 +562,9 @@ const pinboardView = {
     // would leave a board that is never laid out at all, because the extension
     // that would have filled it arrives after the claim is gone.
     if (!types.length) return;
+    // The board's read already said the claim is spent — every load after the
+    // first, in every window — so asking would cost a round trip to hear no.
+    if (pinboardStore.isSeeded()) return;
     let claimed = false;
     try {
       claimed = await pinboardStore.claimSeed();

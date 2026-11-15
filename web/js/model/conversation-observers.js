@@ -16,7 +16,6 @@ import { extractInsertedItemIds } from './thread-navigation.js';
 import workerManager from '../services/worker-manager.js';
 import { isViewer } from '../../sdk/lib/client-role.js';
 import { recordTape } from '../utils/event-tape.js';
-import { bytesToBase64 } from '../utils/base64.js';
 import { maybePromoteHandoffThread } from '../utils/compaction-utils.js';
 import { isItemView } from './item-accessor.js';
 import { itemField } from '../../sdk/lib/message.js';
@@ -45,9 +44,9 @@ export function setupYjsObservers(c) {
   // Register sync callback to send updates to worker
   c._doc.setOnSyncBroadcast(
     (/** @type {Uint8Array} */ update, /** @type {import('../utils/document-sync-manager.js').SyncBroadcastOptions | undefined} */ opts) => {
-      // Convert Uint8Array to base64 string for Go compatibility
-      // (Go's json.Unmarshal expects base64 for []byte fields)
-      const base64Bytes = bytesToBase64(update);
+      // The bytes go as they are: the socket sends them raw in a binary frame,
+      // or as base64 in the JSON envelope (websocket.sendWorkerMessage).
+      //
       // Fire-and-forget: while the link is down the transport discards this
       // frame, and the ops it carries are recovered from the doc by the
       // reconnect resync (worker-manager.resyncReadyConversations), so there is
@@ -59,7 +58,7 @@ export function setupYjsObservers(c) {
       /** @type {{type: string, [key: string]: unknown}} */
       const msg = {
         type: 'yjs-sync',
-        bytes: base64Bytes
+        bytes: update
       };
       if (opts?.engineDerived) msg.engineDerived = true;
       // How long after this client's previous edit the user made this one, so

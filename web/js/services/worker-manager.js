@@ -417,11 +417,11 @@ export class WorkerManager {
    * the conversation whenever it already holds a document to diff against.
    *
    * The vector is what makes attaching cheap. A worker that is already running
-   * answers it with just the ops that vector does not cover, addressed to this
-   * client alone — where a vector-less init makes it broadcast its whole
-   * document, which for a long conversation is megabytes charged to every other
-   * viewer and the engine as well. A client with nothing yet is not a special
-   * case to detect: the delta since an empty document is the whole document.
+   * answers it with just the ops that vector does not cover, where a vector-less
+   * init is answered with its whole document, which for a long conversation is
+   * megabytes. Either answer is addressed to this client alone. A client with
+   * nothing yet is not a special case to detect: the delta since an empty
+   * document is the whole document.
    * @param {string} conversationId - Conversation ID
    * @param {{loadFromDisk?: boolean, [key: string]: unknown}} serializedConversation - Serialized conversation data
    * @returns {boolean} Whether the message reached the transport

@@ -940,7 +940,7 @@ func (t *OperationTracker) ApplyEngineEdit(origin string, update []byte, sinceEd
 	}
 	lastChange, seq := um.LastChange, t.undoSeq
 	um.LastChange = steeredLastChange
-	t.doc.applySyncUpdateLocked(update, nil)
+	t.doc.applySyncUpdateLocked(update, nil, origin)
 	if t.undoSeq == seq && um.LastChange == steeredLastChange {
 		um.LastChange = lastChange
 	}
@@ -962,7 +962,7 @@ func (t *OperationTracker) applyClientEditLocked(origin string, update []byte, s
 	}
 
 	seq := t.undoSeq
-	t.doc.applySyncUpdateLocked(update, nil)
+	t.doc.applySyncUpdateLocked(update, nil, origin)
 	// Every transaction the UndoManager tracks emits stack-item-added, whose
 	// handler bumps undoSeq; nothing else under this hold does.
 	tracked := um != nil && t.undoSeq != seq

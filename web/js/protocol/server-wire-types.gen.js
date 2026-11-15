@@ -123,12 +123,14 @@
 /**
  * sessionFrame is the first frame a client admitted to the socket is sent: its
  * own server-assigned id, its viewer id as the server accepted it (empty when
- * it sent none usable), and this server instance's boot id.
+ * it sent none usable), this server instance's boot id, and whether the client
+ * may send Yjs sync as binary frames — set when it asked (ws_yjs_frame.go).
  * @typedef {object} SessionFrame
  * @property {'session'} type
  * @property {string} clientId
  * @property {string} viewerId
  * @property {string} bootId
+ * @property {boolean} [binarySync]
  */
 
 /**

@@ -177,6 +177,10 @@ type turnState struct {
 	// content flips it back; see clearRetryingStatus.
 	retryStatusActive bool
 
+	// lastStatusSent is the status event this run last broadcast, against which
+	// sendStatusWithCode drops an identical busy repeat.
+	lastStatusSent StatusMessage
+
 	// wake releases whichever wait loop this run is parked in when something off
 	// its goroutine has changed state it must react to — today a cancel accepted
 	// by the run loop. The loops read state, not the signal, so a spurious or

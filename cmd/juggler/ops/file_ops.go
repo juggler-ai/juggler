@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,6 +32,10 @@ const (
 	// image) so a read against any provider stays within limits; a larger image
 	// falls back to the binary-file warning instead of being snapshotted.
 	MaxImageReadBytes = 5 << 20
+	// MaxLoadFilesPaths caps the paths one loadFiles call reads. Each answer is
+	// a whole loadFile result, so this bounds a single response as well as the
+	// work behind it; a caller with more paths splits them across calls.
+	MaxLoadFilesPaths = 64
 )
 
 // imageMimeByExt maps a lower-cased file extension (with leading dot) to the
@@ -127,10 +132,12 @@ func NewFileOperations(scope PathScope) *FileOperations {
 }
 
 // Execute executes a file operation
-func (ops *FileOperations) Execute(_ context.Context, operation string, params map[string]any) (any, error) {
+func (ops *FileOperations) Execute(ctx context.Context, operation string, params map[string]any) (any, error) {
 	switch operation {
 	case "loadFile":
 		return ops.loadFile(params)
+	case "loadFiles":
+		return ops.loadFiles(ctx, params)
 	case "writeFile":
 		return ops.writeFile(params)
 	case "editFile":
@@ -178,6 +185,10 @@ type loadFileParams struct {
 	Around            *loadAroundParams    `param:"around"`
 	LineRange         *loadLineRangeParams `param:"lineRange"`
 	MaxLines          *float64             `param:"maxLines"`
+	// ReportDirectory answers a folder with {exists, isDirectory} instead of
+	// refusing it, for a caller that cannot tell a file from a folder by its
+	// name and would otherwise have to stat before reading.
+	ReportDirectory bool `param:"reportDirectory"`
 }
 
 type loadAroundParams struct {
@@ -282,6 +293,13 @@ func (ops *FileOperations) loadFile(params map[string]any) (any, error) {
 
 	// Check if path is a directory
 	if fileInfo.IsDir() {
+		if p.ReportDirectory {
+			return map[string]any{
+				"path":        path,
+				"exists":      true,
+				"isDirectory": true,
+			}, nil
+		}
 		return nil, fmt.Errorf("path is a directory, not a file: %s", path)
 	}
 
@@ -533,6 +551,56 @@ func (ops *FileOperations) loadFile(params map[string]any) (any, error) {
 		"lineCount":   lineCount,   // Number of lines in content
 		"contentHash": contentHash, // SHA-256 for detecting external changes
 	}, nil
+}
+
+// loadFiles reads several files in one call: one answer per path, in the order
+// asked, each exactly what loadFile with {path} alone answers for it — or, where
+// loadFile refuses the path, {path, error[, code, detail]} with loadFile's own
+// error. One path failing never fails the others; only a malformed or
+// over-long list fails the call, before anything is read.
+//
+// It is a read and nothing more, so it widens nothing: every path goes through
+// loadFile and so through the same ResolveRead as a single read, and the flags
+// that let a single read leave the tree (userInitiated, outOfRootApproved) are
+// not read here at all. A batch is held to the scope the request was built with
+// — the workspace and the standing allowed-paths grant — whatever its params say.
+func (ops *FileOperations) loadFiles(ctx context.Context, params map[string]any) (any, error) {
+	raw, ok := params["paths"].([]any)
+	if !ok {
+		return nil, fmt.Errorf("paths must be an array of strings")
+	}
+	if len(raw) > MaxLoadFilesPaths {
+		return nil, fmt.Errorf("too many paths: %d (at most %d per call)", len(raw), MaxLoadFilesPaths)
+	}
+	paths := make([]string, len(raw))
+	for i, v := range raw {
+		s, ok := v.(string)
+		if !ok || s == "" {
+			return nil, fmt.Errorf("paths[%d] must be a non-empty string", i)
+		}
+		paths[i] = s
+	}
+
+	files := make([]map[string]any, 0, len(paths))
+	for _, path := range paths {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		res, err := ops.loadFile(map[string]any{"path": path})
+		if err != nil {
+			entry := map[string]any{"path": path, "error": err.Error()}
+			var coded *CodedError
+			if errors.As(err, &coded) {
+				entry["code"] = coded.Code
+				entry["detail"] = coded.Detail
+			}
+			files = append(files, entry)
+			continue
+		}
+		m, _ := res.(map[string]any)
+		files = append(files, m)
+	}
+	return map[string]any{"files": files}, nil
 }
 
 // writeFile writes content to a file (creates or overwrites)

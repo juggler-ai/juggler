@@ -28,6 +28,7 @@
 import { assert } from '../utilities/test-helpers.js';
 import ConnectionManager from '../../js/services/connection-manager.js';
 import workerManager from '../../js/services/worker-manager.js';
+import appPhase from '../../js/services/app-phase.js';
 
 /**
  * @typedef {object} TestResult
@@ -206,6 +207,64 @@ export async function runTests(_ctx) {
         `and the open that raced it did not refresh a session that was still loading; got ${cm._refreshes()}`);
     } finally {
       restore();
+    }
+  });
+
+  // The viewer connects while its registries load, and creates the session only
+  // once they have. Frames arriving before then have no session to go to, and
+  // a conversation-created frame handled against a partial registry set would
+  // load that conversation without its tools — so they are held and replayed.
+
+  await run('frames before the session are held, then replayed in arrival order', async () => {
+    /** @type {string[]} */
+    const seen = [];
+    const cm = /** @type {any} */ (new ConnectionManager({
+      llmState: /** @type {any} */ (null),
+      onServerMessage: (/** @type {any} */ f) => { seen.push(f.type); },
+      services: /** @type {any} */ ({}),
+      registriesReady: new Promise(() => {})
+    }));
+    cm._routeFrame({ type: 'conversations-changed' });
+    cm._routeFrame({ type: 'session-changed' });
+    assert(seen.length === 0, `no frame may reach the app before its session exists; got ${seen.join(',')}`);
+
+    cm._releaseEarlyFrames();
+    assert(seen.join(',') === 'conversations-changed,session-changed',
+      `held frames are handled in the order they arrived; got ${seen.join(',')}`);
+    cm._routeFrame({ type: 'notice' });
+    assert(seen.join(',') === 'conversations-changed,session-changed,notice',
+      `and later frames go straight through; got ${seen.join(',')}`);
+  });
+
+  await run('without a registries gate nothing is held', async () => {
+    /** @type {string[]} */
+    const seen = [];
+    const cm = /** @type {any} */ (new ConnectionManager({
+      llmState: /** @type {any} */ (null),
+      onServerMessage: (/** @type {any} */ f) => { seen.push(f.type); },
+      services: /** @type {any} */ ({})
+    }));
+    cm._routeFrame({ type: 'notice' });
+    assert(seen.join(',') === 'notice', `the engine's frames are never held; got ${seen.join(',')}`);
+  });
+
+  await run('the session is not created while the registries are still loading', async () => {
+    appPhase.__resetForTests();
+    try {
+      const cm = /** @type {any} */ (new ConnectionManager({
+        llmState: /** @type {any} */ (null),
+        onServerMessage: () => {},
+        services: /** @type {any} */ ({}),
+        // Never settles, so the load stays parked at the gate for good.
+        registriesReady: new Promise(() => {})
+      }));
+      void cm._initializeSession();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      assert(cm.getSession() === null, 'a session created now would handle frames against a partial registry set');
+      assert(Array.isArray(cm._earlyFrames), 'so frames are still being held');
+      assert(appPhase.get() === 'extensions', `and the wait is named for what it is; got ${appPhase.get()}`);
+    } finally {
+      appPhase.__resetForTests();
     }
   });
 

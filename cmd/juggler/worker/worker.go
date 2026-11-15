@@ -391,8 +391,8 @@ func NewConversationWorker(conversationID, authorID string) *ConversationWorker 
 
 	// Set up sync broadcast callback
 	doc.RegisterSyncCallbacks(
-		func(update []byte) {
-			w.sendYjsSync(update)
+		func(update []byte, except string) {
+			w.sendYjsSyncExcept(update, except)
 			w.scheduleSave() // Persist changes to disk
 		},
 		func(canUndo, canRedo bool) {
@@ -1175,7 +1175,7 @@ func (r *run) sendStatusText(status string, m msg.Message) {
 // auto-retry). An empty code and a nil text are omitted on the wire.
 func (r *run) sendStatusWithCode(status, message string, text *msg.Message, code string) {
 	r.updateElapsedAnchor(status)
-	r.writeProcessingState(status, message, text, code)
+	entryUnchanged := r.writeProcessingState(status, message, text, code)
 	if status == "idle" {
 		if r.sched.owns(r.t) {
 			// A turn goroutine's idle edge is finalized by the actor as it retires
@@ -1198,14 +1198,27 @@ func (r *run) sendStatusWithCode(status, message string, text *msg.Message, code
 	// resting status written while a sibling run is still live: that run's
 	// entry leaves the registry and the frame's top level is republished from
 	// the sibling, so the client takes notices (validation-error) from here.
-	r.send(StatusMessage{
+	event := StatusMessage{
 		Type:         msgStatus,
 		Status:       status,
 		Message:      message,
 		ThreadItemID: r.t.thread.itemID,
 		Code:         code,
 		Text:         text,
-	})
+	}
+	// A busy status repeated for a run already showing it announces nothing:
+	// the client reads this event only to apply the frame's sync batch at once
+	// and to take a validation-error notice, and neither is owed when this
+	// thread's entry held exactly this status before the write and this run
+	// last told the clients exactly this. Both must hold — the entry can move
+	// through paths that send no event (processing_tools, a released claim),
+	// and the return from there is a transition. Rests are always sent, and a
+	// status with translatable text is never compared.
+	if statusHoldsClaim(status) && text == nil && entryUnchanged && r.t.lastStatusSent == event {
+		return
+	}
+	r.t.lastStatusSent = event
+	r.send(event)
 }
 
 // updateElapsedAnchor maintains the in-memory base for the spinner's elapsed-time
@@ -1242,7 +1255,11 @@ func (r *run) updateElapsedAnchor(status string) {
 // writeProcessingState publishes the frame every client renders the spinner
 // from: the doc-native `processingState` blob, rebuilt from scratch on each
 // call, and this run's own entry in the registry underneath it, rebuilt with it.
-func (r *run) writeProcessingState(status, message string, text *msg.Message, code string) {
+//
+// It reports whether the entry already held this busy status, message and code
+// with no translatable text before the write — the doc half of the test
+// sendStatusWithCode uses to drop a repeated status event.
+func (r *run) writeProcessingState(status, message string, text *msg.Message, code string) bool {
 	// Include threadItemId so frontend knows which column to target
 	stateMap := map[string]any{
 		runFieldStatus:       status,
@@ -1262,6 +1279,7 @@ func (r *run) writeProcessingState(status, message string, text *msg.Message, co
 
 	// Terminal-error statuses release only this thread; live siblings retain their
 	// claims and remain visible through the projection.
+	unchanged := false
 	r.replaceProcessingState(stateMap, r.t.thread.itemID, func(runs runRegistry) {
 		key := runKey(r.t.thread.itemID)
 		if !holdsClaim {
@@ -1269,6 +1287,8 @@ func (r *run) writeProcessingState(status, message string, text *msg.Message, co
 			return
 		}
 		entry, ok := runs[key]
+		unchanged = ok && text == nil && entry.hasStatus() && entry.status() == processingStatus(status) &&
+			entry.str(runFieldMessage) == message && entry.str(runFieldCode) == code && !entry.has(runFieldText)
 		if !ok {
 			entry = runEntry{}
 			entry.setThreadItemID(r.t.thread.itemID)
@@ -1283,6 +1303,7 @@ func (r *run) writeProcessingState(status, message string, text *msg.Message, co
 		entry.dropPhaseProgress()
 		runs[key] = entry
 	})
+	return unchanged
 }
 
 // bumpTurnCounterAtIdle advances the monotonic turn fence observers use to detect
@@ -1420,6 +1441,18 @@ func (r *run) sendErrorTo(dest threadContext, message string, text *msg.Message,
 // by the reflective encoder in send.
 func (w *ConversationWorker) sendYjsSync(update []byte) {
 	w.sendWS(marshalYjsSync(update, false))
+}
+
+// sendYjsSyncExcept is sendYjsSync leaving out the client that wrote the
+// update, which already holds it ("" leaves nobody out). A send that leaves a
+// client out does not count as the worker being heard from (lastBroadcastAt):
+// the client left out heard nothing, and noteWorking must still speak to it.
+func (w *ConversationWorker) sendYjsSyncExcept(update []byte, except string) {
+	if except == "" {
+		w.sendYjsSync(update)
+		return
+	}
+	w.callbacks.broadcastExcept(except, marshalYjsSync(update, false))
 }
 
 func (w *ConversationWorker) sendUndoState(canUndo, canRedo bool) {

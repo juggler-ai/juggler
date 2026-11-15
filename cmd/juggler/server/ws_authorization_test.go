@@ -5,7 +5,6 @@
 package server
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -88,21 +87,10 @@ func TestOneShotResult_OnlyFromTheEngine(t *testing.T) {
 	if err := viewer.WriteJSON(answer); err != nil {
 		t.Fatalf("viewer send: %v", err)
 	}
-	// The loop handles one connection's frames in order, so the echo of this
-	// probe proves the forgery before it has been handled.
-	if err := viewer.WriteJSON(map[string]string{"type": "session-changed"}); err != nil {
-		t.Fatalf("viewer probe: %v", err)
-	}
-	_ = viewer.SetReadDeadline(time.Now().Add(2 * time.Second))
-	for echoed := false; !echoed; {
-		_, msgBytes, err := viewer.ReadMessage()
-		if err != nil {
-			t.Fatalf("the viewer's probe never came back: %v", err)
-		}
-		var frame struct {
-			Type string `json:"type"`
-		}
-		echoed = json.Unmarshal(msgBytes, &frame) == nil && frame.Type == "session-changed"
+	// The loop handles one connection's frames in order, so a probe the server
+	// has handled proves the forgery before it has been handled too.
+	if !awaitHandled(t, ts, viewer) {
+		t.Fatal("the viewer's probe was never handled")
 	}
 	select {
 	case res := <-ch:

@@ -26,6 +26,7 @@
  */
 import {
   readFile,
+  readFiles,
   writeFile,
   editFile,
   editFileLines,
@@ -54,6 +55,9 @@ export {
   DEFAULT_EXEC_TIMEOUT_MS,
   // Filesystem
   readFile,
+  // Several files in one request, held to the scope of the caller
+  readFiles,
+  MAX_READ_FILES_PATHS,
   uploadAssetBase64,
   // Text kept beside the conversation and named by id, such as an edit diff side
   uploadAssetText,
@@ -143,6 +147,7 @@ export { FileSystem, ReadOnlyFileSystem } from '../js/services/fs.js';
  * already in it.
  * @typedef {object} BoundOps
  * @property {(params: Parameters<typeof readFile>[0], signal?: AbortSignal) => ReturnType<typeof readFile>} readFile - Read a file.
+ * @property {(params: Parameters<typeof readFiles>[0], signal?: AbortSignal) => ReturnType<typeof readFiles>} readFiles - Read several files in one request.
  * @property {(params: Parameters<typeof writeFile>[0], signal?: AbortSignal) => ReturnType<typeof writeFile>} writeFile - Create or overwrite a file.
  * @property {(params: Parameters<typeof editFile>[0], signal?: AbortSignal) => ReturnType<typeof editFile>} editFile - Search-and-replace within a file.
  * @property {(params: Parameters<typeof editFileLines>[0], signal?: AbortSignal) => ReturnType<typeof editFileLines>} editFileLines - Replace a line range.
@@ -190,6 +195,7 @@ export function createBoundOps(resolveScope) {
 
   return {
     readFile: (params, signal) => readFile(params, signal, paths(), where()),
+    readFiles: (params, signal) => readFiles(params, signal, paths(), where()),
     writeFile: (params, signal) => writeFile(params, signal, paths(), where()),
     editFile: (params, signal) => editFile(params, signal, paths(), where()),
     editFileLines: (params, signal) => editFileLines(params, signal, paths(), where()),

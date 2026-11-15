@@ -85,6 +85,27 @@ export async function runTests() {
     assert(JSON.stringify(got) === JSON.stringify(want), `loaded ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
   });
 
+  await run('the scan is one request, however many folders and names it asks about', async () => {
+    // Two folders × every instruction-file name, most of them not there: one
+    // request each would be paid for in round trips after every file the agent
+    // touches, which over a remote link is the slowest thing in the call.
+    let requests = 0;
+    const realFetch = window.fetch;
+    window.fetch = (input, init) => {
+      // callOp passes its URL as a string.
+      if (String(input).includes('/ops/call')) requests++;
+      return realFetch.call(window, input, init);
+    };
+    let got;
+    try {
+      got = await load('read', { path: `${top}/pkg/src/index.js` });
+    } finally {
+      window.fetch = realFetch;
+    }
+    assert(got.length === 3, `the scan itself must still work, loaded ${JSON.stringify(got)}`);
+    assert(requests === 1, `the scan made ${requests} requests`);
+  });
+
   await run('an absolute path, and the alias the read tool accepts, reach the same folders', async () => {
     const got = await load('read', { file_path: `${projectPath}/${top}/other/a.js` });
     const want = [`${top}/AGENTS.md`, `${top}/other/CLAUDE.local.md`];

@@ -227,37 +227,71 @@ func expectNoRelay(t *testing.T, conn *websocket.Conn) {
 //
 // The probe is any message at all: the loop handles inbound messages only after
 // it has joined, and the join and the relay are enqueued on the viewer group's
-// one channel, so a frame the server emits in reply proves the join is already
-// in front of anything sent next. session-changed is used because it is echoed
-// straight back and has nothing to do with relaying, so a broken relay fails an
-// assertion rather than this setup.
+// one channel, so a frame the server emits in consequence proves the join is
+// already in front of anything sent next. session-changed is used because it has
+// nothing to do with relaying, so a broken relay fails an assertion rather than
+// this setup. The server sends it on to every client but its sender, so it is
+// watched for on a second connection (see awaitHandled).
 func dialRole(t *testing.T, ts *httptest.Server, role, viewerID string) *websocket.Conn {
 	t.Helper()
-	dialURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws?role=" + role + "&viewerId=" + viewerID + "&token=" + testSocketToken
+	conn := dialSocket(t, ts, "role="+role+"&viewerId="+viewerID)
+	if !awaitHandled(t, ts, conn) {
+		t.Fatalf("the %s connection never joined the viewer group", role)
+	}
+	return conn
+}
+
+// dialSocket opens a real socket with the given query (the token is added), and
+// closes it when the test ends.
+func dialSocket(t *testing.T, ts *httptest.Server, query string) *websocket.Conn {
+	t.Helper()
+	dialURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws?" + query + "&token=" + testSocketToken
 	conn, resp, err := websocket.DefaultDialer.Dial(dialURL, nil)
 	if resp != nil {
 		_ = resp.Body.Close()
 	}
 	if err != nil {
-		t.Fatalf("%s WS dial failed: %v", role, err)
+		t.Fatalf("WS dial (%s) failed: %v", query, err)
 	}
 	t.Cleanup(func() { _ = conn.Close() })
+	return conn
+}
 
-	if err := conn.WriteJSON(map[string]string{"type": "session-changed"}); err != nil {
-		t.Fatalf("%s readiness probe could not be sent: %v", role, err)
+// awaitHandled sends session-changed on conn and reports whether the server
+// handled it, which it does only after every frame conn sent before it — a
+// connection's frames are handled in order, by a loop that runs only once the
+// connection has registered and joined the viewer group.
+//
+// The server does not send session-changed back to its sender, so the proof is
+// read on an observer: a viewer opened for the purpose and closed afterwards.
+// The observer is waited on until it has been sent providers-update, which the
+// server sends only once the connection is registered with the hub, so every
+// broadcast after that reaches it.
+func awaitHandled(t *testing.T, ts *httptest.Server, conn *websocket.Conn) bool {
+	t.Helper()
+	observer := dialSocket(t, ts, "role=viewer")
+	defer func() { _ = observer.Close() }()
+	if !readFrameType(observer, "providers-update") {
+		t.Fatal("the observer connection was never registered")
 	}
+	if err := conn.WriteJSON(map[string]string{"type": "session-changed"}); err != nil {
+		t.Fatalf("readiness probe could not be sent: %v", err)
+	}
+	return readFrameType(observer, "session-changed")
+}
+
+// readFrameType reads conn until a frame of type want arrives, and reports
+// whether one did within relayBudget.
+func readFrameType(conn *websocket.Conn, want string) bool {
 	_ = conn.SetReadDeadline(time.Now().Add(relayBudget))
 	for {
 		_, msgBytes, err := conn.ReadMessage()
 		if err != nil {
-			t.Fatalf("the %s connection never joined the viewer group: %v", role, err)
+			return false
 		}
 		var frame relayFrame
-		if err := json.Unmarshal(msgBytes, &frame); err != nil {
-			continue
-		}
-		if frame.Type == "session-changed" {
-			return conn
+		if json.Unmarshal(msgBytes, &frame) == nil && frame.Type == want {
+			return true
 		}
 	}
 }

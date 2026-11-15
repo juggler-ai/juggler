@@ -976,14 +976,36 @@ func (m *SessionManager) GetUITheme() (string, bool) {
 // empty slice rather than nil: the wire shape should be `[]`, not `null`, and a
 // board is created by being written to rather than by being asked for.
 func (m *SessionManager) GetPinboard(boardID string) []Pin {
-	pins, _ := runRead(m, func(s *sessionState) ([]Pin, error) {
+	pins, _ := m.GetPinboardState(boardID)
+	return pins
+}
+
+// GetPinboardState is GetPinboard plus whether the board's seed claim is
+// already spent — true exactly when [SessionManager.ClaimBoardSeed] would answer
+// no, so a viewer that reads the board can skip asking. Both come from one actor
+// read.
+// It is advice only: the claim stays the one atomic answer, so a viewer told
+// false still asks, and is told no if another window got there first.
+func (m *SessionManager) GetPinboardState(boardID string) (pins []Pin, seeded bool) {
+	type state struct {
+		pins   []Pin
+		seeded bool
+	}
+	st, _ := runRead(m, func(s *sessionState) (state, error) {
 		if s.session == nil {
-			return []Pin{}, nil
+			return state{pins: []Pin{}, seeded: true}, nil
 		}
 		s.session.migrateBoards()
-		return append([]Pin{}, s.session.Boards[boardID].Pins...), nil
+		board, exists := s.session.Boards[boardID]
+		return state{
+			pins:   append([]Pin{}, board.Pins...),
+			seeded: boardID != MainBoardID || exists,
+		}, nil
 	})
-	return pins
+	if st.pins == nil {
+		st.pins = []Pin{}
+	}
+	return st.pins, st.seeded
 }
 
 // ApplyPinboardOps applies a batch of semantic edits to one board and persists

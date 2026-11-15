@@ -142,6 +142,54 @@ export async function runTests(_ctx) {
     assert(puts.length === 0, `a destroyed session still saved: ${puts.length} PUTs`);
   });
 
+  await run('a save sends the history only when the server does not already hold it', async () => {
+    let failNext = false;
+    const { api, puts } = recordingApi({
+      getSession: async () => ({
+        conversationOrder: [], conversationNames: {},
+        messageHistory: [{ content: 'from another window', attachments: [] }]
+      })
+    });
+    const put = api.updateSession;
+    api.updateSession = async (/** @type {any[]} */ ...args) => {
+      if (failNext) { failNext = false; throw new Error('server unreachable'); }
+      return put(...args);
+    };
+    const session = bareSession(api);
+    /**
+     * @param {number} i - Which PUT
+     * @returns {any} The history it carried
+     */
+    const historyOf = (i) => puts[i]?.[1];
+
+    await session.persistence.saveImmediately();
+    assert(Array.isArray(historyOf(0)), `a session's first save must carry its history, got ${JSON.stringify(puts[0])}`);
+
+    await session.persistence.saveImmediately();
+    assert(puts.length === 2 && historyOf(1) === undefined,
+      `a save with the history unchanged since the last one resent it: ${JSON.stringify(puts[1])}`);
+
+    session.addMessageToHistory('hello');
+    await session.persistence.saveImmediately();
+    assert(historyOf(2)?.at(-1)?.content === 'hello',
+      `a save after the history changed left it out: ${JSON.stringify(puts[2])}`);
+
+    // A save that never reached the server settles nothing: the next one sends
+    // the history it failed to.
+    session.addMessageToHistory('lost');
+    failNext = true;
+    await session.persistence.saveImmediately();
+    await session.persistence.saveImmediately();
+    assert(puts.length === 4 && historyOf(3)?.at(-1)?.content === 'lost',
+      `the save after a failed one left out the history the failure never delivered: ${JSON.stringify(puts[3])}`);
+
+    // A history read from the server is one the server holds.
+    await session.persistence.refreshFromServer();
+    await session.persistence.saveImmediately();
+    assert(session.messageHistory.at(-1)?.content === 'from another window' && historyOf(4) === undefined,
+      `a save right after adopting the server's history sent it back: ${JSON.stringify(puts[4])}`);
+  });
+
   await run('concurrent loads share one manifest read', async () => {
     let reads = 0;
     let release = () => {};

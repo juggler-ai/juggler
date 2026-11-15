@@ -99,7 +99,11 @@ func (r *callbackRegistry) run() {
 				engineID = ""
 			}
 		case cbBroadcast:
-			for _, box := range boxes {
+			// clientID, when set, is the one client left out.
+			for id, box := range boxes {
+				if op.clientID != "" && id == op.clientID {
+					continue
+				}
 				box.Enqueue(cbMsg{data: op.data})
 			}
 		case cbSendTo:
@@ -144,6 +148,12 @@ func (r *callbackRegistry) remove(id string) {
 
 func (r *callbackRegistry) broadcast(data []byte) {
 	r.ch <- cbOp{kind: cbBroadcast, data: data}
+}
+
+// broadcastExcept delivers data to every client but one, in the same order as
+// broadcast relative to every other send ("" leaves nobody out).
+func (r *callbackRegistry) broadcastExcept(except string, data []byte) {
+	r.ch <- cbOp{kind: cbBroadcast, clientID: except, data: data}
 }
 
 func (r *callbackRegistry) sendTo(id string, data []byte) {

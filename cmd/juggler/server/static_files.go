@@ -614,7 +614,7 @@ func (s *Server) cacheControlMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Versioned paths get immutable caching (the version changes on each deploy)
+		// Versioned paths get immutable caching (the version is a hash of what they serve)
 		if strings.HasPrefix(path, "/v"+s.staticVersion+"/") {
 			if !s.assetsFromDisk {
 				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")

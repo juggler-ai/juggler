@@ -226,7 +226,7 @@ class APIService {
    * Conversation order is owned by POST /api/conversations (create) and POST
    * /api/session/conversations/reorder.
    * @param {string|null} activeConversationId
-   * @param {import('../model/session.js').HistoryMessage[]} [messageHistory] - Session-level message history for input navigation
+   * @param {import('../model/session.js').HistoryMessage[]} [messageHistory] - Session-level message history for input navigation; omitted, the stored one is kept
    * @param {Record<string, any>} [metadata] - General-purpose key-value store for frontend flags
    * @returns {Promise<{success: boolean}>} Success indicator
    */

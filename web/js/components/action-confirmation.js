@@ -4,6 +4,7 @@
 
 import JugglerElement from './juggler-element.js';
 import { escapeHtml } from '../../sdk/lib/html.js';
+import { EDIT_SVG } from '../utils/icons.js';
 import { t, htmlSlots, withHtml, formatList } from '../../sdk/lib/i18n.js';
 
 /**
@@ -12,15 +13,6 @@ import { t, htmlSlots, withHtml, formatList } from '../../sdk/lib/i18n.js';
  * inherit the span's accent colour; sized to sit on the text baseline.
  */
 const FOLDER_ICON_SVG = '<svg class="pattern-folder-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true"><path d="M160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h240l80 80h320q33 0 56.5 23.5T880-640H447l-80-80H160v480l96-320h684L837-217q-8 26-29.5 41.5T760-160H160Zm84-80h516l72-240H316l-72 240Zm0 0 72-240-72 240Zm-84-400v-80 80Z"/></svg>';
-
-/**
- * Pencil glyph for the "edit this pattern" affordance. It sits quietly *inside*
- * the single-pattern "don't ask again" button (a low-opacity span pinned to the
- * right edge), staying out of the way since editing is rarely needed. The
- * delegated click handler recognises a click on the pencil and enters edit mode
- * instead of approving.
- */
-const PENCIL_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true"><path d="M200-200h57l391-391-57-57-391 391v57Zm-80 80v-170l528-527q12-11 26.5-17t30.5-6q16 0 31 6t26 18l55 56q12 11 17.5 26t5.5 30q0 16-5.5 30.5T846-647L319-120H120Zm640-584-56-56 56 56Zm-141 85-28-29 57 57-29-28Z"/></svg>';
 
 /** Debounce (ms) between a keystroke in the edit input and the revise call. */
 const REVISE_DEBOUNCE_MS = 150;
@@ -192,7 +184,7 @@ class ActionConfirmation extends JugglerElement {
       // height as any other. A span (not a nested <button>, which is invalid
       // HTML) that the delegated click handler routes to edit mode.
       const pencilHTML = editable
-        ? `<span class="pattern-edit-btn" data-edit-index="${index}" role="button" title="${escapeHtml(t('Edit pattern'))}" aria-label="${escapeHtml(t('Edit pattern'))}">${PENCIL_ICON_SVG}</span>`
+        ? `<span class="pattern-edit-btn" data-edit-index="${index}" role="button" title="${escapeHtml(t('Edit pattern'))}" aria-label="${escapeHtml(t('Edit pattern'))}">${EDIT_SVG}</span>`
         : '';
       // The editor occupies the SAME slot as the button (only one is shown
       // at a time — see the `.editing` CSS), so entering edit mode swaps the

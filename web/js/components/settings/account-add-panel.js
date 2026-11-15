@@ -10,21 +10,25 @@
 //   <https://www.gnu.org/licenses/agpl-3.0.html> for full terms.
 
 /**
- * "Add an account" on the Providers tab, always open under the accounts: a
- * grid of the kinds of account, grouped as subscriptions, API keys, local
- * servers and custom endpoints. Picking one opens its form in the grid's place
- * — the name it takes in the model menu, the id that name becomes, and
- * whatever the type needs to start with (a key, a base URL, a server address).
- * Signing in, where the type has a sign-in, happens on the card the form turns
- * into.
+ * Adding an account on the Providers tab. The kinds of account are a grid,
+ * grouped as subscriptions, API keys, local servers and custom endpoints, with
+ * the logins found on this machine ahead of them under a heading of their own.
+ * The grid is shown in a dialog, opened from the tab's Add account button,
+ * and straight on the page while there is no account at all, so a first visit
+ * shows the choices without asking.
  *
- * Logins found on this machine, and accounts that were set up before, sit in
- * the grid beside their type, already filled in: picking one adds it.
+ * Picking a kind opens its form — the name it takes in the model menu, the id
+ * that name becomes, and whatever the type needs to start with (a key, a base
+ * URL, a server address) — in the same dialog, with Back to the grid. Signing
+ * in, where the type has a sign-in, happens on the card the form turns into.
+ * Picking a login on offer, or an account set up here before (which stands in
+ * the grid for its type), adds it at once.
  * @module components/settings/account-add-panel
  */
 
 import * as settingsApi from '../../services/settings-api.js';
 import { accountsPreview, accountsSave, customProvidersCatalog } from '../../services/ops-api.js';
+import { showAlert, showFormDialog } from '../modal-dialog.js';
 import { t, markForTranslation, serverText } from '../../../sdk/lib/i18n.js';
 import { errorText } from '../../../sdk/lib/error-utils.js';
 import { providerDescription } from '../../utils/provider-text.js';
@@ -46,15 +50,17 @@ const GROUPS = [
  * @property {() => any[]} accounts - The accounts there are.
  * @property {() => import('../../services/ops-api.js').AccountCandidate[]} candidates - The logins on offer.
  * @property {(list: any, id: string) => void} onAdded - An account was added from a form.
- * @property {(key: string) => Promise<void>} addCandidate - Add a login on offer, reporting a failure itself.
+ * @property {(key: string) => Promise<boolean>} addCandidate - Add a login on offer,
+ *   reporting a failure itself; true once it is added.
  */
 
 /**
- * The open panel.
+ * The way to add an account.
  * @typedef {object} AddPanel
- * @property {HTMLElement} element - The panel.
- * @property {() => void} refresh - Redraw the grid from what the tab holds now, when it is showing.
- * @property {() => void} reset - Put the grid back, dropping any form.
+ * @property {HTMLElement} element - The grid, for the page to show while there is no account.
+ * @property {() => void} openPicker - Open the grid in a dialog.
+ * @property {() => void} refresh - Redraw the grid, on the page and in an open dialog, from what the tab holds now.
+ * @property {() => void} reset - Close the dialog, adding nothing.
  */
 
 /**
@@ -70,71 +76,165 @@ function canAdd(type, accounts) {
 }
 
 /**
- * Build the panel, showing the grid.
+ * Build the way to add an account.
  * @param {AddPanelContext} ctx - The tab context.
- * @returns {AddPanel} The panel.
+ * @returns {AddPanel} It.
  */
 export function buildAddPanel(ctx) {
-  const panel = document.createElement('div');
-  panel.className = 'account-add';
-  showPicker(panel, ctx, false);
+  const inline = document.createElement('div');
+  inline.className = 'account-add';
+
+  /** @type {ReturnType<typeof showFormDialog>|null} The dialog, while it is open. */
+  let dialog = null;
+  /** @type {HTMLElement|null} The grid in the dialog, while that is its step. */
+  let dialogGrid = null;
+  /** @type {any} The list a form's add answered with, handed on once the dialog closes. */
+  let added = null;
+
+  /**
+   * Put a grid's tiles in a holder, keeping the tile that had focus focused.
+   * @param {HTMLElement} holder - The page's panel, or the dialog's grid.
+   * @param {boolean} inDialog - Whether it is the dialog's.
+   */
+  const fill = (holder, inDialog) => {
+    const focused = /** @type {HTMLElement|null} */ (holder.querySelector('.account-type:focus'));
+    holder.replaceChildren(buildGrid(ctx, {
+      type: (type) => { openForm(type, inDialog); },
+      candidate: async (key) => {
+        if (await ctx.addCandidate(key) && inDialog) dialog?.close(true);
+      },
+    }));
+    if (!focused) return;
+    const selector = focused.dataset.key
+      ? `.account-type[data-key="${CSS.escape(focused.dataset.key)}"]`
+      : `.account-type[data-type="${CSS.escape(focused.dataset.type || '')}"]:not([data-key])`;
+    /** @type {HTMLElement|null} */ (holder.querySelector(selector))?.focus();
+  };
+
+  /**
+   * The dialog's first step: the grid.
+   * @returns {import('../modal-dialog.js').FormStep} The step.
+   */
+  const pickerStep = () => {
+    dialogGrid = document.createElement('div');
+    dialogGrid.className = 'account-add';
+    fill(dialogGrid, true);
+    return {
+      title: t('Add an account'),
+      message: t('Pick what kind of account to set up. Logins already on this machine are listed too, ready to add with one click.'),
+      content: dialogGrid,
+      confirmText: '',
+    };
+  };
+
+  /**
+   * Open a dialog on its first step, and hand on what it added once it closes.
+   * @param {import('../modal-dialog.js').FormStep} first - The step.
+   */
+  const openDialog = async (first) => {
+    dialog?.close();
+    added = null;
+    const mine = showFormDialog({ ...first, className: 'account-add-dialog' });
+    dialog = mine;
+    const confirmed = await mine.done;
+    if (dialog !== mine) return;
+    dialog = null;
+    dialogGrid = null;
+    if (confirmed && added) ctx.onAdded(added, added.id);
+  };
+
+  /**
+   * Show one type's form: in the dialog, with Back to its grid, when it was
+   * picked there, and in a dialog of its own when it was picked on the page.
+   * The server is asked what an add would make before the form is drawn:
+   * whether it restores the type's default account, which takes no settings of
+   * its own, and the id and name it takes.
+   * @param {import('../../services/ops-api.js').AccountType} type - The type.
+   * @param {boolean} inDialog - Picked in the dialog.
+   */
+  const openForm = async (type, inDialog) => {
+    /** @type {import('../../services/ops-api.js').AccountPreview} */
+    let first;
+    try {
+      first = await accountsPreview({ type: type.name, displayName: '' });
+    } catch (error) {
+      await showAlert(t('Couldn’t add it. {error}', { error: errorText(error) }), t('Add an account'));
+      return;
+    }
+    const form = drawForm(type, ctx, first, (list) => { added = list; });
+    const step = {
+      title: t('New {type} account', { type: type.displayName }),
+      content: form.element,
+      confirmText: t('Add account'),
+      onConfirm: form.submit,
+      onBack: inDialog ? () => dialog?.step(pickerStep()) : null,
+    };
+    if (inDialog && dialog) {
+      dialogGrid = null;
+      dialog.step(step);
+    } else {
+      openDialog(step);
+    }
+  };
+
+  fill(inline, false);
   return {
-    element: panel,
+    element: inline,
+    openPicker: () => { openDialog(pickerStep()); },
     refresh: () => {
-      if (!panel.querySelector('.account-types')) return;
-      // A redraw keeps the tile that had focus focused.
-      const focused = /** @type {HTMLElement|null} */ (panel.querySelector('.account-type:focus'));
-      showPicker(panel, ctx, false);
-      if (!focused) return;
-      const selector = focused.dataset.key
-        ? `.account-type[data-key="${CSS.escape(focused.dataset.key)}"]`
-        : `.account-type[data-type="${CSS.escape(focused.dataset.type || '')}"]:not([data-key])`;
-      /** @type {HTMLElement|null} */ (panel.querySelector(selector))?.focus();
+      fill(inline, false);
+      if (dialogGrid) fill(dialogGrid, true);
     },
-    reset: () => showPicker(panel, ctx, false),
+    reset: () => dialog?.close(),
   };
 }
 
 /**
- * Show the grid in the panel: in each group, the logins on offer of that
- * group's types, then the types that can take another account. A type whose
- * default account was removed is offered as that account, which adding brings
- * back as it was, rather than as a bare type too.
- * @param {HTMLElement} panel - The panel.
+ * The grid: the logins found on this machine first, then in each kind's group
+ * the accounts on offer of that kind (one removed, an endpoint switched off),
+ * then the types that can take another account. A type whose default account
+ * was removed is offered as that account, which adding brings back as it was,
+ * rather than as a bare type too.
  * @param {AddPanelContext} ctx - The tab context.
- * @param {boolean} focus - Focus the first tile: the grid was returned to from a form.
+ * @param {{type: (type: import('../../services/ops-api.js').AccountType) => void, candidate: (key: string) => Promise<void>}} pick - What a tile does.
+ * @returns {HTMLElement} The grid.
  */
-function showPicker(panel, ctx, focus) {
+function buildGrid(ctx, pick) {
   const grid = document.createElement('div');
   grid.className = 'account-types';
   const accounts = ctx.accounts();
   const types = ctx.types();
   const candidates = ctx.candidates();
   const restorable = new Set(candidates.filter((c) => c.reason === 'removed').map((c) => c.type));
-  for (const group of GROUPS) {
-    const inGroup = types.filter((ty) => ty.category === group.category);
-    const offered = candidates.filter((c) => inGroup.some((ty) => ty.name === c.type));
-    const addable = inGroup.filter((ty) => canAdd(ty, accounts) && !restorable.has(ty.name));
-    if (offered.length === 0 && addable.length === 0) continue;
+  const heading = (/** @type {string} */ text) => {
     const label = document.createElement('div');
     label.className = 'account-type-group caps-label';
-    label.textContent = t(group.label);
+    label.textContent = text;
     grid.appendChild(label);
-    for (const candidate of offered) {
-      grid.appendChild(candidateTile(candidate, types, ctx));
-    }
+  };
+
+  const found = candidates.filter((c) => c.reason === 'found');
+  if (found.length) {
+    heading(t('Found on this machine'));
+    for (const candidate of found) grid.appendChild(candidateTile(candidate, types, pick.candidate));
+  }
+  for (const group of GROUPS) {
+    const inGroup = types.filter((ty) => ty.category === group.category);
+    const offered = candidates.filter((c) => c.reason !== 'found' && inGroup.some((ty) => ty.name === c.type));
+    const addable = inGroup.filter((ty) => canAdd(ty, accounts) && !restorable.has(ty.name));
+    if (offered.length === 0 && addable.length === 0) continue;
+    heading(t(group.label));
+    for (const candidate of offered) grid.appendChild(candidateTile(candidate, types, pick.candidate));
     for (const type of addable) {
       grid.appendChild(tile({
         name: type.displayName,
         description: descriptionOf(type, ctx),
-        onPick: () => showForm(panel, type, ctx),
+        onPick: () => pick.type(type),
         dataset: { type: type.name },
       }));
     }
   }
-
-  panel.replaceChildren(grid);
-  if (focus) /** @type {HTMLElement|null} */ (grid.querySelector('.account-type'))?.focus();
+  return grid;
 }
 
 /**
@@ -168,19 +268,30 @@ function tile({ name, description, detail, onPick, dataset, extraClass }) {
 }
 
 /**
+ * The name a login on offer is shown by: its own, or its type's, with who it
+ * is signed in as when that is known.
+ * @param {import('../../services/ops-api.js').AccountCandidate} candidate - The login.
+ * @param {import('../../services/ops-api.js').AccountType[]} types - The types, for its type's name.
+ * @returns {string} The name.
+ */
+export function candidateName(candidate, types) {
+  const typeName = types.find((ty) => ty.name === candidate.type)?.displayName || candidate.type;
+  const shown = candidate.displayName || typeName;
+  return candidate.label ? t('{name} · {label}', { name: shown, label: candidate.label }) : shown;
+}
+
+/**
  * A login on offer's tile: what it is, why it is offered, and where it was
  * found. Picking it adds it; it leaves the grid when the list says it is an
  * account.
  * @param {import('../../services/ops-api.js').AccountCandidate} candidate - The login.
  * @param {import('../../services/ops-api.js').AccountType[]} types - The types, for its type's name.
- * @param {AddPanelContext} ctx - The tab context.
+ * @param {(key: string) => Promise<void>} add - Adds it.
  * @returns {HTMLButtonElement} The tile.
  */
-function candidateTile(candidate, types, ctx) {
-  const typeName = types.find((ty) => ty.name === candidate.type)?.displayName || candidate.type;
-  const shown = candidate.displayName || typeName;
+function candidateTile(candidate, types, add) {
   return tile({
-    name: candidate.label ? t('{name} · {label}', { name: shown, label: candidate.label }) : shown,
+    name: candidateName(candidate, types),
     description: candidate.reason === 'found' ? t('Found on this machine') : t('Set up here before'),
     detail: candidate.path || '',
     extraClass: 'account-type-found',
@@ -189,7 +300,7 @@ function candidateTile(candidate, types, ctx) {
       if (button.disabled) return;
       button.disabled = true;
       try {
-        await ctx.addCandidate(candidate.key);
+        await add(candidate.key);
       } finally {
         button.disabled = false;
       }
@@ -211,21 +322,6 @@ function descriptionOf(type, ctx) {
 }
 
 /**
- * A form's Cancel: back to the grid, adding nothing.
- * @param {HTMLElement} panel - The panel.
- * @param {AddPanelContext} ctx - The tab context.
- * @returns {HTMLButtonElement} The button.
- */
-function cancelButton(panel, ctx) {
-  const cancel = document.createElement('button');
-  cancel.type = 'button';
-  cancel.className = 'btn btn-sm btn-secondary account-add-cancel';
-  cancel.textContent = t('Cancel');
-  cancel.addEventListener('click', () => showPicker(panel, ctx, true));
-  return cancel;
-}
-
-/**
  * What a form's fields hand to the add: settings and a key for the account,
  * and what to write once the account exists — never before, so a failed add
  * leaves nothing behind.
@@ -233,66 +329,19 @@ function cancelButton(panel, ctx) {
  */
 
 /**
- * Show one type's form in the panel. The server is asked what an add would
- * make before the form is drawn: whether it restores the type's default
- * account, which takes no settings of its own, and the id and name it takes.
- * @param {HTMLElement} panel - The panel.
- * @param {import('../../services/ops-api.js').AccountType} type - The type.
- * @param {AddPanelContext} ctx - The tab context.
- */
-async function showForm(panel, type, ctx) {
-  try {
-    drawForm(panel, type, ctx, await accountsPreview({ type: type.name, displayName: '' }));
-  } catch (error) {
-    showFailure(panel, ctx, t('Couldn’t add it. {error}', { error: errorText(error) }));
-  }
-}
-
-/**
- * Put a failure in the panel, with the way back to the type picker.
- * @param {HTMLElement} panel - The panel.
- * @param {AddPanelContext} ctx - The tab context.
- * @param {string} message - What went wrong.
- */
-function showFailure(panel, ctx, message) {
-  const status = document.createElement('div');
-  status.className = 'account-add-status';
-  status.textContent = message;
-  const actions = document.createElement('div');
-  actions.className = 'account-add-actions';
-  const back = document.createElement('button');
-  back.type = 'button';
-  back.className = 'btn btn-sm btn-secondary';
-  back.textContent = t('Back to the kinds of account');
-  back.addEventListener('click', () => showPicker(panel, ctx, true));
-  actions.appendChild(back);
-  panel.replaceChildren(status, actions);
-}
-
-/**
  * Draw one type's form.
- * @param {HTMLElement} panel - The panel.
  * @param {import('../../services/ops-api.js').AccountType} type - The type.
  * @param {AddPanelContext} ctx - The tab context.
  * @param {import('../../services/ops-api.js').AccountPreview} first - What an add with no name would make.
+ * @param {(list: any) => void} onSaved - Handed the list the add answered with.
+ * @returns {{element: HTMLElement, submit: () => Promise<boolean>}} The form, and
+ *   its add: true once the account exists, false when a field or the server
+ *   refused it, which the form then says.
  */
-function drawForm(panel, type, ctx, first) {
+function drawForm(type, ctx, first, onSaved) {
   const provider = ctx.providerFor(type.name);
   const isEndpoint = type.name === ENDPOINT_TYPE;
   const isDefault = first.isDefault;
-
-  const heading = document.createElement('div');
-  heading.className = 'account-add-heading';
-  const back = document.createElement('button');
-  back.type = 'button';
-  back.className = 'btn btn-icon btn-ghost account-add-back';
-  back.textContent = '\u2039';
-  back.setAttribute('aria-label', t('Back to the kinds of account'));
-  back.addEventListener('click', () => showPicker(panel, ctx, true));
-  const title = document.createElement('span');
-  title.textContent = t('New {type} account', { type: type.displayName });
-  heading.appendChild(back);
-  heading.appendChild(title);
 
   const form = document.createElement('div');
   form.className = 'account-add-form';
@@ -414,41 +463,28 @@ function drawForm(panel, type, ctx, first) {
   }
   showID(first.id);
 
-  const actions = document.createElement('div');
-  actions.className = 'account-add-actions';
   const status = document.createElement('div');
   status.className = 'account-add-status';
-  const add = document.createElement('button');
-  add.type = 'button';
-  add.className = 'btn btn-sm btn-primary account-add-save';
-  add.textContent = t('Add account');
-  add.addEventListener('click', async () => {
-    add.disabled = true;
+  const submit = async () => {
     status.textContent = '';
     try {
       const collected = await collect();
-      if (!collected) {
-        add.disabled = false;
-        return;
-      }
+      if (!collected) return false;
       const { afterAdd, ...extra } = collected;
       const list = await accountsSave({ type: type.name, displayName: name.input.value.trim(), ...extra });
       if (afterAdd) await afterAdd();
-      showPicker(panel, ctx, false);
-      ctx.onAdded(list, list.id);
+      onSaved(list);
+      return true;
     } catch (error) {
-      add.disabled = false;
       status.textContent = t('Couldn’t add it. {error}', { error: errorText(error) });
+      return false;
     }
-  });
-  actions.appendChild(status);
-  actions.appendChild(cancelButton(panel, ctx));
-  actions.appendChild(add);
+  };
 
   form.appendChild(nameColumn);
   form.appendChild(fieldColumn);
-  panel.replaceChildren(heading, form, actions);
-  name.input.focus();
+  form.appendChild(status);
+  return { element: form, submit };
 }
 
 /**

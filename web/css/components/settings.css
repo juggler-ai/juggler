@@ -11,7 +11,8 @@
    and its limits, and the account cards and the add-account panel.
    ============================================================================ */
 
-settings-panel .get-api-key-link {
+settings-panel .get-api-key-link,
+.account-add-dialog .get-api-key-link {
     font-size: var(--font-size-sm);
     color: var(--accent-blue);
     text-decoration: none;
@@ -19,7 +20,8 @@ settings-panel .get-api-key-link {
     align-self: flex-start;
 }
 
-settings-panel .get-api-key-link:hover {
+settings-panel .get-api-key-link:hover,
+.account-add-dialog .get-api-key-link:hover {
     text-decoration: underline;
 }
 
@@ -309,14 +311,16 @@ settings-panel .settings-model-visibility-status {
    own transient save-status line. The saved value stays visible in the input, so
    the status note is a light confirmation rather than the only proof the save
    landed. */
-settings-panel .provider-subfield {
+settings-panel .provider-subfield,
+.account-add-dialog .provider-subfield {
     position: relative; /* anchor for the floating save-status note */
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
 }
 
-settings-panel .provider-subfield-label {
+settings-panel .provider-subfield-label,
+.account-add-dialog .provider-subfield-label {
     font-size: var(--font-size-sm);
     font-weight: var(--font-weight-medium);
     color: var(--text-secondary);
@@ -325,7 +329,8 @@ settings-panel .provider-subfield-label {
 /* Floats over the top-right of the field (on the label line) so it claims no
    layout space of its own — the row height stays fixed whether or not a note is
    showing. pointer-events: none keeps it from intercepting clicks on the label. */
-settings-panel .provider-subfield-status {
+settings-panel .provider-subfield-status,
+.account-add-dialog .provider-subfield-status {
     position: absolute;
     top: 0;
     right: 0.125rem;
@@ -335,32 +340,30 @@ settings-panel .provider-subfield-status {
     transition: color var(--transition-base);
 }
 
-settings-panel .provider-subfield-status[data-kind="ok"] {
+settings-panel .provider-subfield-status[data-kind="ok"],
+.account-add-dialog .provider-subfield-status[data-kind="ok"] {
     color: var(--success);
 }
 
-settings-panel .provider-subfield-status[data-kind="error"] {
+settings-panel .provider-subfield-status[data-kind="error"],
+.account-add-dialog .provider-subfield-status[data-kind="error"] {
     color: var(--danger);
 }
 
 /* Provider accounts: one card per account, on the same two-column shell as
-   every settings row, with a ⋯ menu in a gutter of its own at the top right so
-   it never sits over a field. */
-settings-panel .account-card {
+   every settings row, with its remove bin in a gutter of its own at the top
+   right, clear of the card's edge and of every field. Named with the shell's
+   class too, so the gutter outranks the shell's own padding shorthand, which
+   comes later in this sheet and again in its narrow-screen block. */
+settings-panel .provider-field.account-card {
     position: relative;
-    padding-right: var(--space-48);
+    padding-right: var(--space-64);
 }
 
-settings-panel .account-menu-button {
+settings-panel .account-remove-button {
     position: absolute;
-    top: var(--space-12);
-    right: var(--space-10);
-}
-
-/* The ⋯ menu is appended to <body>, outside the panel, which covers the window
-   at --z-modal: a dropdown at --z-dropdown would paint behind it. */
-.account-menu {
-    z-index: var(--z-above-modal);
+    top: var(--space-16);
+    right: var(--space-16);
 }
 
 /* The name, the type it is an account of, and where it comes from. */
@@ -481,21 +484,80 @@ settings-panel .account-headers-hint {
     padding-top: var(--space-6);
 }
 
-settings-panel .account-empty {
-    color: var(--text-secondary);
-    font-size: var(--font-size-base);
+/* The section's heading row: what it is on the left, and the way to add to it
+   on the right, so Add account is at the top of the tab however long the list
+   below it grows. */
+settings-panel .account-list-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-12);
     margin-bottom: var(--space-10);
 }
 
-/* Add an account: its own section under the accounts, set well apart from the
-   last card. Its heading is the section's first child, so the gap is the
-   section's to give. */
-settings-panel .account-add-section {
-    margin-top: var(--space-32);
+settings-panel .account-list-header .settings-section-heading {
+    margin: 0;
 }
 
-/* A recessed panel rather than a card, so what can be added never reads as
-   something already set up. */
+settings-panel .account-list-header + .settings-description {
+    margin-bottom: var(--space-12);
+}
+
+/* Logins found on this machine, offered above the cards: tinted in the colour
+   the grid gives a ready-to-add login, so it reads as an offer and never as an
+   account already set up. */
+settings-panel .account-found {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-8);
+    margin-bottom: var(--space-10);
+    padding: var(--space-12) var(--space-16);
+    background: color-mix(in srgb, var(--success) 8%, transparent);
+    border: 0.0625rem solid color-mix(in srgb, var(--success) 35%, transparent);
+    border-radius: var(--radius-xl);
+}
+
+settings-panel .account-found-title {
+    color: var(--success);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+}
+
+settings-panel .account-found-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-12);
+}
+
+settings-panel .account-found-what {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    min-width: 0;
+}
+
+settings-panel .account-found-name {
+    color: var(--text-primary);
+    font-weight: var(--font-weight-medium);
+}
+
+settings-panel .account-found-path {
+    color: var(--text-tertiary);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-xs);
+    overflow-wrap: anywhere;
+}
+
+/* No account at all: a line saying so, over the kinds of account. */
+settings-panel .account-empty-text {
+    color: var(--text-secondary);
+    font-size: var(--font-size-base);
+    margin: 0 0 var(--space-12);
+}
+
+/* On the page, the kinds of account sit in a recessed panel rather than a
+   card, so what can be added never reads as something already set up. */
 settings-panel .account-add {
     padding: var(--space-16) var(--space-20);
     background: var(--bg-tertiary);
@@ -503,32 +565,38 @@ settings-panel .account-add {
     border-radius: var(--radius-xl);
 }
 
-settings-panel .account-add-heading {
-    display: flex;
-    align-items: center;
-    gap: var(--space-8);
-    margin-bottom: var(--space-12);
-    color: var(--text-primary);
-    font-weight: var(--font-weight-medium);
+/* The add dialog is wide enough for the grid, and scrolls its body rather
+   than growing past the window. */
+.account-add-dialog .modal-container {
+    max-width: 44rem;
 }
 
-settings-panel .account-types {
+.account-add-dialog .modal-body {
+    max-height: 65vh;
+    overflow-y: auto;
+}
+
+settings-panel .account-types,
+.account-add-dialog .account-types {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr));
     gap: var(--space-6);
 }
 
-settings-panel .account-type-group {
+settings-panel .account-type-group,
+.account-add-dialog .account-type-group {
     grid-column: 1 / -1;
     color: var(--text-secondary);
     margin-top: var(--space-8);
 }
 
-settings-panel .account-type-group:first-child {
+settings-panel .account-type-group:first-child,
+.account-add-dialog .account-type-group:first-child {
     margin-top: 0;
 }
 
-settings-panel .account-type {
+settings-panel .account-type,
+.account-add-dialog .account-type {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
@@ -544,20 +612,24 @@ settings-panel .account-type {
     transition: border-color var(--transition-fast);
 }
 
-settings-panel .account-type:hover {
+settings-panel .account-type:hover,
+.account-add-dialog .account-type:hover {
     border-color: var(--accent-blue);
 }
 
-settings-panel .account-type:focus-visible {
+settings-panel .account-type:focus-visible,
+.account-add-dialog .account-type:focus-visible {
     outline: var(--focus-ring);
     outline-offset: var(--focus-ring-offset);
 }
 
-settings-panel .account-type-name {
+settings-panel .account-type-name,
+.account-add-dialog .account-type-name {
     font-weight: var(--font-weight-medium);
 }
 
-settings-panel .account-type-description {
+settings-panel .account-type-description,
+.account-add-dialog .account-type-description {
     color: var(--text-tertiary);
     font-size: var(--font-size-sm);
     line-height: var(--leading-tight);
@@ -566,52 +638,58 @@ settings-panel .account-type-description {
 /* A login already on this machine, or an account set up before: complete, so
    one pick adds it. Told apart from a bare type by the colour of what it says
    about itself, not by a section of its own. */
-settings-panel .account-type-found .account-type-description {
+settings-panel .account-type-found .account-type-description,
+.account-add-dialog .account-type-found .account-type-description {
     color: var(--success);
 }
 
-settings-panel .account-type-detail {
+settings-panel .account-type-detail,
+.account-add-dialog .account-type-detail {
     color: var(--text-tertiary);
     font-family: var(--font-mono);
     font-size: var(--font-size-xs);
     overflow-wrap: anywhere;
 }
 
-settings-panel .account-type:disabled {
+settings-panel .account-type:disabled,
+.account-add-dialog .account-type:disabled {
     cursor: progress;
     opacity: 0.6;
 }
 
-settings-panel .account-add-form {
-    display: grid;
-    grid-template-columns: minmax(0, 40%) minmax(0, 1fr);
-    gap: var(--space-12) var(--space-24);
+/* A type's form, in its dialog: the name and the id it becomes, then what the
+   type needs to start with, one column. */
+.account-add-dialog .account-add-form,
+.account-add-dialog .provider-control {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-12);
+    min-width: 0;
 }
 
-settings-panel .account-add-id {
+.account-add-dialog .account-add-form {
+    gap: var(--space-20);
+}
+
+.account-add-dialog .account-add-id {
     font-family: var(--font-mono);
     font-size: var(--font-size-sm);
     color: var(--text-tertiary);
 }
 
-settings-panel .account-add-explain {
+.account-add-dialog .account-add-explain {
     color: var(--text-secondary);
     font-size: var(--font-size-sm);
     line-height: var(--leading-normal);
 }
 
-settings-panel .account-add-actions {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: var(--space-8);
-    margin-top: var(--space-12);
-}
-
-settings-panel .account-add-status {
-    flex: 1;
+.account-add-dialog .account-add-status {
     color: var(--danger);
     font-size: var(--font-size-sm);
+}
+
+.account-add-dialog .account-add-status:empty {
+    display: none;
 }
 
 /* ============================================================================
@@ -1060,13 +1138,15 @@ settings-panel .auto-name-instruction {
 }
 
 /* A .field-input box around a bare input and its buttons. */
-settings-panel .provider-input-wrapper {
+settings-panel .provider-input-wrapper,
+.account-add-dialog .provider-input-wrapper {
     position: relative;
     display: flex;
     align-items: center;
 }
 
-settings-panel .provider-input-wrapper input {
+settings-panel .provider-input-wrapper input,
+.account-add-dialog .provider-input-wrapper input {
     flex: 1 1 0;
     min-width: 0;
     width: 0;
@@ -1729,10 +1809,6 @@ settings-panel .chime-preview-btn {
     settings-panel .provider-field > .settings-model-visibility,
     settings-panel .provider-field > .account-models {
         margin-top: 0;
-    }
-
-    settings-panel .account-add-form {
-        grid-template-columns: 1fr;
     }
 
     /* The two chime menus sit side by side on desktop; on a phone-width control

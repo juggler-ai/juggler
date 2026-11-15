@@ -13,10 +13,11 @@
  * One card per provider account on the Providers tab.
  *
  * An account is a registered provider whose name is the account id, so every
- * card has the same shell whatever kind of account it is: its name (renamed in
- * place), what type it is, where it comes from, who is signed in, its id, the
- * controls its kind takes (account-controls.js), the list of its models, and a
- * ⋯ menu holding Rename and Remove. Nothing on it switches an account off: an
+ * card has the same shell whatever kind of account it is: its name with a
+ * pencil beside it that renames it in place, what type it is, where it comes
+ * from, who is signed in, its id, the controls its kind takes
+ * (account-controls.js), the list of its models, and a bin in its top corner
+ * that removes it once confirmed. Nothing on it switches an account off: an
  * account exists or it does not.
  *
  * A change made on a card changes that card and nothing else. Its parts are
@@ -27,8 +28,7 @@
 
 import { accountsRemove, accountsSave, accountsUsage } from '../../services/ops-api.js';
 import { showConfirm } from '../modal-dialog.js';
-import { presentPopup } from '../../utils/popup-surface.js';
-import { applyMenuRoles, attachMenuKeyboard } from '../../utils/menu-roles.js';
+import { EDIT_SVG } from '../../utils/icons.js';
 import { t, serverText } from '../../../sdk/lib/i18n.js';
 import { errorText } from '../../../sdk/lib/error-utils.js';
 import { providerAuthHint, providerDescription } from '../../utils/provider-text.js';
@@ -80,7 +80,12 @@ export function buildAccountCard(initial, ctx) {
   typeChip.className = 'account-chip';
   const sourceChip = document.createElement('span');
   sourceChip.className = 'account-chip account-chip-source';
+  const renameButton = document.createElement('button');
+  renameButton.type = 'button';
+  renameButton.className = 'btn btn-icon btn-icon-sm account-rename-button';
+  renameButton.innerHTML = EDIT_SVG;
   heading.appendChild(name);
+  heading.appendChild(renameButton);
   heading.appendChild(typeChip);
   heading.appendChild(sourceChip);
   info.appendChild(heading);
@@ -120,17 +125,15 @@ export function buildAccountCard(initial, ctx) {
   const models = document.createElement('div');
   models.className = 'account-models';
 
-  const menuButton = document.createElement('button');
-  menuButton.type = 'button';
-  menuButton.className = 'btn btn-icon btn-ghost account-menu-button';
-  menuButton.textContent = '\u22ef';
-  menuButton.setAttribute('aria-haspopup', 'menu');
-  menuButton.setAttribute('aria-expanded', 'false');
+  const removeButton = document.createElement('button');
+  removeButton.type = 'button';
+  removeButton.className = 'btn btn-icon btn-icon-lg btn-secondary btn-danger-quiet account-remove-button';
+  removeButton.innerHTML = '<span class="icon-trashcan"></span>';
 
   card.appendChild(info);
   card.appendChild(control);
   card.appendChild(models);
-  card.appendChild(menuButton);
+  card.appendChild(removeButton);
 
   const provider = () => ctx.providerFor(account.id);
 
@@ -162,7 +165,13 @@ export function buildAccountCard(initial, ctx) {
     }
     const p = provider();
     name.textContent = account.displayName || account.id;
-    menuButton.setAttribute('aria-label', t('More actions for {name}', { name: name.textContent }));
+    for (const [button, label] of /** @type {Array<[HTMLElement, string]>} */ ([
+      [renameButton, t('Rename {name}', { name: name.textContent })],
+      [removeButton, t('Remove {name}', { name: name.textContent })],
+    ])) {
+      button.setAttribute('aria-label', label);
+      button.title = label;
+    }
 
     // Only where the name does not already say what type the account is.
     const typeName = account.typeDisplayName && account.typeDisplayName !== account.displayName
@@ -229,13 +238,14 @@ export function buildAccountCard(initial, ctx) {
     redrawModels();
   }
 
-  menuButton.addEventListener('click', () => openMenu(menuButton, {
-    rename: () => startRename(),
-    remove: () => removeAccount(),
-  }));
+  renameButton.addEventListener('click', () => startRename());
+  removeButton.addEventListener('click', () => removeAccount());
   name.addEventListener('dblclick', () => startRename());
 
-  /** Swap the name for a field; Enter or leaving it saves, Escape keeps the name. */
+  /**
+   * Swap the name, and the pencil beside it, for a field; Enter or leaving it
+   * saves, Escape keeps the name.
+   */
   const startRename = () => {
     if (heading.querySelector('.account-rename-input')) return;
     const input = document.createElement('input');
@@ -249,6 +259,7 @@ export function buildAccountCard(initial, ctx) {
       done = true;
       const wanted = input.value.trim();
       input.replaceWith(name);
+      renameButton.hidden = false;
       if (!keep || !wanted || wanted === account.displayName) return;
       const previous = account.displayName;
       name.textContent = wanted;
@@ -266,6 +277,7 @@ export function buildAccountCard(initial, ctx) {
     });
     input.addEventListener('blur', () => finish(true));
     name.replaceWith(input);
+    renameButton.hidden = true;
     input.focus();
     input.select();
   };
@@ -284,67 +296,16 @@ export function buildAccountCard(initial, ctx) {
       : t('Remove {name}?', { name: shown });
     const confirmed = await showConfirm(message, t('Remove account'), { confirmText: t('Remove'), danger: true });
     if (!confirmed) return;
-    menuButton.disabled = true;
+    removeButton.disabled = true;
     try {
       const list = await accountsRemove({ id: account.id });
       ctx.applyList(list);
     } catch (error) {
-      menuButton.disabled = false;
+      removeButton.disabled = false;
       ctx.reportError(t('Couldn’t remove “{name}”. {error}', { name: shown, error: errorText(error) }));
     }
   };
 
   redraw();
   return { element: card, update, redraw, redrawModels, refresh, dispose, account: () => account };
-}
-
-/**
- * The card's ⋯ menu.
- * @param {HTMLElement} anchor - The ⋯ button.
- * @param {{rename: () => void, remove: () => void}} actions - What its rows do.
- */
-function openMenu(anchor, actions) {
-  const surface = document.createElement('nav');
-  surface.className = 'dropdown-menu account-menu is-open';
-  const menu = document.createElement('menu');
-
-  /** @type {(() => void)|null} */
-  let release = null;
-  const close = () => {
-    anchor.setAttribute('aria-expanded', 'false');
-    if (release) {
-      release();
-      release = null;
-    }
-  };
-  /**
-   * @param {string} text - The row's label.
-   * @param {() => void} run - What it does.
-   * @param {string} [extra] - A modifier class.
-   */
-  const item = (text, run, extra = '') => {
-    const li = document.createElement('li');
-    li.className = `menu-item ${extra}`.trim();
-    li.textContent = text;
-    li.addEventListener('click', () => {
-      close();
-      run();
-    });
-    menu.appendChild(li);
-  };
-  item(t('Rename'), actions.rename);
-  item(t('Remove'), actions.remove, 'menu-item-danger');
-
-  applyMenuRoles(menu, t('Account'));
-  surface.appendChild(menu);
-  release = presentPopup({
-    surface,
-    anchor,
-    id: 'account-card-menu',
-    onClose: close,
-    align: 'right',
-    insideSelectors: ['.account-menu'],
-  });
-  attachMenuKeyboard(menu, { close });
-  anchor.setAttribute('aria-expanded', 'true');
 }

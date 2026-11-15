@@ -18,6 +18,7 @@
 import { assert, waitFor, nextTask } from '../utilities/test-helpers.js';
 import { budgetFor } from '../utilities/test-deadline.js';
 import '../../js/components/model-selector.js';
+import '../../js/components/settings-panel.js';
 import { ProvidersTab } from '../../js/components/settings/providers-tab.js';
 import wsService from '../../js/services/websocket.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
@@ -161,6 +162,8 @@ function providers() {
  * @param {number} [opts.usage] - How many conversations use any account.
  * @param {any[]} [opts.catalog] - What the models.dev catalogue lists.
  * @param {(params: any) => Promise<any>} [opts.preview] - Answers the add form's preview.
+ * @param {boolean} [opts.panel] - Mount inside an open settings panel, whose
+ *   stylesheet then lays the cards out as the app does.
  * @returns {{tab: any, host: any, scrollWrites: number[], ops: any[], state: any, restore: () => void}}
  *   The tab, its host, anything written to the scroller, the operations posted, and the list.
  */
@@ -180,7 +183,18 @@ function mountTab(opts = {}) {
   });
   scroller.innerHTML = '<div id="provider-fields-container"></div>';
   host.appendChild(scroller);
-  document.body.appendChild(host);
+  /** @type {HTMLElement|null} */
+  let panel = null;
+  if (opts.panel) {
+    // The panel's own shell is set aside: only its element, which every rule
+    // for the tab is scoped under, and its open state are wanted.
+    panel = document.createElement('settings-panel');
+    document.body.appendChild(panel);
+    panel.replaceChildren(host);
+    panel.classList.add('is-open');
+  } else {
+    document.body.appendChild(host);
+  }
 
   const published = opts.providers || providers();
   const state = {
@@ -252,9 +266,11 @@ function mountTab(opts = {}) {
     ops,
     state,
     restore: () => {
+      tab.close();
       tab.dispose();
       window.fetch = originalFetch;
       host.remove();
+      panel?.remove();
     },
   };
 }
@@ -319,24 +335,71 @@ async function awaitOp(ops, operation) {
 }
 
 /**
- * Open a card's ⋯ menu and pick a row.
+ * Press a card's rename pencil or its remove bin.
  * @param {HTMLElement} card - The card.
- * @param {'Rename'|'Remove'} label - The row.
+ * @param {'Rename'|'Remove'} action - Which.
  */
-function pickFromMenu(card, label) {
-  /** @type {HTMLElement} */ (card.querySelector('.account-menu-button')).click();
-  // By position, not by its words, which a locale changes: Rename, then Remove.
-  const rows = [...document.querySelectorAll('.account-menu .menu-item')];
-  const row = label === 'Rename' ? rows[0] : rows.find(el => el.classList.contains('menu-item-danger'));
-  assert(rows.length === 2 && !!row, `the ⋯ menu has no ${label}`);
-  // The menu is appended to <body> while the settings panel covers the window
-  // at --z-modal: anything lower paints behind it, and the ⋯ button does nothing
-  // a user can see.
-  const menu = /** @type {HTMLElement} */ (document.querySelector('.account-menu'));
-  const modal = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--z-modal'), 10);
-  const z = parseInt(getComputedStyle(menu).zIndex, 10);
-  assert(z > modal, `the ⋯ menu paints behind the settings panel (z-index ${getComputedStyle(menu).zIndex}, panel ${modal})`);
-  /** @type {HTMLElement} */ (row).click();
+function pressOnCard(card, action) {
+  const button = /** @type {HTMLElement|null} */ (card.querySelector(action === 'Rename' ? '.account-rename-button' : '.account-remove-button'));
+  assert(!!button, `the card has no ${action} button`);
+  /** @type {HTMLElement} */ (button).click();
+}
+
+/** @returns {any} The open add-account dialog, or null. */
+const addDialog = () => /** @type {any} */ (document.querySelector('modal-dialog.account-add-dialog.is-open'));
+
+/**
+ * Wait for the add-account dialog to be open on a type's form.
+ * @param {string} type - The type.
+ * @returns {Promise<any>} The dialog.
+ */
+async function formOpen(type) {
+  await waitFor(() => !!addDialog()?.querySelector(`.account-add-form[data-type="${type}"]`), {
+    timeoutMs: budgetFor(2000), description: `${type}'s form, in its dialog`,
+  });
+  return addDialog();
+}
+
+/**
+ * Press a button in the add-account dialog's footer.
+ * @param {'add'|'cancel'|'back'} which - Its confirm, its Cancel, or its Back.
+ */
+function pressInDialog(which) {
+  const selector = which === 'add' ? '.modal-footer .btn-primary'
+    : which === 'back' ? '.modal-footer .modal-back-button'
+      : '.modal-footer .btn-secondary:not(.modal-back-button)';
+  const button = /** @type {HTMLElement|null} */ (addDialog()?.querySelector(selector));
+  assert(!!button, `the add dialog has no ${which} button`);
+  /** @type {HTMLElement} */ (button).click();
+}
+
+/**
+ * Press the tab's Add account button and wait for the kinds of account in
+ * the dialog it opens.
+ * @param {Element} host - The mounted host.
+ * @returns {Promise<any>} The dialog.
+ */
+async function openPicker(host) {
+  await waitFor(() => !!host.querySelector('.account-add-button:not([hidden])'), {
+    timeoutMs: budgetFor(2000), description: 'the Add account button',
+  });
+  /** @type {HTMLElement} */ (host.querySelector('.account-add-button')).click();
+  await waitFor(() => !!addDialog()?.querySelector('.account-types .account-type'), {
+    timeoutMs: budgetFor(2000), description: 'the kinds of account, in the add dialog',
+  });
+  return addDialog();
+}
+
+/**
+ * Open the add dialog from the tab's button and pick a kind of account.
+ * @param {Element} host - The mounted host.
+ * @param {string} type - The type.
+ * @returns {Promise<any>} The dialog, on that type's form.
+ */
+async function pickInDialog(host, type) {
+  const dialog = await openPicker(host);
+  /** @type {HTMLElement} */ (dialog.querySelector(`.account-type[data-type="${type}"]:not([data-key])`)).click();
+  return formOpen(type);
 }
 
 /**
@@ -407,14 +470,40 @@ export async function runTests(_ctx) {
         'an account has an on/off switch; there are only Add and Remove');
       assert(acme.classList.contains('provider-field') && acme.classList.contains('settings-group'),
         `the card is ${acme.className}, not the settings card shell`);
-      assert(!!acme.querySelector('.account-menu-button'), 'the card has no ⋯ menu');
+      assert(!!acme.querySelector('.account-heading .account-rename-button'), 'the card has no rename pencil beside its name');
+      assert(!!acme.querySelector(':scope > .account-remove-button'), 'the card has no remove bin');
       // The id is shown, and is not a field: every conversation names it.
       const id = acme.querySelector('.account-id');
       assert(!!id && id.textContent === 'custom-acme' && id.tagName !== 'INPUT', `the account id reads "${id?.textContent}"`);
-      // The way to add one is on the page, not behind a button.
-      await waitFor(() => !!host.querySelector('.account-add .account-type[data-type="anthropic"]'), {
-        timeoutMs: budgetFor(2000), description: 'the kinds of account, shown without being asked for',
+      // The way to add one heads the list, rather than following however many
+      // cards there are; the kinds of account wait behind it.
+      await waitFor(() => !!host.querySelector('.account-add-button:not([hidden])'), {
+        timeoutMs: budgetFor(2000), description: 'the Add account button',
       });
+      const button = /** @type {HTMLElement} */ (host.querySelector('.account-add-button'));
+      assert(!!button.closest('.account-list-header') && button.compareDocumentPosition(acme) === Node.DOCUMENT_POSITION_FOLLOWING,
+        'Add account is not in the heading row above the cards');
+      assert(/** @type {HTMLElement} */ (host.querySelector('.account-empty')).hidden,
+        'the kinds of account are on the page beside the accounts there are, looking like more of them');
+    } finally {
+      restore();
+    }
+  });
+
+  await run('a card’s remove bin sits clear of everything else on the card', async () => {
+    const { host, restore } = mountTab({ panel: true });
+    try {
+      // An endpoint's control column is full-width fields: the base URL, the
+      // headers, the key.
+      const card = await drawn(host, 'custom-acme');
+      const bin = /** @type {HTMLElement} */ (card.querySelector('.account-remove-button')).getBoundingClientRect();
+      assert(bin.width > 0, 'the card was not laid out');
+      for (const part of card.querySelectorAll(':scope > .provider-info, :scope > .provider-control, :scope > .account-models')) {
+        const box = part.getBoundingClientRect();
+        if (box.width === 0) continue;
+        const overlaps = box.left < bin.right && bin.left < box.right && box.top < bin.bottom && bin.top < box.bottom;
+        assert(!overlaps, `the bin (${Math.round(bin.left)}–${Math.round(bin.right)}) sits over .${part.className.split(' ')[0]} (${Math.round(box.left)}–${Math.round(box.right)})`);
+      }
     } finally {
       restore();
     }
@@ -555,9 +644,10 @@ export async function runTests(_ctx) {
       const card = await drawn(host, 'custom-acme');
       const other = cardOf(host, 'claudecode');
       const url = input(card, 'account-url-input');
-      pickFromMenu(card, 'Rename');
+      pressOnCard(card, 'Rename');
       const field = input(card, 'account-rename-input');
       assert(field.value === 'Acme Gateway', `the rename field starts at ${JSON.stringify(field.value)}`);
+      assert(/** @type {HTMLElement} */ (card.querySelector('.account-rename-button')).hidden, 'the pencil stays beside the field it opened');
       field.value = 'Acme (EU)';
       field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
       const call = await awaitOp(ops, 'save');
@@ -580,7 +670,7 @@ export async function runTests(_ctx) {
     try {
       const card = await drawn(host, 'custom-acme');
       const other = cardOf(host, 'claudecode');
-      pickFromMenu(card, 'Remove');
+      pressOnCard(card, 'Remove');
       await awaitOp(ops, 'remove');
       assert(modal.asked && modal.asked.message === 'Remove Acme Gateway? 3 conversations use it.',
         `the confirm read ${JSON.stringify(modal.asked?.message)}`);
@@ -598,7 +688,7 @@ export async function runTests(_ctx) {
     const { host, ops, restore } = mountTab({ usage: 0 });
     const modal = stubModal(false);
     try {
-      pickFromMenu(await drawn(host, 'custom-acme'), 'Remove');
+      pressOnCard(await drawn(host, 'custom-acme'), 'Remove');
       await waitFor(() => !!modal.asked, { timeoutMs: budgetFor(2000), description: 'the confirm to be asked' });
       assert(modal.asked.message === 'Remove Acme Gateway?', `the confirm read ${JSON.stringify(modal.asked.message)}`);
       await nextTask();
@@ -610,75 +700,134 @@ export async function runTests(_ctx) {
     }
   });
 
-  await run('logins on this machine are tiles among the kinds of account, added on a pick and never before', async () => {
+  await run('logins on this machine are offered above the cards and first among the kinds of account, added on a pick and never before', async () => {
+    const work = 'claudecode:/home/u/.claude-work';
     const { host, ops, restore } = mountTab({
       candidates: [
         { key: 'ollama', type: 'ollama', accountId: 'ollama', displayName: 'Ollama', reason: 'removed' },
-        { key: 'claudecode:/home/u/.claude-work', type: 'claudecode', accountId: 'claudecode-work', displayName: 'Claude Code (work)', reason: 'found', path: '/home/u/.claude-work', label: 'a@b.test' },
+        { key: work, type: 'claudecode', accountId: 'claudecode-work', displayName: 'Claude Code (work)', reason: 'found', path: '/home/u/.claude-work', label: 'a@b.test' },
       ],
     });
     try {
       await drawn(host, 'custom-acme');
-      const tileFor = (/** @type {string} */ key) => /** @type {HTMLButtonElement|null} */ (host.querySelector(`.account-add .account-type[data-key="${key}"]`));
-      await waitFor(() => !!tileFor('ollama'), { timeoutMs: budgetFor(2000), description: 'the removed default offered in the grid' });
-      assert(!cardOf(host, 'ollama'), 'a found login was added without being asked');
+      // On the page: the found login, and only that — a removed default is
+      // not news.
+      const strip = () => /** @type {HTMLElement} */ (host.querySelector('.account-found'));
+      await waitFor(() => !strip().hidden, { timeoutMs: budgetFor(2000), description: 'the found login offered on the page' });
+      const rows = [...strip().querySelectorAll('.account-found-row')];
+      assert(rows.length === 1 && /** @type {HTMLElement} */ (rows[0]).dataset.key === work,
+        `the page offers ${JSON.stringify(rows.map(r => /** @type {HTMLElement} */ (r).dataset.key))}`);
+      assert((rows[0].textContent || '').includes('a@b.test') && (rows[0].textContent || '').includes('/home/u/.claude-work'),
+        `the offer does not say who or where: ${JSON.stringify(rows[0].textContent)}`);
+      assert(strip().compareDocumentPosition(/** @type {Node} */ (cardOf(host, 'custom-acme'))) === Node.DOCUMENT_POSITION_FOLLOWING,
+        'the found login is offered below the cards, where a long list hides it');
+      assert(!cardOf(host, 'claudecode-work') && !cardOf(host, 'ollama'), 'a login on offer was added without being asked');
 
-      // In its kind's group, and offered once: the removed default stands in for
-      // its type rather than beside it.
-      const grid = [...host.querySelectorAll('.account-types > *')];
+      // In the dialog: the found login first under a heading of its own; the
+      // removed default in its kind's group, standing in for its type.
+      const dialog = await openPicker(host);
+      const tileFor = (/** @type {string} */ key) => /** @type {HTMLButtonElement|null} */ (addDialog()?.querySelector(`.account-type[data-key="${key}"]`) ?? null);
+      const grid = [...dialog.querySelectorAll('.account-types > *')];
       const groupOf = (/** @type {Element} */ el) => {
         const before = grid.slice(0, grid.indexOf(el)).filter(g => g.classList.contains('account-type-group'));
         return before[before.length - 1]?.textContent;
       };
+      assert(grid[0].textContent === 'Found on this machine' && grid[1] === tileFor(work),
+        `the dialog opens on ${JSON.stringify(grid.slice(0, 2).map(g => g.textContent))}`);
       assert(groupOf(/** @type {Element} */ (tileFor('ollama'))) === 'Local servers', `the removed Ollama sits under ${groupOf(/** @type {Element} */ (tileFor('ollama')))}`);
-      assert(!host.querySelector('.account-type[data-type="ollama"]:not([data-key])'), 'Ollama is offered twice: as itself and as its removed account');
-      const work = /** @type {HTMLElement} */ (tileFor('claudecode:/home/u/.claude-work'));
-      assert(groupOf(work) === 'Subscriptions', `the found Claude Code login sits under ${groupOf(work)}`);
-      assert((work.textContent || '').includes('a@b.test') && (work.textContent || '').includes('/home/u/.claude-work'),
-        `the found login does not say who or where: ${JSON.stringify(work.textContent)}`);
+      assert(!dialog.querySelector('.account-type[data-type="ollama"]:not([data-key])'), 'Ollama is offered twice: as itself and as its removed account');
 
+      // A pick in the dialog adds it, and closes the dialog.
       /** @type {HTMLElement} */ (tileFor('ollama')).click();
       const call = await awaitOp(ops, 'addCandidate');
       assert(call.params.key === 'ollama', `the pick sent ${JSON.stringify(call.params)}`);
       await drawn(host, 'ollama');
-      await waitFor(() => !tileFor('ollama'), { timeoutMs: budgetFor(2000), description: 'the added login to leave the grid' });
-      assert(!!tileFor('claudecode:/home/u/.claude-work'), 'adding one login took the other off offer');
+      await waitFor(() => !addDialog(), { timeoutMs: budgetFor(2000), description: 'the dialog to close once the login is added' });
+
+      // The page's offer adds it too, and goes once there is nothing to offer.
+      /** @type {HTMLElement} */ (strip().querySelector('.account-found-add')).click();
+      await waitFor(() => ops.filter(c => c.operation === 'addCandidate').length === 2, {
+        timeoutMs: budgetFor(2000), description: 'the page\u2019s Add to add the login',
+      });
+      assert(ops.filter(c => c.operation === 'addCandidate')[1].params.key === work, 'the page added something other than the login it offered');
+      await waitFor(() => strip().hidden, { timeoutMs: budgetFor(2000), description: 'the offer to go once it is taken' });
     } finally {
       restore();
     }
   });
 
-  await run('adding an account: the kind first, then its form, then a card', async () => {
+  await run('with no account at all, the kinds of account are on the page, and a pick there opens its form', async () => {
+    const { host, restore } = mountTab({ accounts: [] });
+    try {
+      const empty = /** @type {HTMLElement} */ (host.querySelector('.account-empty'));
+      await waitFor(() => !empty.hidden && !!empty.querySelector('.account-type[data-type="anthropic"]'), {
+        timeoutMs: budgetFor(2000), description: 'the kinds of account, shown on the page without being asked for',
+      });
+      assert(!!host.querySelector('.account-add-button:not([hidden])'), 'the Add account button went with the accounts');
+      /** @type {HTMLElement} */ (empty.querySelector('.account-type[data-type="anthropic"]')).click();
+      const dialog = await formOpen('anthropic');
+      assert(!dialog.querySelector('.modal-back-button'), 'a form picked on the page offers Back to a grid it never came from');
+    } finally {
+      restore();
+    }
+  });
+
+  await run('adding an account: Add account, the kind, then its form in the same dialog, then a card', async () => {
     const { host, ops, restore } = mountTab();
     try {
       await drawn(host, 'custom-acme');
-      await waitFor(() => !!host.querySelector('.account-type'), { timeoutMs: budgetFor(2000), description: 'the type picker' });
-      const groups = [...host.querySelectorAll('.account-type-group')].map(g => g.textContent);
+      const picker = await openPicker(host);
+      const groups = [...picker.querySelectorAll('.account-type-group')].map((/** @type {Element} */ g) => g.textContent);
       assert(JSON.stringify(groups) === JSON.stringify(['API keys', 'Local servers', 'Custom']),
         `the groups are ${JSON.stringify(groups)}`);
       // Claude Code has its default account and takes no other yet.
-      assert(!host.querySelector('.account-type[data-type="claudecode"]'), 'a type that can take no account is offered');
+      assert(!picker.querySelector('.account-type[data-type="claudecode"]'), 'a type that can take no account is offered');
 
-      /** @type {HTMLElement} */ (host.querySelector('.account-type[data-type="anthropic"]')).click();
-      await waitFor(() => !!host.querySelector('.account-add-form[data-type="anthropic"]'), {
-        timeoutMs: budgetFor(2000), description: 'picking a type to open its form',
+      // The kind's form takes the grid's place in the dialog, and Back returns to it.
+      /** @type {HTMLElement} */ (picker.querySelector('.account-type[data-type="ollama"]')).click();
+      await formOpen('ollama');
+      assert(addDialog() === picker && !picker.querySelector('.account-types'), 'the form opened somewhere other than in place of the grid');
+      pressInDialog('back');
+      await waitFor(() => !!picker.querySelector('.account-type[data-type="anthropic"]') && !picker.querySelector('.account-add-form'), {
+        timeoutMs: budgetFor(2000), description: 'Back to return to the kinds of account',
       });
-      const form = /** @type {HTMLElement} */ (host.querySelector('.account-add-form[data-type="anthropic"]'));
-      assert((host.querySelector('.account-add-id')?.textContent || '').includes('anthropic'),
-        `the form does not show the id the account takes: ${host.querySelector('.account-add-id')?.textContent}`);
-      /** @type {HTMLElement} */ (host.querySelector('.account-add-save')).click();
+      /** @type {HTMLElement} */ (picker.querySelector('.account-type[data-type="anthropic"]')).click();
+      const dialog = await formOpen('anthropic');
+      assert(dialog === picker, 'a second pick opened a second dialog');
+      const form = /** @type {HTMLElement} */ (dialog.querySelector('.account-add-form'));
+      assert((dialog.querySelector('.account-add-id')?.textContent || '').includes('anthropic'),
+        `the form does not show the id the account takes: ${dialog.querySelector('.account-add-id')?.textContent}`);
+      pressInDialog('add');
       await nextTask();
       assert(!ops.some(c => c.operation === 'save'), 'an API-key account was added with no key');
+      assert(addDialog() === dialog, 'a refused form closed, losing what was typed');
 
       input(form, 'account-add-key').value = 'sk-ant';
-      /** @type {HTMLElement} */ (host.querySelector('.account-add-save')).click();
+      pressInDialog('add');
       const call = await awaitOp(ops, 'save');
       assert(JSON.stringify(call.params) === JSON.stringify({ type: 'anthropic', displayName: 'Anthropic', apiKey: 'sk-ant' }),
         `Add sent ${JSON.stringify(call.params)}`);
       await drawn(host, 'anthropic');
-      await waitFor(() => !host.querySelector('.account-add-form') && !!host.querySelector('.account-add .account-types'), {
-        timeoutMs: budgetFor(2000), description: 'the form to give way to the kinds of account again',
+      await waitFor(() => !document.querySelector('modal-dialog.account-add-dialog'), {
+        timeoutMs: budgetFor(2000), description: 'the dialog to close once the account is added',
       });
+    } finally {
+      restore();
+    }
+  });
+
+  await run('cancelling the add dialog adds nothing and leaves nothing behind', async () => {
+    const { host, ops, restore } = mountTab();
+    try {
+      await drawn(host, 'custom-acme');
+      const dialog = await pickInDialog(host, 'anthropic');
+      input(dialog, 'account-add-key').value = 'sk-secret';
+      pressInDialog('cancel');
+      await waitFor(() => !document.querySelector('modal-dialog.account-add-dialog'), {
+        timeoutMs: budgetFor(2000), description: 'the cancelled dialog to leave the page',
+      });
+      assert(!document.querySelector('.account-add-key'), 'a cancelled form left its key field in the page');
+      assert(!ops.some(c => c.operation === 'save'), 'a cancelled form added an account');
     } finally {
       restore();
     }
@@ -688,16 +837,12 @@ export async function runTests(_ctx) {
     const { host, ops, restore } = mountTab();
     try {
       await drawn(host, 'custom-acme');
-      await waitFor(() => !!host.querySelector(`.account-type[data-type="${ENDPOINT_TYPE}"]`), {
-        timeoutMs: budgetFor(2000), description: 'the type picker',
-      });
-      /** @type {HTMLElement} */ (host.querySelector(`.account-type[data-type="${ENDPOINT_TYPE}"]`)).click();
-      await waitFor(() => !!host.querySelector('.account-add-name'), { timeoutMs: budgetFor(2000), description: 'the endpoint form' });
-      input(host, 'account-add-name').value = 'Acme';
-      /** @type {HTMLElement} */ (host.querySelector('.account-add-save')).click();
+      const dialog = await pickInDialog(host, ENDPOINT_TYPE);
+      input(dialog, 'account-add-name').value = 'Acme';
+      pressInDialog('add');
       await nextTask();
       assert(!ops.some(c => c.operation === 'save'), 'an endpoint with no URL was written anyway');
-      const status = host.querySelector('.provider-subfield-status[data-kind="error"]');
+      const status = dialog.querySelector('.provider-subfield-status[data-kind="error"]');
       assert(!!status && !!status.textContent, 'the form gave no reason for refusing');
     } finally {
       restore();
@@ -713,13 +858,9 @@ export async function runTests(_ctx) {
     });
     try {
       await drawn(host, 'custom-acme');
-      await waitFor(() => !!host.querySelector(`.account-type[data-type="${ENDPOINT_TYPE}"]`), {
-        timeoutMs: budgetFor(2000), description: 'the type picker',
-      });
-      /** @type {HTMLElement} */ (host.querySelector(`.account-type[data-type="${ENDPOINT_TYPE}"]`)).click();
-      await waitFor(() => !!host.querySelector('.account-add-name'), { timeoutMs: budgetFor(2000), description: 'the endpoint form' });
-      const name = input(host, 'account-add-name');
-      const url = input(host, 'account-add-url');
+      const dialog = await pickInDialog(host, ENDPOINT_TYPE);
+      const name = input(dialog, 'account-add-name');
+      const url = input(dialog, 'account-add-url');
       await waitFor(() => (name.list?.options.length ?? 0) === 2, {
         timeoutMs: budgetFor(2000), description: 'the name field to offer the catalogued providers',
       });
@@ -749,15 +890,13 @@ export async function runTests(_ctx) {
     });
     try {
       await drawn(host, 'custom-acme');
-      await waitFor(() => !!host.querySelector('.account-type[data-type="anthropic"]'), {
-        timeoutMs: budgetFor(2000), description: 'the type picker',
-      });
-      /** @type {HTMLElement} */ (host.querySelector('.account-type[data-type="anthropic"]')).click();
+      const picker = await openPicker(host);
+      /** @type {HTMLElement} */ (picker.querySelector('.account-type[data-type="anthropic"]')).click();
       await waitFor(() => asked.length === 1, { timeoutMs: budgetFor(2000), description: 'the form to ask what an add makes' });
       asked[0].answer({ id: 'anthropic-2', displayName: 'Anthropic (2)', isDefault: false });
-      await waitFor(() => !!host.querySelector('.account-add-name'), { timeoutMs: budgetFor(2000), description: 'the form' });
-      const name = input(host, 'account-add-name');
-      const idLine = () => host.querySelector('.account-add-id')?.textContent || '';
+      const dialog = await formOpen('anthropic');
+      const name = input(dialog, 'account-add-name');
+      const idLine = () => dialog.querySelector('.account-add-id')?.textContent || '';
       assert(name.value === 'Anthropic (2)' && idLine().includes('anthropic-2'),
         `the form opened as ${JSON.stringify(name.value)} with ${JSON.stringify(idLine())}`);
 
@@ -912,24 +1051,28 @@ export async function runTests(_ctx) {
         // Checking…, Starting…, Switching…) are judged too. A string with no
         // letters in it is data, not English.
         const literal = '#ollama-host-input, .account-copilot-host, .account-url-input, .account-header-name, .account-add-url';
-        // The ⋯ and × glyphs, and the lines that carry an id or a name with
-        // letters in it, are checked by hand below.
+        // The header rows' × glyph, and the lines that carry an id or a name
+        // with letters in it, are checked by hand below.
         const skip = '.provider-name, .provider-description, .account-id, .account-problem, .account-chip:not(.account-chip-source), '
-          + '.account-type-name, .account-type-description, .account-type-detail, .account-add-id, '
-          + '.account-menu-button, .account-add-back, .account-header-remove, .settings-model-visibility-name, .settings-model-visibility-count, '
+          + '.account-type-name, .account-type-description, .account-type-detail, .account-add-id, .account-found-name, .account-found-path, '
+          + '.account-header-remove, .settings-model-visibility-name, .settings-model-visibility-count, '
           + `.model-limit-input, .provider-switch-reason, [data-provider="p9"] .account-status, ${literal}`;
+        // The add form opens in a dialog of its own, outside the tab.
+        const addDialogs = () => [...document.querySelectorAll('modal-dialog.account-add-dialog')];
         observer = new MutationObserver(() => {
-          for (const s of shownStrings(host, skip)) {
-            const text = strip(s);
-            if (/[A-Za-z]/.test(text) && !isPseudoLocalized(text) && !transient.includes(s)) transient.push(s);
+          for (const root of [host, ...addDialogs()]) {
+            for (const s of shownStrings(root, skip)) {
+              const text = strip(s);
+              if (/[A-Za-z]/.test(text) && !isPseudoLocalized(text) && !transient.includes(s)) transient.push(s);
+            }
           }
         });
-        observer.observe(host, { subtree: true, childList: true, characterData: true, attributes: true });
+        observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
 
         tab = new ProvidersTab(host);
         host.loadConfig = async () => true;
         tab.onConfigLoaded({ config: { keys: { p2: true } }, providers: providers() }, true);
-        await waitFor(() => !!tab.accountList && !!cardOf(host, 'custom-1') && !!host.querySelector('.account-type-found'), {
+        await waitFor(() => !!tab.accountList && !!cardOf(host, 'custom-1') && !!host.querySelector('.account-found-row'), {
           timeoutMs: budgetFor(2000), description: 'the accounts and the found logins to be drawn',
         });
 
@@ -985,7 +1128,10 @@ export async function runTests(_ctx) {
           { timeoutMs: budgetFor(2000), description });
 
         check('as drawn');
-        checkAttr('.account-menu-button', 'aria-label', 'as drawn');
+        for (const selector of ['.account-rename-button', '.account-remove-button']) {
+          checkAttr(selector, 'aria-label', 'as drawn');
+          checkAttr(selector, 'title', 'as drawn');
+        }
         checkAttr('.account-header-remove', 'aria-label', 'as drawn');
         assert(!!inCard('p4', '.account-status') && !!inCard('p5', '.account-status'),
           'the OAuth status lines were not drawn');
@@ -1089,66 +1235,76 @@ export async function runTests(_ctx) {
 
         // Rename, and Remove both ways: declined (it names conversations), and
         // carried out but refused.
-        inCard('p3', '.account-menu-button').click();
-        const menuRows = [...document.querySelectorAll('.account-menu .menu-item')];
-        assert(menuRows.length === 2 && menuRows.every(el => isPseudoLocalized(el.textContent || '')),
-          `the ⋯ menu is plain English: ${JSON.stringify(menuRows.map(el => el.textContent))}`);
-        /** @type {HTMLElement} */ (menuRows[0]).click();
+        pressOnCard(/** @type {HTMLElement} */ (cardOf(host, 'p3')), 'Rename');
         check('renaming');
         /** @type {HTMLInputElement} */ (host.querySelector('.account-rename-input')).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-        pickFromMenu(/** @type {HTMLElement} */ (cardOf(host, 'p2')), 'Remove');
+        pressOnCard(/** @type {HTMLElement} */ (cardOf(host, 'p2')), 'Remove');
         await dialogCount(5, 'the remove confirm');
         fail.ops = true;
-        pickFromMenu(/** @type {HTMLElement} */ (cardOf(host, 'p3')), 'Remove');
+        pressOnCard(/** @type {HTMLElement} */ (cardOf(host, 'p3')), 'Remove');
         await dialogCount(7, 'the remove to be confirmed, then its failure reported');
         fail.ops = false;
 
-        // Found: what each login on offer says about itself, and an add refused.
-        const found = [...host.querySelectorAll('.account-type-found')];
-        const titles = found.map(el => el.querySelector('.account-type-name')?.textContent || '');
+        // The found login offered on the page names itself and its Add.
+        checkAttr('.account-found-add', 'aria-label', 'found login offered');
+        const offered = host.querySelector('.account-found-name')?.textContent || '';
+        assert(offered.includes('·') && isPseudoLocalized(offered), `the offered login's name is plain English: ${JSON.stringify(offered)}`);
+
+        // The add dialog: its grid, every tile on offer, and an add refused.
+        const checkDialog = (/** @type {any} */ dialog, /** @type {string} */ where) => {
+          assertPseudoLocalized(dialog, { skip, atLeast: 4, where });
+        };
+        const picker = await openPicker(host);
+        checkDialog(picker, 'type picker');
+        const found = [...picker.querySelectorAll('.account-type-found')];
+        const titles = found.map((/** @type {Element} */ el) => el.querySelector('.account-type-name')?.textContent || '');
         assert(titles.some(s => s.includes('·') && isPseudoLocalized(s)), `a found login's title is plain English: ${JSON.stringify(titles)}`);
-        const offeredWhy = found.map(el => el.querySelector('.account-type-description')?.textContent || '');
+        const offeredWhy = found.map((/** @type {Element} */ el) => el.querySelector('.account-type-description')?.textContent || '');
         assert(offeredWhy.length === 3 && offeredWhy.every(s => isPseudoLocalized(s)),
           `a login on offer says why in plain English: ${JSON.stringify(offeredWhy)}`);
+        const blurb = picker.querySelector(`.account-type[data-type="${ENDPOINT_TYPE}"]:not([data-key]) .account-type-description`)?.textContent || '';
+        assert(isPseudoLocalized(blurb), `the endpoint type's blurb is plain English: ${JSON.stringify(blurb)}`);
         fail.ops = true;
         /** @type {HTMLElement} */ (found[0]).click();
         await dialogCount(8, 'the refused add to be reported');
         fail.ops = false;
 
-        // Add an account: the grid, an API-key form refused for want of a key,
-        // an endpoint's form refused for want of a URL, and an OAuth type's form.
-        await waitFor(() => !!host.querySelector('.account-type'), { timeoutMs: budgetFor(2000), description: 'the type picker' });
-        check('type picker');
-        const blurb = host.querySelector(`.account-type[data-type="${ENDPOINT_TYPE}"]:not([data-key]) .account-type-description`)?.textContent || '';
-        assert(isPseudoLocalized(blurb), `the endpoint type's blurb is plain English: ${JSON.stringify(blurb)}`);
+        // Each kind's form, in place of the grid: an API-key form refused for
+        // want of a key, an endpoint's refused for want of a URL, an OAuth
+        // type's, a local server's; then Back to the grid.
         for (const type of ['p1', ENDPOINT_TYPE, 'p5', 'p18']) {
-          /** @type {HTMLElement} */ (host.querySelector(`.account-type[data-type="${type}"]:not([data-key])`)).click();
-          await waitFor(() => !!host.querySelector(`.account-add-form[data-type="${type}"]`), {
-            timeoutMs: budgetFor(2000), description: `${type}'s form`,
-          });
-          const idLine = host.querySelector('.account-add-id')?.textContent || '';
+          /** @type {HTMLElement} */ (picker.querySelector(`.account-type[data-type="${type}"]:not([data-key])`)).click();
+          const dialog = await formOpen(type);
+          const idLine = dialog.querySelector('.account-add-id')?.textContent || '';
           assert(isPseudoLocalized(idLine.replace(/(p\d+|custom)(-\d+)?/, '')),
             `the ${type} form's id line is plain English: ${JSON.stringify(idLine)}`);
           if (type === 'p1' || type === ENDPOINT_TYPE) {
-            /** @type {HTMLElement} */ (host.querySelector('.account-add-save')).click();
-            await waitFor(() => !!host.querySelector('.account-add .provider-subfield-status[data-kind="error"]'), {
+            pressInDialog('add');
+            await waitFor(() => !!dialog.querySelector('.provider-subfield-status[data-kind="error"]'), {
               timeoutMs: budgetFor(2000), description: `${type}'s form to refuse`,
             });
           }
           check(`${type} form`);
-          checkAttr('.account-add-back', 'aria-label', `${type} form`);
-          /** @type {HTMLElement} */ (host.querySelector('.account-add-back')).click();
+          checkDialog(dialog, `${type} form`);
+          pressInDialog('back');
+          await waitFor(() => !!picker.querySelector('.account-types'), {
+            timeoutMs: budgetFor(2000), description: `Back from ${type}'s form`,
+          });
         }
-        /** @type {HTMLElement} */ (host.querySelector('.account-type[data-type="p5"]:not([data-key])')).click();
-        await waitFor(() => !!host.querySelector('.account-add-save'), { timeoutMs: budgetFor(2000), description: 'p5\'s form' });
+        /** @type {HTMLElement} */ (picker.querySelector('.account-type[data-type="p5"]:not([data-key])')).click();
+        const refusedDialog = await formOpen('p5');
         fail.ops = true;
-        /** @type {HTMLElement} */ (host.querySelector('.account-add-save')).click();
-        await waitFor(() => !!host.querySelector('.account-add-status')?.textContent, {
+        pressInDialog('add');
+        await waitFor(() => !!refusedDialog.querySelector('.account-add-status')?.textContent, {
           timeoutMs: budgetFor(2000), description: 'the refused add to say so',
         });
         fail.ops = false;
         check('add refused');
-        /** @type {HTMLElement} */ (host.querySelector('.account-add-cancel')).click();
+        checkDialog(refusedDialog, 'add refused');
+        pressInDialog('cancel');
+        await waitFor(() => !document.querySelector('modal-dialog.account-add-dialog'), {
+          timeoutMs: budgetFor(2000), description: 'the refused add\u2019s dialog to close on Cancel',
+        });
 
         // Switching: refused, then done.
         const switchButton = () => /** @type {HTMLButtonElement} */ (host.querySelector('.provider-switch-notice button'));

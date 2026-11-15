@@ -6,7 +6,7 @@
  * @typedef {object} ModalOptions
  * @property {string} [title] - Dialog title
  * @property {string} [message] - Dialog message
- * @property {'alert'|'confirm'|'prompt'|'choice'|'notice'} [type] - Dialog type
+ * @property {'alert'|'confirm'|'prompt'|'choice'|'notice'|'form'} [type] - Dialog type
  * @property {string} [confirmText] - Confirm button text
  * @property {string} [cancelText] - Cancel button text
  * @property {boolean} [danger] - Use danger styling for confirm button
@@ -15,6 +15,23 @@
  * @property {boolean} [allowCustom] - Allow custom text input for choice type
  * @property {string} [noneText] - For 'choice': the last button, which answers null. Default 'None of the above'.
  * @property {number} [duration] - For 'notice': auto-dismiss after this many ms (0 = manual). Default 5000.
+ * @property {HTMLElement} [content] - For 'form': the fields, shown under the message.
+ * @property {() => boolean|Promise<boolean>} [onConfirm] - For 'form': run on the
+ *   confirm button, or Enter in a field; the dialog closes with true when it
+ *   answers true and stays open otherwise. The button is disabled while it runs.
+ */
+
+/**
+ * One step of a form dialog.
+ * @typedef {object} FormStep
+ * @property {string} [title] - Dialog title
+ * @property {string} [message] - Text above the fields
+ * @property {HTMLElement} content - The fields
+ * @property {string} [confirmText] - Confirm button text; empty for a step with
+ *   nothing to confirm, which has Cancel alone
+ * @property {string} [cancelText] - Cancel button text
+ * @property {() => boolean|Promise<boolean>} [onConfirm] - As for {@link ModalOptions}
+ * @property {(() => void)|null} [onBack] - Adds a Back button, which runs it
  */
 
 /**
@@ -41,6 +58,7 @@
  *   - 'alert': Show message with OK button
  *   - 'confirm': Show message with Yes/No buttons
  *   - 'prompt': Show input field with OK/Cancel buttons
+ *   - 'form': Show the caller's fields with Cancel/confirm buttons (showFormDialog)
  */
 import JugglerElement from './juggler-element.js';
 import { markPopupOpen } from '../utils/popup-manager.js';
@@ -69,6 +87,8 @@ class ModalDialog extends JugglerElement {
     // can't accumulate across opens.
     /** @type {Array<() => void>} @private */
     this._showCleanups = [];
+    /** @type {Array<() => void>} @private - What the form step on show has to undo when it gives way. */
+    this._stepCleanups = [];
     /**
      * Element that held the keyboard when this dialog was shown, refocused on
      * close. Unlike the inline approval widgets, this element is a reused
@@ -111,6 +131,7 @@ class ModalDialog extends JugglerElement {
    * @private
    */
   _runShowCleanups() {
+    this._runStepCleanups();
     this._showCleanups.forEach((fn) => fn());
     this._showCleanups = [];
   }
@@ -198,7 +219,9 @@ class ModalDialog extends JugglerElement {
       choices = [],
       allowCustom = false,
       noneText = t('None of the above'),
-      duration = 5000
+      duration = 5000,
+      content = null,
+      onConfirm = () => true
     } = options;
 
     // Per-show reset: this is a reused singleton, so clear any stale key handler
@@ -241,7 +264,11 @@ class ModalDialog extends JugglerElement {
     const titleEl = this.querySelector('.modal-title');
     const messageEl = this.querySelector('.modal-message');
     if (titleEl) titleEl.textContent = title;
-    if (messageEl) messageEl.textContent = message;
+    if (messageEl) {
+      messageEl.textContent = message;
+      // A form's fields can stand without a message above them.
+      messageEl.classList.toggle('hidden', type === 'form' && !message);
+    }
 
     // Setup input for prompt type
     const input = /** @type {HTMLInputElement|null} */ (this.querySelector('.modal-input'));
@@ -302,6 +329,8 @@ class ModalDialog extends JugglerElement {
       };
       input.addEventListener('keydown', onPromptKeydown);
       this._showCleanups.push(() => input.removeEventListener('keydown', onPromptKeydown));
+    } else if (type === 'form' && content) {
+      this.showStep({ title, message, content, confirmText, cancelText, onConfirm });
     } else if (type === 'choice') {
       // Choice type doesn't use footer buttons - everything is in the choice options
       footer.classList.add('hidden');
@@ -332,6 +361,83 @@ class ModalDialog extends JugglerElement {
     return new Promise((resolve) => {
       this.resolvePromise = resolve;
     });
+  }
+
+  /**
+   * Put one step of a form dialog in the panel, in place of the step before
+   * it: its title, its fields and its buttons. The dialog stays open, so a
+   * flow of several steps (pick a kind, then fill in its form) is one dialog.
+   * @param {FormStep} step - What the step shows and does.
+   */
+  showStep(step) {
+    const {
+      title = t('Dialog'),
+      message = '',
+      content,
+      confirmText = t('OK'),
+      cancelText = t('Cancel'),
+      onConfirm = () => true,
+      onBack = null,
+    } = step;
+    this._runStepCleanups();
+    const titleEl = this.querySelector('.modal-title');
+    const messageEl = this.querySelector('.modal-message');
+    const footer = /** @type {HTMLElement|null} */ (this.querySelector('.modal-footer'));
+    if (titleEl) titleEl.textContent = title;
+    if (messageEl) {
+      messageEl.textContent = message;
+      // A form's fields can stand without a message above them.
+      messageEl.classList.toggle('hidden', !message);
+    }
+    if (!footer) return;
+    footer.innerHTML = '';
+    footer.classList.remove('hidden');
+
+    this.querySelector('.modal-body')?.appendChild(content);
+    // Leaves with its step, so nothing typed into it lingers in the page.
+    this._stepCleanups.push(() => content.remove());
+
+    if (onBack) {
+      const backButton = this.createButton(t('Back'), 'secondary', () => onBack());
+      backButton.classList.add('modal-back-button');
+      footer.appendChild(backButton);
+    }
+    footer.appendChild(this.createButton(cancelText, 'secondary', () => {
+      this.close(null);
+    }));
+    // A step with nothing to confirm (a list to pick from) has Cancel alone.
+    if (confirmText) {
+      const confirmButton = this.createButton(confirmText, 'primary', async () => {
+        if (confirmButton.disabled) return;
+        confirmButton.disabled = true;
+        let done = false;
+        try {
+          done = await onConfirm();
+        } finally {
+          // Closed some other way while it ran: nothing is left to answer.
+          if (this.resolvePromise && done) this.close(true);
+          else confirmButton.disabled = false;
+        }
+      });
+      footer.appendChild(confirmButton);
+      const onFormKeydown = (/** @type {KeyboardEvent} */ e) => {
+        if (e.key !== 'Enter' || e.isComposing) return;
+        // A field confirms; a button, a link or a textarea keeps its own Enter.
+        if (/** @type {Element|null} */ (e.target)?.tagName !== 'INPUT') return;
+        e.preventDefault();
+        confirmButton.click();
+      };
+      content.addEventListener('keydown', onFormKeydown);
+      this._stepCleanups.push(() => content.removeEventListener('keydown', onFormKeydown));
+    }
+    const first = /** @type {HTMLElement|null} */ (content.querySelector('input, textarea, select, button'));
+    if (first) focusWhenShown(first);
+  }
+
+  /** @private */
+  _runStepCleanups() {
+    this._stepCleanups.forEach((fn) => fn());
+    this._stepCleanups = [];
   }
 
   /**
@@ -657,6 +763,44 @@ export function showNotice(/** @type {string} */ message, /** @type {{ duration?
 // Global alias, mirroring showAlert/showConfirm/showPrompt/showChoice.
 // @ts-ignore - Extending window object
 window.showNotice = showNotice;
+
+/**
+ * @typedef {FormStep & {className?: string}} FormDialogOptions - The first
+ *   step, and a class for the dialog element to scope the fields' styles by.
+ */
+
+/**
+ * A dialog holding the caller's own fields, with Cancel and a confirm button.
+ * Like a notice it has an element of its own, removed once it is answered,
+ * rather than the `showModal` singleton: a form is open for as long as the
+ * user is typing, and an alert or confirm raised meanwhile — by the form's own
+ * confirm or by anything else — presents beside it instead of displacing it
+ * and what has been typed. Escape, the backdrop and Back cancel it.
+ *
+ * A step's confirm runs `onConfirm`; true closes the dialog. A step with no
+ * confirmText (a list to pick from) has only Cancel, and moves on through
+ * `step`, which puts the next step in its place.
+ * @param {FormDialogOptions} options - What it shows and does.
+ * @returns {{done: Promise<boolean>, close: (confirmed?: boolean) => void, step: (next: FormStep) => void}}
+ *   `done` settles true once a confirm succeeded, or the caller closed it as
+ *   done, and false when cancelled; `close` closes it, cancelled unless told
+ *   otherwise; `step` shows the next step.
+ */
+export function showFormDialog(options) {
+  const { className, ...rest } = options;
+  /** @type {any} */
+  const modal = document.createElement('modal-dialog');
+  if (className) modal.classList.add(className);
+  document.body.appendChild(modal);
+  const done = modal.show({ type: 'form', confirmText: t('OK'), ...rest })
+    .then((/** @type {any} */ result) => result === true)
+    .finally(() => modal.remove());
+  return {
+    done,
+    close: (confirmed = false) => { if (modal.isConnected) modal.close(confirmed ? true : null); },
+    step: (next) => { if (modal.isConnected) modal.showStep(next); },
+  };
+}
 
 // The typed port the model and services layers ask for the dialogs by
 // (services/ui-port.js). The `window.*` aliases above are for extensions.

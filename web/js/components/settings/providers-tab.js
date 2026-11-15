@@ -23,20 +23,35 @@ import { errorText } from '../../../sdk/lib/error-utils.js';
 import { buildModelVisibilityRow } from './model-visibility-row.js';
 import { buildAccountCard } from './account-card.js';
 import { accountKind } from './account-controls.js';
-import { buildAddPanel } from './account-add-panel.js';
+import { buildAddPanel, candidateName } from './account-add-panel.js';
+import { ADD_SVG } from '../../utils/icons.js';
 
 /**
- * "Providers" tab: the user's provider accounts, and under them the way to add
- * one.
+ * What the tab says while there is no account, over the kinds of account.
+ * @returns {string} The message.
+ */
+function emptyMessage() {
+  return t('No accounts yet. Pick what kind of account to set up. Logins already on this machine are listed first, ready to add with one click.');
+}
+
+/**
+ * "Providers" tab: the user's provider accounts, and the way to add one.
  *
- * - **Accounts**: one card per account (account-card.js). An account is a
- *   registered provider whose name is the account id, and each is its own group
- *   in the model menu, so a conversation picks its account by picking a model.
- *   A type with no account has no card; it is reached through Add an account.
- * - **Add an account**: always open (account-add-panel.js) — a grid of the
- *   types, then the type's form. The candidates — a default account the user
- *   removed, an endpoint custom-providers.json had switched off, a further
- *   login found on disk — are tiles in that grid, added with one pick.
+ * - **Active accounts**, under a heading that carries the Add account button,
+ *   so the way to add one is at the top of the tab however many there are:
+ *   one card per account (account-card.js). An account is a registered
+ *   provider whose name is the account id, and each is its own group in the
+ *   model menu, so a conversation picks its account by picking a model. A type
+ *   with no account has no card; it is reached through Add account.
+ * - **Add account** (account-add-panel.js) opens a grid of the types in a
+ *   dialog, each opening its form there. The candidates — a default account
+ *   the user removed, an endpoint custom-providers.json had switched off, a
+ *   further login found on disk — are tiles in that grid, added with one pick.
+ *   While there is no account at all the grid is on the page instead, so a
+ *   first visit shows the choices rather than an empty list.
+ * - Logins found on this machine are also offered in a strip above the cards,
+ *   each added with one press: they are the account most worth adding, and
+ *   the user may not know they are there.
  *
  * The list comes from the `accounts` ops, and only from them: the server alone
  * decides what is an account. Every op answers with the whole list, and the
@@ -66,7 +81,7 @@ export class ProvidersTab {
     this.types = [];
     /** @type {Map<string, ReturnType<typeof buildAccountCard> & {kind: string}>} @private */
     this.cards = new Map();
-    /** @type {{accounts: HTMLElement, empty: HTMLElement}|null} @private */
+    /** @type {{accounts: HTMLElement, empty: HTMLElement, emptyText: HTMLElement, found: HTMLElement, foundList: HTMLElement, addButton: HTMLElement}|null} @private */
     this.sections = null;
     /** @type {import('./account-add-panel.js').AddPanel|null} @private - The add panel, once drawn. */
     this.addPanel = null;
@@ -127,7 +142,7 @@ export class ProvidersTab {
     this._refreshAll();
   }
 
-  /** Panel closed: an abandoned add form must not be there on reopen. */
+  /** Panel closed: an add dialog left open closes with it, adding nothing. */
   close() {
     this.addPanel?.reset();
   }
@@ -178,12 +193,6 @@ export class ProvidersTab {
       return el;
     };
 
-    const accounts = document.createElement('div');
-    accounts.className = 'account-list';
-    const empty = document.createElement('div');
-    empty.className = 'account-empty';
-    empty.textContent = t('No accounts yet. Add one below.');
-
     this.addPanel = buildAddPanel({
       types: () => this.types,
       providerFor: (name) => this._providerFor(name),
@@ -195,22 +204,48 @@ export class ProvidersTab {
       },
       addCandidate: (key) => this._addCandidate(key),
     });
-    const add = document.createElement('section');
-    add.className = 'account-add-section';
-    add.append(
-      heading(t('Add an account')),
-      note(t('Pick what kind of account to set up. Logins already on this machine are listed too, ready to add with one click.')),
-      this.addPanel.element,
-    );
+
+    // The heading row: what the section is, and the way to add to it.
+    const header = document.createElement('div');
+    header.className = 'account-list-header';
+    const addButton = document.createElement('button');
+    addButton.type = 'button';
+    addButton.className = 'btn btn-sm btn-primary account-add-button';
+    addButton.innerHTML = ADD_SVG;
+    addButton.append(t('Add account'));
+    addButton.addEventListener('click', () => this.addPanel?.openPicker());
+    header.append(heading(t('Active accounts')), addButton);
+
+    // Logins found on this machine, offered where they will be seen.
+    const found = document.createElement('section');
+    found.className = 'account-found';
+    found.hidden = true;
+    const foundTitle = document.createElement('div');
+    foundTitle.className = 'account-found-title';
+    foundTitle.textContent = t('Found on this machine');
+    const foundList = document.createElement('div');
+    foundList.className = 'account-found-list';
+    found.append(foundTitle, foundList);
+
+    const accounts = document.createElement('div');
+    accounts.className = 'account-list';
+
+    // No account at all: the kinds of account, on the page.
+    const empty = document.createElement('section');
+    empty.className = 'account-empty';
+    const emptyText = document.createElement('p');
+    emptyText.className = 'account-empty-text';
+    emptyText.textContent = emptyMessage();
+    empty.append(emptyText, this.addPanel.element);
 
     container.append(
-      heading(t('Accounts')),
+      header,
       note(t('Each account is its own group in the model menu, so a conversation uses the account whose model you pick.')),
+      found,
       accounts,
       empty,
-      add,
     );
-    this.sections = { accounts, empty };
+    this.sections = { accounts, empty, emptyText, found, foundList, addButton };
 
     this._syncCards();
     this._refreshAll();
@@ -325,7 +360,7 @@ export class ProvidersTab {
       } catch (error) {
         console.error('[SettingsPanel] Could not list provider accounts:', error);
         if (!this.accountList && this.sections) {
-          this.sections.empty.textContent = t('Couldn’t list the accounts. {error}', { error: errorText(error) });
+          this.sections.emptyText.textContent = t('Couldn’t list the accounts. {error}', { error: errorText(error) });
           this.sections.empty.hidden = false;
         }
       } finally {
@@ -344,7 +379,7 @@ export class ProvidersTab {
   _applyList(list) {
     if (!list || !Array.isArray(list.accounts)) return;
     this._listGeneration++;
-    if (this.sections) this.sections.empty.textContent = t('No accounts yet. Add one below.');
+    if (this.sections) this.sections.emptyText.textContent = emptyMessage();
     this.accountList = {
       accounts: list.accounts,
       candidates: Array.isArray(list.candidates) ? list.candidates : [],
@@ -395,7 +430,58 @@ export class ProvidersTab {
       }
       previous = card.element;
     }
-    if (this.sections) this.sections.empty.hidden = !this.accountList || accounts.length > 0;
+    this._syncFound();
+  }
+
+  /**
+   * Show the page's parts for the list in hand: the grid while there is no
+   * account, the strip of found logins while there is one and they are on
+   * offer.
+   * @private
+   */
+  _syncFound() {
+    const sections = this.sections;
+    if (!sections) return;
+    const listed = !!this.accountList;
+    const none = listed && this._accounts().length === 0;
+    sections.empty.hidden = !none;
+    // Until the list has come, there is nothing to say what Add would offer.
+    sections.addButton.hidden = !listed;
+    const found = none ? [] : (this.accountList?.candidates || []).filter((c) => c.reason === 'found');
+    sections.found.hidden = found.length === 0;
+    const types = this.types;
+    sections.foundList.replaceChildren(...found.map((candidate) => {
+      const row = document.createElement('div');
+      row.className = 'account-found-row';
+      row.dataset.key = candidate.key;
+      const what = document.createElement('div');
+      what.className = 'account-found-what';
+      const name = document.createElement('span');
+      name.className = 'account-found-name';
+      name.textContent = candidateName(candidate, types);
+      what.appendChild(name);
+      if (candidate.path) {
+        const where = document.createElement('span');
+        where.className = 'account-found-path';
+        where.textContent = candidate.path;
+        what.appendChild(where);
+      }
+      const add = document.createElement('button');
+      add.type = 'button';
+      add.className = 'btn btn-sm btn-secondary account-found-add';
+      add.textContent = t('Add');
+      add.setAttribute('aria-label', t('Add {name}', { name: name.textContent }));
+      add.addEventListener('click', async () => {
+        add.disabled = true;
+        try {
+          await this._addCandidate(candidate.key);
+        } finally {
+          add.disabled = false;
+        }
+      });
+      row.append(what, add);
+      return row;
+    }));
   }
 
   /**
@@ -453,7 +539,7 @@ export class ProvidersTab {
   /**
    * Add a login on offer, and redraw from the list the add answers with.
    * @param {string} key - The candidate's key.
-   * @returns {Promise<void>} Settles once it is added, or the failure is reported.
+   * @returns {Promise<boolean>} True once it is added; false once the failure is reported.
    * @private
    */
   async _addCandidate(key) {
@@ -461,8 +547,10 @@ export class ProvidersTab {
       const list = await accountsAddCandidate({ key });
       await this.host.loadConfig?.(false);
       this._applyList(list);
+      return true;
     } catch (error) {
       await showAlert(t('Couldn’t add it. {error}', { error: errorText(error) }), t('Providers'));
+      return false;
     }
   }
 }

@@ -607,7 +607,7 @@
 			"layer": "components",
 			"owns": [
 				"--settings-*",
-				"account-menu",
+				"account-add-dialog",
 				"settings-panel"
 			]
 		},

@@ -49,6 +49,12 @@ modal-dialog .modal-footer {
     border-top: 0.0625rem solid var(--border-divider);
 }
 
+/* A form dialog's Back sits apart, at the start of the row, from the buttons
+   that close the dialog. */
+modal-dialog .modal-back-button {
+    margin-inline-end: auto;
+}
+
 /* ── Notice mode (showNotice) ──────────────────────────────────────────────
    A transient, toast-like notice: a clean raised panel, centred, that floats
    over the page without dimming it. No icon, no left bar, no action buttons.

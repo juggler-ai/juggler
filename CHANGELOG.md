@@ -14,6 +14,7 @@ the current release). The project follows semantic versioning.
 - A stalled engine whose reload fails is reloaded again, instead of staying dead
 - A command re-run after an engine reload no longer runs twice; Stop ends every copy
 - A heavily loaded Mac no longer gets its tool engine reloaded mid-command
+- A tool call finishing in under half a second shows "0s", not a blank time
 - Worktree panel shows unlanded commits, and lands work by rebase or merge, submodules included
 - Long-running conversations tell the model when the date changes
 - Theme and zoom are per window again; changing one window no longer restyles the others

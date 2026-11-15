@@ -3,7 +3,7 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 /**
- * Units and lists in UI text: `formatTokens` and `formatBytes`
+ * Units and lists in UI text: `formatTokens`, `formatBytes` and `formatDuration`
  * (web/js/utils/format.js), the two file-size formatters in
  * web/sdk/lib/context-item-utils.js, and `formatList` (web/sdk/lib/i18n.js).
  *
@@ -15,7 +15,7 @@
  */
 
 import { assert } from '../utilities/test-helpers.js';
-import { formatTokens, formatBytes } from '../../js/utils/format.js';
+import { formatTokens, formatBytes, formatDuration } from '../../js/utils/format.js';
 import { formatFileSize, formatFileSizeForDisplay } from '../../sdk/lib/context-item-utils.js';
 import {
   setLocale, registerCatalog, unregisterCatalog, messageKey, pseudoLocalize, isPseudoLocalized,
@@ -65,6 +65,11 @@ export async function runTests() {
         // decides it (a POSIX default has none), so `1,500` is pinned for `en`.
         same(formatTokens(1500), locale === 'en' ? '1,500' : new Intl.NumberFormat().format(1500),
           'below 2000 the exact count, grouped');
+        // A sub-second run rounds to zero; Intl.DurationFormat drops every
+        // zero unit, which would leave "Completed in " with nothing after it.
+        same(formatDuration(0), '0s', 'a zero duration');
+        same(formatDuration(5), '5s', 'seconds');
+        same(formatDuration(120), '2m', 'a zero lower unit is dropped');
         same(formatBytes(0), '0 B', 'no bytes');
         same(formatBytes(1023), '1023 B', 'bytes, ungrouped');
         same(formatBytes(1536), '1.5 KB', 'kilobytes under ten keep a decimal');

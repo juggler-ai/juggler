@@ -136,7 +136,7 @@ export function formatTokens(n) {
  * @returns {string|null} The formatted duration, spaces made non-breaking.
  */
 function formatDurationIntl(seconds) {
-  const DurationFormat = /** @type {typeof Intl & {DurationFormat?: new (locale: string|undefined, options: {style: string}) => {format: (parts: Record<string, number>) => string}}} */ (Intl).DurationFormat;
+  const DurationFormat = /** @type {typeof Intl & {DurationFormat?: new (locale: string|undefined, options: {style: string, secondsDisplay?: string}) => {format: (parts: Record<string, number>) => string}}} */ (Intl).DurationFormat;
   if (typeof DurationFormat !== 'function' || !Number.isInteger(seconds) || seconds < 0) return null;
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
@@ -146,8 +146,13 @@ function formatDurationIntl(seconds) {
   /** @type {Record<string, number>} */
   const parts = hours > 0 ? { hours, minutes } : minutes > 0 ? { minutes, seconds: secs } : { seconds: secs };
   for (const key of Object.keys(parts)) if (parts[key] === 0 && Object.keys(parts).length > 1) delete parts[key];
+  // Every unit's default display is 'auto', which omits a zero one — so a zero
+  // duration would format as "". Seconds are forced on wherever they are a
+  // part (alone they may be zero; beside minutes they are not, being kept only
+  // when non-zero), and never added to an hours-and-minutes pair.
+  const secondsDisplay = 'seconds' in parts ? 'always' : 'auto';
   try {
-    const formatter = new DurationFormat(formattingLocale(), { style: 'narrow' });
+    const formatter = new DurationFormat(formattingLocale(), { style: 'narrow', secondsDisplay });
     return formatter.format(parts).replace(/ /g, '\u00A0');
   } catch {
     return null;

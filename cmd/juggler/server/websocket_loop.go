@@ -101,6 +101,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// A client that can read Yjs sync as binary frames says so; one that does
 	// not is sent JSON (ws_yjs_frame.go).
 	client.binarySync = query.Get("sync") == "binary"
+	client.deflates = remotePeer
 	defer client.Close()
 
 	msgCh := make(chan []byte, 100)

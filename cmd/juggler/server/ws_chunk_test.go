@@ -6,7 +6,11 @@ package server
 
 import (
 	"bytes"
+	"compress/flate"
+	"context"
+	"crypto/rand"
 	"encoding/binary"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -81,7 +85,7 @@ func TestWSChunkCount(t *testing.T) {
 		{wsChunkThreshold*2 + 1, 3},
 	}
 	for _, c := range cases {
-		if got := wsChunkCount(c.payload); got != c.want {
+		if got := wsChunkCount(c.payload, wsChunkThreshold); got != c.want {
 			t.Errorf("wsChunkCount(%d) = %d, want %d", c.payload, got, c.want)
 		}
 	}
@@ -149,7 +153,7 @@ func TestAnOversizedMessageArrivesWhole(t *testing.T) {
 	if !utf8.Valid(payload) {
 		t.Fatal("the test payload is not valid UTF-8 to begin with")
 	}
-	wantChunks := wsChunkCount(len(payload))
+	wantChunks := wsChunkCount(len(payload), wsChunkThreshold)
 	if wantChunks < 3 {
 		t.Fatalf("the payload should span at least three chunks, got %d", wantChunks)
 	}
@@ -201,6 +205,174 @@ func TestAnOversizedMessageArrivesWhole(t *testing.T) {
 	if !utf8.Valid(reassembled) {
 		t.Error("the reassembled payload is not valid UTF-8")
 	}
+}
+
+// TestADeflatedBinaryMessageIsNeverFragmented is the regression test for a
+// remote WebKit window that could never stay connected: on a connection with
+// permessage-deflate, WebKit fails the connection (close 1002) on a compressed
+// binary message split across frames once any compressed text message has come
+// before it, delivering the first 64 KiB and nothing more. gorilla fragments a
+// compressed message as soon as it outgrows the write buffer, so every Yjs sync
+// frame larger than that — the first full-state sync of any real conversation
+// — took the window down, and every reconnect asked for the same sync again.
+//
+// gorilla's ReadMessage hides fragmentation, so the peer's socket is tapped
+// and the frames are read off the wire.
+func TestADeflatedBinaryMessageIsNeverFragmented(t *testing.T) {
+	client, peer, wire := wsDeflatingPair(t)
+
+	// Compressible as a Yjs update is, but far larger than one write buffer
+	// even compressed.
+	payload := make([]byte, 300*1024)
+	_, _ = rand.Read(payload)
+	for i := range payload {
+		payload[i] = 'a' + payload[i]%16
+	}
+	client.SendRaw([]byte(`{"type":"session","clientId":"client_abc"}`))
+	client.SendBinary(payload)
+	client.SendRaw([]byte(`{"type":"done"}`))
+
+	var reassembled []byte
+	_ = peer.SetReadDeadline(time.Now().Add(10 * time.Second))
+	for {
+		msgType, msg, err := peer.ReadMessage()
+		if err != nil {
+			t.Fatalf("reading: %v", err)
+		}
+		if msgType == websocket.TextMessage {
+			if string(msg) == `{"type":"done"}` {
+				break
+			}
+			continue
+		}
+		if h, data, ok := parseWSChunkHeader(msg); ok {
+			if h.kind != wsChunkKindBinary {
+				t.Errorf("chunk kind = %d, want binary (%d)", h.kind, wsChunkKindBinary)
+			}
+			reassembled = append(reassembled, data...)
+		} else {
+			reassembled = append(reassembled, msg...)
+		}
+	}
+	if !bytes.Equal(reassembled, payload) {
+		t.Fatalf("reassembled %d bytes, want %d, and they differ", len(reassembled), len(payload))
+	}
+
+	frames := wireFrames(t, wire.Bytes())
+	compressed := 0
+	for i, f := range frames {
+		if f.compressed {
+			compressed++
+		}
+		if !f.fin || f.opcode == 0 {
+			t.Fatalf("frame %d of %d is a fragment (fin=%v opcode=%d, %d bytes) — a WebKit peer fails the connection on it",
+				i, len(frames), f.fin, f.opcode, f.length)
+		}
+	}
+	if compressed == 0 {
+		t.Fatal("nothing was compressed, so the test proves nothing about a deflating connection")
+	}
+}
+
+// wsDeflatingPair is wsPair for a connection that negotiates permessage-deflate,
+// set up as handleWebSocket sets up a remote peer's, with the peer's socket
+// tapped: wire holds every byte the peer read. The peer reads only in the
+// caller's goroutine, so wire is too.
+func wsDeflatingPair(t *testing.T) (*WSClient, *websocket.Conn, *bytes.Buffer) {
+	t.Helper()
+
+	upgraded := make(chan *websocket.Conn, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		u := newWSUpgrader()
+		u.CheckOrigin = func(*http.Request) bool { return true }
+		u.EnableCompression = true
+		conn, err := u.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		conn.EnableWriteCompression(true)
+		_ = conn.SetCompressionLevel(flate.DefaultCompression)
+		upgraded <- conn
+	}))
+	t.Cleanup(srv.Close)
+
+	wire := &bytes.Buffer{}
+	dialer := websocket.Dialer{
+		EnableCompression: true,
+		NetDialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			c, err := (&net.Dialer{}).DialContext(ctx, network, addr)
+			if err != nil {
+				return nil, err
+			}
+			return &tappedConn{Conn: c, wire: wire}, nil
+		},
+	}
+	peer, resp, err := dialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	if err != nil {
+		t.Fatalf("couldn't dial the test server: %v", err)
+	}
+	t.Cleanup(func() { _ = peer.Close() })
+
+	var conn *websocket.Conn
+	select {
+	case conn = <-upgraded:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the upgrade never completed")
+	}
+
+	client := NewWSClient(conn, ClientRoleViewer, "", ClientInfo{}, nil)
+	client.deflates = true
+	t.Cleanup(client.Close)
+	return client, peer, wire
+}
+
+// tappedConn copies everything read from the connection into wire.
+type tappedConn struct {
+	net.Conn
+	wire *bytes.Buffer
+}
+
+func (c *tappedConn) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p)
+	_, _ = c.wire.Write(p[:n])
+	return n, err
+}
+
+// wireFrame is one server frame's header, as read off the wire.
+type wireFrame struct {
+	fin, compressed bool
+	opcode          byte
+	length          int
+}
+
+// wireFrames reads the frame headers of every complete server frame in raw,
+// the bytes a peer read: the upgrade response, then unmasked frames.
+func wireFrames(t *testing.T, raw []byte) []wireFrame {
+	t.Helper()
+	end := bytes.Index(raw, []byte("\r\n\r\n"))
+	if end < 0 {
+		t.Fatal("no upgrade response on the wire")
+	}
+	var frames []wireFrame
+	for p := end + 4; p+2 <= len(raw); {
+		b0, b1 := raw[p], raw[p+1]
+		length, header := int(b1&0x7f), 2
+		switch length {
+		case 126:
+			length, header = int(binary.BigEndian.Uint16(raw[p+2:])), 4
+		case 127:
+			length, header = int(binary.BigEndian.Uint64(raw[p+2:])), 10
+		}
+		if p+header+length > len(raw) {
+			break
+		}
+		frames = append(frames, wireFrame{fin: b0&0x80 != 0, compressed: b0&0x40 != 0, opcode: b0 & 0x0f, length: length})
+		p += header + length
+	}
+	return frames
 }
 
 // TestAnOrdinaryMessageIsNotChunked keeps the exceptional path exceptional:

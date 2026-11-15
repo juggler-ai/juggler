@@ -61,7 +61,9 @@ const (
 	// message. Juggler cannot honour that literally, since a full-state resync
 	// runs to megabytes, but 32 KiB keeps ordinary traffic — sync deltas,
 	// status, tool output chunks — inside a single frame, and costs one
-	// syscall per 32 KiB rather than per kilobyte. Do not shrink it.
+	// syscall per 32 KiB rather than per kilobyte. Do not shrink it below
+	// what wsDeflatedChunkSize relies on: a chunk of that size, compressed,
+	// fits in one frame.
 	wsWriteBufferSize = 32 * 1024
 
 	// wsReadBufferSize sizes the per-connection buffer gorilla reads incoming
@@ -148,6 +150,10 @@ type WSClient struct {
 	// (sync=binary on the upgrade; see ws_yjs_frame.go). Set once, before the
 	// client's message loop starts, and only read after.
 	binarySync bool
+	// deflates is whether this connection may compress what it writes, which
+	// keeps every binary message it writes inside one frame
+	// (wsDeflatedChunkSize). Set once, before the first message is queued.
+	deflates bool
 }
 
 // generateClientID creates a unique client ID using crypto/rand
@@ -265,14 +271,18 @@ func (c *WSClient) writeOne(msg wsMessage) bool {
 	// Accounting above covers the logical message, so a chunked send is one
 	// entry there however many frames it takes on the wire.
 	var err error
-	if len(payload) > wsChunkThreshold {
-		// Worth a line every time. Chunking is the exceptional path — nothing in
-		// an ordinary session comes close to the threshold — so its arrival says
-		// a conversation has grown to a size no client accepts whole, and
-		// it names which one while the evidence is still to hand.
-		jlog.Info("Splitting a %d byte %s message into %d frames for %s client %p; "+
-			"no client accepts one this large whole",
-			len(payload), describeWSMessage(payload), wsChunkCount(len(payload)), c.Role, c)
+	if !c.writesWhole(len(payload), msg.binary) {
+		// Worth a line every time it is for size. That is the exceptional path —
+		// nothing in an ordinary session comes close to the threshold — so its
+		// arrival says a conversation has grown to a size no client accepts
+		// whole, and it names which one while the evidence is still to hand. A
+		// binary message chunked to keep a compressed one whole
+		// (wsDeflatedChunkSize) is ordinary traffic, and says nothing.
+		if len(payload) > wsChunkThreshold {
+			jlog.Info("Splitting a %d byte %s message into %d frames for %s client %p; "+
+				"no client accepts one this large whole",
+				len(payload), describeWSMessage(payload), wsChunkCount(len(payload), c.chunkSize()), c.Role, c)
+		}
 		err = c.writeChunked(payload, chunkKind)
 	} else {
 		// Armed fresh per write. SetWriteDeadline only records the time; gorilla

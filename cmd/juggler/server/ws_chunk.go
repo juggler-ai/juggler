@@ -59,8 +59,24 @@ const (
 	// enough below the smallest client ceiling known (undici's 128 MiB) that a
 	// client with a stricter limit still has an order of magnitude of headroom.
 	// It also keeps the frame count sane — a 100 MB document is 13 frames, not
-	// the thousands a 16 KiB chunker would produce.
+	// the thousands a 16 KiB chunker would produce. That is the trade a
+	// connection that compresses makes regardless (wsDeflatedChunkSize), where
+	// a frame's size is bounded by what WebKit accepts, not by count.
 	wsChunkThreshold = 8 * 1024 * 1024
+
+	// wsDeflatedChunkSize is the chunk size on a connection that compresses
+	// (WSClient.deflates), and the largest binary message it writes whole.
+	//
+	// WebKit — every Juggler window — fails a permessage-deflate connection
+	// (close 1002) on a compressed binary message split across frames, once
+	// any compressed text message has come before it: it delivers the first
+	// 64 KiB and drops the link. gorilla splits a compressed message as soon as
+	// it outgrows the write buffer (wsWriteBufferSize), and there is no asking it
+	// not to. So on such a connection no binary message may outgrow that buffer
+	// even incompressible, and a larger one goes as chunks of this size, each
+	// compressed on its own and each one frame. Text is not affected, and is
+	// still written whole up to wsChunkThreshold.
+	wsDeflatedChunkSize = 16 * 1024
 )
 
 var wsChunkMagic = [4]byte{'J', 'G', 'C', '1'}
@@ -83,12 +99,31 @@ func encodeWSChunkHeader(dst []byte, h wsChunkHeader) {
 	binary.BigEndian.PutUint32(dst[17:21], h.total)
 }
 
-// wsChunkCount is how many frames a payload of this size splits into.
-func wsChunkCount(payloadLen int) int {
+// wsChunkCount is how many frames a payload of this size splits into, at
+// chunkSize bytes a frame.
+func wsChunkCount(payloadLen, chunkSize int) int {
 	if payloadLen <= 0 {
 		return 1
 	}
-	return (payloadLen + wsChunkThreshold - 1) / wsChunkThreshold
+	return (payloadLen + chunkSize - 1) / chunkSize
+}
+
+// chunkSize is how much of a payload one chunk frame carries on this
+// connection.
+func (c *WSClient) chunkSize() int {
+	if c.deflates {
+		return wsDeflatedChunkSize
+	}
+	return wsChunkThreshold
+}
+
+// writesWhole reports whether a message of this size and type goes as one
+// message on this connection, rather than as chunks.
+func (c *WSClient) writesWhole(size int, binary bool) bool {
+	if binary && c.deflates {
+		return size <= wsDeflatedChunkSize
+	}
+	return size <= wsChunkThreshold
 }
 
 // writeChunked writes one oversized payload as a run of chunk frames.
@@ -108,12 +143,13 @@ func wsChunkCount(payloadLen int) int {
 func (c *WSClient) writeChunked(payload []byte, kind byte) error {
 	c.chunkSeq++
 	id := c.chunkSeq
-	total := wsChunkCount(len(payload))
+	size := c.chunkSize()
+	total := wsChunkCount(len(payload), size)
 
 	var header [wsChunkHeaderSize]byte
 	for index := 0; index < total; index++ {
-		start := index * wsChunkThreshold
-		end := start + wsChunkThreshold
+		start := index * size
+		end := start + size
 		if end > len(payload) {
 			end = len(payload)
 		}

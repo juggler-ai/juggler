@@ -18,12 +18,27 @@ import (
 // and hands the directory back once it exists — including when it was made in
 // one go, before the watch on the level above could see it.
 func TestAwaitedDirStepsDownWithoutCreating(t *testing.T) {
+	// The directories come first so their cleanup runs after the watcher's
+	// Close: removing a watched directory on Windows makes the reader report
+	// errors, and fsnotify's Windows Close can hang when one races it.
+	project := t.TempDir()
+	project2 := t.TempDir()
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = w.Close() })
-	project := t.TempDir()
+	// The test drives handle itself, so nothing reads the watcher's channels;
+	// drain them, or the reader blocks on an unread event or error and Close
+	// waits on it forever. Both channels close when Close returns.
+	go func() {
+		for range w.Events {
+		}
+	}()
+	go func() {
+		for range w.Errors {
+		}
+	}()
 	target := filepath.Join(project, ".juggler", "commands")
 
 	a, ok := newAwaitedDir(w, target)
@@ -59,7 +74,6 @@ func TestAwaitedDirStepsDownWithoutCreating(t *testing.T) {
 	}
 
 	// Made in one go: the step above sees only .juggler, which already holds it.
-	project2 := t.TempDir()
 	target2 := filepath.Join(project2, ".juggler", "commands")
 	a2, _ := newAwaitedDir(w, target2)
 	if err := os.MkdirAll(target2, 0o755); err != nil {

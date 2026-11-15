@@ -1703,8 +1703,14 @@ func (r *run) checkForNewThreads() bool {
 // The claim and the busy state are what make the gap between post and start
 // safe: every dispatch gate refuses while they hold, so nothing else can start a
 // run in the window, and the buffered slot cannot be contended.
+//
+// The run reads Processing from the moment it is registered. A cancel that
+// finds it in the registry during the window acts only on a run that reads
+// Processing; one that read Idle would be passed over, settled as cancelled,
+// and then started regardless, with nothing left to stop it.
 func (r *run) dispatchThreadRun(threadItemID string) {
 	tr := r.beginTurn(threadItemID)
+	tr.storeState(StateProcessing)
 	if !r.sched.postDispatch(tr.t) {
 		r.log.Error("Thread dispatch queue full, re-arming pickup for %s", threadItemID)
 		r.sched.unregister(tr.t)
@@ -1724,7 +1730,9 @@ func (r *run) startPreparedThreadRun(t *turnState) {
 		r.abandonThreadRun(threadItemID)
 		return
 	}
-	tr.storeState(StateProcessing)
+	// Processing since dispatchThreadRun, or Cancelling if a cancel reached it in
+	// the window: the strategy loop's cancel check then ends it before the LLM
+	// call, and it settles the way any cancelled run does.
 	r.runTurn(tr, func(tr *run) { tr.runStrategyLoop("", true) })
 }
 

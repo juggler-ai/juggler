@@ -407,6 +407,34 @@ func TestPendingRequests_CancelClaimedDoesNotCancelUnrelatedProcessing(t *testin
 	}
 }
 
+// TestPendingRequests_CancelReachesARunDispatchedButNotStarted cancels a
+// claimed createThread whose run the pickup has registered and posted to the run
+// loop, but the loop has not yet started. A cancel that passed over it there
+// would settle the request as cancelled and leave the run to start afterwards,
+// spending with nothing left to stop it.
+func TestPendingRequests_CancelReachesARunDispatchedButNotStarted(t *testing.T) {
+	w := NewConversationWorker("test-conv", "user:test")
+	defer w.doc.Destroy()
+
+	threadItemID := insertThreadWithOpts(w, threadOpts{goal: "Cancel me", userMessage: "start"})
+	// The run loop is not running, so the posted dispatch stays in the window.
+	w.currentRun().dispatchThreadRun(threadItemID)
+	live := w.sched.runOn(threadItemID)
+	if live == nil {
+		t.Fatal("the dispatched run was not registered")
+	}
+	pushCancelledClaimedCreateThread(t, w, "r-unstarted", threadItemID)
+
+	w.currentRun().scanPendingRequests()
+
+	if got := w.currentRun().runFor(live.t).loadState(); got != StateCancelling {
+		t.Errorf("dispatched run state = %v, want %v: the cancel passed over it", got, StateCancelling)
+	}
+	if s := findEntryStatus(w, "r-unstarted"); s == "cancelled" {
+		t.Error("the request was settled cancelled while its run could still start")
+	}
+}
+
 // TestPendingRequests_CancelActsOnTheThreadItOwns pins the cancel to the thread
 // the ownership check resolved. processingState.threadItemId is re-pointed by
 // every sibling's status frame, so a cancel that read it again after deciding

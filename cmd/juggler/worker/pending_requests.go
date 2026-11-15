@@ -409,8 +409,8 @@ func (r *run) cancelPendingEntry(e pendingEntrySnapshot) {
 	// named: processingState.threadItemId is re-pointed by any sibling's status
 	// frame, so reading it again further down could stop an unrelated turn.
 	if processingID, owns := r.processingThreadWithin(e.threadItemID); owns {
-		// Nothing in the subtree is live, so this is the ambient turn: a pickup
-		// posted to the loop but not yet started, or a turn parked on its tools.
+		// Nothing in the subtree is live, so this is the ambient turn: a turn
+		// parked on its tools.
 		target, _ := r.cancelTargetOn(processingID)
 		switch target.loadState() {
 		case StateProcessing:

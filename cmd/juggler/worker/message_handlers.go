@@ -727,8 +727,9 @@ func (r *run) abortTurn(threadID string) {
 // resolved from, given processingID: the thread the document named as the
 // current operation's target when the cancel was decided. A turn executes on a
 // goroutine of its own, so the run handling a cancel is never the one streaming;
-// the live-run registry is what names it. With nothing live — between turns, or
-// a pickup posted to the loop but not yet started — this run is its own target.
+// the live-run registry is what names it, from the moment a dispatch registers
+// it, before it starts. With nothing live on the thread — between turns — this
+// run is its own target.
 func (r *run) cancelTargetOn(processingID string) (target *run, threadID string) {
 	target = r
 	threadID = processingID

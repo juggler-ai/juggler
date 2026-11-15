@@ -23,6 +23,13 @@ import (
 // enough that a backlog is visible long before it costs a turn.
 const slowLoopIteration = 250 * time.Millisecond
 
+// longInboxWait is the time in the inbox at which a message earns a log line
+// however quickly it is then handled: a third of the 15s a client allows for an
+// ack, so a message answered after its client gave up is always on record. When
+// what held it was itself a slow iteration, that iteration has its own line;
+// when it was not, this line is the only evidence the delay was in the inbox.
+const longInboxWait = 5 * time.Second
+
 // slowIteration is one run() iteration's timing.
 type slowIteration struct {
 	// event names what the iteration handled.
@@ -42,10 +49,10 @@ type slowIteration struct {
 // naming the event it handled and splitting its time between that event and the
 // reducer drain after it, with how long the message had already waited in the
 // inbox and how many are still queued behind it. ok is false for an iteration
-// under the threshold.
+// under the threshold whose message, if any, did not wait long in the inbox.
 func describeSlowIteration(it slowIteration) (string, bool) {
 	total := it.handled + it.reconcile
-	if total < slowLoopIteration {
+	if total < slowLoopIteration && it.waited < longInboxWait {
 		return "", false
 	}
 	desc := fmt.Sprintf("%s took %dms: %dms handling it, %dms in %d reconcile pass(es)",

@@ -37,6 +37,30 @@ func TestDescribeSlowIterationCountsTheReconcileAgainstTheThreshold(t *testing.T
 	}
 }
 
+// TestDescribeSlowIterationReportsALongWaitHandledQuickly: a message that sat in
+// the inbox for seconds is the evidence behind a client's ack timeout even when
+// handling it took microseconds — and its line is the only one there is when
+// what held the inbox was not itself a slow iteration.
+func TestDescribeSlowIterationReportsALongWaitHandledQuickly(t *testing.T) {
+	desc, ok := describeSlowIteration(slowIteration{
+		event: "message clear-undo-stacks", handled: 30 * time.Microsecond, passes: 1,
+		waited: 15 * time.Second, depth: 7,
+	})
+	if !ok {
+		t.Fatalf("a message that waited 15s in the inbox must be reported, however quickly it was handled")
+	}
+	for _, want := range []string{"message clear-undo-stacks", "waited 15000ms in the inbox", "7 queued"} {
+		if !strings.Contains(desc, want) {
+			t.Errorf("description %q missing %q", desc, want)
+		}
+	}
+	if _, ok := describeSlowIteration(slowIteration{
+		event: "message ping", handled: time.Millisecond, waited: longInboxWait / 2,
+	}); ok {
+		t.Errorf("a quick iteration whose message waited under %v must not be reported", longInboxWait)
+	}
+}
+
 func TestDescribeSlowIterationIsSilentWhenHealthy(t *testing.T) {
 	if desc, ok := describeSlowIteration(slowIteration{
 		event: "liveness tick", handled: 2 * time.Millisecond, reconcile: 5 * time.Millisecond, passes: 1,

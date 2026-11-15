@@ -22,7 +22,7 @@ import { revealLinkedConversation } from './conversation-commands.js';
  * @property {function(ServerMessage): void} onServerMessage - Callback for server messages
  * @property {function(): void} [onSessionInitialized] - Optional callback after session is created
  * @property {import('../model/session.js').ConversationServices} services - Services for Conversation instances
- * @property {{show: () => void, hide: () => void, startCountdown: (delayMs: number) => void}|null} [disconnectionOverlay] - Overlay for connection loss (null for engine)
+ * @property {{show: () => void, hide: () => void, linkProven: () => void, startCountdown: (delayMs: number) => void}|null} [disconnectionOverlay] - Overlay for connection loss (null for engine)
  * @property {(message: string) => void} [showPersistentNotice] - Shows a notice that stays until dismissed (absent for engine, which has nowhere to show one)
  * @property {Promise<void>} [registriesReady] - Settles (never rejects) once the capability registries have loaded. Given, the socket may connect while they load; the session is created only after it settles.
  */
@@ -75,7 +75,7 @@ class ConnectionManager {
     /** @type {Array<() => void>} @private - Unsubscribes for the listeners setup() registered: the WebSocket's, and the app phase's */
     this._wsUnsubscribes = [];
 
-    /** @type {{show: () => void, hide: () => void, startCountdown: (delayMs: number) => void}|null} @private */
+    /** @type {{show: () => void, hide: () => void, linkProven: () => void, startCountdown: (delayMs: number) => void}|null} @private */
     this._disconnectionOverlay = options.disconnectionOverlay || null;
 
     /** @type {((message: string) => void)|null} @private */
@@ -172,6 +172,9 @@ class ConnectionManager {
       this._handleClose();
     });
     this._wsUnsubscribes.push(wsService.on('close', closeCallback));
+    // The overlay comes down on 'open', but the outage is over only once the
+    // link has lasted: one that drops again before then carries on its wait.
+    this._wsUnsubscribes.push(wsService.on('stable', () => this._disconnectionOverlay?.linkProven()));
     this._wsUnsubscribes.push(appPhase.subscribe((phase) => this._handlePhase(phase)));
 
     // The server holds as many viewers as it takes, so this one was turned away

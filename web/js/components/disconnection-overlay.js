@@ -85,17 +85,40 @@ class DisconnectionOverlay extends LoadingOverlay {
 
     /** @type {number|null} @private */
     this._countdownInterval = null;
+    /** @type {number} @private The wait of an outage not yet over, while the overlay is off screen. */
+    this._carriedWaitMs = 0;
   }
 
   /**
-   * Take the overlay off screen, and the countdown with it.
+   * Show the overlay, carrying on the wait of an outage the link never
+   * recovered from: one it reopened on and lost again before
+   * {@link DisconnectionOverlay#linkProven}. Begun afresh on every such flap,
+   * the wait would never outlast the grace period, and the wording and the ways
+   * out with it would never stay on screen long enough to be pressed.
+   */
+  show() {
+    super.show(this._carriedWaitMs);
+  }
+
+  /**
+   * Take the overlay off screen, and the countdown with it. The wait is kept
+   * until the link proves itself.
    */
   hide() {
     if (this._countdownInterval) {
       clearInterval(this._countdownInterval);
       this._countdownInterval = null;
     }
+    if (this.isShowing) this._carriedWaitMs = this._waitedMs;
     super.hide();
+  }
+
+  /**
+   * The link has stayed up long enough to count as working (websocket.js's
+   * 'stable'), so the outage is over and the next one starts its wait afresh.
+   */
+  linkProven() {
+    this._carriedWaitMs = 0;
   }
 
   /**

@@ -60,7 +60,7 @@ export async function runTests(_ctx) {
       llmState: /** @type {any} */ (null),
       onServerMessage: () => {},
       services: /** @type {any} */ ({}),
-      disconnectionOverlay: { show: () => { shown++; }, hide: () => {}, startCountdown: () => {} }
+      disconnectionOverlay: { show: () => { shown++; }, hide: () => {}, linkProven: () => {}, startCountdown: () => {} }
     }));
     cm._linkIsUp = () => linkUp;
     // As setup() subscribes it, so the handler sees the phase already moved.

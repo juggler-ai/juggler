@@ -92,7 +92,10 @@ export function giveUpOnServer() {
  * Watch the connection, and report an outage that lasts {@link GIVE_UP_AFTER_MS}.
  *
  * The minute runs from the first 'close' of an outage: every failed attempt
- * closes again and must not restart it. A link that comes back ends the outage.
+ * closes again and must not restart it. A link that comes back ends the outage
+ * only once it has stayed up ('stable', websocket.js): one that opens and drops
+ * again a moment later never recovered, and counting its 'open' would restart
+ * the minute on every flap and keep the window reconnecting for ever.
  * A refusal as full is not one, because the socket stops trying. When the app
  * finds the server answering after all, the page is given another minute
  * before it asks again; when it replaces the window, nothing more is asked.
@@ -176,7 +179,7 @@ export function watchForLostServer({
 
   const unsubscribes = [
     events.on('close', lost),
-    events.on('open', ended),
+    events.on('stable', ended),
     events.on('server-full', ended),
   ];
   return () => {

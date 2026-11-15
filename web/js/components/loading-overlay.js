@@ -126,7 +126,7 @@ class LoadingOverlay {
     this._detailElement = null;
     /** @type {number|null} @private Drives the reveal and any wording tiers. */
     this._waitTimer = null;
-    /** @type {number} @private Time spent waiting while the page was in view. */
+    /** @type {number} @protected Time spent waiting while the page was in view. */
     this._waitedMs = 0;
     /** @type {number} @private When the wait was last advanced. */
     this._lastTickAt = 0;
@@ -150,13 +150,15 @@ class LoadingOverlay {
    * window is there on the first frame, long before this module is fetched —
    * adopting it means the handover is silent instead of a flicker of the same
    * thing being rebuilt.
+   * @param {number} [waitedMs] - Time already spent waiting in view, for a
+   *   wait this one carries on: the overlay opens where that left off.
    */
-  show() {
+  show(waitedMs = 0) {
     if (this._element) {
       return; // Already showing
     }
 
-    this._waitedMs = 0;
+    this._waitedMs = waitedMs;
     this._lastTickAt = Date.now();
     this._hiddenSinceTick = false;
 
@@ -220,6 +222,7 @@ class LoadingOverlay {
     if (actionsElement) {
       actionsElement.replaceChildren(...this._actions.map((action) => this._actionButton(action)));
     }
+    if (waitedMs > 0) this._showWait();
 
     this._waitTimer = window.setInterval(() => this._tick(), TICK_MS);
   }
@@ -340,7 +343,15 @@ class LoadingOverlay {
     if (wasHidden) return;
 
     this._waitedMs += sinceLastTick;
+    this._showWait();
+  }
 
+  /**
+   * Reveal the info block once the grace period has been waited, and keep its
+   * wording on the time waited.
+   * @private
+   */
+  _showWait() {
     // The info block is always laid out (reserving its space so nothing
     // shifts); it's only kept invisible during the grace period.
     if (this._waitedMs < this._graceMs || !this._infoElement) return;

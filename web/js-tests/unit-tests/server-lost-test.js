@@ -154,6 +154,7 @@ export async function runTests(_ctx) {
     r.events.emit('close');
     r.clock.advance(GIVE_UP_AFTER_MS - 1000);
     r.events.emit('open');
+    r.events.emit('stable');
     r.clock.advance(GIVE_UP_AFTER_MS);
     assert(r.reports() === 0, 'reported an outage that ended');
     // A later outage gets a whole minute of its own.
@@ -162,6 +163,23 @@ export async function runTests(_ctx) {
     assert(r.reports() === 0, 'the second outage inherited the first one\'s time');
     r.clock.advance(1000);
     assert(r.reports() === 1, 'the second outage was never reported');
+    r.stop();
+  });
+
+  // A server that accepts the link and drops it a moment later, over and over:
+  // every open is followed by a close before the link has proved itself, so
+  // the outage never ended, and the window must still be moved on.
+  await test('a link that keeps opening and dropping does not restart the minute', () => {
+    const r = rig();
+    r.events.emit('close');
+    for (let elapsed = 0; elapsed < GIVE_UP_AFTER_MS - 7_000; elapsed += 7_000) {
+      r.clock.advance(6_000);
+      r.events.emit('open');
+      r.clock.advance(1_000);
+      r.events.emit('close');
+    }
+    r.clock.advance(7_000);
+    assert(r.reports() === 1, `want the report a minute after the outage began, got ${r.reports()} reports`);
     r.stop();
   });
 

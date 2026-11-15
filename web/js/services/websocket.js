@@ -98,7 +98,7 @@ const RECONNECT_JITTER = 0.25;
 const LINK_STABLE_AFTER_MS = 10000;
 
 /**
- * @typedef {'open'|'close'|'error'|'message'|'session'|'file-change'|'plugin-changed'|'providers-update'|'providers-ready'|'shell-output'|'reconnect-attempt'|'engine-bridge'|'update-status'|'clients-changed'|'pinboard-changed'|'pinboard-reveal'|'processes-changed'|'viewer-relay'|'workspaces-changed'|'settings-changed'|'server-full'} WSEventType
+ * @typedef {'open'|'close'|'error'|'message'|'session'|'file-change'|'plugin-changed'|'providers-update'|'providers-ready'|'shell-output'|'reconnect-attempt'|'engine-bridge'|'update-status'|'clients-changed'|'pinboard-changed'|'pinboard-reveal'|'processes-changed'|'viewer-relay'|'workspaces-changed'|'settings-changed'|'server-full'|'stable'} WSEventType
  */
 
 /**
@@ -306,7 +306,8 @@ class WebSocketService {
       'viewer-relay': [],
       'workspaces-changed': [],
       'settings-changed': [],
-      'server-full': []
+      'server-full': [],
+      stable: []
     };
   }
 
@@ -607,6 +608,8 @@ class WebSocketService {
     this.connected = false;
     this._connecting = false;
     this._binarySync = false;
+    // A link that died never proved itself, whether or not it is retried.
+    this._cancelStabilityCheck();
     // Frames of a message the dead socket never finished sending. The next
     // connection numbers its runs from one again, so keeping them would let a
     // fragment of the old link be spliced onto the new one.
@@ -1373,11 +1376,14 @@ class WebSocketService {
 
   /**
    * This link has lasted: forgive the backoff so the next drop, whenever it
-   * comes, gets the fast first retry a one-off blip deserves.
+   * comes, gets the fast first retry a one-off blip deserves, and tell those
+   * waiting out an outage ('stable') that it is over — which 'open' cannot,
+   * since a link that opens may drop again a moment later.
    * @private
    */
   _proveLinkStable() {
     this._reconnectAttempts = 0;
+    this._emit('stable', undefined);
   }
 
   /**

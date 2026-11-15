@@ -43,11 +43,19 @@ function forceHidden(hidden) {
  */
 function mountOverlay(options) {
   const overlay = new DisconnectionOverlay(options);
+  remount(overlay);
+  return overlay;
+}
+
+/**
+ * Show an overlay again and take its clock off the real timer.
+ * @param {DisconnectionOverlay} overlay - The overlay, not on screen.
+ */
+function remount(overlay) {
   overlay.show();
   const self = /** @type {any} */ (overlay);
   clearInterval(self._waitTimer);
   self._waitTimer = null;
-  return overlay;
 }
 
 /**
@@ -228,6 +236,24 @@ export async function runTests(_ctx) {
       } finally {
         document.body.classList.toggle('window-mode', hadWindowMode);
       }
+    });
+
+    // A link that opens and drops again a moment later hides the overlay and
+    // shows it again. Starting the wait from nothing each time keeps the
+    // wording, and Stop trying with it, off screen for good.
+    await test('a link that drops before proving itself resumes the wait', () => {
+      overlay = mountOverlay({ onGiveUp: () => {} });
+      tickFor(overlay, 26000);
+      overlay.hide();
+      remount(overlay);
+      assert(revealed(overlay), 'the wording, and its buttons, must be back at once after a flap');
+      assert(lineOn(overlay) === 'Still reconnecting.', `the ladder must carry on where it was, got "${lineOn(overlay)}"`);
+      overlay.hide();
+      overlay.linkProven();
+      remount(overlay);
+      assert(!revealed(overlay), 'an outage after a link that lasted must open on the spinner alone');
+      overlay.hide();
+      overlay = null;
     });
 
     await test('hiding the overlay leaves no listener behind', () => {

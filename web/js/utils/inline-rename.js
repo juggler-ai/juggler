@@ -52,9 +52,13 @@
  * @param {(api: {close: () => void}) => (Node|Node[]|null)} [options.actions] -
  *   Anything offered beneath the field as an alternative to typing a name.
  *   Given the editor's own `close` so an action can take over and dismiss it.
+ * @param {HTMLElement} [options.text] - The element inside `host` that draws
+ *   the name. When given, the field lies exactly over it, so the name stays
+ *   where it was as the editor opens (the row's stylesheet matches the font);
+ *   without it the field sits at the editor's own padding.
  * @returns {HTMLInputElement} The field, focused and selected.
  */
-export function openInlineRename(host, { value, maxLength, commit, onClose, actions }) {
+export function openInlineRename(host, { value, maxLength, commit, onClose, actions, text }) {
   const open = /** @type {HTMLInputElement|null} */ (host.querySelector('.inline-rename-input'));
   if (host.classList.contains('is-renaming') && open) {
     open.focus();
@@ -149,7 +153,33 @@ export function openInlineRename(host, { value, maxLength, commit, onClose, acti
 
   host.classList.add('is-renaming');
   host.appendChild(block);
+  if (text) alignOver(block, host, text);
   input.focus();
   input.select();
   return input;
+}
+
+/**
+ * Put the field where `text` draws the name, at its height, with the editor's
+ * padding taking up the distance from its own edge to the name's. The editor's
+ * box stays where its stylesheet put it, so its frame still bleeds round the
+ * row; only what is inside it moves. The font is the stylesheets' to match.
+ *
+ * The editor's position is read from its offsets, which ignore transforms, so
+ * an entry animation still running cannot skew the measurement; the host and
+ * the name share whatever transform the row has, so their difference is clean.
+ * @param {HTMLElement} block - The editor, already inside `host`.
+ * @param {HTMLElement} host - The row, the editor's offset parent.
+ * @param {HTMLElement} text - The element drawing the name.
+ */
+function alignOver(block, host, text) {
+  const hostBox = host.getBoundingClientRect();
+  const textBox = text.getBoundingClientRect();
+  const x = textBox.left - hostBox.left - host.clientLeft - (block.offsetLeft + block.clientLeft);
+  const y = textBox.top - hostBox.top - host.clientTop - (block.offsetTop + block.clientTop);
+
+  block.style.setProperty('--inline-rename-text-x', `${Math.max(0, x)}px`);
+  block.style.setProperty('--inline-rename-text-y', `${Math.max(0, y)}px`);
+  block.style.setProperty('--inline-rename-text-height', `${textBox.height}px`);
+  block.classList.add('is-aligned');
 }

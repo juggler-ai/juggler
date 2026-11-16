@@ -49,7 +49,9 @@
     flex-direction: column;
     justify-content: center;
     gap: var(--space-4);
-    padding: var(--space-6) var(--space-10);
+    padding:
+        var(--inline-rename-text-y, var(--space-6)) var(--space-10)
+        var(--space-6) var(--inline-rename-text-x, var(--space-10));
     background: var(--inline-rename-surface, var(--bg-primary));
     color: var(--text-primary);
     border: 0.0625rem solid var(--inline-rename-accent, var(--accent-blue));
@@ -61,11 +63,22 @@
     animation: inline-rename-in var(--popup-enter-duration) var(--popup-enter-ease);
 }
 
-/* It grows out of the row it covers rather than appearing on top of it. */
+/* Laid over the name it edits (the `text` option in the JS): the field's text
+   starts where the name's did, on the same line in the same font, so opening the
+   editor moves nothing — only the frame appears. Content stacks from the top so
+   an error line or actions row grows the editor downward without lifting the
+   field off the name. The offsets and the field's height (in the padding and
+   .inline-rename-input rules) are measured when it opens; the font is the
+   row's to match, since it is the row that knows how its name is set. */
+.inline-rename.is-aligned {
+    justify-content: flex-start;
+}
+
+/* The frame fades in over the row rather than appearing on top of it. Opacity
+   alone: a scale would slide the text it lies over the name with. */
 @keyframes inline-rename-in {
     from {
         opacity: 0;
-        transform: scale(0.97);
     }
 }
 
@@ -77,6 +90,7 @@
 
 .inline-rename-input {
     width: 100%;
+    height: var(--inline-rename-text-height, auto);
     box-sizing: border-box;
     background: transparent;
     color: inherit;

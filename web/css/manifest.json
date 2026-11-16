@@ -820,7 +820,10 @@
 		"--line-digits",
 		"--tt-arrow-x",
 		"--column-fit-floor",
-		"--visual-viewport-height"
+		"--visual-viewport-height",
+		"--inline-rename-text-x",
+		"--inline-rename-text-y",
+		"--inline-rename-text-height"
 	],
 	"$public": "The host's styling API for extensions and the SDK: the only web/css classes code under web/extensions may set or style (lint-css-arch extension-styling; README ▸ Extensions). Each entry says what an extension uses it for. A class not covered here is the host's to rename.",
 	"public": [

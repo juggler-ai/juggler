@@ -635,7 +635,8 @@ conversation-bar .conversation-bar-tab[aria-current="true"] {
     background-image: linear-gradient(var(--item-selected-strong-bg), var(--item-selected-strong-bg));
 }
 
-conversation-bar .conversation-bar-tab[aria-current="true"] .conversation-bar-tab-name {
+conversation-bar .conversation-bar-tab[aria-current="true"] .conversation-bar-tab-name,
+conversation-bar .conversation-bar-tab[aria-current="true"] .inline-rename-input {
     font-weight: var(--font-weight-semibold);
 }
 

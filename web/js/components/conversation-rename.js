@@ -47,6 +47,8 @@ export function openConversationRename(tab, { session, conversation, initialValu
 
   openInlineRename(tab, {
     value: initialValue ?? conversation.name,
+    // The field lies over the name it replaces, so the text stays put.
+    text: /** @type {HTMLElement|undefined} */ (tab.querySelector('.conversation-bar-tab-name') ?? undefined),
     // UI-level enforcement of the shared name-length cap: the browser blocks
     // further typed input at the limit. This editor backs both rename and the
     // "name a new conversation" flow, so both paths are covered here. The data

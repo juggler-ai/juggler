@@ -111,7 +111,7 @@ pinboard-shell.is-open .pinboard-panel {
     width: 0.375rem;
     transform: translateX(-50%);
     background: transparent;
-    cursor: col-resize;
+    cursor: var(--cursor-col-resize);
 
     /* Half the strip lies over the panel's interior, and `pinboard-content` is
        a positioned later sibling, so without this the pin is painted over the

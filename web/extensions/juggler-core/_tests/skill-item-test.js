@@ -238,6 +238,73 @@ export async function runTests(_ctx) {
     assert(threw, 'loading an unknown skill must throw');
   });
 
+  // ---- disable-model-invocation: the user starts it, the model may not ----
+
+  const userOnly = [
+    { name: 'pdf-tools', description: 'Handle PDFs', scope: 'project', source: 'juggler' },
+    { name: 'review-doc', description: 'Review a design doc', scope: 'user', source: 'juggler', frontmatter: { disableModelInvocation: true } }
+  ];
+  const userOnlyBodies = { ...oneBody, 'review-doc': { body: '# Review', files: [] } };
+
+  /**
+   * An item executing one `skill` call, as the executor builds it: bound to the
+   * call's tool-use id, in a thread whose tool-action for it carries
+   * `userInvoked` when the user asked for the load.
+   * @param {boolean} userInvoked - Whether the call came from a `$name` mention
+   * @returns {FakeSkillItem} Item for that call
+   */
+  function itemForCall(userInvoked) {
+    const toolAction = new Map(userInvoked ? [['userInvoked', true]] : []);
+    const messageThread = /** @type {any} */ ({ getToolAction: (/** @type {string} */ id) => (id === 'tu-1' ? toolAction : null) });
+    return new FakeSkillItem(
+      /** @type {any} */ ({ id: 'SKILL_call', session, conversation, messageThread, toolUseId: 'tu-1' }),
+      userOnly,
+      userOnlyBodies
+    );
+  }
+
+  await test('a user-only skill is left out of the system-prompt block', async () => {
+    const block = await makeItem(userOnly).createContextText({});
+    assert(block.includes('- pdf-tools: Handle PDFs'), `model-invocable skill must stay listed; got:\n${block}`);
+    assert(!block.includes('review-doc'), `user-only skill must not be listed for the model; got:\n${block}`);
+    const none = await makeItem([userOnly[1]]).createContextText({});
+    assert(none === '', `only user-only skills must contribute no block; got:\n${none}`);
+  });
+
+  await test('the frozen snapshot keeps a user-only skill for the composer and its flag for the block', async () => {
+    const item = makeItem(userOnly);
+    await item.handleToolCall('skill', {}, { session, conversation });
+    const row = frozenSkills(item).find((s) => s.name === 'review-doc');
+    assert(row?.disableModelInvocation === true, `snapshot must carry the flag; got: ${JSON.stringify(row)}`);
+    assert(!('disableModelInvocation' in (frozenSkills(item).find((s) => s.name === 'pdf-tools') || {})),
+      'an unflagged row must serialize as it did before the flag existed');
+    const offered = (await item.getSnapshotSkills()).map((s) => s.name);
+    assert(offered.includes('review-doc'), `the composer must still offer the user-only skill; got: ${offered}`);
+    const block = await item.createContextText({});
+    assert(!block.includes('review-doc'), `block from the snapshot must omit it; got:\n${block}`);
+  });
+
+  await test('the skill tool refuses a user-only skill the model asked for', async () => {
+    let message = '';
+    try {
+      await itemForCall(false).execute({ name: 'review-doc' });
+    } catch (e) {
+      message = e instanceof Error ? e.message : String(e);
+    }
+    assert(message.startsWith('Skill "review-doc" is user-invocable only'), `expected the user-only refusal; got: ${JSON.stringify(message)}`);
+    assert(message.includes('$review-doc'), `refusal should say how the user starts it; got: ${message}`);
+  });
+
+  await test('the skill tool loads a user-only skill the user asked for ($name)', async () => {
+    const res = await itemForCall(true).execute({ name: 'review-doc' });
+    assert(res.alreadyLoaded === false && res.body === '# Review', `user-invoked load must succeed; got: ${JSON.stringify(res)}`);
+  });
+
+  await test('a model call still loads a skill without the flag', async () => {
+    const res = await itemForCall(false).execute({ name: 'pdf-tools' });
+    assert(res.body === '# PDF tools\n\nStep one.', `model-invocable load must succeed; got: ${JSON.stringify(res)}`);
+  });
+
   await test('getSummary reports a failed load', () => {
     const item = makeItem(oneSkill, oneBody);
     const summary = item.getSummary({ success: false, error: 'boom' });
@@ -372,14 +439,15 @@ export async function runTests(_ctx) {
       'The LLM can choose to load a particular skill with a tool-call if it decides it\'s useful during the chat.',
       'Loading a skill only adds text. Any scripts or files it bundles are read or run later through the normal tools, under your usual approval rules.',
       'Manage skills', '(unnamed)', '(unknown skill)', 'scripts', 'Bundles scripts that can be run through the normal tools',
-      'loaded', 'Already loaded into this conversation', 'No description.', 'Details',
+      'loaded', 'Already loaded into this conversation', 'user only',
+      'Only you can start this skill, with a $ mention. It isn\u2019t listed for the LLM.', 'No description.', 'Details',
       'View this skill\'s SKILL.md and files', 'Files ({count})', 'Instructions',
       'These instructions were already loaded earlier in this conversation, so they weren\u2019t added again.',
     ];
     const DATA = '.skills-card-name, .skills-scope-badge, .skills-file-path, .skills-file-size, .skill-load-body, .skill-load-raw';
     const skills = [
       { name: '1', description: '', scope: 'project', source: 'juggler', hasScripts: true },
-      { name: '2', description: '', scope: 'user', source: 'agents' },
+      { name: '2', description: '', scope: 'user', source: 'agents', frontmatter: { disableModelInvocation: true } },
     ];
     const bodies = { 1: { body: '3', files: [{ path: 'SKILL.md', size: 4 }, { path: '5', size: 6 }] } };
     /**
@@ -434,7 +502,7 @@ export async function runTests(_ctx) {
       const panel = document.createElement('div');
       await item.__renderPanelForTests(panel);
       check('standing card', () => assertPseudoLocalized(panel, { skip: DATA, atLeast: 10, where: 'standing card' }));
-      check('standing card badges', () => assert(panel.querySelectorAll('.skills-badge').length === 2, 'expected the scripts and loaded badges'));
+      check('standing card badges', () => assert(panel.querySelectorAll('.skills-badge').length === 3, 'expected the scripts, loaded and user-only badges'));
       const empty = document.createElement('div');
       await makeItem([]).__renderPanelForTests(empty);
       check('empty card', () => assertPseudoLocalized(empty, { skip: DATA, atLeast: 6, where: 'empty card' }));

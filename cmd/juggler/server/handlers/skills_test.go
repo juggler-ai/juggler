@@ -130,6 +130,45 @@ func TestSkillsDiscoverValid(t *testing.T) {
 	}
 }
 
+// disable-model-invocation marks a skill the user starts and the model may not.
+// The flag reaches the list as a boolean, under either spelling; anything but a
+// YAML true leaves the skill model-invocable.
+func TestSkillsDisableModelInvocation(t *testing.T) {
+	project := t.TempDir()
+	api := newTestSkillsAPI(t, project)
+	root := projectJugglerRoot(project)
+	cases := map[string]struct {
+		line string
+		want bool
+	}{
+		"kebab":     {"disable-model-invocation: true", true},
+		"camel":     {"disableModelInvocation: true", true},
+		"capital":   {"disable-model-invocation: True", true},
+		"quoted":    {`disable-model-invocation: "true"`, true},
+		"commented": {"disable-model-invocation: true # user only", true},
+		"false":     {"disable-model-invocation: false", false},
+		"garbage":   {"disable-model-invocation: sometimes", false},
+		"absent":    {"license: MIT", false},
+	}
+	for name, c := range cases {
+		writeSkill(t, root, name, "---\nname: "+name+"\ndescription: A skill.\n"+c.line+"\n---\nBody.\n")
+	}
+	got := skillsByName(listSkills(t, api))
+	for name, c := range cases {
+		s, ok := got[name]
+		if !ok {
+			t.Errorf("%s: not listed", name)
+			continue
+		}
+		if s.Error != "" {
+			t.Errorf("%s: unexpected error %q", name, s.Error)
+		}
+		if s.Frontmatter.DisableModelInvocation != c.want {
+			t.Errorf("%s: disableModelInvocation = %v, want %v", name, s.Frontmatter.DisableModelInvocation, c.want)
+		}
+	}
+}
+
 func TestSkillsDiscoverAcrossRoots(t *testing.T) {
 	project := t.TempDir()
 	api := newTestSkillsAPI(t, project)

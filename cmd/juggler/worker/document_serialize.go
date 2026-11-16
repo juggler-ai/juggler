@@ -523,6 +523,7 @@ func yMapToConversationItem(m *ycrdt.YMap) ConversationItem {
 		ResultSpec:      yMapString(m, keyResultSpec),
 		Draft:           yMapRawJSON(m, keyDraft),
 		Executor:        yMapString(m, keyExecutor),
+		UserInvoked:     yMapBool(m, keyUserInvoked),
 
 		PreventUserDeletion: yMapBool(m, keyPreventUserDeletion),
 		IsNew:               yMapBool(m, keyIsNew),

@@ -66,6 +66,11 @@ type SkillFrontmatter struct {
 	License       string `json:"license,omitempty"`
 	Compatibility string `json:"compatibility,omitempty"`
 	AllowedTools  string `json:"allowedTools,omitempty"` // surfaced read-only; NOT honored in v1 (see plan §4)
+	// DisableModelInvocation marks a skill only the user may start (a `$name`
+	// mention or the composer's picker): it is left out of the model's "## Skills"
+	// list, and the `skill` tool refuses it unless the user asked for it
+	// (skill-context-item.js).
+	DisableModelInvocation bool `json:"disableModelInvocation,omitempty"`
 }
 
 // Skill is one discovered skill — metadata only, never the SKILL.md body. A
@@ -299,9 +304,25 @@ func ParseSkillFile(data []byte) (SkillFrontmatter, string, error) {
 			fm.Compatibility = value
 		case "allowed-tools", "allowedTools":
 			fm.AllowedTools = value
+		case "disable-model-invocation", "disableModelInvocation":
+			fm.DisableModelInvocation = frontmatterTrue(value)
 		}
 	})
 	return fm, body, nil
+}
+
+// frontmatterTrue reports whether a scalar is YAML's true, ignoring a trailing
+// ` # comment`. Anything else, including a typo, is false: the field it reads
+// leaves a skill as it would be without it.
+func frontmatterTrue(value string) bool {
+	if i := strings.Index(value, " #"); i >= 0 {
+		value = strings.TrimSpace(value[:i])
+	}
+	switch value {
+	case "true", "True", "TRUE":
+		return true
+	}
+	return false
 }
 
 // listSkillFiles walks a skill directory and returns every regular file as a

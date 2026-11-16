@@ -7,7 +7,7 @@ import ContextItem from 'juggler/context-item';
 import { formatFileSize, formatFileSizeForDisplay } from 'juggler/item-utils';
 import { smartTruncate, createElement, renderMarkdown, decorateCodeBlocks } from 'juggler/ui';
 import { translator, markUntranslated } from 'juggler/i18n';
-import { getAvailableSkills, fetchSkillBody } from '../../../js/services/skills.js';
+import { getAvailableSkills, fetchSkillBody, isUserOnlySkill } from '../../../js/services/skills.js';
 import { toolActionResult, toolActionResultValue } from '../lib/tool-action-result.js';
 
 const t = translator('@juggler/core');
@@ -37,6 +37,12 @@ const t = translator('@juggler/core');
  * memory; editing or deleting a skill on disk changes only NEW conversations,
  * never an existing one's injected context. The `skill` tool is a `meta`,
  * auto-approved, read-only tool, so it works even under the read-only strategy.
+ *
+ * A skill whose author set `disable-model-invocation: true` is the user's to
+ * start: it stays in the snapshot (so the composer offers it to `$name` and the
+ * picker) but is left out of the "## Skills" block, and the `skill` tool loads it
+ * only on a call the worker made for the user (`userInvoked`, newSkillToolAction
+ * in the Go worker) — never on one the model made, even by guessing the name.
  * @class
  * @augments ContextItem
  */
@@ -171,12 +177,15 @@ class SkillContextItem extends ContextItem {
     } catch {
       skills = [];
     }
+    // The flag is written only when set, so an unflagged row serializes exactly
+    // as one frozen before the flag existed.
     return /** @type {any} */ ((skills || []).map((s) => ({
       name: s.name,
       description: s.description || '',
       scope: s.scope,
       source: s.source,
-      hasScripts: !!s.hasScripts
+      hasScripts: !!s.hasScripts,
+      ...(isUserOnlySkill(s) ? { disableModelInvocation: true } : {})
     })));
   }
 
@@ -204,9 +213,9 @@ class SkillContextItem extends ContextItem {
   /**
    * The frozen skill snapshot for this conversation, for composer-driven
    * activation (the `$name` completion provider and picker button in the input
-   * box). Returns exactly the set advertised to the model this conversation —
-   * the same list {@link execute} resolves against — so the composer can never
-   * offer or send a `$name` the `skill` tool would then reject. A thin public
+   * box). Returns the same list {@link execute} resolves against — so the
+   * composer can never offer or send a `$name` the `skill` tool would then
+   * reject — including the user-only skills the model's block leaves out. A thin public
    * wrapper over {@link _effectiveSkills} (the panel/system-block share that
    * private path); the composer reaches it through the message thread's Skills
    * item rather than the private method.
@@ -299,6 +308,12 @@ class SkillContextItem extends ContextItem {
         `No skill named "${name}" is available. Use an exact name from the "## Skills" list in the system prompt.`
       ));
     }
+    if (isUserOnlySkill(skill) && !this._userInvoked()) {
+      throw new Error(markUntranslated(
+        `Skill "${name}" is user-invocable only: its author reserved it for the user to start. ` +
+        `If it fits the task, suggest the user run it by typing $${name}.`
+      ));
+    }
     if (this._loadedSet().has(name)) {
       return { name, scope: skill.scope, source: skill.source, alreadyLoaded: true };
     }
@@ -323,6 +338,19 @@ class SkillContextItem extends ContextItem {
       body: (detail && detail.body) || '',
       files: (detail && detail.files) || []
     };
+  }
+
+  /**
+   * Whether the user asked for the `skill` call this instance is executing: the
+   * worker stamps `userInvoked` on the tool-action it makes for a `$name`
+   * mention or a picker choice, and nothing the model sends can set it.
+   * @returns {boolean} True for a user-directed load
+   * @private
+   */
+  _userInvoked() {
+    if (!this.toolUseId) return false;
+    const toolAction = this.messageThread?.getToolAction?.(this.toolUseId);
+    return toolAction?.get('userInvoked') === true;
   }
 
   /**
@@ -372,12 +400,14 @@ class SkillContextItem extends ContextItem {
    * and deterministic (stable name order in, byte-stable text out) so it rides
    * the prompt cache. Empty input contributes nothing. The first MAX_LISTED
    * skills get a `name: description` line; any overflow is listed by name only,
-   * so every available skill stays activatable by exact name.
-   * @param {Array<{name: string, description?: string}>} skills - Activatable skills, name-sorted
-   * @returns {string} The block, or '' when there are no skills
+   * so every available skill stays activatable by exact name. A user-only skill
+   * (disable-model-invocation) is not the model's to start, so it is not listed.
+   * @param {Array<{name: string, description?: string, disableModelInvocation?: boolean, frontmatter?: {disableModelInvocation?: boolean}}>} available - Activatable skills, name-sorted
+   * @returns {string} The block, or '' when there are no skills the model may load
    */
-  static _buildBlock(skills) {
-    if (!Array.isArray(skills) || skills.length === 0) {
+  static _buildBlock(available) {
+    const skills = Array.isArray(available) ? available.filter((s) => !isUserOnlySkill(s)) : [];
+    if (skills.length === 0) {
       return '';
     }
     const shown = skills.slice(0, SkillContextItem.MAX_LISTED);
@@ -499,7 +529,7 @@ class SkillContextItem extends ContextItem {
 
   /**
    * Test seam: builds one skill card as the standing list and a load panel do.
-   * @param {{name: string, description?: string, scope?: string, source?: string, hasScripts?: boolean}} skill - Skill metadata
+   * @param {{name: string, description?: string, scope?: string, source?: string, hasScripts?: boolean, disableModelInvocation?: boolean}} skill - Skill metadata
    * @returns {HTMLElement} Card element
    */
   static __skillCardForTests(skill) {
@@ -571,7 +601,7 @@ class SkillContextItem extends ContextItem {
    * Build one skill card in the settings Skills-page style (name, scope/source
    * and scripts badges, description). Used for both the standing list and the
    * header of a load panel.
-   * @param {{name: string, description?: string, scope?: string, source?: string, hasScripts?: boolean}} skill - Skill metadata
+   * @param {{name: string, description?: string, scope?: string, source?: string, hasScripts?: boolean, disableModelInvocation?: boolean}} skill - Skill metadata
    * @param {boolean} [loaded] - Mark the card as already loaded this conversation
    * @param {boolean} [withPreview] - Append a Details button opening the shared SKILL.md popup
    * @returns {HTMLElement} Card element
@@ -588,6 +618,11 @@ class SkillContextItem extends ContextItem {
     if (skill.hasScripts) {
       const b = createElement('span', 'skills-badge tint-blue', t('scripts'));
       b.title = t('Bundles scripts that can be run through the normal tools');
+      head.appendChild(b);
+    }
+    if (isUserOnlySkill(skill)) {
+      const b = createElement('span', 'skills-badge tint-purple', t('user only'));
+      b.title = t('Only you can start this skill, with a $ mention. It isn\u2019t listed for the LLM.');
       head.appendChild(b);
     }
     if (loaded) {

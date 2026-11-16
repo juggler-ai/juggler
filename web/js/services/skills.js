@@ -35,6 +35,7 @@ import { apiUrl } from '../utils/api-url.js';
  * @property {string} [license] - License name or bundled file reference
  * @property {string} [compatibility] - Environment requirements
  * @property {string} [allowedTools] - Space-separated pre-approved tools (surfaced read-only; NOT honored in v1)
+ * @property {boolean} [disableModelInvocation] - Only the user may start it (`disable-model-invocation: true`)
  */
 
 /**
@@ -49,6 +50,8 @@ import { apiUrl } from '../utils/api-url.js';
  * @property {boolean} hasReferences - Whether a references/ subdirectory exists
  * @property {string} [shadowedBy] - "<scope>-<source>" of the higher-precedence skill that shadows this one
  * @property {string} [error] - Set when the skill failed to parse/validate
+ * @property {boolean} [disableModelInvocation] - A conversation's frozen snapshot
+ *   row carries the frontmatter flag here, at the top level
  */
 
 /**
@@ -108,6 +111,19 @@ export async function getAvailableSkills() {
   return all
     .filter((s) => !s.error && !s.shadowedBy)
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+}
+
+/**
+ * Whether only the user may start a skill: its author set
+ * `disable-model-invocation: true`. Such a skill is offered to `$name` and the
+ * composer's picker but kept out of the model's "## Skills" list, and the `skill`
+ * tool loads it only on the user's behalf. Reads a catalog row (the flag in its
+ * frontmatter) or a conversation's frozen snapshot row (the flag at the top).
+ * @param {{disableModelInvocation?: boolean, frontmatter?: SkillFrontmatter}} skill - Catalog or snapshot row
+ * @returns {boolean} True when the model may not start it
+ */
+export function isUserOnlySkill(skill) {
+  return skill.disableModelInvocation === true || skill.frontmatter?.disableModelInvocation === true;
 }
 
 /**

@@ -1113,6 +1113,12 @@ type ConversationItem struct {
 	// the browser at evaluate; the liveness checks skip such an action.
 	Executor string `json:"executor,omitempty"`
 
+	// UserInvoked marks a tool-action the user asked for, not the model: a
+	// `skill` load from a `$name` mention or the composer's picker
+	// (newSkillToolAction). The `skill` tool loads a skill its author kept from
+	// the model (disable-model-invocation) only on such a call.
+	UserInvoked bool `json:"userInvoked,omitempty"`
+
 	// Context-item specific fields
 	PreventUserDeletion bool   `json:"preventUserDeletion,omitempty"` // Whether context item cannot be deleted by user
 	IsNew               bool   `json:"isNew,omitempty"`               // Whether context item is newly created

@@ -213,7 +213,10 @@ when a task matches. Discovered at:
 - <config>/skills/<name>/SKILL.md (~/.juggler/skills/) and ~/.agents/skills/...
 
 The .agents paths are cross-agent aliases. Files in a skill are read through the
-ordinary read and bash tools under normal approval — no new access path.
+ordinary read and bash tools under normal approval — no new access path. A skill
+whose frontmatter sets disable-model-invocation: true is yours to start: type
+$name in the message box. It is not listed for the model, and the skill tool
+refuses it unless you asked for it.
 
 ## Tool hooks
 

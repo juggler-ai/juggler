@@ -93,7 +93,7 @@
         "preventUserDeletion", "isNew", "error", "runToolUseId", "runToolName", "runToolInput", "runGoal",
         "runStatus", "runResult", "continuation", "runItemId", "recoversError", "runResultFed", "transactionId",
         "providerData", "attachments", "heldAssets", "taskSource", "llmCreated", "strategyCreated",
-        "canSpawnThreads", "delegated", "readOnly", "resultSpec", "draft", "executor"
+        "canSpawnThreads", "delegated", "readOnly", "resultSpec", "draft", "executor", "userInvoked"
       ],
       "itemUntyped": {
         "$comment": "Keys the worker reads or writes on item maps that ConversationItem does not declare.",

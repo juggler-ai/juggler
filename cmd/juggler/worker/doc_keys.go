@@ -79,6 +79,7 @@ const (
 	keyResultSpec             = "resultSpec"
 	keyDraft                  = "draft"
 	keyExecutor               = "executor"
+	keyUserInvoked            = "userInvoked"
 )
 
 // Item-map keys ConversationItem does not declare (docKeys.itemUntyped): run-time

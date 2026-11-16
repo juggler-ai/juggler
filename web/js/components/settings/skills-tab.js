@@ -23,7 +23,7 @@ import { presentPopup } from '../../utils/popup-surface.js';
 import { applyMenuRoles, attachMenuKeyboard } from '../../utils/menu-roles.js';
 import { addFilePath } from '../../utils/properties-panel-helpers.js';
 import { skillPreviewShell, openInstalledSkillPreview } from './skill-preview.js';
-import { fetchSkills, resetSkillsCache } from '../../services/skills.js';
+import { fetchSkills, resetSkillsCache, isUserOnlySkill } from '../../services/skills.js';
 import { reloadRegistries } from '../../registries/reload-registries.js';
 import {
   fetchCatalog,
@@ -410,6 +410,9 @@ export class SkillsTab {
       .map((s) => {
         const badge = `<span class="skills-scope-badge">${escapeHtml(s.scope)}-${escapeHtml(s.source)}</span>`;
         const scripts = s.hasScripts ? `<span class="skills-badge tint-blue">${escapeHtml(t('scripts'))}</span>` : '';
+        const userOnly = isUserOnlySkill(s)
+          ? `<span class="skills-badge tint-purple" title="${escapeHtml(t('Only you can start this skill, with a $ mention. It isn\u2019t listed for the LLM.'))}">${escapeHtml(t('user only'))}</span>`
+          : '';
         const flag = s.error
           ? `<span class="skills-badge error tint-red" title="${escapeHtml(s.error)}">⚠ ${escapeHtml(s.error)}</span>`
           : s.shadowedBy
@@ -424,7 +427,7 @@ export class SkillsTab {
             <div class="skills-manage-main">
               <div class="skills-card-head">
                 <span class="skills-card-name">${escapeHtml(s.name)}</span>
-                ${badge}${scripts}${flag}
+                ${badge}${scripts}${userOnly}${flag}
               </div>
               <div class="skills-card-desc">${escapeHtml(s.description || t('No description.'))}</div>
               ${pathRow}

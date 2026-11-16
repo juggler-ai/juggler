@@ -37,16 +37,18 @@ func generateSkillToolUseID() string {
 
 // newSkillToolAction builds the tool-action ConversationItem for one skill load.
 // State is left undefined so the engine evaluates (and auto-approves) it, exactly
-// as for a model-issued skill call.
+// as for a model-issued skill call. UserInvoked is the one difference: it lets
+// the user load a skill whose author kept it from the model.
 func newSkillToolAction(name string) ConversationItem {
 	input, _ := json.Marshal(map[string]string{keyName: name})
 	return ConversationItem{
-		Type:      ItemTypeToolAction,
-		ItemID:    generateItemID(),
-		ToolUseID: generateSkillToolUseID(),
-		ToolName:  "skill",
-		ToolInput: json.RawMessage(input),
-		Timestamp: time.Now().Format(time.RFC3339),
+		Type:        ItemTypeToolAction,
+		ItemID:      generateItemID(),
+		ToolUseID:   generateSkillToolUseID(),
+		ToolName:    "skill",
+		ToolInput:   json.RawMessage(input),
+		Timestamp:   time.Now().Format(time.RFC3339),
+		UserInvoked: true,
 	}
 }
 

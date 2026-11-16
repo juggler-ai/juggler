@@ -6,6 +6,8 @@ the current release). The project follows semantic versioning.
 
 ## [Unreleased]
 
+- Skills with 'disable-model-invocation: true' are yours to start with $name, never the model's
+
 ## [0.8.1] - 2026-11-15
 
 - Faster loading and much lighter traffic over remote and slow connections

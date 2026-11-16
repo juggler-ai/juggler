@@ -196,6 +196,7 @@ export const ACTION_STATES = Object.freeze({
  * @property {string} state - Tool lifecycle state (a ToolState, or '' before evaluation)
  * @property {string} category - The tool's declared category
  * @property {string} executor - 'worker' on a tool action the worker runs itself
+ * @property {boolean} userInvoked - A tool action the user asked for (a `$name` skill load), not the model
  * @property {unknown} approvalOptions - Approval form options
  * @property {string} approvalResponse - The answer written to the approval form
  * @property {string} approvalSource - What approved the call

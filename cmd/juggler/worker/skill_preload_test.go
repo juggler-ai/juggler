@@ -68,6 +68,11 @@ func TestSkillPreload_ProseInjectsAfterUserMessage(t *testing.T) {
 	if in["name"] != "tdd" {
 		t.Fatalf("skill toolInput name = %q, want %q", in["name"], "tdd")
 	}
+	// The user asked for it: the mark is what lets the `skill` tool load a
+	// skill the model may not start itself (disable-model-invocation).
+	if !skills[0].UserInvoked {
+		t.Fatal("injected skill action must carry userInvoked")
+	}
 	// The injected action is left unevaluated so the engine auto-approves it.
 	if skills[0].State != "" {
 		t.Fatalf("injected skill state = %q, want unset (needs evaluation)", skills[0].State)

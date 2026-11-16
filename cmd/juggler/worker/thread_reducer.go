@@ -443,6 +443,8 @@ func (r *run) drainReconcile() int {
 				"(%d capped drain(s) since the last report)", maxReconcilePasses, r.sched.lastReconcileReason(), n)
 		}
 	}
+	// The reducer is quiet: a /compact queued while a turn ran may fold now.
+	r.fireQueuedCompaction()
 	return passes
 }
 

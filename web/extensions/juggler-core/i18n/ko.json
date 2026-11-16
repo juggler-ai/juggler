@@ -95,6 +95,7 @@
   "Commit": "커밋",
   "Commit the changes": "변경 사항 커밋",
   "Compact": "압축",
+  "Compacting when the current turn finishes.": "현재 턴이 끝나면 압축합니다.",
   "Compaction is already in progress.": "이미 압축이 진행 중입니다.",
   "Compare": "비교",
   "Completing step": "단계 완료 중",

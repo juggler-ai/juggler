@@ -11,6 +11,7 @@ the current release). The project follows semantic versioning.
 - Clearing a prompt with Escape keeps its images in the prompt history
 - Pinboard Pop-out works in windows connected to another machine's server
 - Popped-out pinboards reopen only on the machine that popped them out
+- /compact during a running turn waits for it to finish instead of stopping it
 
 ## [0.8.1] - 2026-11-15
 

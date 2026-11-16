@@ -193,6 +193,10 @@ type ConversationWorker struct {
 	heldIndex *heldSendIndex
 	// heldPublished is the entry last published to heldIndex. Actor only.
 	heldPublished heldPublication
+	// noQueuedCompaction is set once a walk found no /compact queued in any
+	// thread, and cleared when one is queued, so a drain with none waiting skips
+	// the walk (compaction_queued.go). Actor only.
+	noQueuedCompaction bool
 	// attentionIndex is the Manager's attention index this worker publishes
 	// its entry to (attention.go), set before Start; nil for a worker built
 	// without a Manager.

@@ -95,6 +95,7 @@
   "Commit": "提交",
   "Commit the changes": "提交更改",
   "Compact": "压缩",
+  "Compacting when the current turn finishes.": "当前回合结束后将进行压缩。",
   "Compaction is already in progress.": "压缩已在进行中。",
   "Compare": "比较",
   "Completing step": "正在完成步骤",

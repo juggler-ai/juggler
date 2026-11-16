@@ -1307,17 +1307,20 @@ export class WorkerManager {
    * with the worker's result once the (fast) fold has committed; the summary
    * generates afterward and streams in via the normal doc sync.
    * @param {string} conversationId - Conversation whose worker performs the fold
-   * @param {{ threadItemId?: string|null, handoffPromote?: boolean, keepRecent?: boolean }} [opts]
-   *   `threadItemId` names the thread whose history folds; absent, the root's
-   * @returns {Promise<{ folded: boolean, error?: string }>} The worker's outcome
-   *   (`folded` false when there was nothing to fold)
+   * @param {{ threadItemId?: string|null, handoffPromote?: boolean, keepRecent?: boolean, queueIfBusy?: boolean }} [opts]
+   *   `threadItemId` names the thread whose history folds; absent, the root's.
+   *   `queueIfBusy` queues the fold behind a running turn instead of refusing it
+   * @returns {Promise<{ folded: boolean, queued?: boolean, error?: string }>} The
+   *   worker's outcome (`folded` false when there was nothing to fold, or the fold
+   *   was `queued`)
    */
-  async compact(conversationId, { threadItemId = null, handoffPromote = false, keepRecent = false } = {}) {
+  async compact(conversationId, { threadItemId = null, handoffPromote = false, keepRecent = false, queueIfBusy = false } = {}) {
     const result = await this.sendWithAck(conversationId, {
       type: 'compact',
       ...(threadItemId ? { threadItemId } : {}),
       handoffPromote,
-      keepRecent
+      keepRecent,
+      ...(queueIfBusy ? { queueIfBusy } : {})
     });
     return result ?? { folded: false };
   }

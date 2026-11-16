@@ -71,7 +71,8 @@ func WithoutHeldSends(state []byte) (out []byte, changed bool, err error) {
 }
 
 // dropHeldSends deletes every held send from every thread's queue, in one
-// untracked transaction per queue. Reports whether it deleted any.
+// untracked transaction per queue, and every queued /compact, which waited on a
+// turn the copy does not have. Reports whether it deleted any.
 func (cd *ConversationDocument) dropHeldSends() bool {
 	ycrdtMu.Lock()
 	defer ycrdtMu.Unlock()
@@ -80,6 +81,9 @@ func (cd *ConversationDocument) dropHeldSends() bool {
 		queue, ok := yMapArray(parent, keyPendingItems)
 		if !ok {
 			return
+		}
+		if dropCompactionEntriesLocked(cd, queue) > 0 {
+			dropped = true
 		}
 		held := groupIndicesLocked(queue, entryHold.stamped)
 		if len(held) == 0 {

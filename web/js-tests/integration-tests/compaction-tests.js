@@ -735,144 +735,104 @@ const duplicateConversationTest = {
 };
 
 /**
- * The cancel-before-mutate architectural fix, and the confirmation that gates it.
+ * /compact typed while a turn runs waits for it instead of stopping it.
  *
  * Scenario: a turn is in flight (LLM mid-stream, paused at the mock barrier
  * exactly as a real long-running tool action would leave the worker busy).
- * The user fires `/compact` mid-flight. The expected architectural behaviour
- * is:
+ * The user fires `/compact all` mid-flight. No confirmation is asked and the
+ * turn is not cancelled: the worker queues the request in the thread's pending
+ * queue, where it waits like a queued message. Once the turn finishes, the
+ * conversation is at rest and the fold runs, so the summary thread holds the
+ * turn's complete reply.
  *
- *   1. `SlashCommandHandler` notices `/compact` is a `mutatesConversation`
- *      command and the conversation is processing, so it asks whether the turn
- *      may be stopped and, on yes, awaits `conversation.cancelAndSettle()`
- *      before invoking the command.
- *   2. `cancelAndSettle()` cancels the worker (the paused mock is abandoned),
- *      cancels any running actions, and resolves only once everything is idle.
- *   3. `/compact` then snapshots a *stable* item list and runs the normal
- *      compaction path. The sub-thread's strategy loop produces the summary.
- *
- * Without the cancel `/compact` runs while processing is still live: it snapshots
- * mid-flight items (including the partial assistant text that the worker is
- * about to keep streaming into), moves them into a sub-thread, and leaves the
- * original turn's processing state dangling — the user sees a sub-thread item
- * stuck `state: 'running'` and the parent never settles cleanly until they
- * hit Escape.
- *
- * Asserts the confirmation is raised, the full document shape, AND that no item
- * anywhere in the document (parent or nested thread) carries `state: 'running'`
- * once the test settles.
+ * Non-vacuous: a /compact that stopped the turn would never sit in the queue
+ * (the `pendingContent` wait), and would fold the reply cut short or not at
+ * all, so the complete reply could not be inside the fold.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-const compactionCancelsRunningTurnTest = {
-  name: 'compaction-cancels-running-turn',
-  description: '/compact mid-flight asks, then cancels the live turn before snapshotting; no item is left stuck running',
+const compactionWaitsForRunningTurnTest = {
+  name: 'compaction-waits-for-running-turn',
+  description: '/compact mid-flight is queued, the turn finishes untouched, then the conversation folds',
   fixture: 'unit-test-fixture',
 
   llmResponses: [
-    // First mock: streams a partial response then pauses, simulating a
-    // live in-flight turn at the moment /compact is fired.
-    textResponse('Partial response cut short by /compact.', { pauseBeforeReturn: true }),
-    // Second mock: the compaction sub-thread's summarisation reply.
-    summaryResponse('Summary after mid-flight compaction.')
+    textResponse('Response the turn finished.', { pauseBeforeReturn: true }),
+    summaryResponse('Summary after the turn finished.')
   ],
 
   operations: [
     { type: 'send-message-no-wait', message: 'Message 1' },
     { type: 'wait-for-mock-paused' },
-    // Armed before the command, because the command blocks on the answer.
-    { type: 'expect-confirm', answer: true },
-    // Fire /compact while the worker is paused mid-turn. Confirmed, this
-    // awaits cancelAndSettle() before mutating; without the cancel, the
-    // snapshot races the live turn and leaves orphaned running state.
-    { type: 'run-command', command: 'compact', args: 'all' },
-    {
-      type: 'assert-confirm-shown',
-      titleContains: 'Stop the current turn?',
-      messageContains: '/compact'
-    },
+    { type: 'run-command-no-wait', command: 'compact', args: 'all' },
+    { type: 'wait-for-state', condition: { pendingContent: '/compact all' } },
+    { type: 'release-mock' },
     { type: 'wait-for-state', condition: { hasCompactionBarrier: true } }
   ],
 
   expectedDocument: {
     items: [
       { type: 'system-prompt', itemId: '$ITEM_1' },
-      { type: 'thread', result: 'Summary after mid-flight compaction.', itemId: '$ITEM_2' }
+      { type: 'thread', result: 'Summary after the turn finished.', itemId: '$ITEM_2' }
     ]
   },
 
   customAssertions: (conversation) => {
-    /**
-     * @param {any[]} items
-     * @param {string} path
-     */
-    const assertNoRunning = (items, path) => {
-      for (let i = 0; i < items.length; i++) {
-        const it = items[i];
-        const state = it.get?.('state');
-        if (state === 'running') {
-          throw new Error(
-            `compaction-cancels-running-turn: item ${path}[${i}] (type=${it.get?.('type')}) ` +
-						`left in state='running' after settle — the cancel-before-mutate invariant was violated`
-          );
-        }
-        // Recurse into thread sub-items.
-        if (it.get?.('type') === 'thread') {
-          const sub = it.get?.('items');
-          if (sub && typeof sub.toArray === 'function') {
-            assertNoRunning(sub.toArray(), `${path}[${i}].items`);
-          }
-        }
-      }
-    };
-    assertNoRunning(conversation.rootMessageThread.items, 'root');
+    const thread = conversation.rootMessageThread.items.find((/** @type {any} */ it) => it.get('type') === 'thread');
+    const folded = thread.get('items').toArray();
+    if (!folded.some((/** @type {any} */ it) => it.get('type') === 'assistant' && it.get('content') === 'Response the turn finished.')) {
+      throw new Error('compaction-waits-for-running-turn: the fold does not hold the turn\'s complete reply');
+    }
+    if (folded.some((/** @type {any} */ it) => it.get('state') === 'running')) {
+      throw new Error('compaction-waits-for-running-turn: the fold took an item still running');
+    }
+    if ((conversation.rootMessageThread.pendingItems || []).length !== 0) {
+      throw new Error('compaction-waits-for-running-turn: the /compact is still queued after it ran');
+    }
   }
 };
 
 /**
- * The other half of that gate: declining leaves the turn alone.
+ * Stop while /compact waits withdraws it.
  *
- * A turn the user is watching is not ours to take down on their behalf, so
- * `/compact` mid-flight asks first — and an answer of "leave it running" must
- * stop the command dead, not merely delay it. The turn then finishes normally.
- *
- * Non-vacuous by construction: were the confirmation missing (or answered for
- * the user), `/compact` would cancel the paused turn and fold the transcript
- * into a sub-thread, so the golden below — the original turn, complete, with no
- * thread item anywhere — could not hold. The one scripted mock is the turn's
- * own; a compaction would have no summariser response to consume.
+ * The user asked for the compaction on the understanding that the turn would
+ * finish first; having stopped the turn instead, they get no fold. The message
+ * sent afterwards proves it: had the queued /compact fired when the stopped
+ * conversation came to rest, its summary call would have taken that message's
+ * reply, and a thread would stand at the root.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-const compactionDeclinedLeavesTurnRunningTest = {
-  name: 'compaction-declined-leaves-turn-running',
-  description: 'Declining the mid-turn confirmation abandons /compact and leaves the live turn to finish',
+const compactionQueuedDroppedByStopTest = {
+  name: 'compaction-queued-dropped-by-stop',
+  description: 'Stop while /compact waits for the turn drops the queued /compact',
   fixture: 'unit-test-fixture',
 
   llmResponses: [
-    textResponse('Response the user chose to keep.', { pauseBeforeReturn: true })
+    textResponse('Response the user stopped.', { pauseBeforeReturn: true }),
+    textResponse('Response 2.')
   ],
 
   operations: [
     { type: 'send-message-no-wait', message: 'Message 1' },
     { type: 'wait-for-mock-paused' },
-    { type: 'expect-confirm', answer: false },
-    // No fence: declined, the command starts nothing, and the original turn is
-    // still paused — so there is no epoch bump and no idle to wait on yet.
     { type: 'run-command-no-wait', command: 'compact', args: 'all' },
-    {
-      type: 'assert-confirm-shown',
-      titleContains: 'Stop the current turn?',
-      messageContains: '/compact'
-    },
-    { type: 'release-mock' },
-    { type: 'wait-for-idle' }
+    { type: 'wait-for-state', condition: { pendingContent: '/compact all' } },
+    { type: 'cancel' },
+    { type: 'wait-for-idle' },
+    { type: 'send-message', message: 'Message 2' }
   ],
 
-  expectedDocument: {
-    items: [
-      { type: 'system-prompt', itemId: '$ITEM_1' },
-      { type: 'user', content: 'Message 1' },
-      { type: 'assistant', content: 'Response the user chose to keep.' }
-    ]
+  customAssertions: (conversation) => {
+    const items = conversation.rootMessageThread.items;
+    if (items.some((/** @type {any} */ it) => it.get('type') === 'thread')) {
+      throw new Error('compaction-queued-dropped-by-stop: the conversation was folded after Stop');
+    }
+    if ((conversation.rootMessageThread.pendingItems || []).length !== 0) {
+      throw new Error('compaction-queued-dropped-by-stop: Stop left the /compact queued');
+    }
+    const last = items[items.length - 1];
+    if (last?.get('type') !== 'assistant' || last.get('content') !== 'Response 2.') {
+      throw new Error('compaction-queued-dropped-by-stop: the message after Stop was not answered by its own reply');
+    }
   }
 };
 
@@ -1025,7 +985,7 @@ export const tests = [
   compactionPreservesMemoryTest,
   newConversationTest,
   duplicateConversationTest,
-  compactionCancelsRunningTurnTest,
-  compactionDeclinedLeavesTurnRunningTest,
+  compactionWaitsForRunningTurnTest,
+  compactionQueuedDroppedByStopTest,
   compactionResummariseTest
 ];

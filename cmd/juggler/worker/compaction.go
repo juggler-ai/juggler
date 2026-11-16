@@ -445,29 +445,52 @@ func (r *run) handleCompact(payload json.RawMessage) {
 	// target thread, because a fold rewrites the array every live descendant
 	// hangs off, and folding under a running turn rewrites the array that turn is
 	// writing into.
-	if r.threadActivity(dest.itemID) != ActivityNone || r.anyRunState() != StateIdle {
+	//
+	// A request that asks to queue (/compact) waits in the thread's queue instead
+	// of being refused, and so does one finding a tool call still in flight in the
+	// thread it would fold (compaction_queued.go).
+	busy := r.threadActivity(dest.itemID) != ActivityNone || r.anyRunState() != StateIdle
+	if msg.QueueIfBusy && (busy || r.toolInFlightUnder(dest.itemID)) && r.queueCompaction(dest.itemID, msg.KeepRecent) {
+		ack.Result = map[string]any{"folded": false, "queued": true}
+		r.reply(ack)
+		return
+	}
+	if busy {
 		ack.Result = map[string]any{"folded": false, "error": "conversation is busy"}
 		r.reply(ack)
 		return
 	}
+	r.compactNow(dest, compactFoldOptions{handoffPromote: msg.HandoffPromote, keepRecent: msg.KeepRecent}, func(folded bool, err error) {
+		if err != nil {
+			ack.Result = map[string]any{"folded": false, "error": err.Error()}
+		} else {
+			ack.Result = map[string]any{"folded": folded}
+		}
+		r.reply(ack)
+	})
+}
+
+// compactNow folds dest and starts its summary, on a conversation the caller
+// found at rest: handleCompact's fold, and a queued /compact's when it fires.
+// answer, when given, hears the outcome before the summary run is started, so a
+// command waiting on it returns promptly.
+func (r *run) compactNow(dest threadContext, opts compactFoldOptions, answer func(folded bool, err error)) {
 	// Folding the history is human intent, so it lifts any pause standing over
 	// the thread it folds, exactly as a send or Continue does. The
-	// fold commits whatever the marks say — the gate above passes, since a landed
+	// fold commits whatever the marks say — the busy gate passes, since a landed
 	// pause holds no claim — and the summarization it owes runs on a thread the
 	// mark would then cover, leaving a conversation folded into a thread that
 	// never gets its summary and that nothing re-drives.
 	r.dropPoliteStopsCovering(dest.itemID)
 
-	_, folded, err := r.foldConversationForCompaction(dest, compactFoldOptions{handoffPromote: msg.HandoffPromote, keepRecent: msg.KeepRecent})
+	_, folded, err := r.foldConversationForCompaction(dest, opts)
 	if err != nil {
 		r.log.Error("[compact] fold failed: %v", err)
-		ack.Result = map[string]any{"folded": false, "error": err.Error()}
-		r.reply(ack)
-		return
 	}
-	ack.Result = map[string]any{"folded": folded}
-	r.reply(ack)
-	if folded {
+	if answer != nil {
+		answer(folded, err)
+	}
+	if err == nil && folded {
 		// In the folded thread, beside the fold: the fold thread's own items are
 		// the summarizer's source, and a notice there would be summarized with
 		// them. The window it names is that thread's model's.

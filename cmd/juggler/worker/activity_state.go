@@ -381,6 +381,8 @@ func (r *run) reconcileProcessingStateOnLoad() {
 	// registry is swept explicitly first.
 	r.releaseAllLLM()
 	r.sendStatus("idle", "")
+	// A /compact queued behind a turn the restart ended is withdrawn, as by Stop.
+	r.dropQueuedCompactions()
 	if b, _ := r.doc.GetMetadata(metaForkParked).(bool); b {
 		r.doc.SetMetadata(metaForkParked, false) // one-shot: consume the marker
 		return

@@ -171,6 +171,9 @@ type pendingEntry struct {
 	isUser bool
 	sendID string
 	hold   entryHold
+	// compaction marks a queued /compact, which no drain promotes
+	// (compaction_queued.go).
+	compaction bool
 }
 
 // readPendingEntriesLocked reads every element of queue as grouping does.
@@ -192,6 +195,7 @@ func readPendingEntriesLocked(queue *ycrdt.YArray) []pendingEntry {
 		e.sendID = yMapString(m, keySendID)
 		e.hold.notBefore, e.hold.hasNotBefore = yMapInt64(m, keyNotBefore)
 		e.hold.hold = yMapString(m, keyHold)
+		e.compaction = yMapString(m, keyQueuedCompaction) != ""
 	}
 	return entries
 }
@@ -252,7 +256,8 @@ func promotableIndicesLocked(queue *ycrdt.YArray, pc promoteCtx) []int {
 }
 
 // groupIndicesLocked returns the queue positions of every member of each group
-// whose hold keep accepts, ascending. Caller MUST hold ycrdtMu.
+// whose hold keep accepts, ascending. A queued /compact is never among them: it
+// leaves the queue only by firing or being withdrawn. Caller MUST hold ycrdtMu.
 func groupIndicesLocked(queue *ycrdt.YArray, keep func(entryHold) bool) []int {
 	entries := readPendingEntriesLocked(queue)
 	var out []int
@@ -261,7 +266,9 @@ func groupIndicesLocked(queue *ycrdt.YArray, keep func(entryHold) bool) []int {
 			continue
 		}
 		for i := g[0]; i < g[1]; i++ {
-			out = append(out, i)
+			if !entries[i].compaction {
+				out = append(out, i)
+			}
 		}
 	}
 	return out

@@ -911,13 +911,16 @@ type GetTransactionMessage struct {
 // leaves the recent conversation verbatim (chooseTail); without it the whole
 // history folds, which is what /compact all and /handoff ask for. ThreadItemID
 // names the thread whose history folds (empty = root): /compact folds the thread
-// it was typed in.
+// it was typed in. QueueIfBusy asks a busy conversation to queue the request
+// until it is at rest instead of refusing it; the ack then reports queued
+// (compaction_queued.go).
 type CompactMessage struct {
 	Type           wireMsgType `json:"type"` // "compact"
 	AckID          string      `json:"ackId"`
 	ThreadItemID   string      `json:"threadItemId,omitempty"`
 	HandoffPromote bool        `json:"handoffPromote,omitempty"`
 	KeepRecent     bool        `json:"keepRecent,omitempty"`
+	QueueIfBusy    bool        `json:"queueIfBusy,omitempty"`
 }
 
 // RequestAutoNameMessage asks for an out-of-band tab-title derivation from the

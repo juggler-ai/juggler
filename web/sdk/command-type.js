@@ -28,6 +28,10 @@ import { validateManifest } from './lib/manifest.js';
  *   commands (`/help`, anything that only reads or only opens a UI panel) leave this unset.
  * @property {boolean} [rejectWhileBusy] - True if a mutating command must be rejected rather
  *   than cancel the active turn.
+ * @property {boolean} [queuesWhileBusy] - True if a mutating command waits for the active turn
+ *   itself rather than cancel it (as `/compact` does: the worker queues it until the turn
+ *   finishes). With a turn in flight `SlashCommandHandler` then neither asks to stop it nor
+ *   cancels it, and runs `execute()` at once; with none, `mutatesConversation` applies as usual.
  * @property {boolean} [coalesceUndo] - True if every document mutation `execute()` makes
  *   (including async multi-step sequences like clear-then-re-seed) should collapse into a
  *   single undo group, so the whole command reverts in one undo. When set, `SlashCommandHandler`

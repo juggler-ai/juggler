@@ -156,7 +156,11 @@ class SlashCommandHandler {
     // Which makes the cancel unavoidable, not automatic: ask before taking down
     // a turn the user is watching, and treat a refusal as the command being
     // handled — nothing ran, and they already know why.
-    if (CommandClass.MANIFEST?.mutatesConversation && conv) {
+    //
+    // Unless the command waits for the turn itself (queuesWhileBusy): then a
+    // running turn is left alone, and the command is the one to say it waits.
+    const waitsForTurn = CommandClass.MANIFEST?.queuesWhileBusy && conv?.isTurnActive();
+    if (CommandClass.MANIFEST?.mutatesConversation && conv && !waitsForTurn) {
       if (conv.isTurnActive() && !(await confirmStoppingTurn(commandName))) {
         return { handled: true };
       }

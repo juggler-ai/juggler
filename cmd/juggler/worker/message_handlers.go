@@ -777,6 +777,11 @@ func (r *run) handleCancelOn(processingID string, reason cancelReason) {
 	// conversation, which stopping one thread inside it does not withdraw.
 	r.dropPoliteStopsUnder(threadID)
 
+	// A /compact waiting for the turn goes with it, wherever it was typed: it
+	// was asked for on the understanding that the work would finish first, and
+	// folding a conversation the user has just stopped is a surprise.
+	r.dropQueuedCompactions()
+
 	// Unwind any engine-driven strategy execution (e.g. plan onWorkerIdle's
 	// _driveExecution loop): the worker cancels the turn/tools below, but the
 	// driver loop lives in the engine and must abort its controller so it stops
@@ -1298,6 +1303,9 @@ const (
 // a live turn lets that turn's deferred writes overwrite the restored state.
 // Called before undo/redo.
 func (r *run) cancelAndWaitForIdle() bool {
+	// A /compact waiting on a turn is withdrawn with it, as by Stop; with no turn
+	// to wait on, one still queued would fold the history the step restores.
+	r.dropQueuedCompactions()
 	runs := r.sched.runs()
 	if len(runs) == 0 {
 		if r.anyRunState() != StateIdle {

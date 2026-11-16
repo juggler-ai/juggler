@@ -95,6 +95,7 @@
   "Commit": "コミット",
   "Commit the changes": "変更をコミット",
   "Compact": "圧縮",
+  "Compacting when the current turn finishes.": "現在のターンが終わったら圧縮します。",
   "Compaction is already in progress.": "圧縮はすでに進行中です。",
   "Compare": "比較",
   "Completing step": "ステップを完了中",

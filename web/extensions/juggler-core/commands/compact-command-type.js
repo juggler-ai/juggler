@@ -23,7 +23,8 @@ const t = translator('@juggler/core');
  * the recent conversation stays verbatim after it — how much is the "Keep recent
  * conversation" setting, by the rule the automatic fold uses. `/compact all`
  * folds everything after the standing context instead. Standard undo reverses
- * fold + summary as one group.
+ * fold + summary as one group. Typed while a turn runs, it neither stops the
+ * turn nor is refused: the worker queues it, and folds once the turn finishes.
  */
 class CompactCommandType extends CommandType {
   static MANIFEST = {
@@ -33,7 +34,8 @@ class CompactCommandType extends CommandType {
     description: 'Fold older conversation into a summary thread, keeping recent turns (all: fold everything)',
     icon: 'icon-compact',
     argsHint: '[all]',
-    mutatesConversation: true
+    mutatesConversation: true,
+    queuesWhileBusy: true
   };
 
   /**
@@ -67,9 +69,15 @@ class CompactCommandType extends CommandType {
       // small to be worth a summary; `error` carries a worker-side failure reason.
       // The thread folded is the one the command was typed in: a sub-thread's
       // /compact folds that sub-thread's history, and the root's stays as it is.
-      const { folded, error } = await compactConversation(mt.conversationId, { threadItemId: mt.threadItemId, keepRecent: !all });
+      // A turn still running queues the fold in this thread's queue instead.
+      const { folded, queued, error } = await compactConversation(mt.conversationId, {
+        threadItemId: mt.threadItemId, keepRecent: !all, queueIfBusy: true
+      });
       if (error) {
         return { handled: true, message: t("Couldn't compact: {error}", { error }), error: true };
+      }
+      if (queued) {
+        return { handled: true, message: t('Compacting when the current turn finishes.') };
       }
       if (!folded) {
         return {

@@ -153,10 +153,11 @@ export function endCompaction(conversationId) {
  * context — agents files, memory, the sticky system prompt — at the parent),
  * summarises it, and merges fold + summary into one undo group.
  *
- * Callers must first settle the conversation (cancelAndSettle) and guard against
- * concurrent compactions (isCompactionPending); the command framework does both
- * for `mutatesConversation` commands, and also closes the undo capture window so
- * the fold starts a fresh group.
+ * Callers must first settle the conversation (cancelAndSettle), or ask the
+ * worker to queue the fold behind the running turn (queueIfBusy), and guard
+ * against concurrent compactions (isCompactionPending); the command framework
+ * does both for `mutatesConversation` commands, and also closes the undo capture
+ * window so the fold starts a fresh group.
  * @param {string} conversationId - Conversation whose worker performs the fold
  * @param {object} [opts]
  * @param {string|null} [opts.threadItemId] - The thread whose history folds
@@ -165,12 +166,15 @@ export function endCompaction(conversationId) {
  *   its result into a continued tab's parked first message (/handoff)
  * @param {boolean} [opts.keepRecent] - Leave the recent conversation verbatim
  *   (/compact); without it everything after the standing context folds
- * @returns {Promise<{ folded: boolean, error?: string }>} The worker's outcome:
- *   `folded` is false when there was nothing to fold.
+ * @param {boolean} [opts.queueIfBusy] - With a turn running, queue the fold until
+ *   the conversation is at rest instead of refusing it (/compact)
+ * @returns {Promise<{ folded: boolean, queued?: boolean, error?: string }>} The
+ *   worker's outcome: `folded` is false when there was nothing to fold, or when
+ *   the fold was `queued` to run once the turn finishes.
  */
-export async function compactConversation(conversationId, { threadItemId = null, handoffPromote = false, keepRecent = false } = {}) {
+export async function compactConversation(conversationId, { threadItemId = null, handoffPromote = false, keepRecent = false, queueIfBusy = false } = {}) {
   const { default: workerManager } = await import('../services/worker-manager.js');
-  return workerManager.compact(conversationId, { threadItemId, handoffPromote, keepRecent });
+  return workerManager.compact(conversationId, { threadItemId, handoffPromote, keepRecent, queueIfBusy });
 }
 
 /** Guards against a single client double-promoting the same handoff thread. */

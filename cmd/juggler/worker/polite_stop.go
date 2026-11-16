@@ -241,6 +241,9 @@ func (w *ConversationWorker) handlePause(threadItemID string) {
 	live := threadItemID == "" && w.anyRunState() != StateIdle
 	if w.markPoliteStopIfRunning(threadItemID, live) {
 		w.nudgePoliteStop()
+		// A /compact waiting for the turn to finish is withdrawn, as by Stop: the
+		// turn is being paused, not finished, and the fold would lift the pause.
+		w.dropQueuedCompactions()
 	}
 }
 

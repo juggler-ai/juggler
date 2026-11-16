@@ -95,6 +95,7 @@
   "Commit": "Commit",
   "Commit the changes": "Änderungen committen",
   "Compact": "Komprimieren",
+  "Compacting when the current turn finishes.": "Komprimierung folgt, sobald der aktuelle Durchlauf fertig ist.",
   "Compaction is already in progress.": "Komprimierung läuft bereits.",
   "Compare": "Vergleichen",
   "Completing step": "Schritt wird abgeschlossen",

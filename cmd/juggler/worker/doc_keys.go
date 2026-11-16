@@ -98,6 +98,10 @@ const (
 	keyNotBefore = "notBefore"
 	keyHold      = "hold"
 	keySendID    = "sendId"
+	// Marks a pending-queue entry as a /compact waiting for the conversation to
+	// come to rest, with the fold it asks for (compaction_queued.go). Never
+	// promoted, so no item in a transcript carries it.
+	keyQueuedCompaction = "queuedCompaction"
 	// The answer the browser writes to a tool action's approval form; cleared
 	// with the form when the action is asked again (reaskFields).
 	keyApprovalResponse = "approvalResponse"

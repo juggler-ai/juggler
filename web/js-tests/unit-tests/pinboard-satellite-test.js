@@ -36,7 +36,7 @@ import {
   __setViewModeForTests, isPinboardView, ownerViewerId, initialPinId, boardConversationId,
   windowRole,
 } from '../../js/utils/view-mode.js';
-import { scopedKey, __resetPrefsForTests } from '../../js/services/prefs.js';
+import { scopedKey, cachedProjectPref, __resetPrefsForTests } from '../../js/services/prefs.js';
 import PinboardItemType from 'juggler/pinboard-item-type';
 import '../../js/components/pinboard-shell.js';
 import '../../js/components/conversation-bar.js';
@@ -359,9 +359,12 @@ function stubActiveTab(conversationId = 'conv_main') {
  * A fetch stub answering only the board's own URLs, and delegating everything
  * else — including the harness's result POST — to the real one.
  *
- * `left` is what the server says was open when it was last shut, and it is
- * handed over once: the real one answers the claim once too, because the answer
- * is an instruction to open windows and every main window asks.
+ * `left` is what the server holds of the boards open when it was last shut. A
+ * claim is answered as the real one answers it: with those of the boards it
+ * names that nobody has claimed yet, each once, because the answer is an
+ * instruction to open windows and every main window asks — and with the ids it
+ * names that no board answers to, for the asker to forget. The ids each claim
+ * named are kept in `claims`.
  *
  * It answers this window's own preferences too, since a board window keeps which
  * tab it was showing there, and a case that fell through to the real server would
@@ -371,8 +374,9 @@ function stubActiveTab(conversationId = 'conv_main') {
  * @param {any[]} [left] - The detached boards outliving the last run.
  * @param {Record<string, any>} [prefs] - This window's stored preferences.
  * @param {Promise<void>} [prefsGate] - What a preferences read waits for.
- * @returns {{urls: string[], prefWrites: any[], restore: () => void}} The URLs
- *   asked for, the preference patches written, and its restore.
+ * @returns {{urls: string[], prefWrites: any[], claims: string[][], claimants: string[], restore: () => void}}
+ *   The URLs asked for, the preference patches written, the ids each claim named and
+ *   the viewer that made it, and its restore.
  */
 function stubBoard(pins, left = [], prefs = {}, prefsGate = Promise.resolve()) {
   const original = window.fetch;
@@ -380,7 +384,12 @@ function stubBoard(pins, left = [], prefs = {}, prefsGate = Promise.resolve()) {
   const urls = [];
   /** @type {any[]} */
   const prefWrites = [];
-  let claimed = false;
+  /** @type {string[][]} */
+  const claims = [];
+  /** @type {string[]} */
+  const claimants = [];
+  /** @type {Set<string>} */
+  const claimed = new Set();
   window.fetch = /** @type {any} */ (async (/** @type {any} */ url, /** @type {any} */ opts) => {
     const asked = String(url);
     if (asked.includes('/api/session/ui-prefs')) {
@@ -396,15 +405,21 @@ function stubBoard(pins, left = [], prefs = {}, prefsGate = Promise.resolve()) {
     if (asked.includes('/api/session/pinboard')) {
       urls.push(asked);
       if (asked.includes('/boards/restore')) {
-        const boards = claimed ? [] : left;
-        claimed = true;
-        return { ok: true, json: async () => ({ boards }) };
+        const body = typeof opts?.body === 'string' ? JSON.parse(opts.body) : opts?.body;
+        /** @type {string[]} */
+        const ids = Array.isArray(body?.ids) ? body.ids : [];
+        claims.push(ids);
+        claimants.push(typeof body?.viewer === 'string' ? body.viewer : '');
+        const boards = left.filter((b) => ids.includes(b.id) && !claimed.has(b.id));
+        for (const b of boards) claimed.add(b.id);
+        const missing = ids.filter((id) => !left.some((b) => b.id === id));
+        return { ok: true, json: async () => ({ boards, missing }) };
       }
       return { ok: true, json: async () => ({ pins }) };
     }
     return original(url, opts);
   });
-  return { urls, prefWrites, restore: () => { window.fetch = original; } };
+  return { urls, prefWrites, claims, claimants, restore: () => { window.fetch = original; } };
 }
 
 /**
@@ -469,15 +484,19 @@ async function mountShell({
 /** The window preference a board window keeps its showing tab under. */
 const ACTIVE_PREF = 'juggler-pinboard-active';
 
+/** The project preference this machine keeps its popped-out boards under. */
+const DETACHED_PREF = 'juggler-pinboard-detached';
+
 /**
- * Forget every window's remembered tab, in the prefs cache and in its
- * localStorage mirror, so no case opens on a tab an earlier one chose.
+ * Forget every window's remembered tab and this machine's popped-out boards, in
+ * the prefs cache and in its localStorage mirror, so no case opens on a tab or
+ * reopens a board an earlier one chose.
  * @returns {void}
  */
 function forgetRememberedPins() {
   __resetPrefsForTests();
   for (const key of Object.keys(localStorage)) {
-    if (key.startsWith(ACTIVE_PREF)) localStorage.removeItem(key);
+    if (key.startsWith(ACTIVE_PREF) || key.startsWith(DETACHED_PREF)) localStorage.removeItem(key);
   }
 }
 
@@ -655,6 +674,27 @@ export async function runTests() {
 
         __setViewModeForTests('?view=pinboard&board=../etc');
         assert(windowRole() === 'pinboard', 'and so does one whose id is not an id');
+      } finally {
+        __setViewModeForTests();
+      }
+    });
+
+    // The server tells a board that is open from one to reopen by the connected
+    // windows' sockets. Without its board named there, a main window reloading
+    // while its boards are up would be handed each one again, and open a copy.
+    await run('a board window\u2019s socket names the board it is', () => {
+      try {
+        __setViewModeForTests('?view=pinboard&owner=v_owner&board=board_a&conversation=conv_a');
+        const query = new URLSearchParams(wsService._socketQuery('viewer'));
+        assert(query.get('board') === 'board_a', `a board window names its board, got ${query.get('board')}`);
+        assert(query.get('owner') === 'v_owner', 'beside the window it belongs to');
+
+        __setViewModeForTests('');
+        assert(!new URLSearchParams(wsService._socketQuery('viewer')).has('board'),
+          'the ordinary window is no board');
+        __setViewModeForTests('?view=pinboard&owner=v_owner&board=board_a');
+        assert(!new URLSearchParams(wsService._socketQuery('engine')).has('board'),
+          'and the engine is never one');
       } finally {
         __setViewModeForTests();
       }
@@ -1567,6 +1607,11 @@ export async function runTests() {
           'and a second pop-out is a second board, not the same one opened twice');
         assert(boards[0] !== 'main',
           'and never the docked panel, which is the one board that is not a window');
+        // Which boards come back next launch is this machine's to remember, in
+        // the Project realm, so another machine viewing the project never does.
+        await waitFor(() => (cachedProjectPref(DETACHED_PREF) || []).length === 2, 'both boards to be remembered');
+        assert(JSON.stringify(cachedProjectPref(DETACHED_PREF)) === JSON.stringify(boards),
+          `each board popped out is remembered for this machine to reopen, got ${JSON.stringify(cachedProjectPref(DETACHED_PREF))}`);
       } finally {
         teardown();
         opened.restore();
@@ -1588,16 +1633,30 @@ export async function runTests() {
         left: [
           { id: 'board_one', conversation: 'conv_1', pins: PROBE_BOARD },
           { id: 'board_two', conversation: 'conv_2', pins: [] },
+          // Popped out on another machine viewing this project: not this one's to open.
+          { id: 'board_elsewhere', conversation: 'conv_1', pins: [] },
         ],
+        // This machine's own list, in the Project realm — which a viewer on
+        // another machine keeps to itself — naming one board that has since gone.
+        prefs: { [DETACHED_PREF]: ['board_one', 'board_two', 'board_gone'] },
       });
       try {
         assert(opened.urls.length === 0,
           'nothing is opened before this viewer knows its own address, since a board opened then could answer to nobody');
 
         announceViewerId('v_self');
+        await waitFor(() => opened.urls.length === 2, 'the boards to reopen');
         await nextTask();
 
         assert(opened.urls.length === 2, `both boards come back, got ${opened.urls.length}`);
+        assert(JSON.stringify(board.claims) === JSON.stringify([['board_one', 'board_two', 'board_gone']]),
+          `the claim names this machine's boards and no others, got ${JSON.stringify(board.claims)}`);
+        assert(board.claimants[0] === 'v_self',
+          `and the window claiming them, which holds them while it opens them, got ${board.claimants[0]}`);
+        assert(!opened.urls.some((u) => new URL(u).searchParams.get('board') === 'board_elsewhere'),
+          'a board another machine popped out is never opened here');
+        assert(JSON.stringify(cachedProjectPref(DETACHED_PREF)) === JSON.stringify(['board_one', 'board_two']),
+          `a board that has gone is forgotten, and the rest kept, got ${JSON.stringify(cachedProjectPref(DETACHED_PREF))}`);
         const first = new URL(opened.urls[0]);
         assert(first.searchParams.get('board') === 'board_one',
           `each window comes back as the board it was, got ${first.searchParams.get('board')}`);

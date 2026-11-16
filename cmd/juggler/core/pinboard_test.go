@@ -467,8 +467,8 @@ func TestBoardsHaveTheirOwnFrames(t *testing.T) {
 	}
 }
 
-// The claim is an instruction to open windows, so exactly one asker may have it.
-// Every main window of a project asks, and a project can have several.
+// The claim is an instruction to open windows, so while one asker has it no other
+// may. Every main window of a project asks, and a project can have several.
 func TestClaimDetachedBoardsAnswersOnce(t *testing.T) {
 	m := newManagerForTest(t)
 	// Real conversations, because a claim hands out only the boards that still
@@ -489,7 +489,7 @@ func TestClaimDetachedBoardsAnswersOnce(t *testing.T) {
 		t.Fatalf("edit main: %v", err)
 	}
 
-	claimed := m.ClaimDetachedBoards()
+	claimed, _ := m.ClaimDetachedBoards([]string{"board_b", "board_a"}, "v_one", BoardLiveness{})
 	if len(claimed) != 2 {
 		t.Fatalf("expected both detached boards, got %+v", claimed)
 	}
@@ -501,12 +501,88 @@ func TestClaimDetachedBoardsAnswersOnce(t *testing.T) {
 		t.Fatalf("a claimed board must name its conversation, got %+v", claimed[0])
 	}
 
-	if again := m.ClaimDetachedBoards(); len(again) != 0 {
+	// The first window is still here, opening them.
+	again, missing := m.ClaimDetachedBoards([]string{"board_a", "board_b"}, "v_two", BoardLiveness{Viewers: map[string]bool{"v_one": true}})
+	if len(again) != 0 {
 		t.Fatalf("a second window must be told nothing, got %+v", again)
+	}
+	// Spent is not gone: the asker must not forget boards another window opened.
+	if len(missing) != 0 {
+		t.Fatalf("boards claimed already are not missing, got %v", missing)
 	}
 	// Claiming is about opening windows, not about the boards themselves.
 	if got := pinIDs(m.GetPinboard(MainBoardID)); got != "a" {
 		t.Fatalf("claiming must not disturb the boards, main holds %q", got)
+	}
+}
+
+// Which boards a machine reopens is that machine's to say (the page keeps the
+// list in its Project prefs realm, which a remote viewer keeps to itself), so a
+// claim hands out only the boards it names. One machine's claim must not spend
+// another's, nor hand it boards it never opened.
+func TestClaimDetachedBoardsHandsOutOnlyTheBoardsNamed(t *testing.T) {
+	m := newManagerForTest(t)
+	for _, c := range []struct{ board, conv string }{{"board_here", "conv_1"}, {"board_there", "conv_2"}} {
+		if _, _, err := m.CreateConversation(c.conv, c.conv); err != nil {
+			t.Fatalf("CreateConversation %s: %v", c.conv, err)
+		}
+		if _, err := m.CreateBoard(c.board, c.conv, nil); err != nil {
+			t.Fatalf("CreateBoard %s: %v", c.board, err)
+		}
+	}
+
+	if here, missing := m.ClaimDetachedBoards([]string{"board_here"}, "v_here", BoardLiveness{}); len(here) != 1 || here[0].ID != "board_here" || len(missing) != 0 {
+		t.Fatalf("this machine gets its own board and only that, got %+v missing %v", here, missing)
+	}
+	if there, _ := m.ClaimDetachedBoards([]string{"board_there"}, "v_there", BoardLiveness{}); len(there) != 1 || there[0].ID != "board_there" {
+		t.Fatalf("another machine's claim is not spent by this one's, got %+v", there)
+	}
+	if none, _ := m.ClaimDetachedBoards(nil, "v_any", BoardLiveness{}); len(none) != 0 {
+		t.Fatalf("a claim naming nothing gets nothing, got %+v", none)
+	}
+	// The docked panel is not a window, and a board nobody has is gone: both are
+	// for the asker to forget.
+	if got, missing := m.ClaimDetachedBoards([]string{MainBoardID, "board_never_made"}, "v_any", BoardLiveness{}); len(got) != 0 || strings.Join(missing, ",") != "board_never_made,main" {
+		t.Fatalf("got %+v missing %v; want nothing, and both reported missing", got, missing)
+	}
+}
+
+// A claim holds only while something is opening or showing the board: the window
+// that claimed it, still connected, or the board's own window. A server process
+// outlives the app — always for a session on another machine, which this one's
+// quit does not stop — so a claim that held for the life of the process had a
+// relaunch reopen nothing. And a window that asks again, its page come back to
+// the session it left, gets back the boards that went away with it.
+func TestAClaimHoldsOnlyWhileSomethingIsOpeningOrShowingTheBoard(t *testing.T) {
+	m := newManagerForTest(t)
+	if _, _, err := m.CreateConversation("One", "conv_1"); err != nil {
+		t.Fatalf("CreateConversation: %v", err)
+	}
+	if _, err := m.CreateBoard("board_a", "conv_1", nil); err != nil {
+		t.Fatalf("CreateBoard: %v", err)
+	}
+	ask := func(viewer string, live BoardLiveness) int {
+		t.Helper()
+		got, missing := m.ClaimDetachedBoards([]string{"board_a"}, viewer, live)
+		if len(missing) != 0 {
+			t.Fatalf("a board that is here is never missing, got %v", missing)
+		}
+		return len(got)
+	}
+	if ask("v_one", BoardLiveness{}) != 1 {
+		t.Fatal("the first window to ask is given the board")
+	}
+	if ask("v_two", BoardLiveness{Viewers: map[string]bool{"v_one": true}}) != 0 {
+		t.Fatal("not while the window it was given to is still there, opening it")
+	}
+	if ask("v_two", BoardLiveness{Boards: map[string]bool{"board_a": true}}) != 0 {
+		t.Fatal("nor while the board's own window is connected")
+	}
+	if ask("v_two", BoardLiveness{}) != 1 {
+		t.Fatal("a relaunch, with neither left, is given it again though the process lived on")
+	}
+	if ask("v_two", BoardLiveness{Viewers: map[string]bool{"v_two": true}}) != 1 {
+		t.Fatal("and the window holding the claim, asking again, is given it back")
 	}
 }
 
@@ -537,7 +613,7 @@ func TestDetachedBoardsSurviveReopen(t *testing.T) {
 	m2 := startManager(reopened, dir)
 	t.Cleanup(m2.Shutdown)
 
-	claimed := m2.ClaimDetachedBoards()
+	claimed, _ := m2.ClaimDetachedBoards([]string{"board_one"}, "v_one", BoardLiveness{})
 	if len(claimed) != 1 || claimed[0].ID != "board_one" || claimed[0].Conversation != "conv_1" {
 		t.Fatalf("the board must come back with its conversation, got %+v", claimed)
 	}
@@ -598,8 +674,12 @@ func TestLosingAConversationForgetsItsBoards(t *testing.T) {
 			if got := pinIDs(m.GetPinboard(MainBoardID)); got != "m" {
 				t.Fatalf("the docked panel is not a view of one conversation: got %q want %q", got, "m")
 			}
-			if claimed := m.ClaimDetachedBoards(); len(claimed) != 1 || claimed[0].ID != "board_two" {
+			claimed, missing := m.ClaimDetachedBoards([]string{"board_one", "board_two"}, "v_one", BoardLiveness{})
+			if len(claimed) != 1 || claimed[0].ID != "board_two" {
 				t.Fatalf("only the surviving board is reopened next run, got %+v", claimed)
+			}
+			if len(missing) != 1 || missing[0] != "board_one" {
+				t.Fatalf("the board that went is reported missing, got %v", missing)
 			}
 		})
 	}
@@ -638,9 +718,12 @@ func TestClaimDetachedBoardsDropsBoardsWhoseConversationHasGone(t *testing.T) {
 		}
 	}
 
-	claimed := m.ClaimDetachedBoards()
+	claimed, missing := m.ClaimDetachedBoards([]string{"board_live", "board_gone_one", "board_gone_two"}, "v_one", BoardLiveness{})
 	if len(claimed) != 1 || claimed[0].ID != "board_live" {
 		t.Fatalf("only a board with a conversation is reopened, got %+v", claimed)
+	}
+	if strings.Join(missing, ",") != "board_gone_one,board_gone_two" {
+		t.Fatalf("the boards answering for nothing are reported missing, got %v", missing)
 	}
 	for _, id := range []string{"board_gone_one", "board_gone_two"} {
 		if got := pinIDs(m.GetPinboard(id)); got != "" {
@@ -663,7 +746,7 @@ func TestClaimDetachedBoardsDropsBoardsWhoseConversationHasGone(t *testing.T) {
 	}
 	m2 := startManager(reopened, dir)
 	t.Cleanup(m2.Shutdown)
-	if again := m2.ClaimDetachedBoards(); len(again) != 1 || again[0].ID != "board_live" {
+	if again, _ := m2.ClaimDetachedBoards([]string{"board_live", "board_gone_one"}, "v_one", BoardLiveness{}); len(again) != 1 || again[0].ID != "board_live" {
 		t.Fatalf("the next run must not be given them either, got %+v", again)
 	}
 }

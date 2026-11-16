@@ -9,7 +9,7 @@ import { WSChunkReassembler, WS_CHUNK_KIND_TEXT, WS_CHUNK_KIND_BINARY } from '..
 import { encodeYjsSyncFrame, decodeYjsSyncFrame, isYjsSyncFrame, fitsYjsSyncFrame } from '../utils/yjs-sync-frame.js';
 import { bytesToBase64 } from '../utils/base64.js';
 import { viewerId } from '../utils/viewer-id.js';
-import { ownerViewerId } from '../utils/view-mode.js';
+import { ownerViewerId, isPinboardView, boardId } from '../utils/view-mode.js';
 import { reportFault } from '../utils/fault-report.js';
 
 const WEBRTC_CHUNK_TYPE = '__juggler_dc_chunk';
@@ -362,8 +362,12 @@ class WebSocketService {
     // part of that window rather than as one more client sharing the session.
     const owner = role === 'viewer' ? ownerViewerId() : '';
     const ownerParam = owner ? `&owner=${encodeURIComponent(owner)}` : '';
+    // And which board it is, so a window restoring its boards is not handed one
+    // that already has its window (core.SessionManager.ClaimDetachedBoards).
+    const board = owner && isPinboardView() ? boardId() : '';
+    const boardParam = board ? `&board=${encodeURIComponent(board)}` : '';
     // This client reads Yjs sync as binary frames (utils/yjs-sync-frame.js).
-    return `role=${role}${tokenParam}${viewerParam}${ownerParam}&sync=binary`;
+    return `role=${role}${tokenParam}${viewerParam}${ownerParam}${boardParam}&sync=binary`;
   }
 
   /**

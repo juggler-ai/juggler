@@ -93,6 +93,14 @@ const (
 // id in the first place.
 var pinIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
+// BoardLiveness is what is connected to the session at the moment a detached
+// board is claimed (SessionManager.ClaimDetachedBoards): the viewer ids of its
+// windows, and the boards whose own windows are among them.
+type BoardLiveness struct {
+	Viewers map[string]bool
+	Boards  map[string]bool
+}
+
 // ValidBoardID reports whether id is a well-formed board id. Exported because
 // the id arrives from a query string, and the route that reads it should be able
 // to refuse a bad one rather than create a board named after it.

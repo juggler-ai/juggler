@@ -46,6 +46,7 @@
 import wsService from './websocket.js';
 import api from './api.js';
 import pinboardStore from './pinboard-store.js';
+import { getProjectPref, setProjectPref } from './prefs.js';
 import { ownerViewerId, VIEW_PINBOARD } from '../utils/view-mode.js';
 import { hasNativeHost } from '../../sdk/lib/window-control.js';
 import { errorText } from '../../sdk/lib/error-utils.js';
@@ -65,6 +66,42 @@ const SELECT = 'select';
 
 /** Satellite → owner: put this text in the prompt, on this thread. */
 const COMPOSE = 'compose';
+
+/**
+ * The boards this machine has popped out of this project, by id: the windows it
+ * reopens at its next launch.
+ *
+ * A `Project` preference, because that realm is exactly who they belong to: on
+ * the server's own machine it is the session's, shared by that machine's
+ * windows onto the project, and a viewer on another machine keeps its own copy.
+ * The boards themselves — their tabs, their conversation — are the session's,
+ * and any viewer may read one; which of them to open windows for is not, or one
+ * machine's launch reopens every window another machine popped out.
+ */
+const DETACHED_PREF = 'juggler-pinboard-detached';
+
+/**
+ * This machine's popped-out boards, as stored.
+ * @returns {Promise<string[]>} Their ids, oldest first.
+ */
+async function detachedBoardIds() {
+  const stored = await getProjectPref(DETACHED_PREF, []);
+  return Array.isArray(stored) ? stored.filter((id) => typeof id === 'string' && id) : [];
+}
+
+/**
+ * Change this machine's list of popped-out boards, reading it from the realm
+ * first so a cold cache — a relaunch on a new port — cannot replace a list it
+ * has not seen yet.
+ * @param {(ids: string[]) => string[]} change - The list as it should be.
+ * @returns {Promise<void>}
+ */
+async function updateDetachedBoardIds(change) {
+  const before = await detachedBoardIds();
+  const after = change(before);
+  if (after.length === before.length && after.every((id, i) => id === before[i])) return;
+  await setProjectPref(DETACHED_PREF, after.length ? after : null);
+}
 
 /**
  * Whether this document can take part at all. A viewer the server could not
@@ -307,7 +344,14 @@ export const ownerLink = {
     } catch (err) {
       return t("Couldn't detach the board. {error}", { error: errorText(err) });
     }
-    return this.openBoardWindow(board, pinId, conversationId, frame);
+    const complaint = await this.openBoardWindow(board, pinId, conversationId, frame);
+    // Only a window that opened is one this machine has to bring back. Not
+    // awaited: the window is open, and the list is for the next launch.
+    if (!complaint) {
+      void updateDetachedBoardIds((ids) => (ids.includes(board) ? ids : [...ids, board]))
+        .catch((err) => console.error('[Pinboard] Could not remember the board for next time:', err));
+    }
+    return complaint;
   },
 
   /**
@@ -351,7 +395,7 @@ export const ownerLink = {
   },
 
   /**
-   * Reopen the boards that were open when Juggler was last shut.
+   * Reopen the boards this machine had open when Juggler was last shut.
    *
    * Driven from here, in the page, because a board's owner is a viewer id minted
    * by the browser into sessionStorage: the one saved with a board last run
@@ -359,14 +403,25 @@ export const ownerLink = {
    * restore is the ordinary detach replayed — same route, same window, an owner
    * that exists — with the boards already recorded.
    *
-   * Answered once by the server, so it is safe for every main window to ask.
+   * Only this machine's boards ({@link DETACHED_PREF}): the session holds every
+   * board any viewer of the project popped out. Those the server says are gone —
+   * closed on purpose, or their conversation deleted — are forgotten here.
+   *
+   * The server withholds a board that has a window, or that another window still
+   * here is opening, so it is safe for every main window to ask.
    * @returns {Promise<number>} How many windows were asked for.
    */
   async restoreBoards() {
     if (!canLinkBoards()) return 0;
     let boards = [];
     try {
-      boards = await pinboardStore.claimDetachedBoards();
+      const ids = await detachedBoardIds();
+      if (!ids.length) return 0;
+      const claim = await pinboardStore.claimDetachedBoards(ids, wsService.viewerId);
+      boards = claim.boards;
+      if (claim.missing.length) {
+        await updateDetachedBoardIds((now) => now.filter((id) => !claim.missing.includes(id)));
+      }
     } catch (err) {
       console.error('[Pinboard] Could not ask which boards were open:', err);
       return 0;

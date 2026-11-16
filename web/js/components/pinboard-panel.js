@@ -139,8 +139,9 @@ class PinboardPanel extends JugglerElement {
    *
    * The id arrives on the session frame, always later than this element
    * upgrades, so this waits for it rather than sampling it once and getting the
-   * empty answer every time. The server answers the claim once, so every main
-   * window of a project can ask and only the first is given anything.
+   * empty answer every time. The server withholds a board that has a window, or
+   * that another window still connected is opening, so every main window of a
+   * project can ask and a board is opened once.
    * @private
    */
   _restoreBoards() {

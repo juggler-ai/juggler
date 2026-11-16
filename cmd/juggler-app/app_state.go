@@ -767,6 +767,11 @@ func (a *appState) planWindow(spec windowSpec, opts windowOpts) windowPlan {
 		logf("window for %+v: %v", spec.entry(), err)
 		return planStandIn(p, standInFor(err))
 	}
+	// A board on a server by URL is a view of a conversation in the session its
+	// opener shows there, not of the server's sessions page at its address.
+	if spec.isURL() && opts.isPinboard() && opts.sessionPage != "" {
+		serverURL = opts.sessionPage
+	}
 	// The server records a project in the recents when it starts its session;
 	// one found already running is recorded here, so a folder opened in its
 	// own window always reaches the picker's recents.

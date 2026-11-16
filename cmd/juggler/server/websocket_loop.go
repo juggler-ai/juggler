@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"time"
 
+	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/ops"
 	"juggler/cmd/juggler/workspace"
 	"juggler/internal/jlog"
@@ -97,6 +98,11 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// A detached pinboard names the window it was popped out of. The same
 	// alphabet as a viewer id, because it is one and is relayed the same way.
 	info.Owner = sanitiseViewerID(query.Get("owner"))
+	// And the board it is, which is how a restore knows that board has a window
+	// already (boardLiveness).
+	if board := query.Get("board"); info.Owner != "" && core.ValidBoardID(board) {
+		info.Board = board
+	}
 	client := NewWSClient(conn, role, viewerID, info, s.stats)
 	// A client that can read Yjs sync as binary frames says so; one that does
 	// not is sent JSON (ws_yjs_frame.go).

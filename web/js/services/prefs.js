@@ -659,6 +659,16 @@ export function cachedWindowPref(name, fallback = null) {
 }
 
 /**
+ * This project's value for a preference, reconciled with the realm.
+ * @param {string} name - The preference name.
+ * @param {any} [fallback] - Returned when nothing is stored anywhere.
+ * @returns {Promise<any>} The value this client should use.
+ */
+export function getProjectPref(name, fallback = null) {
+  return getRealmPref('project', name, fallback);
+}
+
+/**
  * Store a preference for every window of this project. A null forgets it.
  * @param {string} name - The preference name.
  * @param {any} value - Any JSON-serialisable value, or null to forget it.

@@ -9,6 +9,8 @@ the current release). The project follows semantic versioning.
 - Skills with 'disable-model-invocation: true' are yours to start with $name, never the model's
 - Prompt history button: search, reuse or delete past prompts; ⌘S/Ctrl+S sets a draft aside
 - Clearing a prompt with Escape keeps its images in the prompt history
+- Pinboard Pop-out works in windows connected to another machine's server
+- Popped-out pinboards reopen only on the machine that popped them out
 
 ## [0.8.1] - 2026-11-15
 

@@ -382,21 +382,28 @@ const pinboardStore = {
   },
 
   /**
-   * Ask for the detached boards left over from the last run of this server — the
-   * windows that were open when Juggler was shut.
+   * Ask for the detached boards named in `ids` that are left over from the last
+   * run of this server — the windows this machine had open when Juggler was shut.
    *
-   * The server answers once. The answer is an instruction to open windows, and
-   * every main window of a project asks as soon as it has an address, so a
-   * second asker is told nothing rather than opening a second copy of each.
-   * @returns {Promise<Array<{id: string, conversation: string, pins: Pin[]}>>} The boards to reopen.
+   * The server withholds a board while it has a window, or while another window
+   * that was handed it is still connected to open it. The answer is an
+   * instruction to open windows, and every main window of a project asks as soon
+   * as it has an address, so a second asker is told nothing rather than opening
+   * a second copy of each. It also names the ids no board answers to any more,
+   * which are for the asker to forget; a board withheld is not one of them.
+   * @param {string[]} ids - The boards this machine had open.
+   * @param {string} viewer - The asking window's viewer id, which holds what it
+   *   is handed while it opens it.
+   * @returns {Promise<{boards: Array<{id: string, conversation: string, pins: Pin[]}>, missing: string[]}>}
+   *   The boards to reopen, and the ids that are gone.
    */
-  async claimDetachedBoards() {
+  async claimDetachedBoards(ids, viewer) {
     const data = await fetchJson(apiUrl('/session/pinboard/boards/restore'), {
       method: 'POST',
+      body: { ids, viewer },
       errorPrefix: '[Pinboard] Could not ask which boards were open',
     });
-    if (!Array.isArray(data?.boards)) return [];
-    return data.boards
+    const boards = !Array.isArray(data?.boards) ? [] : data.boards
       .filter((/** @type {any} */ board) =>
         board && typeof board.id === 'string' && typeof board.conversation === 'string')
       .map((/** @type {any} */ board) => ({
@@ -404,6 +411,9 @@ const pinboardStore = {
         conversation: board.conversation,
         pins: sanitize(board.pins),
       }));
+    const missing = !Array.isArray(data?.missing) ? [] : data.missing
+      .filter((/** @type {any} */ id) => typeof id === 'string');
+    return { boards, missing };
   },
 
   /**

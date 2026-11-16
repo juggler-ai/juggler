@@ -373,6 +373,7 @@
  * @property {string} id
  * @property {string} [viewerId]
  * @property {string} [ownerViewerId]
+ * @property {string} [board]
  * @property {string} origin
  * @property {string} detail
  * @property {string} [name]

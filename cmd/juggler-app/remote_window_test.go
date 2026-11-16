@@ -92,6 +92,43 @@ func TestAttachInAWindowOnAServerByURLShowsTheSessionThere(t *testing.T) {
 	}
 }
 
+// TestABoardFromASessionOnAServerByURLOpensOnThatSession: a board popped out
+// of a window showing one of a server by URL's sessions is a view of a
+// conversation in that session, so its window loads that session's page — the
+// one its opener shows — and never the server's address, whose page is the
+// sessions page and has no board to show.
+func TestABoardFromASessionOnAServerByURLOpensOnThatSession(t *testing.T) {
+	userpathstest.Isolate(t)
+	type opened struct {
+		spec windowSpec
+		opts windowOpts
+	}
+	var got []opened
+	saved := openNewWindow
+	openNewWindow = func(_ *appState, spec windowSpec, opts windowOpts) { got = append(got, opened{spec, opts}) }
+	t.Cleanup(func() { openNewWindow = saved })
+
+	a := newTestAppState(t)
+	server := serverByURL(t, false, nil)
+	session := server + "/p/proj-0123abcd"
+	spec := windowSpec{url: server, connected: true, remoteProject: "/home/me/proj"}
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: spec, serverURL: session}})
+
+	if rec := controlRequest(a, http.MethodPost, "/win/w1/new?view=pinboard&board=b1&owner=v1&conversation=conv_abc123"); rec.Code != http.StatusNoContent {
+		t.Fatalf("board: status %d, want %d", rec.Code, http.StatusNoContent)
+	}
+	if len(got) != 1 || got[0].spec != spec {
+		t.Fatalf("opened %+v; want one board filed under %+v", got, spec)
+	}
+	p := a.planWindow(got[0].spec, got[0].opts)
+	if p.view.standIn != nil || p.view.framed != "" || p.view.serverURL != session {
+		t.Fatalf("the board is planned as %+v; want the session's own page, %s", p.view, session)
+	}
+	if page := windowPageURL(p.view.serverURL, testCtl, p.opts); !strings.HasPrefix(page, session+"/?") || !strings.Contains(page, "view=pinboard") {
+		t.Fatalf("the board loads %s; want the pinboard view of %s", page, session)
+	}
+}
+
 // TestAWindowOnAServerByURLReopensItsProjectOnce: a restored window loads its
 // server's page, which asks the app what it was showing and opens that
 // project's session there, through its own server's control API. The app hands

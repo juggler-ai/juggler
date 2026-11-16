@@ -47,6 +47,17 @@ type SessionAPI struct {
 	// resolveWorkspace answers what the project's own workspace can host, for
 	// the session load (SetWorkspaceResolver). Nil leaves that answer out.
 	resolveWorkspace workspace.ResolveFunc
+
+	// boardLiveness reports who is connected, for a detached board's claim
+	// (SetBoardLiveness). Nil reads as nobody.
+	boardLiveness func() core.BoardLiveness
+}
+
+// SetBoardLiveness gives the board restore a way to ask who is connected to the
+// session now: whether a board already has its window, and whether the window
+// that claimed it is still there to open it (core.SessionManager.ClaimDetachedBoards).
+func (api *SessionAPI) SetBoardLiveness(live func() core.BoardLiveness) {
+	api.boardLiveness = live
 }
 
 // WorkerManager is the slice of worker.Manager the session routes need —
@@ -339,16 +350,32 @@ func (api *SessionAPI) HandleDeleteBoard(w http.ResponseWriter, r *http.Request)
 	WriteSuccess(w, r, nil)
 }
 
-// HandleRestoreBoards answers with the detached boards left over from the last
-// run of this server — the windows that were open when Juggler was shut — and
-// answers only once.
+// HandleRestoreBoards answers with those of the detached boards the body names
+// ({"ids": [...], "viewer": <the asking window's viewer id>}) that have no
+// window and nobody else opening one — the windows that were open when Juggler
+// was shut — and with the ids that name no board any more, for the asker to
+// forget.
 //
-// Once, because the answer is an instruction to open windows: every main window
-// of a project asks as soon as it knows its own address, and a project can have
-// several. It is a POST rather than a GET for the same reason. Nothing is
-// changed on disk; what is spent is the claim.
+// Named, because which boards to reopen is the asking machine's own list, kept
+// in its Project prefs realm: another machine viewing the project must not
+// reopen windows it never opened. Withheld while open or being opened, because
+// the answer is an instruction to open windows: every main window of a project
+// asks as soon as it knows its own address, and a project can have several. It
+// is a POST rather than a GET for the same reason: what it spends is the claim.
 func (api *SessionAPI) HandleRestoreBoards(w http.ResponseWriter, r *http.Request) {
-	WriteJSON(w, r, http.StatusOK, map[string]any{"boards": api.manager().ClaimDetachedBoards()})
+	req, ok := DecodeJSON[struct {
+		IDs    []string `json:"ids"`
+		Viewer string   `json:"viewer"`
+	}](w, r)
+	if !ok {
+		return
+	}
+	live := core.BoardLiveness{}
+	if api.boardLiveness != nil {
+		live = api.boardLiveness()
+	}
+	boards, missing := api.manager().ClaimDetachedBoards(req.IDs, req.Viewer, live)
+	WriteJSON(w, r, http.StatusOK, map[string]any{"boards": boards, "missing": missing})
 }
 
 // uiPrefScopeProject is the ?scope= value naming the realm every window of the

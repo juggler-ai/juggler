@@ -62,15 +62,15 @@ type sessionState struct {
 	// the background bin-size monitor. Read on the actor; written only via a
 	// task the monitor posts, so it never needs a lock.
 	binSizeBytes int64
-	// boardsClaimed records that the detached boards left over from the last run
-	// have been handed to a window to reopen. Read and written only on the actor,
-	// and deliberately not persisted: it is a fact about this process, not about
-	// the project. See SessionManager.ClaimDetachedBoards.
-	boardsClaimed bool
+	// claimedBoards maps each detached board handed to a window to reopen to the
+	// viewer id it was handed to. Read and written only on the actor, and
+	// deliberately not persisted: it is about viewers connected to this process,
+	// not about the project. See SessionManager.ClaimDetachedBoards.
+	claimedBoards map[string]string
 	// workspacesReconciled records that a client has taken on the once-per-run
 	// job of reconciling the workspace table against what is actually on disk.
 	// Read and written only on the actor, and not persisted for the same reason
-	// boardsClaimed isn't: it is a fact about this process. See
+	// claimedBoards isn't: it is a fact about this process. See
 	// SessionManager.ClaimWorkspaceReconcile.
 	workspacesReconciled bool
 }
@@ -1144,15 +1144,32 @@ func (m *SessionManager) DeleteBoard(boardID string) error {
 	return err
 }
 
-// ClaimDetachedBoards answers, once per run of this server, with the detached
-// boards left over from the last one — the windows that were open when Juggler
-// was last shut, in board order by id so two runs restore the same way.
+// ClaimDetachedBoards answers with those of the detached boards named in ids
+// that are left over from the last run — the windows that were open when
+// Juggler was last shut — in board order by id so two runs restore the same
+// way, and with the ids that name no detached board at all (missing), which the
+// asker is to forget.
 //
-// Once, because the answer is an instruction to open windows. Every main window
-// of a project asks, and a project can have several; the second to ask must be
-// told nothing rather than open a second copy of every board. The claim is
-// deliberately not persisted: it is about this process, and a board stays
-// restorable for as long as it exists.
+// Only the boards named, because which boards to reopen belongs to the machine
+// that opened them, not to the project: the page keeps that list in its
+// Project prefs realm, which a viewer on another machine keeps to itself. A
+// list of every board here would have each machine viewing the project reopen
+// the others' windows.
+//
+// A board is withheld while something is opening or showing it, because the
+// answer is an instruction to open windows. Every main window of a project
+// asks, and one machine can have several; the second to ask must be told
+// nothing rather than open a second copy of a board. So a board is not handed
+// out while its own window is connected (live.Boards), nor while another viewer
+// that claimed it is still connected (live.Viewers) and so still opening it.
+// Anything else gets it: the claimant asking again (its page has come back to
+// the session it left, and the boards went away with it), and any window once
+// both are gone. That is liveness, not this process's lifetime: a session's
+// process can outlive the app that opened its boards — always one on another
+// machine — and a claim held for the life of the process had a relaunch reopen
+// nothing. A board withheld is not missing: it is open, or about to be. The
+// claims are deliberately not persisted: they are about live viewers, and a
+// board stays restorable for as long as it exists.
 //
 // A board whose conversation has gone is dropped here rather than handed out,
 // along with the geometry of the window that held it. Forgetting boards as a
@@ -1162,36 +1179,70 @@ func (m *SessionManager) DeleteBoard(boardID string) error {
 // at which such a board can be caught, and the only one that is asked before a
 // window is opened onto it — so it is checked here as well, and a board that
 // answers for nothing is finished with.
-func (m *SessionManager) ClaimDetachedBoards() []Board {
-	boards, _ := runWrite(m, func(s *sessionState) ([]Board, error) {
-		if s.session == nil || s.boardsClaimed {
-			return []Board{}, nil
+func (m *SessionManager) ClaimDetachedBoards(ids []string, claimant string, live BoardLiveness) (boards []Board, missing []string) {
+	type claim struct {
+		boards  []Board
+		missing []string
+	}
+	c, _ := runWrite(m, func(s *sessionState) (claim, error) {
+		out := claim{boards: []Board{}, missing: []string{}}
+		if s.session == nil {
+			return out, nil
 		}
-		s.boardsClaimed = true
 		s.session.migrateBoards()
-		detached := []Board{}
 		dropped := false
 		for id, board := range s.session.Boards {
-			if !board.IsDetached() {
-				continue
-			}
-			if !s.session.hasConversation(board.Conversation) {
+			if board.IsDetached() && !s.session.hasConversation(board.Conversation) {
 				delete(s.session.Boards, id)
 				delete(s.session.WindowStates, WindowRolePinboardFor(id))
 				dropped = true
+			}
+		}
+		if s.claimedBoards == nil {
+			s.claimedBoards = map[string]string{}
+		}
+		// No more than a project can hold: a longer list names boards that cannot
+		// all be here.
+		if len(ids) > MaxBoards {
+			ids = ids[:MaxBoards]
+		}
+		seen := make(map[string]bool, len(ids))
+		for _, id := range ids {
+			if seen[id] {
 				continue
 			}
-			detached = append(detached, board.Clone())
+			seen[id] = true
+			board, ok := s.session.Boards[id]
+			if !ok || !board.IsDetached() {
+				out.missing = append(out.missing, id)
+				continue
+			}
+			if live.Boards[id] {
+				continue
+			}
+			if by, claimed := s.claimedBoards[id]; claimed && by != claimant && live.Viewers[by] {
+				continue
+			}
+			s.claimedBoards[id] = claimant
+			out.boards = append(out.boards, board.Clone())
 		}
-		sort.Slice(detached, func(i, j int) bool { return detached[i].ID < detached[j].ID })
+		// A claim on a board that has gone holds nothing.
+		for id := range s.claimedBoards {
+			if _, ok := s.session.Boards[id]; !ok {
+				delete(s.claimedBoards, id)
+			}
+		}
+		sort.Slice(out.boards, func(i, j int) bool { return out.boards[i].ID < out.boards[j].ID })
+		sort.Strings(out.missing)
+		out.missing = slices.Compact(out.missing)
 		// Only a claim that dropped something has anything to write, so the
 		// ordinary one still costs no disk.
 		if !dropped {
-			return detached, nil
+			return out, nil
 		}
-		return detached, s.store.Save(s.session)
+		return out, s.store.Save(s.session)
 	})
-	return boards
+	return c.boards, c.missing
 }
 
 // PatchMetadata applies a targeted key-by-key patch to the session metadata

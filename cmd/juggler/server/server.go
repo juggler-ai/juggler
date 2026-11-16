@@ -384,6 +384,12 @@ func New(cfg Config) (*Server, error) {
 		}
 	}, s.resolveDefaultModel)
 	sessionAPI.SetWorkspaceResolver(func(id string) (workspace.Workspace, error) { return s.Workspaces().Resolve(id) })
+	sessionAPI.SetBoardLiveness(func() core.BoardLiveness {
+		if s.hub == nil {
+			return core.BoardLiveness{}
+		}
+		return boardLiveness(s.hub.viewerClients())
+	})
 
 	configAPI, err := handlers.NewConfigAPI(s.ProjectPath, s.RefreshProviders, func() {
 		s.broadcastToAll(pluginChangedFrame{Type: framePluginChanged, Path: "config/plugins"})

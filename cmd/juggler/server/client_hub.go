@@ -15,7 +15,10 @@
 
 package server
 
-import "juggler/cmd/juggler/mailbox"
+import (
+	"juggler/cmd/juggler/core"
+	"juggler/cmd/juggler/mailbox"
+)
 
 type hubOpKind int
 
@@ -56,6 +59,7 @@ type clientDescriptor struct {
 	ID            string `json:"id"`
 	ViewerID      string `json:"viewerId,omitempty"`
 	OwnerViewerID string `json:"ownerViewerId,omitempty"`
+	Board         string `json:"board,omitempty"`
 	Origin        string `json:"origin"`
 	Detail        string `json:"detail"`
 	Name          string `json:"name,omitempty"`
@@ -113,6 +117,7 @@ func (h *clientHub) run() {
 				ID:            hc.c.ClientID(),
 				ViewerID:      hc.c.ViewerID(),
 				OwnerViewerID: info.Owner,
+				Board:         info.Board,
 				Origin:        info.Origin,
 				Detail:        info.Detail,
 				Name:          info.Name,
@@ -251,6 +256,22 @@ func (h *clientHub) viewerClients() []clientDescriptor {
 	r := make(chan []clientDescriptor, 1)
 	h.ch <- hubOp{kind: hubViewerList, listResult: r}
 	return <-r
+}
+
+// boardLiveness is what a detached board's claim needs to know of the connected
+// viewers (core.SessionManager.ClaimDetachedBoards): who is here, and which
+// boards have their own window among them.
+func boardLiveness(viewers []clientDescriptor) core.BoardLiveness {
+	live := core.BoardLiveness{Viewers: map[string]bool{}, Boards: map[string]bool{}}
+	for _, v := range viewers {
+		if v.ViewerID != "" {
+			live.Viewers[v.ViewerID] = true
+		}
+		if v.Board != "" {
+			live.Boards[v.Board] = true
+		}
+	}
+	return live
 }
 
 func (h *clientHub) shutdown() {

@@ -330,10 +330,21 @@ func TestPinboardDeleteBoard(t *testing.T) {
 	}
 }
 
-// The restore answer is an instruction to open windows, so exactly one asker may
-// have it — every main window of a project asks, and there can be several.
+// The restore answer is an instruction to open windows, so while one asker has it
+// no other may — every main window of a project asks, and there can be several.
+// Once the window that claimed it has gone, with no board window up, it is
+// anyone's again: what a relaunch onto a server that kept running needs.
 func TestPinboardRestoreIsClaimedOnce(t *testing.T) {
-	s, _ := newPinboardTestServer(t)
+	mgr, err := core.NewSessionManagerForPath(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewSessionManagerForPath: %v", err)
+	}
+	t.Cleanup(mgr.Shutdown)
+	s := &Server{router: mux.NewRouter()}
+	api := handlers.NewSessionAPI(func() *core.SessionManager { return mgr }, nil, &recordingBroadcaster{}, nil, nil)
+	connected := map[string]bool{"v_one": true}
+	api.SetBoardLiveness(func() core.BoardLiveness { return core.BoardLiveness{Viewers: connected} })
+	s.setupSessionRoutes(api)
 	// A real conversation, because a board with none left to be a view of is
 	// dropped by the claim rather than handed out.
 	if rec := pinboardRequest(t, s, http.MethodPost, "/api/conversations",
@@ -343,32 +354,65 @@ func TestPinboardRestoreIsClaimedOnce(t *testing.T) {
 	pinboardRequest(t, s, http.MethodPost, "/api/session/pinboard/boards",
 		`{"id":"board_one","conversation":"conv_1","pins":[{"id":"pin_a","type":"file"}]}`)
 
-	decodeBoards := func(rec *httptest.ResponseRecorder) []core.Board {
+	decode := func(rec *httptest.ResponseRecorder) ([]core.Board, []string) {
 		t.Helper()
 		var body struct {
-			Boards []core.Board `json:"boards"`
+			Boards  []core.Board `json:"boards"`
+			Missing []string     `json:"missing"`
 		}
 		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 			t.Fatalf("decode boards from %q: %v", rec.Body.String(), err)
 		}
-		return body.Boards
+		return body.Boards, body.Missing
 	}
 
-	rec := pinboardRequest(t, s, http.MethodPost, "/api/session/pinboard/boards/restore", "")
+	const ask = `{"ids":["board_one","board_gone"],"viewer":"v_one"}`
+	rec := pinboardRequest(t, s, http.MethodPost, "/api/session/pinboard/boards/restore", ask)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST restore: got %d (%s), want 200", rec.Code, rec.Body.String())
 	}
-	boards := decodeBoards(rec)
+	boards, missing := decode(rec)
 	if len(boards) != 1 || boards[0].ID != "board_one" || boards[0].Conversation != "conv_1" {
 		t.Fatalf("restore must name the board and its conversation, got %+v", boards)
 	}
 	if got := pinOrder(boards[0].Pins); got != "pin_a" {
 		t.Fatalf("and its tabs: got %q want %q", got, "pin_a")
 	}
+	if len(missing) != 1 || missing[0] != "board_gone" {
+		t.Fatalf("a board that is not here is reported missing, got %v", missing)
+	}
 
-	rec = pinboardRequest(t, s, http.MethodPost, "/api/session/pinboard/boards/restore", "")
-	if boards := decodeBoards(rec); len(boards) != 0 {
-		t.Fatalf("a second window must be told nothing, got %+v", boards)
+	const second = `{"ids":["board_one"],"viewer":"v_two"}`
+	rec = pinboardRequest(t, s, http.MethodPost, "/api/session/pinboard/boards/restore", second)
+	if boards, _ := decode(rec); len(boards) != 0 {
+		t.Fatalf("a second window must be told nothing while the first is opening it, got %+v", boards)
+	}
+	// Only the boards named: a window naming none is given none.
+	rec = pinboardRequest(t, s, http.MethodPost, "/api/session/pinboard/boards/restore", `{"ids":[],"viewer":"v_two"}`)
+	if boards, _ := decode(rec); len(boards) != 0 {
+		t.Fatalf("a claim naming nothing is given nothing, got %+v", boards)
+	}
+	// The app quits and comes back; the server did not.
+	delete(connected, "v_one")
+	rec = pinboardRequest(t, s, http.MethodPost, "/api/session/pinboard/boards/restore", second)
+	if boards, _ := decode(rec); len(boards) != 1 || boards[0].ID != "board_one" {
+		t.Fatalf("with its claimant gone and no window up, the board is reopened, got %+v", boards)
+	}
+}
+
+// A board window's socket names the board it is, and the restore reads that off
+// the connected viewers: a board with its window up is not handed out again.
+func TestBoardLivenessReadsTheConnectedViewers(t *testing.T) {
+	live := boardLiveness([]clientDescriptor{
+		{ID: "c1", ViewerID: "v_main"},
+		{ID: "c2", ViewerID: "v_board", OwnerViewerID: "v_main", Board: "board_one"},
+		{ID: "c3"},
+	})
+	if !live.Viewers["v_main"] || !live.Viewers["v_board"] || len(live.Viewers) != 2 {
+		t.Errorf("viewers = %v, want v_main and v_board", live.Viewers)
+	}
+	if !live.Boards["board_one"] || len(live.Boards) != 1 {
+		t.Errorf("boards = %v, want board_one", live.Boards)
 	}
 }
 

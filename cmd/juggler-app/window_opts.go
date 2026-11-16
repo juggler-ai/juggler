@@ -99,6 +99,14 @@ type windowOpts struct {
 	// which boards go with a window when it closes.
 	openedBy string
 
+	// sessionPage is, for a board opened from a window on a server by URL, the
+	// page of the session that window shows there (its windowView.serverURL): the
+	// session the board's conversation is in. A server by URL's address alone is
+	// its sessions page, which has no board to show, and the app holds no
+	// credential to open a session there itself. Like openedBy it never comes off
+	// the wire: the control endpoint fills it in from the asking window.
+	sessionPage string
+
 	// external marks a window onto a server this app did not start (--url).
 	// Like openedBy it never comes off the wire: buildWindow sets it from the
 	// window's spec. The page reads it to name that server in the window's

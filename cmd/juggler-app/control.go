@@ -400,6 +400,12 @@ func (a *appState) controlNewWindow(w http.ResponseWriter, r *http.Request, e *w
 			return
 		}
 		opts.openedBy = e.id
+		// On a server by URL the session is not in the spec, only in the page the
+		// asking window shows (windowOpts.sessionPage). A framed window shows this
+		// machine's page, with no session in it to be a view of.
+		if v := a.viewOf(e); spec.isURL() && v.framed == "" {
+			opts.sessionPage = v.serverURL
+		}
 		openNewWindow(a, spec, opts)
 		w.WriteHeader(http.StatusNoContent)
 		return

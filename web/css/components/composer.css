@@ -287,6 +287,160 @@ composer-box .skill-button .skill-glyph {
     text-align: left;
 }
 
+/* History button — icon-only, like the others in the tray. A ⌘S save pulses
+   it once, so the prompt that left the box is seen to go somewhere. */
+composer-box .history-button .history-icon {
+    display: flex;
+    align-items: center;
+    width: 1rem;
+    height: 1rem;
+}
+
+composer-box .history-button.is-pulsing {
+    animation: composer-history-pulse 0.8s ease-out;
+}
+
+@keyframes composer-history-pulse {
+    0% {
+        box-shadow: 0 0 0 0 var(--accent-blue);
+        color: var(--accent-blue);
+    }
+
+    70%  { box-shadow: 0 0 0 0.375rem transparent; }
+    100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    composer-box .history-button.is-pulsing {
+        animation: none;
+    }
+}
+
+/* Prompt-history popup (composer-history.js): the standard plain menu header,
+   a list that scrolls on its own, and a filter field under it, so the header
+   and field stay put. Wide and tall, since a prompt is paragraphs, not a name;
+   a row shows its first four lines and the list holds a good number of them. */
+.dropdown-menu.history-menu.is-open {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+    width: 44rem;
+    max-width: calc(100vw - 2rem);
+    max-height: 70vh;
+    overflow: hidden;
+}
+
+/* Only the list gives up height when the popup is short of room. */
+.history-menu .menu-header {
+    flex-shrink: 0;
+}
+
+.history-menu .history-menu-filter {
+    flex-shrink: 0;
+    width: 100%;
+    font-family: var(--font-ui);
+}
+
+.history-menu .history-menu-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+    overflow-y: auto;
+}
+
+/* Text over its notes, the delete button to the right of both. */
+.history-menu .history-menu-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: var(--space-2) var(--space-8);
+}
+
+/* A dotted rule between prompts, drawn in the gap between rows and inset to the
+   text, so it never touches a row's rounded hover wash. */
+.history-menu .history-menu-item + .history-menu-item {
+    position: relative;
+    margin-top: var(--space-6);
+}
+
+.history-menu .history-menu-item + .history-menu-item::before {
+    content: "";
+    position: absolute;
+    top: calc(var(--space-6) / -2);
+    inset-inline: var(--menu-item-padding-inline);
+    border-top: 0.0625rem dotted var(--border-divider);
+}
+
+/* Line breaks kept; four lines at most, a wrapping line included — the row says
+   how many more there are under it. */
+.history-menu .history-menu-text {
+    grid-column: 1;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 4;
+    line-clamp: 4;
+    overflow: hidden;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: var(--font-size-sm);
+    line-height: var(--leading-tight);
+}
+
+.history-menu .history-menu-meta {
+    grid-column: 1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-12);
+    color: var(--text-tertiary);
+    font-size: var(--font-size-xs);
+}
+
+.history-menu .history-menu-attachments {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-4);
+}
+
+.history-menu .history-menu-attachments svg {
+    width: 0.75rem;
+    height: 0.75rem;
+}
+
+/* Shown for the row under the pointer or the keyboard; on a touch screen, which
+   has no hover, always. */
+.history-menu .history-menu-delete {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-4);
+    color: var(--text-tertiary);
+    opacity: 0;
+}
+
+.history-menu .history-menu-item:is(:hover, :focus-visible) .history-menu-delete {
+    opacity: 1;
+}
+
+.history-menu .history-menu-delete:hover {
+    color: var(--danger);
+}
+
+@media (hover: none) {
+    .history-menu .history-menu-delete {
+        opacity: 1;
+    }
+}
+
+.history-menu .history-menu-empty {
+    display: block;
+    max-width: 26rem;
+    white-space: normal;
+    color: var(--text-secondary);
+}
+
 /* Expand / shrink button — icon-only, shown (JS toggles [hidden]) once the
    text outgrows the box's cap. One glyph per state; [expanded] on the host
    picks which. */
@@ -500,14 +654,14 @@ composer-box input-controls-send {
     flex-shrink: 0;
 }
 
-/* ── Tool tray: /, $, send later, expand, attach ─────────────────────────────
+/* ── Tool tray: /, history, $, send later, expand, attach ────────────────────
    Round buttons filling the tray's inner height, a little apart. Attach is last,
    at the end nearest Send, where the eye already goes. */
 composer-box input-controls-actions {
     gap: var(--space-4);
 }
 
-composer-box input-controls-actions .input-ctrl-btn:is(.commands-button, .skill-button, .schedule-send-btn, .expand-input-btn, .attach-btn) {
+composer-box input-controls-actions .input-ctrl-btn:is(.commands-button, .history-button, .skill-button, .schedule-send-btn, .expand-input-btn, .attach-btn) {
     justify-content: center;
     width: calc(var(--composer-row-h) - 0.125rem);
     height: calc(var(--composer-row-h) - 0.125rem);
@@ -537,8 +691,10 @@ composer-box input-controls-tools {
 
 /* A phone-narrow box — a phone's screen, or a column dragged that small —
    gives the row back what the bubble's side padding and the row's gaps take,
-   so the whole row, the expand button and the cache warning included, keeps
-   to one line down to a 360px screen. */
+   and narrows the tray's tools to upright pills of the row's full height, so
+   the whole row, the expand button and the cache warning included, keeps to
+   one line down to a 360px screen. A tool keeps the row's height, so a finger
+   still has its target. */
 @container composer (max-width: 24rem) {
     composer-box composer-box-wrapper {
         padding-inline: var(--space-12);
@@ -549,7 +705,12 @@ composer-box input-controls-tools {
     }
 
     composer-box input-controls-actions {
-        gap: var(--space-2);
+        gap: 0;
+    }
+
+    composer-box input-controls-actions .input-ctrl-btn:is(.commands-button, .history-button, .skill-button, .schedule-send-btn, .expand-input-btn, .attach-btn) {
+        width: calc(var(--composer-row-h) - 0.5rem);
+        border-radius: var(--radius-pill);
     }
 
     composer-box input-controls-send {

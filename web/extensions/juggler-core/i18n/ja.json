@@ -854,5 +854,7 @@
   "{count, plural, one {{count} changed file} other {{count} changed files}}": "{count, plural, other {変更されたファイル {count} 件}}",
   "{count, plural, one {{count} item} other {{count} items}}, {hidden} hidden": "{count, plural, other {{count} 項目}}、{hidden} 件非表示",
   "{count, plural, one {{count} match} other {{count} matches}}": "{count, plural, other {{count} 件一致}}",
-  "{count}+ items": "{count}+ 項目"
+  "{count}+ items": "{count}+ 項目",
+  "Only you can start this skill, with a $ mention. It isn’t listed for the LLM.": "このスキルは $ メンションで、あなただけが開始できます。LLM には提示されません。",
+  "user only": "ユーザー専用"
 }

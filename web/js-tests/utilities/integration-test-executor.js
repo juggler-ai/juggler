@@ -84,6 +84,7 @@ import { runTests as runOneShotRunTests } from '../unit-tests/one-shot-run-test.
 import { runTests as runDraftPersistenceTests } from '../unit-tests/draft-persistence-test.js';
 import { runTests as runDraftCloseFlushTests } from '../unit-tests/draft-close-flush-test.js';
 import { runTests as runMessageHistoryTests } from '../unit-tests/message-history-test.js';
+import { runTests as runPromptHistoryPopupTests } from '../unit-tests/prompt-history-popup-test.js';
 import { runTests as runPasteTokenTests } from '../unit-tests/paste-token-test.js';
 import { runTests as runDraftTabSwitchTests } from '../unit-tests/draft-tab-switch-test.js';
 import { runTests as runEditPermissionTests } from '../unit-tests/edit-permission-test.js';
@@ -708,6 +709,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:draft-persistence', run: runDraftPersistenceTests },
   { name: 'unit:draft-close-flush', run: runDraftCloseFlushTests },
   { name: 'unit:message-history', run: runMessageHistoryTests },
+  { name: 'unit:prompt-history-popup', run: runPromptHistoryPopupTests },
   { name: 'unit:paste-token', run: runPasteTokenTests },
   { name: 'unit:draft-tab-switch', run: runDraftTabSwitchTests },
   { name: 'unit:edit-permission', run: runEditPermissionTests },

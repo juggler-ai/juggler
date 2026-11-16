@@ -482,6 +482,7 @@
 				"--composer-*",
 				"composer-box",
 				"composer-box-wrapper",
+				"history-menu",
 				"new-thread-btn",
 				"permission-controls",
 				"reply-suggestions",

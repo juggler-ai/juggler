@@ -1408,6 +1408,22 @@ class Session {
   }
 
   /**
+   * Remove one entry from the prompt history — the prompt-history popup's
+   * delete, for text that should not have been kept (a pasted secret). Matched
+   * by identity, since the popup holds the entries it drew; an entry already
+   * gone (another viewer removed it) is a no-op.
+   * @param {HistoryMessage} entry - The entry to remove, as read from `messageHistory`.
+   * @returns {boolean} Whether an entry was removed.
+   */
+  removeMessageFromHistory(entry) {
+    const index = this.messageHistory.indexOf(entry);
+    if (index === -1) return false;
+    this.messageHistory.splice(index, 1);
+    this.save();
+    return true;
+  }
+
+  /**
    * Create a new conversation
    * @param {string} name - Conversation name
    * @param {object} [options] - Options

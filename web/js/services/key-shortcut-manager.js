@@ -632,6 +632,19 @@ const SHORTCUT_DEFS = [
     allowInInput: true,
   },
   {
+    id: 'save-and-clear-prompt',
+    label: markForTranslation('Save and clear prompt'),
+    description: markForTranslation('Put the prompt you are writing, images and all, into the prompt history '
+      + 'and empty the message box. Get it back from the history button or with the Up arrow.'),
+    category: markForTranslation('Editing'),
+    // ⌘S has no meaning in a message box and is never the browser's to keep
+    // here: the handler claims it whatever holds focus, so a reflexive save
+    // never opens the browser's Save Page dialog. shift:false leaves ⇧⌘S free
+    // (an omitted shift is tolerant, see eventMatchesBinding).
+    defaultBinding: { mod: true, shift: false, key: 's' },
+    allowInInput: true,
+  },
+  {
     id: 'undo',
     label: markForTranslation('Undo'),
     description: markForTranslation('Undo the last change in the current conversation.'),

@@ -296,6 +296,7 @@ export async function runTests() {
   // has no disconnect to release it.
   for (const [label, popup, selector, button] of /** @type {Array<[string, string, string, string]>} */ ([
     ['commands menu', '_commandsPopup', '#commands-menu', '#commands-button'],
+    ['prompt history', '_historyPopup', '#history-menu', '#history-button'],
     ['skill picker', '_skillPopup', '#skill-menu', '#skill-button'],
     ['schedule picker', '_schedulePopup', '#schedule-send-menu', '.schedule-send-btn'],
   ])) {

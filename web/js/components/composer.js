@@ -27,6 +27,7 @@ import {
 } from './skill-mention-provider.js';
 import {
   THREAD_ARROW_SVG, PAPERCLIP_SVG, SEND_ARROW_SVG, CLOCK_SVG, OPEN_IN_FULL_SVG, CLOSE_FULLSCREEN_SVG,
+  PROMPT_HISTORY_SVG,
 } from '../utils/icons.js';
 import { showNotice } from './modal-dialog.js';
 import { openSettings } from '../services/settings-launcher.js';
@@ -76,15 +77,17 @@ import {
   buildSchedulePicker,
   updateScheduleButton,
 } from './composer-schedule.js';
+import { buildHistoryMenu } from './composer-history.js';
 
 /**
  * Composer component for sending messages.
  *
- * Three self-contained corners of it live in companion modules, each taking
+ * Four self-contained corners of it live in companion modules, each taking
  * this element as their first argument: composer-attachments.js (image and
- * text-file staging), composer-paste-tokens.js (pasted-text placeholders) and
- * composer-schedule.js (send after a delay). What stays here is the box
- * itself — text, drafts, history, sending, and the menus.
+ * text-file staging), composer-paste-tokens.js (pasted-text placeholders),
+ * composer-schedule.js (send after a delay) and composer-history.js (the
+ * prompt-history popup). What stays here is the box itself — text, drafts,
+ * history, sending, and the menus.
  */
 
 /**
@@ -118,6 +121,12 @@ function textareaHeightCap(columnHeight) {
  * instead.
  */
 const MAX_MESSAGE_CHARS = 100_000;
+
+/**
+ * Longest the history button's ⌘S pulse may stay on if its animation never
+ * reports an end. A little over the animation's own length in composer.css.
+ */
+const HISTORY_PULSE_MS = 1000;
 
 class Composer extends JugglerElement {
   constructor() {
@@ -248,6 +257,16 @@ class Composer extends JugglerElement {
       surfaceSelector: '.commands-menu',
       build: () => this._buildCommandsMenu(),
     });
+    /** @type {ComposerPopup} @private - The prompt history (composer-history.js). */
+    this._historyPopup = new ComposerPopup(this, {
+      id: 'prompt-history',
+      buttonSelector: '#history-button',
+      surfaceSelector: '.history-menu',
+      build: () => buildHistoryMenu(this),
+      menuSelector: '.history-menu-list',
+      // The filter field takes the keyboard instead.
+      autoFocus: false,
+    });
     /** @type {ComposerPopup} @private - The `$` skill picker. */
     this._skillPopup = new ComposerPopup(this, {
       id: 'skill-picker',
@@ -332,11 +351,12 @@ class Composer extends JugglerElement {
     // Drop a queued height measurement: it would resolve against a detached box
     // and measure nothing.
     this._cancelScheduledAutoResize();
-    // Tear down an open commands menu, skill picker and delay picker (surface,
-    // scrim, observer, dismissal) through their close paths, which also clear
-    // the open state — state left set would make the first tap after a
-    // reattach close a popup that is not there.
+    // Tear down an open commands menu, history, skill picker and delay picker
+    // (surface, scrim, observer, dismissal) through their close paths, which
+    // also clear the open state — state left set would make the first tap after
+    // a reattach close a popup that is not there.
     this._commandsPopup.close();
+    this._historyPopup.close();
     this._skillPopup.close();
     this._schedulePopup.close();
     // The completion menu is portaled to <body> too.
@@ -600,6 +620,9 @@ class Composer extends JugglerElement {
     };
 
     onClick('#commands-button', () => this._commandsPopup.toggle(), { preventDefault: false });
+
+    // The prompt history: what ArrowUp walks, as a list to search and pick from.
+    onClick('#history-button', () => this._historyPopup.toggle(), { preventDefault: false });
 
     // Skill picker button: a mouse-first alternative to typing `$`, mirroring the
     // commands (`/`) button. It opens a menu of this thread's skills and inserts
@@ -1310,15 +1333,56 @@ class Composer extends JugglerElement {
 
   /**
    * Save whatever is currently in the box to the shared message history, so an
-   * ArrowUp brings it back after the box is cleared or overwritten. No-op on an
-   * empty box, or before a session is wired up.
+   * ArrowUp or the history popup brings it back after the box is cleared or
+   * overwritten. The entry is the whole message: the text with any paste
+   * placeholders expanded (as a send stores it — a placeholder's blob does not
+   * outlive this draft) and the uploaded images. No-op on a box with no text,
+   * or before a session is wired up.
    * @private
    */
   _saveDraftToHistory() {
-    const trimmed = this.getText().trim();
+    const trimmed = expandPasteTokens(this.getText(), this._pasteBlobs).trim();
     if (trimmed && this.session) {
-      this.session.addMessageToHistory({ content: trimmed, attachments: [] });
+      this.session.addMessageToHistory({ content: trimmed, attachments: this._resolvedAttachments() });
     }
+  }
+
+  /**
+   * Put the message in the box — text and images — into history and empty the
+   * box: ⌘S / Ctrl+S, for setting a prompt aside to come back to. The text is
+   * cleared as an undoable edit, so ⌘Z brings it back; the images are taken
+   * off the box, and the history entry keeps them. Does nothing to a box with
+   * no text.
+   * @returns {boolean} Whether there was a message to save.
+   */
+  saveAndClear() {
+    if (!this.getText().trim()) return false;
+    // Saves the whole message to history first, then clears the text undoably.
+    if (!this.clearTextUndoable()) return false;
+    this.setPendingAttachments([]);
+    this._pulseHistoryButton();
+    return true;
+  }
+
+  /**
+   * Flash the history button, so a ⌘S shows where the prompt went. The class is
+   * taken off when its animation ends, or after a fallback span for a window
+   * that never runs it (reduced motion, a hidden window).
+   * @private
+   */
+  _pulseHistoryButton() {
+    const button = /** @type {HTMLElement|null} */ (this.querySelector('#history-button'));
+    if (!button) return;
+    button.classList.remove('is-pulsing');
+    // Reading layout restarts the animation when a second save lands mid-pulse.
+    void button.offsetWidth;
+    button.classList.add('is-pulsing');
+    const done = () => {
+      clearTimeout(fallback);
+      button.classList.remove('is-pulsing');
+    };
+    const fallback = setTimeout(done, HISTORY_PULSE_MS);
+    button.addEventListener('animationend', done, { once: true });
   }
 
   /**
@@ -1830,6 +1894,18 @@ class Composer extends JugglerElement {
   }
 
   /**
+   * Forget where ArrowUp had got to in the history, and the edits made along
+   * the way: for when the history has been reordered or cut under it (the
+   * history popup picked or deleted an entry), so its indices no longer point
+   * at the entries they did.
+   */
+  resetHistoryNavigation() {
+    this.historyIndex = -1;
+    this.currentDraft = { content: '', attachments: [] };
+    this._historyEdits = {};
+  }
+
+  /**
    * Snapshot the live composer as a history level: its text plus the currently
    * staged (uploaded) image attachments. Used to preserve the -1 draft and any
    * per-level edits before navigating away from them.
@@ -2294,6 +2370,12 @@ class Composer extends JugglerElement {
                                     aria-haspopup="menu" aria-expanded="false">
                                 <span class="icon-slash"></span>
                             </button>
+                            <button class="history-button input-ctrl-btn btn-ghost" id="history-button"
+                                    title="${escapeHtml(t('Prompt history'))}"
+                                    aria-label="${escapeHtml(t('Prompt history'))}"
+                                    aria-haspopup="menu" aria-expanded="false">
+                                <span class="history-icon">${PROMPT_HISTORY_SVG}</span>
+                            </button>
                             <button class="skill-button input-ctrl-btn btn-ghost" id="skill-button"
                                     title="${escapeHtml(t('Load a skill ($)'))}"
                                     aria-label="${escapeHtml(t('Load a skill'))}"
@@ -2366,5 +2448,17 @@ class Composer extends JugglerElement {
 }
 
 customElements.define('composer-box', Composer);
+
+/**
+ * The ⌘S / Ctrl+S command: save and clear the composer that holds focus — the
+ * main column's or a sub-thread's. With focus anywhere else it does nothing,
+ * but still claims the key, so the browser never opens its Save Page dialog.
+ * @returns {boolean} Always true: the key is handled.
+ */
+export function saveAndClearFocusedComposer() {
+  const box = /** @type {Composer|null} */ (document.activeElement?.closest?.('composer-box') ?? null);
+  box?.saveAndClear();
+  return true;
+}
 
 export default Composer;

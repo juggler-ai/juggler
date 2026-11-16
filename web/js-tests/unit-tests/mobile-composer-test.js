@@ -274,7 +274,7 @@ export async function runTests() {
   // throughout, bar one case: on a 320px screen with both extras on show, Send
   // may drop under the tray, still at the far end and still inside the bubble.
   /** The row's tools, every one on show on touch as on desktop. */
-  const ROW_TOOLS = ['#commands-button', '#skill-button', '.schedule-send-btn', '#attach-button',
+  const ROW_TOOLS = ['#commands-button', '#history-button', '#skill-button', '.schedule-send-btn', '#attach-button',
     '.new-thread-btn', '#send-button'];
   /** A long-but-real model name: it ellipsises, it never squeezes the others. */
   const LONG_MODEL = 'Claude Sonnet 4.5 (CLI)';

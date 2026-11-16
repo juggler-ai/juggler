@@ -131,10 +131,12 @@ export async function runTests() {
       assert(textarea.value === 'the earlier message!',
         `typing after a restore must not revert to the overwritten draft, got ${JSON.stringify(textarea.value)}`);
 
-      // The overwritten draft is not lost — ArrowUp retrieves it.
+      // The overwritten draft is not lost — ArrowUp retrieves it, with the
+      // placeholder expanded, since its blob does not outlive the draft.
       assert(history.length === 1, `the overwritten draft must be saved to history once, got ${history.length}`);
-      assert(history[0].content === draftText.trim(),
-        `history must hold the overwritten draft, got ${JSON.stringify(history[0].content)}`);
+      assert(history[0].content === ('about this: ' + BIG_PASTE).trim(),
+        `history must hold the overwritten draft, expanded, got ${JSON.stringify(history[0].content.slice(0, 80))}`);
+      assert(draftText !== history[0].content, 'precondition: the draft held a placeholder, not the paste');
       passed++;
     } catch (e) {
       failed++;

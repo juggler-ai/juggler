@@ -4,8 +4,8 @@
 
 /**
  * composer-popup — one of the composer's button-anchored popups (the `/`
- * commands menu, the `$` skill picker, the send-later picker), for
- * composer.js.
+ * commands menu, the prompt history, the `$` skill picker, the send-later
+ * picker), for composer.js.
  *
  * Each popup builds its surface fresh on every open, most from lists that have
  * to be awaited, and presents it on `<body>` through `presentPopup`. The await
@@ -38,8 +38,16 @@ export class ComposerPopup {
    * @param {number} [opts.gap=4] - Gap (px) between anchor and surface.
    * @param {boolean} [opts.dialog=false] - The surface is a dialog, not a menu, so it
    *   gets no menu arrow-key handling.
+   * @param {string} [opts.menuSelector] - The element within the surface that is
+   *   the menu, for a surface that holds more than its rows (a filter field);
+   *   the surface itself when omitted.
+   * @param {boolean} [opts.autoFocus=true] - Whether a keyboard open moves focus to
+   *   the first row; off for a surface whose own control takes it.
    */
-  constructor(host, { id, buttonSelector, surfaceSelector, build, align = 'left', gap = 4, dialog = false }) {
+  constructor(host, {
+    id, buttonSelector, surfaceSelector, build, align = 'left', gap = 4, dialog = false,
+    menuSelector = '', autoFocus = true,
+  }) {
     /** @private */ this._host = host;
     /** @private */ this._id = id;
     /** @private */ this._buttonSelector = buttonSelector;
@@ -48,6 +56,8 @@ export class ComposerPopup {
     /** @private */ this._align = align;
     /** @private */ this._gap = gap;
     /** @private */ this._dialog = dialog;
+    /** @private */ this._menuSelector = menuSelector;
+    /** @private */ this._autoFocus = autoFocus;
     /** @type {HTMLElement|null} The presented surface, or null while closed. */
     this.surface = null;
     /** @type {(() => void)|null} @private presentPopup release for the open surface. */
@@ -96,7 +106,11 @@ export class ComposerPopup {
       return;
     }
     this._release = release;
-    if (!this._dialog) attachMenuKeyboard(surface, { close: () => this.close() });
+    if (!this._dialog) {
+      const menu = /** @type {HTMLElement|null} */ (
+        this._menuSelector ? surface.querySelector(this._menuSelector) : surface);
+      if (menu) attachMenuKeyboard(menu, { close: () => this.close(), autoFocus: this._autoFocus });
+    }
     anchor.setAttribute('aria-expanded', 'true');
   }
 

@@ -854,5 +854,7 @@
   "{count, plural, one {{count} changed file} other {{count} changed files}}": "{count, plural, other {변경된 파일 {count}개}}",
   "{count, plural, one {{count} item} other {{count} items}}, {hidden} hidden": "{count, plural, other {항목 {count}개}}, {hidden}개 숨김",
   "{count, plural, one {{count} match} other {{count} matches}}": "{count, plural, other {일치 {count}개}}",
-  "{count}+ items": "항목 {count}+개"
+  "{count}+ items": "항목 {count}+개",
+  "Only you can start this skill, with a $ mention. It isn’t listed for the LLM.": "이 스킬은 $ 멘션으로 사용자만 시작할 수 있습니다. LLM에게는 제시되지 않습니다.",
+  "user only": "사용자 전용"
 }

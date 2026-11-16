@@ -854,5 +854,7 @@
   "{count, plural, one {{count} changed file} other {{count} changed files}}": "{count, plural, other {{count} 个已更改的文件}}",
   "{count, plural, one {{count} item} other {{count} items}}, {hidden} hidden": "{count, plural, other {{count} 项}}，已隐藏 {hidden} 项",
   "{count, plural, one {{count} match} other {{count} matches}}": "{count, plural, other {{count} 个匹配项}}",
-  "{count}+ items": "{count}+ 项"
+  "{count}+ items": "{count}+ 项",
+  "Only you can start this skill, with a $ mention. It isn’t listed for the LLM.": "只有你能通过 $ 提及启动此技能。它不会提供给 LLM。",
+  "user only": "仅限用户"
 }

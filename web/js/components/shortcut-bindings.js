@@ -25,6 +25,7 @@ import { machineFeed } from '../services/machine-feed.js';
 import { goTo } from '../services/project-navigation.js';
 import { hasNativeHost } from '../../sdk/lib/window-control.js';
 import findBar, { findPanelFor } from './find-bar.js';
+import { saveAndClearFocusedComposer } from './composer.js';
 
 /**
  * Step the visible tab's item selection one item up or down.
@@ -122,6 +123,9 @@ export function registerConversationShortcuts(session) {
     findBar.open(panel);
     return true;
   });
+  // ⌘S sets the prompt being written aside into the prompt history. It acts on
+  // the composer that holds focus, and claims the key everywhere else too.
+  keyShortcutManager.register('save-and-clear-prompt', saveAndClearFocusedComposer);
   // Opens the model picker and leaves it open — the counterpart to ⌥⌘M, which
   // shows the same picker as a HUD that closes with the modifiers. The picker
   // takes the keyboard itself once open (filter, arrows, Enter, Escape) from a

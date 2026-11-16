@@ -854,5 +854,7 @@
   "{count, plural, one {{count} changed file} other {{count} changed files}}": "{count, plural, one {{count} arquivo alterado} other {{count} arquivos alterados}}",
   "{count, plural, one {{count} item} other {{count} items}}, {hidden} hidden": "{count, plural, one {{count} item} other {{count} itens}}, {hidden} ocultos",
   "{count, plural, one {{count} match} other {{count} matches}}": "{count, plural, one {{count} resultado} other {{count} resultados}}",
-  "{count}+ items": "{count}+ itens"
+  "{count}+ items": "{count}+ itens",
+  "Only you can start this skill, with a $ mention. It isn’t listed for the LLM.": "Só você pode iniciar esta skill, com uma menção $. Ela não é oferecida ao LLM.",
+  "user only": "só usuário"
 }

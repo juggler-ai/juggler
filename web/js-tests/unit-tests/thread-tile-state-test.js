@@ -231,7 +231,53 @@ export async function runTests() {
     passed++;
   } catch (e) { failed++; errors.push(`mark tracks both ways: ${msg(e)}`); }
 
-  // --- 5: under en-XA, every state the tile draws is translated ---
+  // --- 5: a running tile's spinner reads the run as the thread's footer does ---
+  // The tile's spinner stands for the same run as the sub-thread's own footer
+  // spinner, so it must juggle the same clubs, at the same speed, on the same
+  // fire. Nothing on screen says when it doesn't — it just rests at the plain
+  // cascade — so this is the only thing that notices.
+  try {
+    const now = Date.now();
+    /**
+     * @param {any} t - The thread Y.Map.
+     * @param {number} throughput - Tokens/sec the conversation's llmState reports for T1.
+     * @returns {any} the running tile, inside a column whose conversation reports `throughput`.
+     */
+    const runningTile = (t, throughput) => {
+      const column = document.createElement('conversation-area');
+      Object.defineProperty(column, 'conversation', {
+        value: {
+          id: 'c1',
+          llmState: {
+            getThroughput: (/** @type {string} */ _c, /** @type {string} */ id) => (id === 'T1' ? throughput : 0),
+            getLiveInputUsage: () => null,
+          },
+          resolveMessageThread: () => ({ getEffectiveModelConfig: () => null }),
+        },
+      });
+      const tile = /** @type {any} */ (document.createElement('thread-message'));
+      column.appendChild(tile);
+      tile.updateFromItem(t, { byThread: { T1: 'Running tools' } });
+      return tile;
+    };
+    const tool = (/** @type {string} */ id) => ({
+      type: 'tool-action', itemId: id, toolName: 'bash', state: 'running', runningStartedAt: now,
+    });
+
+    const fanOut = runningTile(thread({}, [tool('ta-1'), tool('ta-2'), tool('ta-3'), tool('ta-4'), tool('ta-5')]), 0);
+    const parked = fanOut.querySelector('juggler-spinner.thread-status-spinner');
+    assert(parked?.hasAttribute('live'), 'a running tile\'s spinner must be live to report the run at all');
+    assert(parked.clubs === 5, `five tool calls running in the thread juggle five clubs, got ${parked.clubs}`);
+
+    const streaming = runningTile(thread({ contextTokens: 400000 }), 120);
+    const fast = streaming.querySelector('juggler-spinner.thread-status-spinner');
+    assert(fast.rate === 2, `output arriving at 120 tok/s runs the cascade at full speed, got ${fast.rate}`);
+    assert(!!fast.style.getPropertyValue('--spinner-fire-intensity'),
+      'a thread whose transcript is past the fire threshold burns on its tile as in its column');
+    passed++;
+  } catch (e) { failed++; errors.push(`live spinner: ${msg(e)}`); }
+
+  // --- 6: under en-XA, every state the tile draws is translated ---
   // The goal, the summary and a running thread's live line are data (the call's
   // goal, the child's answer, the footer's own wording), so those elements are
   // skipped; everything else — status lines, Stop's text, title and aria-label,

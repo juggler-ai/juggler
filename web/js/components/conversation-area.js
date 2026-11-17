@@ -29,8 +29,8 @@ import { setupColumnResize, startingColumnWidth } from '../utils/column-resize.j
 import {
   hasPendingApprovalInTree,
   hasUnsettledToolInTree,
-  runningToolsInTree,
 } from '../model/thread-navigation.js';
+import { threadSpinnerWork } from '../utils/spinner-work.js';
 import { WORKSPACE_ID_KEY, INITIALISED_KEY } from '../model/conversation.js';
 import { itemGoal } from '../model/thread-alias.js';
 import { liveMessageForThread } from '../utils/thread-display.js';
@@ -1929,27 +1929,13 @@ class ConversationArea extends JugglerElement {
     // work on an idle footer would walk the whole item tree many times a second
     // to feed an indicator that isn't on screen.
     //
-    // How much is genuinely executing at once, for the club count. Scoped the
-    // same way as the status signals above: a group column reports only the run
-    // it shows, everything else the whole thread (nested threads included).
-    const running = isProcessing
-      ? runningToolsInTree(groupItems || this._messageThread?.items)
-      : { count: 0, oldestStart: 0 };
-    const runningTools = running.count;
-    // How long we have been waiting on the tool call we are STILL waiting on,
-    // for the tool-wait ramp. Null when nothing is executing, which is what
-    // tells the spinner to read the speed off throughput instead. A running
-    // tool with no claim stamp yet counts as freshly started (0) rather than as
-    // no tool at all — the wait is real, we just can't date it.
-    const toolWaitMs = runningTools > 0
-      ? Math.max(0, running.oldestStart ? Date.now() - running.oldestStart : 0)
-      : null;
-    // How fast output is arriving, for the speed while streaming. Zero while
-    // parked on a tool call or waiting on the network — the truth of those
-    // moments rather than a missing reading.
-    const throughput = isProcessing
-      ? (this._conversation?.llmState?.getThroughput?.(this._conversation.id, myThreadId) ?? 0)
-      : 0;
+    // Running tools are scoped the same way as the status signals above: a
+    // group column reports only the run it shows, everything else the whole
+    // thread (nested threads included). The same derivation feeds a sub-thread's
+    // spinner on its parent tile, so the two always agree.
+    const { runningTools, throughput, toolWaitMs } = isProcessing
+      ? threadSpinnerWork(this._conversation, myThreadId, groupItems || this._messageThread?.items)
+      : { runningTools: 0, throughput: 0, toolWaitMs: null };
     const statusMessage = hasPendingApprovals
       ? StatusMessageBuilder.withBusyMarker(t('Waiting for user approval'))
       : (busyState?.message || '');

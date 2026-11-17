@@ -357,8 +357,11 @@ export function paintThreadSummary(el, text, opts) {
 
   el.className = 'thread-summary thread-status';
   el.dataset.kind = status.kind;
+  // `live`, so a surface that can read the run behind it (the parent tile) makes
+  // it juggle like the thread's own footer spinner; one that never feeds it
+  // rests at the plain cascade.
   const spinnerHTML = status.spinner
-    ? '<juggler-spinner class="thread-status-spinner" style="--spinner-size: 0.9em"></juggler-spinner>'
+    ? '<juggler-spinner live class="thread-status-spinner" style="--spinner-size: 0.9em"></juggler-spinner>'
     : '';
   // A status with nothing to say and no spinner renders no line at all, rather
   // than an empty one the column gap would still space out.

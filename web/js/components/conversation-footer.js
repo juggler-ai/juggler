@@ -45,7 +45,7 @@ import JugglerElement from './juggler-element.js';
 import './juggler-nudge.js';
 import { findRoundTripTxnIds, findLastRoundTripItemId } from '../utils/transaction-anchor.js';
 import { formatRelativeDateTime } from '../utils/format.js';
-import providersCache from '../services/providers-cache.js';
+import { modelEntryFor, reportSpinnerWork } from '../utils/spinner-work.js';
 import { openSettings } from '../services/settings-launcher.js';
 import { FORK_SVG, UNDO_SVG, REDO_SVG } from '../utils/icons.js';
 import { historyState, HISTORY_BUSY_TITLE } from '../utils/conversation-history.js';
@@ -577,10 +577,7 @@ class ConversationFooter extends JugglerElement {
     if (this._threadModelConfig === undefined) {
       this._threadModelConfig = this._messageThread?.getEffectiveModelConfig?.() || null;
     }
-    const cfg = this._threadModelConfig;
-    if (!cfg?.provider || !cfg?.model) return null;
-    const providerEntry = providersCache.get().find((/** @type {any} */ p) => p?.name === cfg.provider);
-    return providerEntry?.modelsWithContext?.find((/** @type {any} */ m) => m?.id === cfg.model) || null;
+    return modelEntryFor(this._threadModelConfig);
   }
 
   /**
@@ -1256,11 +1253,8 @@ class ConversationFooter extends JugglerElement {
       const spinner = this.querySelector('juggler-spinner');
       if (spinner) {
         toggle(spinner, state.showSpinner !== false);
-        // Report the live work behind the spinner. Doing this on every tick is
-        // free — the spinner ignores an unchanged count and deadbands the rate —
-        // and it is ignored outright by any spinner not marked `live`.
-        /** @type {any} */ (spinner).clubs = state.runningTools ?? 0;
-        /** @type {any} */ (spinner).report({
+        reportSpinnerWork(spinner, {
+          runningTools: state.runningTools ?? 0,
           throughput: state.throughput ?? 0,
           toolWaitMs: state.toolWaitMs ?? null,
         });

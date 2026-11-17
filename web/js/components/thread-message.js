@@ -10,6 +10,8 @@ import { getThreadStatus, getThreadDisplayContent, paintThreadSummary, paintThre
 import { applyCollapsible } from '../utils/collapsible.js';
 import { canonicalThread } from '../model/thread-alias.js';
 import { fileRefContext } from '../utils/file-refs.js';
+import { threadSpinnerWork, reportSpinnerWork, modelEntryFor } from '../utils/spinner-work.js';
+import { itemField } from '../../sdk/lib/message.js';
 import { t } from '../../sdk/lib/i18n.js';
 
 /**
@@ -55,6 +57,18 @@ class ThreadMessage extends JugglerElement {
      * @type {string|null} @private
      */
     this._paintedKey = null;
+    /**
+     * The last live input-usage reading of the run the spinner stands for,
+     * held between the frames that carry one (see _contextTokens).
+     * @type {{inputTokens: number, cachedTokens: number|null}|null} @private
+     */
+    this._heldUsage = null;
+    /**
+     * The model the running thread runs, resolved once per run; undefined
+     * until then.
+     * @type {import('../model/conversation.js').ModelConfig|null|undefined} @private
+     */
+    this._modelConfig = undefined;
   }
 
   connectedCallback() {
@@ -164,6 +178,74 @@ class ThreadMessage extends JugglerElement {
 
   render() {
     const status = this._item ? getThreadStatus(this._item, this._live) : null;
+    this._paint(status);
+    this._feedSpinner(status);
+  }
+
+  /**
+   * Tell the status block's live spinner what the run behind it is doing, read
+   * the way the thread's own column footer reads it: the same club count and
+   * speed (utils/spinner-work.js), and the same context reading for the fire
+   * while the model streams live usage. Before a turn has measured itself — or
+   * on a model that never does — the footer falls back on the last round-trip's
+   * transaction blob; the tile has no blob of its own to fetch, and uses the
+   * transcript size stamped when the thread's last run settled.
+   * @param {import('../utils/thread-display.js').ThreadStatus|null} status
+   * @private
+   */
+  _feedSpinner(status) {
+    const spinner = this.querySelector('juggler-spinner.thread-status-spinner');
+    if (!spinner || status?.kind !== 'running' || !this._item) {
+      // The next run's readings are the next run's business.
+      this._heldUsage = null;
+      this._modelConfig = undefined;
+      return;
+    }
+    const thread = canonicalThread(this._item);
+    const threadItemId = thread?.get?.('itemId');
+    const conv = /** @type {any} */ (this.closest('conversation-area'))?.conversation;
+    if (!conv?.id || typeof threadItemId !== 'string' || !threadItemId) return;
+    reportSpinnerWork(spinner, threadSpinnerWork(conv, threadItemId, thread.get('items')));
+    /** @type {any} */ (spinner).contextTokens = this._contextTokens(conv, thread, threadItemId);
+  }
+
+  /**
+   * The context size the spinner's fire reads, for the thread being driven.
+   * @param {any} conv - The conversation.
+   * @param {any} thread - The canonical thread Y.Map.
+   * @param {string} threadItemId - Its item id.
+   * @returns {number} Context tokens.
+   * @private
+   */
+  _contextTokens(conv, thread, threadItemId) {
+    // Resolved once per run: it walks up the thread tree, and this runs on
+    // every tick.
+    if (this._modelConfig === undefined) {
+      try {
+        this._modelConfig = conv.resolveMessageThread(threadItemId).getEffectiveModelConfig() || null;
+      } catch {
+        this._modelConfig = null;
+      }
+    }
+    if (modelEntryFor(this._modelConfig)?.streamsLiveUsage) {
+      // Present only on the frame that carried a usage chunk, so the last one
+      // is held for the rest of the run, as the footer holds it.
+      const live = conv.llmState?.getLiveInputUsage?.(conv.id, threadItemId) || this._heldUsage;
+      if (live) {
+        this._heldUsage = live;
+        return live.inputTokens;
+      }
+    }
+    return Number(itemField(thread, 'contextTokens')) || 0;
+  }
+
+  /**
+   * Paint the tile for a status: rebuild it when its structural mode changes,
+   * otherwise update its text in place.
+   * @param {import('../utils/thread-display.js').ThreadStatus|null} status
+   * @private
+   */
+  _paint(status) {
     // The tile shows a Stop button for either of the two things a click can act
     // on: work to stop — the live processing column (running), about to be
     // driven (pending), or parked on an approval (paused) — or an open run to

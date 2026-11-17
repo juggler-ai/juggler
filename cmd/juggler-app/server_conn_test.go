@@ -8,12 +8,16 @@ import (
 	"cmp"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -679,6 +683,111 @@ func TestAServerOfAnotherVersionInUseIsLeftForTheUser(t *testing.T) {
 			}
 			if text := strings.Join((&appState{}).trParagraphs(mismatchStandIn(mismatch).message), "\n\n"); !strings.Contains(text, c.says) {
 				t.Errorf("mismatch page %q does not say %q", text, c.says)
+			}
+		})
+	}
+}
+
+// TestAServerBinaryOfAnotherVersionIsABrokenInstall: when the server the app
+// starts from its own binary is still another version, the install itself is
+// broken — an update that stopped part-way leaves exactly this, a new app over
+// an old server — and restarting it only starts the same one again. The app
+// says so and offers the download, not Restart server. That holds whether or
+// not the server it started is idle: one restores its sessions as it starts.
+// (A server already running when the app came, of another version, is the
+// ordinary mismatch: TestAServerOfAnotherVersionWithSessionsIsLeftForTheUser.)
+func TestAServerBinaryOfAnotherVersionIsABrokenInstall(t *testing.T) {
+	for _, published := range []bool{true, false} {
+		for _, restored := range []bool{false, true} {
+			name := map[bool]string{true: "published", false: "from source"}[published] +
+				map[bool]string{true: ", sessions restored", false: ", idle"}[restored]
+			t.Run(name, func(t *testing.T) {
+				stock := builtFromSource
+				builtFromSource = func() bool { return !published }
+				t.Cleanup(func() { builtFromSource = stock })
+				brokenInstallCase(t, published, restored)
+			})
+		}
+	}
+}
+
+// brokenInstallCase is TestAServerBinaryOfAnotherVersionIsABrokenInstall for
+// one kind of build, and a server that comes up idle or holding the sessions
+// it restored: a published build is told its install is broken; one built
+// from source, where a rebuild under a running app does the same, keeps the
+// ordinary mismatch page.
+func brokenInstallCase(t *testing.T, published, restored bool) {
+	a := newTestAppState(t)
+	starts := 0
+	a.connectOpts.Start = func() (int, <-chan struct{}, error) {
+		starts++
+		s := newStubMachineServer(t, a, "v0.0.1-old")
+		s.appStarted.Store(true)
+		if restored {
+			s.list.Store(&[]machineserver.Session{{ID: "s1", Project: "/work/alpha", State: machineserver.SessionRunning}})
+		}
+		return os.Getpid(), make(chan struct{}), nil
+	}
+	_, err := a.serverClient(true)
+	mismatch, ok := asVersionMismatch(err)
+	if !ok {
+		t.Fatalf("serverClient: %v, want a version mismatch", err)
+	}
+	// An idle one is replaced once, by the same binary; one holding sessions
+	// is not replaced without asking.
+	if want := map[bool]int{false: 2, true: 1}[restored]; starts != want {
+		t.Fatalf("%d starts, want %d", starts, want)
+	}
+	if !published {
+		if mismatch.ownBinary || standInFor(err).kind != standInMismatch {
+			t.Fatalf("a build from source was told its install is broken: %+v", mismatch)
+		}
+		return
+	}
+	if !mismatch.ownBinary {
+		t.Fatalf("mismatch %+v; want the app's own binary blamed after it started it again", mismatch)
+	}
+	page := standInFor(err)
+	if page.kind != standInBroken {
+		t.Fatalf("stand-in %q, want %q", page.kind, standInBroken)
+	}
+	text := strings.Join((&appState{}).trParagraphs(page.message), "\n\n")
+	for _, want := range []string{"v0.0.1-old", core.Version} {
+		if !strings.Contains(text, want) {
+			t.Errorf("broken-install page %q does not say %q", text, want)
+		}
+	}
+	if actions := standInActions(page); !slices.Equal(actions, []string{"download-app", "quit"}) {
+		t.Errorf("broken-install page offers %v, want download-app and quit", actions)
+	}
+}
+
+// TestAServerBinaryThatCannotRunIsABrokenInstall: a server binary that is
+// missing, cut short or refused by the system cannot be fixed by trying again
+// alone, so its failure leads with the download. A failure that is not the
+// binary's keeps the ordinary page.
+func TestAServerBinaryThatCannotRunIsABrokenInstall(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "juggler.exe")
+	t.Setenv("JUGGLER_SERVER_BIN", bin)
+	for _, c := range []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"missing", fmt.Errorf("start the Juggler server: %w", &fs.PathError{Op: "fork/exec", Path: bin, Err: fs.ErrNotExist}), standInBroken},
+		{"not found on lookup", fmt.Errorf("start the Juggler server: %w", &exec.Error{Name: bin, Err: exec.ErrNotFound}), standInBroken},
+		{"another file", fmt.Errorf("read server.json: %w", &fs.PathError{Op: "open", Path: filepath.Join(t.TempDir(), "server.json"), Err: fs.ErrPermission}), standInFailed},
+		{"no path at all", errors.New("the server did not answer"), standInFailed},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			page := standInFor(c.err)
+			if page.kind != c.want {
+				t.Fatalf("stand-in %q, want %q", page.kind, c.want)
+			}
+			if c.want == standInBroken {
+				if actions := standInActions(page); !slices.Equal(actions, []string{"download-app", "retry-server", "quit"}) {
+					t.Errorf("offers %v, want download-app, retry-server and quit", actions)
+				}
 			}
 		})
 	}

@@ -45,6 +45,9 @@ function vmOf(over) {
 /** An external download link whose label the manifest leaves out. */
 const LINK = { url: 'https://juggler.studio/' };
 
+/** Where the app says this release can be downloaded by hand. */
+const DOWNLOAD = 'https://github.com/juggler-ai/juggler/releases/latest';
+
 /**
  * Every dialog state, with the selector for what it draws as data.
  * @type {Array<{where: string, vm: any, skip?: string}>}
@@ -64,6 +67,8 @@ const NOTICE_STATES = [
     { where: `error ${errorStage}`, vm: vmOf({ present: true, updaterState: 'error', errorStage, error: '42', notice: { id: '5', actions: [LINK] } }), skip: '.update-notice__status-detail' },
     { where: `error ${errorStage}, no detail`, vm: vmOf({ present: true, updaterState: 'error', errorStage }) },
   ]),
+  { where: 'error, download by hand', vm: vmOf({ present: true, updaterState: 'error', errorStage: 'restart', targetVersion: '9.8.7', downloadURL: DOWNLOAD }) },
+  { where: 'error, download by hand, version unknown', vm: vmOf({ present: true, updaterState: 'error', errorStage: 'restart', downloadURL: DOWNLOAD }) },
   { where: 'downloading 42%', vm: vmOf({ present: true, updaterState: 'downloading', pct: 42, targetVersion: '9.8.7' }) },
   { where: 'downloading, no percent', vm: vmOf({ present: true, updaterState: 'downloading' }) },
   { where: 'verifying', vm: vmOf({ present: true, updaterState: 'verifying' }) },
@@ -170,6 +175,56 @@ export async function runTests() {
       assert(notice.querySelector('.update-notice__title').textContent === 'Juggler 2 is here', 'the manifest title is drawn as given');
       const labels = [...notice.querySelectorAll('.update-notice__footer > .btn')].map((b) => b.textContent);
       assert(labels.includes('Get it'), `the manifest's action label is drawn as given: ${JSON.stringify(labels)}`);
+    } finally {
+      notice.close();
+      notice.remove();
+      btn.remove();
+    }
+  });
+
+  // The way out when the updater itself is what broke: whatever went wrong while
+  // updating, the failure leads with downloading the release by hand (a check
+  // that never reached the server updated nothing), and an app that finds,
+  // on launch, that its last update never finished has the dialog opened on it.
+  await test('a failed update leads with the manual download', () => {
+    const btn = quietButton();
+    const notice = /** @type {any} */ (document.createElement('update-notice'));
+    document.body.appendChild(notice);
+    try {
+      for (const errorStage of ['restart', 'download', null]) {
+        notice.open(vmOf({ present: true, updaterState: 'error', errorStage, error: 'x', targetVersion: '9.8.7', downloadURL: DOWNLOAD }));
+        const buttons = [...notice.querySelectorAll('.update-notice__footer > .btn')];
+        const labels = buttons.map((b) => b.textContent);
+        assert(JSON.stringify(labels) === JSON.stringify(['Later', 'Retry', 'Download Juggler 9.8.7']),
+          `error ${errorStage} buttons: ${JSON.stringify(labels)}`);
+        assert(buttons[2].classList.contains('btn-primary') && !buttons[1].classList.contains('btn-primary'),
+          `the download, not Retry, is the primary action (error ${errorStage})`);
+        notice.close();
+      }
+
+      // A check that couldn't reach the update server updated nothing, and a
+      // download from the same network fares no better: Retry leads, with the
+      // manifest's own links beside it, as without an updater link.
+      notice.open(vmOf({ present: true, updaterState: 'error', errorStage: 'check', error: 'x', targetVersion: '9.8.7', downloadURL: DOWNLOAD, notice: { id: '5', actions: [LINK] } }));
+      const checkButtons = [...notice.querySelectorAll('.update-notice__footer > .btn')];
+      const checkLabels = checkButtons.map((b) => b.textContent);
+      assert(JSON.stringify(checkLabels) === JSON.stringify(['Later', 'Open', 'Retry']) && checkButtons[2].classList.contains('btn-primary'),
+        `error check buttons: ${JSON.stringify(checkLabels)}`);
+      notice.close();
+
+      // The model carries the app's download link through.
+      btn._server = {};
+      btn._updater = { present: true, state: 'error', errorStage: 'restart', version: '9.8.7', downloadURL: DOWNLOAD };
+      assert(btn._viewModel().downloadURL === DOWNLOAD, `downloadURL reaches the model: ${JSON.stringify(btn._viewModel().downloadURL)}`);
+
+      // A snapshot the app marks openDialog opens the dialog on arrival; others don't.
+      /** @type {any[]} */
+      const opened = [];
+      btn._dialog = () => ({ isOpen: () => false, open: (/** @type {any} */ vm) => opened.push(vm), refresh: () => {} });
+      btn._takeUpdater({ present: true, state: 'error', errorStage: 'restart', version: '9.8.7', downloadURL: DOWNLOAD });
+      assert(opened.length === 0, 'an ordinary error snapshot opened the dialog');
+      btn._takeUpdater({ present: true, state: 'error', errorStage: 'restart', version: '9.8.7', downloadURL: DOWNLOAD, openDialog: true });
+      assert(opened.length === 1 && opened[0].downloadURL === DOWNLOAD, `openDialog opened it with the link: ${JSON.stringify(opened)}`);
     } finally {
       notice.close();
       notice.remove();

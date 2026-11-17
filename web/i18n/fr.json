@@ -491,6 +491,8 @@
   "Dismiss {name}": "Ignorer {name}",
   "Don't ask again": "Ne plus demander",
   "Doorbell": "Sonnette",
+  "Download Juggler": "Télécharger Juggler",
+  "Download Juggler {version}": "Télécharger Juggler {version}",
   "Downloading update…": "Téléchargement de la mise à jour…",
   "Downloading update… {pct}%": "Téléchargement de la mise à jour… {pct} %",
   "Draft one": "En rédiger un",

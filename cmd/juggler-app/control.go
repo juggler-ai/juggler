@@ -10,6 +10,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -328,8 +329,8 @@ func anyRequest(*http.Request) bool { return true }
 // pick-directory and pick-file (they answer with a local path), updater,
 // switch-server and discover (choosing another server to show), and the
 // stand-in actions retry-server, start-server,
-// restart-server, open-local and open-in-browser, which no page of another
-// server shows.
+// restart-server, open-local, open-in-browser and download-app, which no page
+// of another server shows.
 var windowActions = map[string]controlAction{
 	"theme":          {handle: (*appState).controlTheme, remote: anyRequest},
 	"title":          {handle: (*appState).controlTitle, remote: anyRequest},
@@ -361,6 +362,7 @@ var windowActions = map[string]controlAction{
 	"restart-server":  {handle: (*appState).controlRestartServer},
 	"open-local":      {handle: (*appState).controlOpenLocal},
 	"open-in-browser": {handle: (*appState).controlOpenInBrowser},
+	"download-app":    {handle: (*appState).controlDownloadApp},
 }
 
 // controlNewWindow opens another window, carrying whatever the caller handed
@@ -1228,7 +1230,15 @@ func (a *appState) handleUpdaterRestart(w http.ResponseWriter, r *http.Request) 
 		// the app stays runnable and hand the reason to the page.
 		a.reg(func(st *regState) { st.quitting = false })
 		logf("updater: restart: %v", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		// The error envelope the page decodes (services/http.js): the English,
+		// and the message to show in the viewer's language when the error is
+		// one in its entirety.
+		body := map[string]any{"error": err.Error()}
+		var me *msg.Error
+		if errors.As(err, &me) && me.Error() == err.Error() {
+			body["message"] = me.Message
+		}
+		writeJSON(w, http.StatusInternalServerError, body)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

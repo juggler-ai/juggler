@@ -491,6 +491,8 @@
   "Dismiss {name}": "{name} を閉じる",
   "Don't ask again": "今後確認しない",
   "Doorbell": "ドアベル",
+  "Download Juggler": "Juggler をダウンロード",
+  "Download Juggler {version}": "Juggler {version} をダウンロード",
   "Downloading update…": "アップデートをダウンロード中…",
   "Downloading update… {pct}%": "アップデートをダウンロード中… {pct}%",
   "Draft one": "下書きを作成",

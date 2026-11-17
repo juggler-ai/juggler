@@ -434,7 +434,7 @@ func singleInstanceOptions(unavailable error, onSecondInstance func(application.
 		return nil
 	}
 	return &application.SingleInstanceOptions{
-		UniqueID:               singleInstanceID,
+		UniqueID:               singleInstanceKey(),
 		OnSecondInstanceLaunch: onSecondInstance,
 		// What a launch that finds an app running tells it of itself, beside its
 		// argv: its version, so a running app of another version can say so

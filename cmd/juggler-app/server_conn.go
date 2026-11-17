@@ -8,8 +8,10 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 
 	"juggler/cmd/juggler/core"
@@ -165,11 +167,22 @@ func (a *appState) landAttached(flight chan struct{}, c *machineserver.Client, a
 type versionMismatchError struct {
 	app, server string
 	occ         machineserver.Occupancy
+	// ownBinary is that the server is one this app has just started itself:
+	// the server binary installed beside the app is the other version, so
+	// restarting it only starts the same one again.
+	// The install is broken — an update that stopped part-way leaves exactly
+	// this — and the stand-in says so (brokenInstallStandIn).
+	ownBinary bool
 }
 
 func (e *versionMismatchError) Error() string {
 	return fmt.Sprintf("the Juggler server running here is %s, and this app is %s", e.server, e.app)
 }
+
+// builtFromSource reports whether this app is a build from source, whose
+// server is told apart by build (machineserver.BuildOf). A variable so tests,
+// which are such builds, can play a published one.
+var builtFromSource = func() bool { return core.IsDevVersion(core.Version) }
 
 // wantBuild is the build of server the app uses (serverBuild): another
 // version, or another build of this one, is a mismatch.
@@ -252,7 +265,13 @@ func (a *appState) attach(prev *machineserver.Client, ended *machineserver.Attac
 			case err != nil:
 				return nil, nil, err
 			case !replaced:
-				return nil, nil, &versionMismatchError{app: a.wantBuild(), server: c.Build, occ: occ}
+				// This very Connect started it: the binary the app starts is
+				// that build, whatever it holds by now (a server restores its
+				// sessions as it starts, so it need not be idle). A build from
+				// source keeps the ordinary page, since there a rebuild under a
+				// running app is the usual reason.
+				own := c.Started && opts.Start != nil && !builtFromSource()
+				return nil, nil, &versionMismatchError{app: a.wantBuild(), server: c.Build, occ: occ, ownBinary: own}
 			}
 			logf("server: %s at %s was another build and idle; restarted it", c.Build, c.Addr())
 			restarted = true
@@ -512,5 +531,28 @@ func serverBinPath() (string, error) {
 	if p, err := exec.LookPath(name); err == nil {
 		return p, nil
 	}
-	return "", fmt.Errorf("could not locate the juggler server binary; set JUGGLER_SERVER_BIN")
+	return "", errNoServerBinary
+}
+
+// errNoServerBinary is serverBinPath finding no server to start at all.
+var errNoServerBinary = errors.New("could not locate the juggler server binary; set JUGGLER_SERVER_BIN")
+
+// serverBinaryFault reports whether err, from finding or starting this
+// machine's server, is the server binary itself failing: none to be found, or
+// the one beside the app missing, cut short or refused by the system. Trying
+// again cannot mend that; installing Juggler again does.
+func serverBinaryFault(err error) bool {
+	if errors.Is(err, errNoServerBinary) {
+		return true
+	}
+	bin, binErr := serverBinPath()
+	if binErr != nil {
+		return false
+	}
+	var pathErr *fs.PathError
+	if errors.As(err, &pathErr) && filepath.Clean(pathErr.Path) == filepath.Clean(bin) {
+		return true
+	}
+	var execErr *exec.Error
+	return errors.As(err, &execErr) && filepath.Clean(execErr.Name) == filepath.Clean(bin)
 }

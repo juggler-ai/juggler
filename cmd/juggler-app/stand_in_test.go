@@ -349,8 +349,9 @@ func TestStopTryingOnAServerByURLSaysWhatTheServerSaid(t *testing.T) {
 }
 
 // TestStandInActionsBelongToStandIns: a working window cannot be made to
-// replace itself, only a version mismatch's stand-in restarts the server, and
-// only the stand-in for a server run elsewhere starts one in its place.
+// replace itself, only a version mismatch's stand-in restarts the server, only
+// the stand-in for a server run elsewhere starts one in its place, and only a
+// broken install's sends the user to download Juggler.
 func TestStandInActionsBelongToStandIns(t *testing.T) {
 	a := newTestAppState(t)
 	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: "http://127.0.0.1:1/p/p-0123abcd"}})
@@ -358,6 +359,7 @@ func TestStandInActionsBelongToStandIns(t *testing.T) {
 	for _, c := range []struct{ id, action string }{
 		{"w1", "retry-server"}, {"w1", "open-local"}, {"w1", "restart-server"}, {"w2", "restart-server"},
 		{"w1", "start-server"}, {"w2", "start-server"},
+		{"w1", "download-app"}, {"w2", "download-app"},
 	} {
 		if rec := controlRequest(a, http.MethodPost, "/win/"+c.id+"/"+c.action); rec.Code != http.StatusConflict {
 			t.Errorf("%s on %s: status = %d, want 409", c.action, c.id, rec.Code)
@@ -381,6 +383,8 @@ func TestEachStandInOffersItsWayOn(t *testing.T) {
 		{lostElsewhereStandIn(false), []string{"retry-server", "start-server"}},
 		{lostElsewhereStandIn(true), []string{"retry-server", "start-server"}},
 		{mismatchStandIn(&versionMismatchError{server: "v0.0.1"}), []string{"restart-server", "quit"}},
+		{brokenInstallStandIn(&versionMismatchError{server: "v0.0.1"}), []string{"download-app", "quit"}},
+		{brokenBinaryStandIn(errors.New("exec format error")), []string{"download-app", "retry-server", "quit"}},
 	} {
 		registerStandIn(a, "w7", windowSpec{project: "/p"}, c.si)
 		_, doc := standInPageOf(t, a, "w7")

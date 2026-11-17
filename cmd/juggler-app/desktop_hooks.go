@@ -62,6 +62,13 @@ func (a *appState) execJSInAllWindows(script string) {
 // before the menu is built, from initApplication. Default: no-op.
 var afterAppInit = func(desktopHost) {}
 
+// singleInstanceKey names the single-instance lock this launch takes. A build
+// may give a launch a lock of its own, so it runs beside the app rather than
+// handing its argv to it. It is asked before afterAppInit, from
+// initApplication, so it must be filled at package initialization. Default:
+// singleInstanceID.
+var singleInstanceKey = func() string { return singleInstanceID }
+
 // appMenuItem is an entry a build adds to the application menu, right after
 // About. Its label is rendered in the UI language and relabelled with it.
 type appMenuItem struct {
@@ -113,9 +120,18 @@ type UpdaterSnapshot struct {
 	// language, when the failure has one; Error stays the English.
 	ErrorMessage *msg.Message `json:"errorMessage,omitempty"`
 	// ErrorStage is which phase produced Error ("check", "download", "verify",
-	// "install"). The page leads with it so a check that couldn't reach the
-	// server doesn't claim an update failed — nothing was being updated.
+	// "install", "restart"). The page leads with it so a check that couldn't
+	// reach the server doesn't claim an update failed — nothing was being
+	// updated.
 	ErrorStage string `json:"errorStage,omitempty"`
+	// DownloadURL is where the release can be downloaded and installed by hand.
+	// A failure leads with it: it is the way out that does not depend on the
+	// updater working.
+	DownloadURL string `json:"downloadURL,omitempty"`
+	// OpenDialog asks the page to open the update dialog on this snapshot,
+	// because the app has something to tell the user they did not ask about —
+	// such as an update that never finished installing.
+	OpenDialog bool `json:"openDialog,omitempty"`
 }
 
 // updaterSnapshot returns the current updater state. Default: not present, so a

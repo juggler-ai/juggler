@@ -251,6 +251,7 @@ import { runTests as runConversationWorkspaceMoveTests } from '../unit-tests/con
 import { runTests as runWorkspaceFinishDialogTests } from '../unit-tests/workspace-finish-dialog-test.js';
 import { runTests as runWorkspaceGroupsTests } from '../unit-tests/workspace-groups-test.js';
 import { runTests as runWorkspaceBoxesTests } from '../unit-tests/workspace-boxes-test.js';
+import { runTests as runWorkspacePlaceSyncTests } from '../unit-tests/workspace-place-sync-test.js';
 import { runTests as runTruncatedNameTooltipTests } from '../unit-tests/truncated-name-tooltip-test.js';
 import { runTests as runConversationTabStatusTests } from '../unit-tests/conversation-tab-status-test.js';
 import { runTests as runReorderDragHoldTests } from '../unit-tests/reorder-drag-hold-test.js';
@@ -913,6 +914,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:workspace-create-dialog', run: runWorkspaceCreateDialogTests, needsExclusiveRun: true },
   { name: 'unit:workspace-groups', run: runWorkspaceGroupsTests },
   { name: 'unit:workspace-boxes', run: runWorkspaceBoxesTests },
+  { name: 'unit:workspace-place-sync', run: runWorkspacePlaceSyncTests },
   { name: 'unit:truncated-name-tooltip', run: runTruncatedNameTooltipTests },
   { name: 'unit:conversation-tab-status', run: runConversationTabStatusTests },
   { name: 'unit:reorder-drag-hold', run: runReorderDragHoldTests },

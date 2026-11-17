@@ -41,7 +41,10 @@ import (
 //     terminal), only finds it, with Start a server beside it;
 //   - this machine's server running another version, in use — what a restart
 //     would stop (machineserver.Occupancy) is listed (mismatch): Restart
-//     server, or quit.
+//     server, or quit;
+//   - the Juggler installed here broken: the server binary beside the app is
+//     another version, or cannot be run (broken): Download Juggler, or quit
+//     (and Try again, when the binary would not run).
 //
 // A stand-in is a view (windowView), not a window. A window opened onto
 // something that cannot be shown is built showing its stand-in; a window that
@@ -62,7 +65,16 @@ const (
 	// standInIncompatible stands in for a window on a server by URL whose pages
 	// and this app do not fit (incompatibleStandIn).
 	standInIncompatible = "incompatible"
+	// standInBroken stands in for a local window when the Juggler installed on
+	// this computer is itself broken: its server binary is another version, or
+	// cannot be run (brokenInstallStandIn, brokenBinaryStandIn).
+	standInBroken = "broken"
 )
+
+// appDownloadURL is where Juggler can be downloaded and installed again: the
+// latest release of the official repo, whose installers repair an install in
+// place and keep everything in the config directory.
+const appDownloadURL = "https://github.com/juggler-ai/juggler/releases/latest"
 
 var (
 	failedWindowTitle       = msg.New("Server didn't start — Juggler")
@@ -83,6 +95,10 @@ var (
 	incompatibleWindowTitle = msg.New("Update needed — Juggler")
 	incompatiblePageTitle   = msg.New("This app and that Juggler server don’t fit")
 	openInBrowserLabel      = msg.New("Open in browser")
+	brokenWindowTitle       = msg.New("Reinstall needed — Juggler")
+	brokenPageTitle         = msg.New("This Juggler installation needs to be installed again")
+	downloadAppLabel        = msg.New("Download Juggler")
+	reinstallKeepsData      = msg.New("Download Juggler and run its installer to repair it. Your conversations and settings are kept.")
 )
 
 // standInButton is one of a stand-in page's buttons: a form post to this
@@ -331,9 +347,77 @@ func (a *appState) controlOpenInBrowser(w http.ResponseWriter, _ *http.Request, 
 // start's. Every failure gets one, so no window ever fails to open in silence.
 func standInFor(err error) *standIn {
 	if m, ok := asVersionMismatch(err); ok {
+		if m.ownBinary {
+			logf("this Juggler installation is broken: its server binary is %s, the app %s; offering the download", m.server, m.app)
+			return brokenInstallStandIn(m)
+		}
 		return mismatchStandIn(m)
 	}
+	if serverBinaryFault(err) {
+		logf("this Juggler installation is broken: its server binary will not run (%v); offering the download", err)
+		return brokenBinaryStandIn(err)
+	}
 	return failedStandIn(err)
+}
+
+// brokenInstallStandIn stands in for a local window when the server binary
+// installed beside this app is another version (versionMismatchError.ownBinary):
+// typically an update that stopped part-way, having replaced the app but not
+// the server. Restart server would only start that same server again, so the
+// way on it offers is installing Juggler again.
+func brokenInstallStandIn(e *versionMismatchError) *standIn {
+	return &standIn{
+		kind:        standInBroken,
+		windowTitle: brokenWindowTitle,
+		title:       brokenPageTitle,
+		message: []msg.Message{
+			msg.New("This app is version {app}, but the Juggler server installed with it is version {server}. This happens when an update stops part-way.",
+				"app", e.app, "server", e.server),
+			reinstallKeepsData,
+		},
+		buttons: []standInButton{
+			{label: downloadAppLabel, action: "download-app", primary: true},
+			{label: quitLabel, action: "quit"},
+		},
+	}
+}
+
+// brokenBinaryStandIn stands in for a local window when the server binary
+// cannot be found or run at all (serverBinaryFault): missing, cut short by an
+// update that stopped part-way, or refused by the system. Try again stays,
+// for a binary something held only for a moment; installing again is the way
+// on that does not depend on it.
+func brokenBinaryStandIn(err error) *standIn {
+	return &standIn{
+		kind:        standInBroken,
+		windowTitle: brokenWindowTitle,
+		title:       brokenPageTitle,
+		message: []msg.Message{
+			msg.New("The Juggler server installed with this app can't be started.\n\n{error}", "error", err.Error()),
+			reinstallKeepsData,
+		},
+		buttons: []standInButton{
+			{label: downloadAppLabel, action: "download-app", primary: true},
+			retryButton(),
+			{label: quitLabel, action: "quit"},
+		},
+	}
+}
+
+// controlDownloadApp is a broken install's "Download Juggler": the latest
+// release, in the system browser. The window stays as it is.
+func (a *appState) controlDownloadApp(w http.ResponseWriter, _ *http.Request, e *winEntry) {
+	v := a.viewOf(e)
+	if v.standIn == nil || v.standIn.kind != standInBroken {
+		w.WriteHeader(http.StatusConflict)
+		return
+	}
+	if err := openInBrowser(appDownloadURL); err != nil {
+		logf("open %s in the browser: %v", appDownloadURL, err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // asVersionMismatch finds a versionMismatchError in err's chain.

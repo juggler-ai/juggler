@@ -491,6 +491,8 @@
   "Dismiss {name}": "{name} 닫기",
   "Don't ask again": "다시 묻지 않기",
   "Doorbell": "초인종",
+  "Download Juggler": "Juggler 다운로드",
+  "Download Juggler {version}": "Juggler {version} 다운로드",
   "Downloading update…": "업데이트 다운로드 중…",
   "Downloading update… {pct}%": "업데이트 다운로드 중… {pct}%",
   "Draft one": "초안 만들기",

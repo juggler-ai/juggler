@@ -31,6 +31,10 @@
  *   download | verify | install.
  * @property {boolean} [appManagedServer] - Whether this window's server was
  *   spawned by the app (and so is replaced by the bundle swap).
+ * @property {string} [downloadURL] - Where this release can be downloaded by
+ *   hand, for when updating in place has failed.
+ * @property {boolean} [openDialog] - The page should open the update dialog on
+ *   this snapshot: the app's last update never finished installing.
  */
 
 import { windowControlURL } from '../../sdk/lib/window-control.js';

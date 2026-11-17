@@ -491,6 +491,8 @@
   "Dismiss {name}": "忽略 {name}",
   "Don't ask again": "不再询问",
   "Doorbell": "门铃",
+  "Download Juggler": "下载 Juggler",
+  "Download Juggler {version}": "下载 Juggler {version}",
   "Downloading update…": "正在下载更新…",
   "Downloading update… {pct}%": "正在下载更新…… {pct}%",
   "Draft one": "起草一份",

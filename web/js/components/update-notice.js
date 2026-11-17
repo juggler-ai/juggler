@@ -42,6 +42,8 @@ import { t, markForTranslation } from '../../sdk/lib/i18n.js';
  *   download | verify | install | restart. Decides the plain-English lead.
  * @property {string} [currentVersion] - The viewed server's version.
  * @property {string} [targetVersion] - The version being offered.
+ * @property {string|null} [downloadURL] - Where the in-app updater says this
+ *   release can be downloaded by hand. When set, a failure leads with it.
  * @property {string|null} [appVersion] - This app bundle's version.
  * @property {boolean} appManagedServer - Whether the app spawned this server.
  * @property {UpdateNoticeData|null} notice - Server-authored notice, if any.
@@ -315,6 +317,7 @@ class UpdateNotice extends JugglerElement {
       // the stage and the message, so a change in either has to rebuild.
       vm.errorStage || '',
       vm.error || '',
+      vm.downloadURL || '',
       vm.appManagedServer ? 'managed' : 'external',
       vm.serverUpdateAvailable ? 'server' : '',
       vm.managedBy || '',
@@ -563,6 +566,19 @@ class UpdateNotice extends JugglerElement {
         break;
       }
       case 'error':
+        if (vm.downloadURL && vm.errorStage !== 'check') {
+          // The app knows where this release can be had by hand. That is the
+          // way out that works even when the updater itself is what failed, so
+          // it leads; Retry stays beside it. Not after a check that couldn't
+          // reach the update server: nothing was being updated, and a download
+          // over the same network fares no better than trying again.
+          const downloadURL = vm.downloadURL;
+          footer.appendChild(this._button(t('Retry'), '', () => this._doInstall()));
+          footer.appendChild(this._button(
+            vm.targetVersion ? t('Download Juggler {version}', { version: vm.targetVersion }) : t('Download Juggler'),
+            'btn-primary', () => openExternalURL(downloadURL)));
+          break;
+        }
         // Fall back to a manifest download link, if any, then offer Retry.
         /** @type {UpdateAction[]} */ (vm.notice && vm.notice.actions || []).forEach((action) => {
           if (!action || !action.url) return;

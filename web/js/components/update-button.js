@@ -113,10 +113,22 @@ class UpdateButton extends JugglerElement {
 
   /** @private */
   async _seedUpdater() {
-    const state = await getUpdaterState();
+    this._takeUpdater(await getUpdaterState());
+  }
+
+  /**
+   * Adopt an updater snapshot read over the control endpoint. One the app marks
+   * `openDialog` — it found, on launch, that its last update never finished —
+   * opens the dialog on it: the page pulls this snapshot itself, so it arrives
+   * even where nothing the app pushes does.
+   * @private
+   * @param {import('../services/updater-control.js').UpdaterState} state
+   */
+  _takeUpdater(state) {
     this._updater = state;
     if (typeof state.appManagedServer === 'boolean') this._appManagedServer = state.appManagedServer;
     this._scheduleRender();
+    if (state.openDialog) this._openDialog();
   }
 
   /**
@@ -150,6 +162,7 @@ class UpdateButton extends JugglerElement {
       errorStage: u.errorStage || null,
       currentVersion: s.currentVersion || '',
       targetVersion,
+      downloadURL: (present && u.downloadURL) || null,
       appVersion: u.appVersion || null,
       appManagedServer: this._appManagedServer,
       notice,

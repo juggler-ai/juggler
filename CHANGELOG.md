@@ -14,6 +14,7 @@ the current release). The project follows semantic versioning.
 - /compact during a running turn waits for it to finish instead of stopping it
 - An app and another machine's server that don't fit say which to update, not "Not Found"
 - About shows the desktop app's version beside the server's when they differ
+- Windows: Update & restart reopens Juggler; an update that fails offers the installer
 
 ## [0.8.1] - 2026-11-15
 

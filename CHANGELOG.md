@@ -6,6 +6,8 @@ the current release). The project follows semantic versioning.
 
 ## [Unreleased]
 
+- Open projects in another window directly from the project chooser
+
 - Skills with 'disable-model-invocation: true' are yours to start with $name, never the model's
 - Prompt history button: search, reuse or delete past prompts; ⌘S/Ctrl+S sets a draft aside
 - Clearing a prompt with Escape keeps its images in the prompt history

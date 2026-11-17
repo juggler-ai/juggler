@@ -245,6 +245,12 @@ body.hud-pointer-idle .session-switcher--gesture .session-switcher-list {
     grid-area: 1 / 1;
 }
 
+.session-switcher--popover .session-switcher-end {
+    display: flex;
+    align-items: center;
+    gap: var(--space-8);
+}
+
 .session-switcher-meta {
     color: var(--text-tertiary);
     font-family: inherit;

@@ -160,14 +160,14 @@ export async function runTests() {
     }
     const pop = mount();
     try {
-      const buttons = [...pop.sw.el.querySelectorAll('.session-switcher-row button')].map((b) => b.className);
+      const buttons = [...pop.sw.el.querySelectorAll('.session-switcher-stop')].map((b) => b.className);
       assert(buttons.length === 0, `the popover's rows have buttons: ${buttons.join()}`);
     } finally {
       pop.done();
     }
   });
 
-  await test('rows carry the tile and its marks, their tags and status, and no buttons at rest', () => {
+  await test('rows carry the tile and its marks, their tags and status, and only available window actions', () => {
     const { sw, done } = mount({
       tweak: (m) => {
         m.sessions[3].attention = { waiting: 2, working: 0, failed: 0, items: [] };
@@ -185,10 +185,11 @@ export async function runTests() {
       assert(!!rowOf(sw, 's:gamma').querySelector('.session-switcher-badge-working'), 'a working dot');
       assert(!!rowOf(sw, 's:delta').querySelector('.session-switcher-tile-spinner'), 'a spinner while starting');
       assert(rowOf(sw, 's:broken').querySelector('.session-switcher-badge-failed')?.textContent === '!', 'a red ! for a failure');
+      assert(!rowOf(sw, 's:broken').querySelector('button'), 'a failed session cannot open another window');
       assert(rowOf(sw, 's:here').querySelector('.session-switcher-tag-here')?.textContent === 'this window', 'this window is tagged');
       assert(rowOf(sw, 's:gamma').querySelector('.session-switcher-tag-other')?.textContent?.trim() === 'other window', 'another window is tagged');
       for (const row of sw.el.querySelectorAll('.session-switcher-row')) {
-        const buttons = [...row.querySelectorAll('button')];
+        const buttons = [...row.querySelectorAll('button:not(.session-switcher-new-window)')];
         assert(buttons.length === 0, `${/** @type {HTMLElement} */ (row).dataset.key} has buttons at rest`);
       }
       const betaPath = beta.querySelector('.session-switcher-top .session-switcher-path')?.textContent;
@@ -199,6 +200,23 @@ export async function runTests() {
       assert(age === '2 hours ago', `and its age — got ${age}`);
       const headings = [...sw.el.querySelectorAll('.session-switcher-heading')].map((h) => h.textContent).join();
       assert(headings === 'Open,Recent', `Open, then Recent — got ${headings}`);
+    } finally {
+      done();
+    }
+  });
+
+  await test('new-window buttons pick sessions and recents exactly once without switching here', () => {
+    const { sw, calls, done } = mount();
+    try {
+      const button = rowOf(sw, 's:beta').querySelector('.session-switcher-new-window');
+      assert(!!button, 'an available session has a new-window button');
+      button?.querySelector('path')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      assert(calls.join() === 'go:beta:new', calls.join());
+      rowOf(sw, 'r:/code/old1').querySelector('button')?.click();
+      assert(calls.join() === 'go:beta:new,recent:/code/old1:new', calls.join());
+      rowOf(sw, 's:gamma').click();
+      assert(calls.at(-1) === 'go:gamma', calls.join());
+      assert(!rowOf(sw, 's:here').querySelector('button'), 'this window offers no redundant window action');
     } finally {
       done();
     }

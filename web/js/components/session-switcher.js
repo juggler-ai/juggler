@@ -228,6 +228,7 @@ const ICON_PATHS = {
   search: 'M784-120 532-372q-30 24-69 38t-83 14q-109 0-184.5-75.5T120-580q0-109 75.5-184.5T380-840q109 0 184.5 75.5T640-580q0 44-14 83t-38 69l252 252-56 56ZM380-400q75 0 127.5-52.5T560-580q0-75-52.5-127.5T380-760q-75 0-127.5 52.5T220-580q0 75 52.5 127.5T380-400Z',
   folder: 'M160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h240l80 80h320q33 0 56.5 23.5T880-640H447l-80-80H160v480l96-320h684L837-217q-8 26-29.5 41.5T760-160H160Zm84-80h516l72-240H316l-72 240Zm0 0 72-240-72 240Zm-84-400v-80 80Z',
   newFolder: 'M560-320h80v-80h80v-80h-80v-80h-80v80h-80v80h80v80ZM160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h240l80 80h320q33 0 56.5 23.5T880-640v400q0 33-23.5 56.5T800-160H160Zm0-80h640v-400H447l-80-80H160v480Zm0 0v-480 480Z',
+  newWindow: 'M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h240v80H200v560h560v-240h80v240q0 33-23.5 56.5T760-120H200Zm440-400v-120H520v-80h120v-120h80v120h120v80H720v120h-80Z',
   window: 'M160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h640q33 0 56.5 23.5T880-720v480q0 33-23.5 56.5T800-160H160Zm0-80h640v-400H160v400Z',
 };
 
@@ -658,7 +659,8 @@ export class SessionSwitcher {
         'aria-label': failed ? t('Dismiss {name}', { name }) : t('Stop {name}', { name }),
       });
     }
-    return this._row(wrap, top, sub, [meta, stop]);
+    const newWindow = !it.here && reachable(s) && !pending ? this._newWindowButton() : null;
+    return this._row(wrap, top, sub, [meta, stop, newWindow]);
   }
 
   /**
@@ -711,7 +713,23 @@ export class SessionSwitcher {
     top.append(label);
     const at = Date.parse(it.used);
     const age = Number.isNaN(at) ? null : el('span', 'session-switcher-meta', relative(at - now));
-    return this._row(wrap, top, sub, [age]);
+    return this._row(wrap, top, sub, [age, !pending ? this._newWindowButton() : null]);
+  }
+
+  /**
+   * The popover's explicit alternative to opening a row in this window.
+   * @returns {HTMLElement|null} Its button, or none on the server page.
+   * @private
+   */
+  _newWindowButton() {
+    if (this._mode !== 'popover') return null;
+    const label = t('Open a new window');
+    return el('button', 'btn btn-icon btn-ghost session-switcher-new-window', [icon('newWindow')], {
+      type: 'button',
+      tabindex: '-1',
+      title: label,
+      'aria-label': label,
+    });
   }
 
   /**
@@ -873,7 +891,7 @@ export class SessionSwitcher {
     }
     if (target.closest('.session-switcher-field')) return;
     this.select(Number(row.dataset.index), false);
-    this._pick(it, { newWindow: commandHeld(e) });
+    this._pick(it, { newWindow: !!target.closest('.session-switcher-new-window') || commandHeld(e) });
   }
 
   /**

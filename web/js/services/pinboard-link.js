@@ -74,6 +74,7 @@ const COMPOSE = 'compose';
  * A `Project` preference, because that realm is exactly who they belong to: on
  * the server's own machine it is the session's, shared by that machine's
  * windows onto the project, and a viewer on another machine keeps its own copy.
+ * An absent copy means no windows; it must never inherit the host's list.
  * The boards themselves — their tabs, their conversation — are the session's,
  * and any viewer may read one; which of them to open windows for is not, or one
  * machine's launch reopens every window another machine popped out.
@@ -85,7 +86,7 @@ const DETACHED_PREF = 'juggler-pinboard-detached';
  * @returns {Promise<string[]>} Their ids, oldest first.
  */
 async function detachedBoardIds() {
-  const stored = await getProjectPref(DETACHED_PREF, []);
+  const stored = await getProjectPref(DETACHED_PREF, [], { inheritHost: false });
   return Array.isArray(stored) ? stored.filter((id) => typeof id === 'string' && id) : [];
 }
 

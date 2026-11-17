@@ -36,7 +36,7 @@ import {
   __setViewModeForTests, isPinboardView, ownerViewerId, initialPinId, boardConversationId,
   windowRole,
 } from '../../js/utils/view-mode.js';
-import { scopedKey, cachedProjectPref, __resetPrefsForTests } from '../../js/services/prefs.js';
+import { scopedKey, cachedProjectPref, setProjectPref, __resetPrefsForTests } from '../../js/services/prefs.js';
 import PinboardItemType from 'juggler/pinboard-item-type';
 import '../../js/components/pinboard-shell.js';
 import '../../js/components/conversation-bar.js';
@@ -1683,6 +1683,46 @@ export async function runTests() {
         opened.restore();
       }
     });
+
+    for (const own of [null, [], ['board_pc']]) {
+      await run(`a remote viewer restores only its own boards (${JSON.stringify(own)})`, async () => {
+        const remoteViewer = document.documentElement.dataset.remoteViewer;
+        document.documentElement.dataset.remoteViewer = '1';
+        const opened = stubWindowOpen();
+        const { board, teardown } = await mountShell({
+          search: '',
+          viewerId: '',
+          left: [
+            { id: 'board_mac', conversation: 'conv_1', pins: [] },
+            { id: 'board_pc', conversation: 'conv_2', pins: [] },
+          ],
+          prefs: { [DETACHED_PREF]: ['board_mac'] },
+        });
+        try {
+          if (own !== null) await setProjectPref(DETACHED_PREF, own);
+          wsService.viewerId = 'v_pc';
+          await ownerLink.restoreBoards();
+          const restored = opened.urls.map((u) => new URL(u).searchParams.get('board'));
+          assert(JSON.stringify(restored) === JSON.stringify(own || []),
+            `an absent local list means no windows, not the host's list: got ${JSON.stringify(restored)}`);
+          assert(board.claims.every((ids) => !ids.includes('board_mac')),
+            `the host's boards must never even be claimed, got ${JSON.stringify(board.claims)}`);
+
+          const complaint = await ownerLink.detach('', 'conv_pc', []);
+          assert(!complaint, `a remote viewer can detach its own board: ${complaint}`);
+          const added = new URL(opened.urls[opened.urls.length - 1]).searchParams.get('board');
+          const expected = [...(own || []), added];
+          await waitFor(() => JSON.stringify(cachedProjectPref(DETACHED_PREF)) === JSON.stringify(expected),
+            'the local board to be remembered without adopting the host\'s boards');
+          assert(board.prefWrites.length === 0, 'the remote list must never be written to the host');
+        } finally {
+          teardown();
+          opened.restore();
+          if (remoteViewer === undefined) delete document.documentElement.dataset.remoteViewer;
+          else document.documentElement.dataset.remoteViewer = remoteViewer;
+        }
+      });
+    }
 
     // A board is a view of one conversation, fixed for its life. Detaching
     // without one would open a window only to say it has nothing to show.

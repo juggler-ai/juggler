@@ -473,11 +473,15 @@ function readRealm(realm) {
  * @param {ServerRealm} realm
  * @param {string} name
  * @param {any} fallback
+ * @param {boolean} [inheritHost] - Whether an own-copy viewer may start from the host.
  * @returns {Promise<any>} The value this client should use.
  * @private
  */
-async function getRealmPref(realm, name, fallback) {
+async function getRealmPref(realm, name, fallback, inheritHost = true) {
   const device = readMirror(realm, name);
+  // Ownership lists describe actions taken on this client, not a display default
+  // it can borrow from the host. Absence in its own store means absence.
+  if (!inheritHost && keepsOwnCopy(realm)) return device ?? fallback;
   const stored = await readRealm(home(realm));
   const value = stored[name] === undefined ? null : stored[name];
   // The user realm is one document for every client that can reach it, so there
@@ -662,10 +666,13 @@ export function cachedWindowPref(name, fallback = null) {
  * This project's value for a preference, reconciled with the realm.
  * @param {string} name - The preference name.
  * @param {any} [fallback] - Returned when nothing is stored anywhere.
+ * @param {object} [options] - How a remote viewer resolves an absent local value.
+ * @param {boolean} [options.inheritHost] - Start from the host's value (default true).
+ *   Use false for client-owned state, such as which windows this client opened.
  * @returns {Promise<any>} The value this client should use.
  */
-export function getProjectPref(name, fallback = null) {
-  return getRealmPref('project', name, fallback);
+export function getProjectPref(name, fallback = null, { inheritHost = true } = {}) {
+  return getRealmPref('project', name, fallback, inheritHost);
 }
 
 /**

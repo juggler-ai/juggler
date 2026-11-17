@@ -213,6 +213,29 @@ func (s *Server) servePage(w http.ResponseWriter, r *http.Request, status int, c
 // full-window.
 const embedVersion = 1
 
+// WindowProtocol is the window-control protocol of this build: the actions a
+// page may post to the desktop app hosting it (POST <nativeCtl>/<action>), as a
+// number both sides state. The app hands its own to each page it loads
+// (?ctlProtocol=), and this server reports its pages' in GET /api/version, so
+// whichever side is newer can tell the user the two do not fit, instead of an
+// action failing as a bare 404. A peer that states none speaks 1: every app
+// and server before project links (0.8.0).
+//
+//   - 1: a page moves its own window to a session (/s/<id>/).
+//   - 2: a page asks the app to show a session (attach), its server's page
+//     (server-page) and the project it last showed (reopen).
+//
+// Bump it whenever a page starts relying on an action an older app lacks, and
+// with it WINDOW_PROTOCOL in web/sdk/lib/window-control.js, the page's copy
+// (TestWindowProtocolMatchesThePage).
+const WindowProtocol = 2
+
+// MinAppWindowProtocol is the oldest app protocol this server's pages work
+// with. An app below it shows its window on this server as a stand-in saying
+// the app needs updating; an app too old to ask (protocol 1) gets the pages'
+// own fallback and a notice instead (web/sdk/lib/window-control.js).
+const MinAppWindowProtocol = 2
+
 // embedFrameAncestors is who may frame the embedded sessions page: a page on
 // the viewer's own loopback, which is where a desktop app's sessions page is
 // served from. The page is the sessions list a whole window would show, so

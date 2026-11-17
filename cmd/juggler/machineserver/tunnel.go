@@ -432,10 +432,13 @@ func (s *Server) handleSetTunnel(w http.ResponseWriter, r *http.Request) {
 // before it loads anything over a data channel, which embedded sessions page
 // the server serves (embedVersion), and the machine's name, as LAN access
 // announces it (lanfind.MachineName), which a desktop window framing the page shows it
-// by.
+// by; and the window-control protocol its pages speak and the oldest app's they
+// work with (WindowProtocol), which a desktop app checks before it shows them.
 type versionResponse struct {
-	Version         string `json:"version"`
-	ProtocolVersion int    `json:"protocolVersion"`
-	EmbedVersion    int    `json:"embedVersion"`
-	Name            string `json:"name"`
+	Version              string `json:"version"`
+	ProtocolVersion      int    `json:"protocolVersion"`
+	EmbedVersion         int    `json:"embedVersion"`
+	WindowProtocol       int    `json:"windowProtocol"`
+	MinAppWindowProtocol int    `json:"minAppWindowProtocol"`
+	Name                 string `json:"name"`
 }

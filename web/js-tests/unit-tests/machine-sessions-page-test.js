@@ -18,7 +18,7 @@ import { assert, nextTask, waitFor } from '../utilities/test-helpers.js';
 import { isMac } from '../../js/services/key-shortcut-manager.js';
 import { mountSessionsPage, pageTitle, paintedTheme, relayFramerEvents, serverTitle } from '../../machine/sessions-view.js';
 import { createControlApi, readPageConfig, ControlApiError, TOKEN_HEADER } from '../../machine/control-api.js';
-import { desktopHost } from '../../machine/native-host.js';
+import { desktopHost, olderAppNotice } from '../../machine/native-host.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
 import { underPseudoLocale } from '../utilities/pseudo-locale.js';
 import { workspaceTint } from '../../js/utils/workspace-colour.js';
@@ -2203,6 +2203,27 @@ export async function runTests() {
     assert(typeof remote.attach === 'function' && typeof remote.answerClose === 'function', 'a window on a server by URL cannot open a session');
     assert(typeof remote.reopen === 'function' && !local.reopen,
       'only a window on a server by URL asks the app which session to reopen (this machine\'s windows are reopened by the app)');
+  });
+
+  await test('in an app too old to move its window the page moves it, and says to update the app', async () => {
+    /** @type {string[]} */
+    const went = [];
+    const old = /** @type {any} */ (desktopHost({ external: true, movesNoWindow: true, go: (url) => { went.push(url); } }));
+    assert(!old.reopen, 'the page asks an app with no reopen which project to reopen');
+    await old.attach('s1', '/work/proj', '/p/proj-0123abcd/', 'c1');
+    assert(went.length === 1, `the page moved the window ${went.length} times, want once, with no attach posted`);
+    const to = new URL(went[0]);
+    assert(to.pathname === '/p/proj-0123abcd/' && to.searchParams.get('c') === 'c1',
+      `the window went to ${went[0]}, want the session's link at its conversation`);
+
+    const current = /** @type {any} */ (desktopHost({ external: true, movesNoWindow: false, go: (url) => { went.push(url); } }));
+    assert(typeof current.reopen === 'function', 'an app that has reopen is not asked');
+
+    const unnamed = olderAppNotice('v0.8.2', { older: true, app: '' });
+    assert(unnamed.includes('v0.8.2') && unnamed.includes('Update the app'), `an app too old to say its version: ${JSON.stringify(unnamed)}`);
+    const named = olderAppNotice('v0.9.0', { older: true, app: 'v0.8.2' });
+    assert(named.includes('v0.8.2') && named.includes('v0.9.0'), `an app that says its version: ${JSON.stringify(named)}`);
+    assert(olderAppNotice('v0.9.0', { older: false, app: 'v0.9.0' }) === '', 'an app that is not older is told to update');
   });
 
   await test('in a desktop window a refused attach says why', async () => {

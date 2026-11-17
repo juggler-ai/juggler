@@ -33,6 +33,85 @@ const CONTROL_BASE = (() => {
 })();
 
 /**
+ * The window-control protocol this page speaks: the actions it relies on the
+ * app hosting it for. The server's copy is `machineserver.WindowProtocol`,
+ * whose comment says what each number adds; the two are kept equal
+ * (TestWindowProtocolMatchesThePage).
+ */
+export const WINDOW_PROTOCOL = 2;
+
+/**
+ * What the app hosting this page says of itself, beside `nativeCtl`: its
+ * window-control protocol (`ctlProtocol`) and version (`appVersion`). An app
+ * that says neither predates both, and speaks protocol 1. Null without a host.
+ * @type {{protocol: number, version: string}|null}
+ */
+const HOST_APP = (() => {
+  if (CONTROL_BASE === null) return null;
+  const query = new URL(window.location.href).searchParams;
+  const protocol = Number.parseInt(query.get('ctlProtocol') || '', 10);
+  return { protocol: protocol > 0 ? protocol : 1, version: query.get('appVersion') || '' };
+})();
+
+/**
+ * The window-control protocol of the app hosting this page: 1 for an app too
+ * old to say, 0 for no host (a browser tab).
+ * @returns {number} The protocol.
+ */
+export function hostWindowProtocol() {
+  return HOST_APP?.protocol ?? 0;
+}
+
+/**
+ * The version of the app hosting this page, as it says: '' for an app too old
+ * to say, or no host.
+ * @returns {string} The version.
+ */
+export function hostAppVersion() {
+  return HOST_APP?.version ?? '';
+}
+
+/**
+ * Whether the app hosting this page speaks an older window-control protocol
+ * than the page: some actions the page posts to it will be refused, and the
+ * page falls back on what that app can do and says the app wants updating.
+ * False without a host.
+ * @returns {boolean} True for an older app.
+ */
+export function hostIsOlder() {
+  return HOST_APP !== null && HOST_APP.protocol < WINDOW_PROTOCOL;
+}
+
+/**
+ * Whether the app hosting this page is older than project links (protocol
+ * 1): it cannot move its window to a session (attach) or to its server's page
+ * (server-page), so the page moves the window itself (hostedPageURL).
+ * @returns {boolean} True for such an app.
+ */
+export function hostMovesNoWindow() {
+  return HOST_APP !== null && HOST_APP.protocol < 2;
+}
+
+/**
+ * The address of path on this page's server, as this window's next page:
+ * carrying what the app hosting it put in this page's own address — window
+ * mode, the control endpoint and what the app says of itself — so the page it
+ * loads is still that app's window. Only for this window's own navigation:
+ * the control endpoint must never reach another page.
+ * @param {string} path - The path on this page's server, with any query.
+ * @returns {string} The address.
+ */
+export function hostedPageURL(path) {
+  const target = new URL(path, window.location.href);
+  const own = new URL(window.location.href).searchParams;
+  for (const key of ['window', 'nativeCtl', 'ctlProtocol', 'appVersion', 'external']) {
+    const value = own.get(key);
+    if (value !== null && !target.searchParams.has(key)) target.searchParams.set(key, value);
+  }
+  return target.toString();
+}
+
+/**
  * Build the URL for a native window-control endpoint, or null when this page has
  * no native host to control (a browser tab, or any non-app window). Callers must
  * skip the request when this returns null.

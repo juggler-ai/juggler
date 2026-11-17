@@ -6,6 +6,7 @@ package main
 
 import (
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -32,6 +33,7 @@ func query(t *testing.T, opts windowOpts) url.Values {
 func TestWindowPageURLLeavesAnOrdinaryWindowAlone(t *testing.T) {
 	got := windowPageURL("http://127.0.0.1:8080/", testCtl, windowOpts{theme: "dark", mode: "system", zoom: 110})
 	want := "http://127.0.0.1:8080/?window=1&nativeCtl=" + url.QueryEscape(testCtl) +
+		"&ctlProtocol=" + strconv.Itoa(windowProtocol) + "&appVersion=" + url.QueryEscape(core.Version) +
 		"&theme=dark&mode=system&zoom=110"
 	if got != want {
 		t.Fatalf("ordinary window URL changed:\n got %s\nwant %s", got, want)

@@ -436,7 +436,29 @@ func singleInstanceOptions(unavailable error, onSecondInstance func(application.
 	return &application.SingleInstanceOptions{
 		UniqueID:               singleInstanceID,
 		OnSecondInstanceLaunch: onSecondInstance,
+		// What a launch that finds an app running tells it of itself, beside its
+		// argv: its version, so a running app of another version can say so
+		// (onSecondInstance). An older app ignores it.
+		AdditionalData: map[string]string{launcherVersionKey: core.Version},
 	}
+}
+
+// launcherVersionKey is the version a second launch hands the running app, in
+// SecondInstanceData.AdditionalData.
+const launcherVersionKey = "version"
+
+// handOffNotice is what a window opened for a second launch says, when that
+// launch was of another version than this running app: the user started one
+// version and is looking at another, which only quitting this one changes.
+// Empty when the versions are the same, or the launch did not say.
+func (a *appState) handOffNotice(data application.SecondInstanceData) string {
+	launched := data.AdditionalData[launcherVersionKey]
+	if launched == "" || launched == core.Version {
+		return ""
+	}
+	logf("second instance: launched version %s, handed to this running app, version %s", launched, core.Version)
+	return a.tr(msg.New("Juggler {running} was already running, so it opened this window in place of Juggler {launched}. Quit Juggler and open it again to use {launched}.",
+		"running", core.Version, "launched", launched))
 }
 
 // initApplication constructs the single Wails application with the
@@ -645,6 +667,9 @@ func (a *appState) onSecondInstance(data application.SecondInstanceData) {
 
 	rawURL, project := parseLaunchArgs(data.Args)
 	logf("second instance: url=%q project=%q", rawURL, project)
+	// A window this opens says so when the launch was of another version; one
+	// it only raises cannot.
+	opts := windowOpts{notice: a.handOffNotice(data)}
 
 	// A bare relaunch (no --url/--project — e.g. double-clicking the icon again)
 	// should surface the running app, not open a redundant window: focus an
@@ -656,7 +681,7 @@ func (a *appState) onSecondInstance(data application.SecondInstanceData) {
 			return
 		}
 		logf("second instance: no window open, opening a fresh one (bare relaunch)")
-		a.openWindow(windowSpec{}, windowOpts{})
+		a.openWindow(windowSpec{}, opts)
 		return
 	}
 
@@ -674,7 +699,7 @@ func (a *appState) onSecondInstance(data application.SecondInstanceData) {
 		return
 	}
 	logf("second instance: opening new window for %+v", spec.entry())
-	a.openWindow(spec, windowOpts{})
+	a.openWindow(spec, opts)
 }
 
 // focusAnyWindow raises and focuses the most-recently-opened window, returning
@@ -796,6 +821,9 @@ func (a *appState) planWindow(spec windowSpec, opts windowOpts) windowPlan {
 	// machine's, where it can be; a board shows that server's own page.
 	if spec.isURL() && p.opts.role() == roleMain {
 		p.view = a.framedPageView(spec, serverURL, !opts.noStart)
+		if si := p.view.standIn; si != nil {
+			return planStandIn(p, si)
+		}
 	}
 	return p
 }

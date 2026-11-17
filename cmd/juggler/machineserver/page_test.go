@@ -8,11 +8,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -263,6 +265,9 @@ func TestSessionsPageEmbedsUnderAnotherMachinesHeader(t *testing.T) {
 	if !strings.Contains(version, `"embedVersion":1`) {
 		t.Errorf("GET /api/version = %s, want embedVersion 1", version)
 	}
+	if want := fmt.Sprintf(`"windowProtocol":%d,"minAppWindowProtocol":%d`, WindowProtocol, MinAppWindowProtocol); !strings.Contains(version, want) {
+		t.Errorf("GET /api/version = %s, want %s, which a desktop app checks before it shows the pages", version, want)
+	}
 	host, _ := os.Hostname()
 	if want := fmt.Sprintf(`"name":%q`, lanfind.InstanceName(host)); !strings.Contains(version, want) {
 		t.Errorf("GET /api/version = %s, want %s, the name it is announced by", version, want)
@@ -466,5 +471,27 @@ func TestSessionsPageSpeaksTheChosenLanguage(t *testing.T) {
 	_, _, plain := fetch(t, front.URL+"/")
 	if !strings.Contains(plain, `<html lang="en">`) || strings.Contains(plain, "juggler-ui-catalog") {
 		t.Errorf("with no language chosen the page should be plain English, with no catalogue")
+	}
+}
+
+// TestWindowProtocolMatchesThePage: the protocol this server reports for its
+// pages is the one the pages themselves speak — WINDOW_PROTOCOL, which they
+// compare with the app hosting them. Bumping one without the other would have
+// the app and the page each decide on a protocol the other does not hold.
+func TestWindowProtocolMatchesThePage(t *testing.T) {
+	src, err := fs.ReadFile(web.Shell, "sdk/lib/window-control.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`(?m)^export const WINDOW_PROTOCOL = (\d+);`).FindSubmatch(src)
+	if m == nil {
+		t.Fatal("window-control.js declares no WINDOW_PROTOCOL")
+	}
+	if got := string(m[1]); got != strconv.Itoa(WindowProtocol) {
+		t.Errorf("WINDOW_PROTOCOL = %s in window-control.js, WindowProtocol = %d here", got, WindowProtocol)
+	}
+	if MinAppWindowProtocol > WindowProtocol {
+		t.Errorf("MinAppWindowProtocol %d is above WindowProtocol %d: no app of this build could show its pages",
+			MinAppWindowProtocol, WindowProtocol)
 	}
 }

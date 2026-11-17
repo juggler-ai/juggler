@@ -12,6 +12,7 @@ import { durationToken } from '../utils/modal-scrim.js';
 import { markDialog, trapFocus } from '../utils/dialog-a11y.js';
 import { t, markForTranslation, markUntranslated, htmlSlots, withHtml } from '../../sdk/lib/i18n.js';
 import { escapeHtml } from '../../sdk/lib/html.js';
+import { hostAppVersion } from '../../sdk/lib/window-control.js';
 import { buildWordOfMouthAsk } from './word-of-mouth-ask.js';
 
 /**
@@ -28,6 +29,19 @@ const CLUB_LEAD_IN = 600;
 
 /** Shown in place of the version when the server does not give one. */
 const UNKNOWN_VERSION = markForTranslation('Unknown');
+
+/**
+ * The version line: the server's, which served this page, and — in a desktop
+ * window whose app is another version — the app's beside it, as they are two
+ * programs and a report needs both.
+ * @param {string} server - The server's version.
+ * @param {string} app - The app's, '' outside the app or from one too old to say.
+ * @returns {string} The line.
+ */
+function aboutVersion(server, app) {
+  if (!app || app === server) return server;
+  return t('App {app} · server {server}', { app, server });
+}
 
 class AboutModal extends JugglerElement {
   constructor() {
@@ -140,7 +154,7 @@ class AboutModal extends JugglerElement {
     }
 
     const author = { author: '<a href="https://github.com/julianstorer" target="_blank" rel="noopener noreferrer" style="white-space: nowrap">Julian Storer</a>' };
-    const version = this._version === UNKNOWN_VERSION ? t(UNKNOWN_VERSION) : this._version;
+    const version = aboutVersion(this._version === UNKNOWN_VERSION ? t(UNKNOWN_VERSION) : this._version, hostAppVersion());
     // i18n-ignore: the only literal text left is the site's URL, shown as written
     this.innerHTML = `
             <modal-backdrop class="about-backdrop"></modal-backdrop>

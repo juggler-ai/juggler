@@ -2,12 +2,12 @@
 //     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
-import { windowControlURL } from '../../sdk/lib/window-control.js';
+import { hostedPageURL, hostMovesNoWindow, windowControlURL } from '../../sdk/lib/window-control.js';
 import { conversationAssetURL } from '../../sdk/file-source.js';
 import { getPaintedTheme, getMode } from '../utils/theme-manager.js';
 import { getCurrentZoom } from '../utils/zoom-manager.js';
 import { fetchJson } from './http.js';
-import { apiUrl } from '../utils/api-url.js';
+import { apiUrl, basePath } from '../utils/api-url.js';
 import { t } from '../../sdk/lib/i18n.js';
 
 /**
@@ -613,6 +613,12 @@ class APIService {
    * @throws {import('./http.js').HttpError} When the app refuses, saying why.
    */
   async attachWindow({ sessionId, project, link, conversation = '' }) {
+    if (hostMovesNoWindow()) {
+      // An app older than project links cannot move its window: the page
+      // does, as that app's own server's page did.
+      window.location.assign(hostedPageURL(conversation ? `${link}?c=${encodeURIComponent(conversation)}` : link));
+      return false;
+    }
     const params = new URLSearchParams({ session: sessionId, project, link });
     if (conversation) params.set('conversation', conversation);
     const url = windowControlURL('attach', `?${params.toString()}`);
@@ -630,6 +636,12 @@ class APIService {
    * @returns {Promise<void>} Resolves once the app has taken it.
    */
   async showServerPage() {
+    if (hostMovesNoWindow()) {
+      // As attachWindow: the server's page is where this session's link is
+      // mounted, its project link's /p/<key> taken off.
+      window.location.assign(hostedPageURL(`${basePath().replace(/\/p\/[^/]+$/, '')}/`));
+      return;
+    }
     const url = windowControlURL('server-page');
     if (!url) return;
     await fetchJson(url, { method: 'POST', errorPrefix: t('Could not show the server page') });

@@ -339,7 +339,7 @@ func normaliseID(id string) string {
 //
 // Pure, so the query it builds can be asserted without a native window.
 func windowPageURL(serverURL, nativeCtl string, opts windowOpts) string {
-	u := strings.TrimRight(serverURL, "/") + "/?window=1&nativeCtl=" + url.QueryEscape(nativeCtl)
+	u := strings.TrimRight(serverURL, "/") + "/?window=1&nativeCtl=" + url.QueryEscape(nativeCtl) + windowHostQuery()
 	if opts.theme != "" {
 		u += "&theme=" + url.QueryEscape(opts.theme)
 	}

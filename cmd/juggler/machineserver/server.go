@@ -396,10 +396,12 @@ func (s *Server) status() statusResponse {
 // rendezvous bootstrap checks it before it loads the page. GET /api/version.
 func (s *Server) handleVersion(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, versionResponse{
-		Version:         core.Version,
-		ProtocolVersion: tunnel.RendezvousProtocolVersion,
-		EmbedVersion:    embedVersion,
-		Name:            lanfind.MachineName(),
+		Version:              core.Version,
+		ProtocolVersion:      tunnel.RendezvousProtocolVersion,
+		EmbedVersion:         embedVersion,
+		WindowProtocol:       WindowProtocol,
+		MinAppWindowProtocol: MinAppWindowProtocol,
+		Name:                 lanfind.MachineName(),
 	})
 }
 

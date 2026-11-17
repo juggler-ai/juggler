@@ -95,6 +95,7 @@ func TestWindowControlActionTable(t *testing.T) {
 		"locale": false, "zoom": false, "folder-dropped": false, "pick-directory": false,
 		"pick-file": false, "updater": false, "switch-server": false, "discover": false,
 		"retry-server": false, "start-server": false, "restart-server": false, "open-local": false,
+		"open-in-browser": false,
 	}
 	if len(windowActions) != len(want) {
 		t.Fatalf("windowActions has %d entries, want %d: %v", len(windowActions), len(want), want)
@@ -108,6 +109,38 @@ func TestWindowControlActionTable(t *testing.T) {
 		if (act.remote != nil) != remote {
 			t.Errorf("windowActions[%q] grants a remote window something: %v, want %v", name, act.remote != nil, remote)
 		}
+	}
+}
+
+// TestWindowControlUnknownActionSaysTheAppIsTooOld: a page posts an action this
+// app does not have when the page's server is a newer build, so the 404 says
+// which action, and that the app wants updating — in a body the page shows —
+// rather than the bare status a user reads as "Not Found".
+func TestWindowControlUnknownActionSaysTheAppIsTooOld(t *testing.T) {
+	a := newTestAppState(t)
+	registerTestWindow(a, "w1")
+	rec := controlRequest(a, http.MethodPost, "/win/w1/frobnicate")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+	var body struct {
+		Error   string `json:"error"`
+		Message struct {
+			Key    string            `json:"key"`
+			Params map[string]string `json:"params"`
+		} `json:"message"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body is not JSON: %q (%v)", rec.Body.String(), err)
+	}
+	if !strings.Contains(body.Error, "frobnicate") || !strings.Contains(body.Error, "Update") {
+		t.Errorf("error = %q, want it to name the action and say to update the app", body.Error)
+	}
+	if body.Message.Key == "" || body.Message.Params["action"] != "frobnicate" {
+		t.Errorf("message = %+v, want a translatable message naming the action", body.Message)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got == "" {
+		t.Error("the page could not read the reply: no CORS header")
 	}
 }
 

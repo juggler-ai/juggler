@@ -11,7 +11,7 @@
 
 import { hasNativeHost, reportFolderDropped } from '../sdk/lib/window-control.js';
 import { createControlApi, readPageConfig } from './control-api.js';
-import { desktopHost } from './native-host.js';
+import { desktopHost, olderAppNotice } from './native-host.js';
 import { mountSessionsPage, pageTitle, paintedTheme, relayFramerEvents } from './sessions-view.js';
 
 /**
@@ -84,7 +84,7 @@ function start() {
       api: createControlApi({ token: config.token, base: config.base }),
       config,
       host,
-      notice: query.get('notice') || '',
+      notice: query.get('notice') || (host ? olderAppNotice(config.version) : ''),
       header: document.getElementById('sessions-title'),
       framed,
     });

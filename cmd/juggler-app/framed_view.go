@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strings"
 
+	"juggler/cmd/juggler/core"
 	"juggler/internal/lanfind"
 )
 
@@ -50,38 +51,68 @@ var embedProbeHTTP = &http.Client{
 	},
 }
 
-// embedsSessions reports whether the server at root says, in GET
-// /api/version, that its sessions page can be framed (embedVersion 1 or
-// more), and the name it gives its machine (empty for none), cut to a name the
-// page can show (lanfind.InstanceName). No answer, or one without
-// embedVersion, is a server that cannot.
-func embedsSessions(ctx context.Context, root string) (name string, ok bool) {
+// serverInfo is what a server by URL says of itself in GET /api/version
+// (machineserver's versionResponse): its version, the name it gives its
+// machine, the embedded sessions page it serves, and the window-control
+// protocol of its pages (serverFit).
+type serverInfo struct {
+	Version              string `json:"version"`
+	Name                 string `json:"name"`
+	EmbedVersion         int    `json:"embedVersion"`
+	WindowProtocol       int    `json:"windowProtocol"`
+	MinAppWindowProtocol int    `json:"minAppWindowProtocol"`
+}
+
+// probeServer asks the server at root for GET /api/version, and reports
+// whether it answered with one. Its machine's name is cut to a name the page
+// can show (lanfind.InstanceName); a server that states no window-control
+// protocol speaks 1 (machineserver.WindowProtocol).
+func probeServer(ctx context.Context, root string) (serverInfo, bool) {
+	var v serverInfo
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, root+"/api/version", nil)
 	if err != nil {
-		return "", false
+		return v, false
 	}
 	resp, err := embedProbeHTTP.Do(req) //nolint:gosec // app-owned server URL, see fetchWindowState
 	if err != nil {
-		return "", false
+		return v, false
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return "", false
-	}
-	var v struct {
-		EmbedVersion int    `json:"embedVersion"`
-		Name         string `json:"name"`
+		return v, false
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<12)).Decode(&v); err != nil {
-		return "", false
-	}
-	if v.EmbedVersion < 1 {
-		return "", false
+		return serverInfo{}, false
 	}
 	if strings.TrimSpace(v.Name) != "" {
-		name = lanfind.InstanceName(v.Name)
+		v.Name = lanfind.InstanceName(v.Name)
+	} else {
+		v.Name = ""
 	}
-	return name, true
+	v.WindowProtocol = max(v.WindowProtocol, 1)
+	v.MinAppWindowProtocol = max(v.MinAppWindowProtocol, 1)
+	return v, true
+}
+
+// The ways a server's pages and this app may not fit (serverFit).
+const (
+	fitsApp      = ""
+	appTooOld    = "app-too-old"
+	serverTooOld = "server-too-old"
+)
+
+// serverFit is whether this app can show the pages of a server that said info
+// of itself: not when those pages rely on actions this app lacks (its
+// minAppWindowProtocol is above windowProtocol), nor when they speak a
+// protocol older than this app still serves (minServerWindowProtocol).
+func serverFit(info serverInfo) string {
+	switch {
+	case info.MinAppWindowProtocol > windowProtocol:
+		return appTooOld
+	case info.WindowProtocol < minServerWindowProtocol:
+		return serverTooOld
+	}
+	return fitsApp
 }
 
 // serverRoot is serverURL's origin when serverURL names a server's root, as
@@ -96,13 +127,27 @@ func serverRoot(serverURL string) (string, bool) {
 }
 
 // framedPageView is the view a main window on spec, a server by URL, shows
-// for that server's sessions page: framed in this machine's server's page when
-// the server can be framed and this machine's server is found or (with start)
-// started, else the server's own page at fullURL. This machine's server is
-// asked for first, as it is attached to already whenever any window is on it;
-// the other server is asked only then. Blocking, so never on the main thread.
+// for that server's sessions page: the incompatible stand-in when the server
+// says its pages and this app do not fit (serverFit); else framed in this
+// machine's server's page when the server can be framed and this machine's
+// server is found or (with start) started, else the server's own page at
+// fullURL. A server that does not answer the probe is shown as it is: an old
+// enough server answers none, and the page is all there is to show. Blocking,
+// so never on the main thread.
 func (a *appState) framedPageView(spec windowSpec, fullURL string, start bool) windowView {
 	full := windowView{spec: spec, serverURL: fullURL}
+	ctx, cancel := context.WithTimeout(context.Background(), remoteReachBudget)
+	defer cancel()
+	origin := originOf(normalizeURL(spec.url))
+	info, answered := probeServer(ctx, origin)
+	if answered {
+		if si := incompatibleStandIn(origin, info); si != nil {
+			logf("window on %s: server %s (window protocol %d, needs %d) does not fit this app %s (%d, needs %d)",
+				origin, info.Version, info.WindowProtocol, info.MinAppWindowProtocol,
+				core.Version, windowProtocol, minServerWindowProtocol)
+			return standInView(spec, si)
+		}
+	}
 	root, ok := serverRoot(spec.url)
 	if !ok {
 		return full
@@ -112,14 +157,11 @@ func (a *appState) framedPageView(spec windowSpec, fullURL string, start bool) w
 		logf("window on %s: no server here to frame it in (%v); showing it whole", root, err)
 		return full
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), remoteReachBudget)
-	defer cancel()
-	name, ok := embedsSessions(ctx, root)
-	if !ok {
+	if !answered || info.EmbedVersion < 1 {
 		return full
 	}
-	a.finder.remember(root, name)
-	return windowView{spec: spec, serverURL: "http://" + c.Addr(), server: procOf(c), framed: root, framedName: name}
+	a.finder.remember(root, info.Name)
+	return windowView{spec: spec, serverURL: "http://" + c.Addr(), server: procOf(c), framed: root, framedName: info.Name}
 }
 
 // controlSwitchServer is the outer sessions page's server chooser: the window

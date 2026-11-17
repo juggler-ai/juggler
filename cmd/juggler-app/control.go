@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 
+	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/machineserver"
 	"juggler/cmd/juggler/msg"
 
@@ -215,7 +216,11 @@ func (a *appState) handleControl(w http.ResponseWriter, r *http.Request) {
 	}
 	act, ok := windowActions[action]
 	if !ok {
-		w.WriteHeader(http.StatusNotFound)
+		// A page of a newer server than this app, relying on an action added
+		// since: say so, where the page shows a refusal, and not as a bare 404.
+		logf("control: window %s asked for %q, which this app (%s) does not have", id, action, core.Version)
+		unknown := msg.New("This Juggler app can’t do “{action}”, which this page needs. Update the Juggler app to use this server.", "action", action)
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": unknown.English(), "message": unknown})
 		return
 	}
 	if remote && (act.remote == nil || !act.remote(r)) {
@@ -323,7 +328,8 @@ func anyRequest(*http.Request) bool { return true }
 // pick-directory and pick-file (they answer with a local path), updater,
 // switch-server and discover (choosing another server to show), and the
 // stand-in actions retry-server, start-server,
-// restart-server and open-local, which no page of another server shows.
+// restart-server, open-local and open-in-browser, which no page of another
+// server shows.
 var windowActions = map[string]controlAction{
 	"theme":          {handle: (*appState).controlTheme, remote: anyRequest},
 	"title":          {handle: (*appState).controlTitle, remote: anyRequest},
@@ -346,14 +352,15 @@ var windowActions = map[string]controlAction{
 	"pick-file": {handle: func(a *appState, w http.ResponseWriter, r *http.Request, e *winEntry) {
 		a.controlPickPath(w, r, e, "pick-file")
 	}},
-	"updater":        {handle: (*appState).handleUpdaterControl},
-	"switch-server":  {handle: (*appState).controlSwitchServer, refusal: &connectFromURLWindowRefusal},
-	"discover":       {handle: (*appState).controlDiscover, refusal: &connectFromURLWindowRefusal},
-	"quit":           {handle: (*appState).controlQuit, remote: anyRequest},
-	"retry-server":   {handle: (*appState).controlRetryServer},
-	"start-server":   {handle: (*appState).controlStartServer},
-	"restart-server": {handle: (*appState).controlRestartServer},
-	"open-local":     {handle: (*appState).controlOpenLocal},
+	"updater":         {handle: (*appState).handleUpdaterControl},
+	"switch-server":   {handle: (*appState).controlSwitchServer, refusal: &connectFromURLWindowRefusal},
+	"discover":        {handle: (*appState).controlDiscover, refusal: &connectFromURLWindowRefusal},
+	"quit":            {handle: (*appState).controlQuit, remote: anyRequest},
+	"retry-server":    {handle: (*appState).controlRetryServer},
+	"start-server":    {handle: (*appState).controlStartServer},
+	"restart-server":  {handle: (*appState).controlRestartServer},
+	"open-local":      {handle: (*appState).controlOpenLocal},
+	"open-in-browser": {handle: (*appState).controlOpenInBrowser},
 }
 
 // controlNewWindow opens another window, carrying whatever the caller handed

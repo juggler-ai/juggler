@@ -5,6 +5,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"html/template"
@@ -12,8 +13,10 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"runtime"
 	"strings"
 
+	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/machineserver"
 	"juggler/cmd/juggler/msg"
 	"juggler/cmd/juggler/webui"
@@ -56,6 +59,9 @@ const (
 	standInFailed      = "failed"
 	standInLost        = "lost"
 	standInMismatch    = "mismatch"
+	// standInIncompatible stands in for a window on a server by URL whose pages
+	// and this app do not fit (incompatibleStandIn).
+	standInIncompatible = "incompatible"
 )
 
 var (
@@ -74,6 +80,9 @@ var (
 	restartServerLabel      = msg.New("Restart server")
 	restartingLabel         = msg.New("Restarting…")
 	quitLabel               = msg.New("Quit")
+	incompatibleWindowTitle = msg.New("Update needed — Juggler")
+	incompatiblePageTitle   = msg.New("This app and that Juggler server don’t fit")
+	openInBrowserLabel      = msg.New("Open in browser")
 )
 
 // standInButton is one of a stand-in page's buttons: a form post to this
@@ -256,6 +265,67 @@ func mismatchStandIn(e *versionMismatchError) *standIn {
 	}
 }
 
+// incompatibleStandIn stands in for a window on the server by URL at origin
+// whose pages and this app do not fit (serverFit), saying which wants
+// updating; nil when they fit.
+func incompatibleStandIn(origin string, info serverInfo) *standIn {
+	server := cmp.Or(info.Name, hostOf(origin))
+	version := cmp.Or(info.Version, "?")
+	var message msg.Message
+	switch serverFit(info) {
+	case appTooOld:
+		message = msg.New("The Juggler server on {server} is version {version}, which needs a newer app than this one (version {app}). Update the Juggler app to show it here, or open it in your browser, which works with any version.",
+			"server", server, "version", version, "app", core.Version)
+	case serverTooOld:
+		message = msg.New("The Juggler server on {server} is version {version}, too old for this app (version {app}). Update Juggler on {server} to show it here, or open it in your browser.",
+			"server", server, "version", version, "app", core.Version)
+	default:
+		return nil
+	}
+	return &standIn{
+		kind:        standInIncompatible,
+		windowTitle: incompatibleWindowTitle,
+		title:       incompatiblePageTitle,
+		message:     []msg.Message{message},
+		buttons: []standInButton{
+			{label: openInBrowserLabel, action: "open-in-browser", primary: true},
+			retryButton(),
+			cancelButton(),
+		},
+	}
+}
+
+// hostOf is serverURL's host, for naming a server that gave its machine no
+// name.
+func hostOf(serverURL string) string {
+	if u, err := url.Parse(serverURL); err == nil && u.Host != "" {
+		return u.Host
+	}
+	return serverURL
+}
+
+// controlOpenInBrowser is the incompatible stand-in's "Open in browser": the
+// server the window is filed under, in the system browser, whose page needs no
+// app at all. The window stays as it is.
+func (a *appState) controlOpenInBrowser(w http.ResponseWriter, _ *http.Request, e *winEntry) {
+	v := a.viewOf(e)
+	if v.standIn == nil || v.standIn.kind != standInIncompatible || !v.spec.isURL() {
+		w.WriteHeader(http.StatusConflict)
+		return
+	}
+	target := normalizeURL(v.spec.url)
+	if !isOpenableURL(target, runtime.GOOS) {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	if err := openInBrowser(target); err != nil {
+		logf("open %s in the browser: %v", target, err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // standInFor is the stand-in for a local window whose server could not be
 // had: a version mismatch's when that is what err is, and otherwise a failed
 // start's. Every failure gets one, so no window ever fails to open in silence.
@@ -329,7 +399,7 @@ var standInPageTemplates = []string{"shell/stand-in.html", "shell/window-shell.h
 // page on: the control endpoint's, as a window onto a server is given it.
 func (a *appState) standInPageURL(id, secret string) string {
 	base := a.controlBase(id, secret)
-	return base + "/page?window=1&nativeCtl=" + url.QueryEscape(base)
+	return base + "/page?window=1&nativeCtl=" + url.QueryEscape(base) + windowHostQuery()
 }
 
 // serveStandIn answers a stand-in window's GETs, under the window's control

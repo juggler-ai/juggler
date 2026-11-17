@@ -24,6 +24,7 @@ import (
 	"os"
 	"strings"
 
+	"juggler/cmd/juggler/core"
 	"juggler/internal/jlog"
 	"juggler/internal/webviewenv"
 )
@@ -41,7 +42,7 @@ func main() {
 	}
 	initAppLogging()
 	defer jlog.Close()
-	logf("start: url=%q project=%q args=%v", *urlFlag, *project, os.Args)
+	logf("start: version=%s window-protocol=%d url=%q project=%q args=%v", core.Version, windowProtocol, *urlFlag, *project, os.Args)
 	// Before any GTK/WebKit init: on a Linux host that blocks the unprivileged
 	// user namespaces WebKitGTK's bwrap sandbox needs, disable that sandbox so
 	// the window can come up instead of aborting with a cgo SIGTRAP. No-op off

@@ -17,7 +17,11 @@
  * @module machine/native-host
  */
 
-import { openExternalURL, pickDirectory, reportDraftsFlushed, windowControlURL } from '../sdk/lib/window-control.js';
+import { t } from '../sdk/lib/i18n.js';
+import {
+  hostAppVersion, hostedPageURL, hostIsOlder, hostMovesNoWindow, openExternalURL, pickDirectory,
+  reportDraftsFlushed, windowControlURL,
+} from '../sdk/lib/window-control.js';
 import { ControlApiError } from './control-api.js';
 
 /**
@@ -45,6 +49,12 @@ async function request(action, query) {
   if (resp.ok) return resp;
   /** @type {{error?: string, message?: {key?: unknown, params?: unknown}}|null} */
   const body = await resp.json().catch(() => null);
+  // An app that answers an action with a bare 404 predates it: this page's
+  // server is newer than the app (an app that has the action says why it
+  // refuses).
+  if (resp.status === 404 && !body?.error) {
+    throw new ControlApiError(resp.status, t('This Juggler app can’t do something this page needs. Update the Juggler app to use this server.'));
+  }
   throw new ControlApiError(resp.status, body?.error || resp.statusText, body?.message);
 }
 
@@ -61,22 +71,47 @@ async function reopen() {
 }
 
 /**
+ * What the page says as it opens in an app that speaks an older
+ * window-control protocol than it (hostIsOlder): that the app wants updating.
+ * @param {string} server - This page's server's version.
+ * @param {{older?: boolean, app?: string}} [host] - Whether the app is older,
+ *   and its version ('' for an app too old to say); the page's own by default.
+ * @returns {string} The notice ('' for an app that is not older).
+ */
+export function olderAppNotice(server, { older = hostIsOlder(), app = hostAppVersion() } = {}) {
+  if (!older) return '';
+  return app
+    ? t('This Juggler app is version {app}, older than this server (version {server}). Update the app: some of what this window does needs the newer one.', { app, server })
+    : t('This Juggler app is older than this server (version {server}). Update the app: some of what this window does needs the newer one.', { server });
+}
+
+/**
  * The host for a desktop window showing the page.
- * @param {{external: boolean}} where - Whether the window is on a server by URL.
+ *
+ * An app older than project links (hostMovesNoWindow) has no attach: the
+ * window is moved to the session's link by the page itself, as that app's own
+ * server's page did, and it has no reopen to ask either.
+ * @param {{external: boolean, movesNoWindow?: boolean, go?: (url: string) => void}} where - Whether the
+ *   window is on a server by URL; whether its app is too old to move it, and
+ *   how the page moves it then (both the page's own by default).
  * @returns {import('./sessions-view.js').NativeHost} The host.
  */
-export function desktopHost({ external }) {
+export function desktopHost({ external, movesNoWindow = hostMovesNoWindow(), go = (url) => { window.location.assign(url); } }) {
   /** @type {import('./sessions-view.js').NativeHost} */
   const host = {
-    attach: (id, project, link, conversation) => post('attach',
-      `?session=${encodeURIComponent(id)}&project=${encodeURIComponent(project)}&link=${encodeURIComponent(link)}`
-        + (conversation ? `&conversation=${encodeURIComponent(conversation)}` : '')),
+    attach: movesNoWindow
+      ? async (_id, _project, link, conversation) => {
+        go(hostedPageURL(conversation ? `${link}?c=${encodeURIComponent(conversation)}` : link));
+      }
+      : (id, project, link, conversation) => post('attach',
+        `?session=${encodeURIComponent(id)}&project=${encodeURIComponent(project)}&link=${encodeURIComponent(link)}`
+          + (conversation ? `&conversation=${encodeURIComponent(conversation)}` : '')),
     answerClose: reportDraftsFlushed,
     openURL: openExternalURL,
   };
   // This machine's server's windows are reopened on their project's session
   // by the app itself.
-  if (external) return { ...host, reopen };
+  if (external) return movesNoWindow ? host : { ...host, reopen };
   return {
     ...host,
     pickDirectory,

@@ -12,6 +12,8 @@ the current release). The project follows semantic versioning.
 - Pinboard Pop-out works in windows connected to another machine's server
 - Popped-out pinboards reopen only on the machine that popped them out
 - /compact during a running turn waits for it to finish instead of stopping it
+- An app and another machine's server that don't fit say which to update, not "Not Found"
+- About shows the desktop app's version beside the server's when they differ
 
 ## [0.8.1] - 2026-11-15
 

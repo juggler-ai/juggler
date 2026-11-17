@@ -70,6 +70,7 @@
  */
 
 import { t } from '../sdk/lib/i18n.js';
+import { hostAppVersion, hostWindowProtocol } from '../sdk/lib/window-control.js';
 import { CHECK_SVG, COMPUTER_SVG, DESKTOP_SVG, DROPDOWN_ARROW_SVG } from '../js/utils/icons.js';
 import { extractErrorMessage, errorText } from '../sdk/lib/error-utils.js';
 import { ControlApiError } from './control-api.js';
@@ -345,12 +346,15 @@ export function paintedTheme(dataset) {
 
 /**
  * The framed server's sessions page, as the frame loads it: embedded, with the
- * control address meant for it, and this page's theme.
+ * control address meant for it, what the app says of itself to this page
+ * (the same app hosts both), and this page's theme.
  * @param {FramedServer} framed - The server framed.
  * @returns {string} Its address.
  */
 function framedPageURL({ server, frameCtl, theme = '', mode = '' }) {
   let url = `${new URL(server).origin}/?embed=1&external=1&nativeCtl=${encodeURIComponent(frameCtl)}`;
+  if (hostWindowProtocol()) url += `&ctlProtocol=${hostWindowProtocol()}`;
+  if (hostAppVersion()) url += `&appVersion=${encodeURIComponent(hostAppVersion())}`;
   if (theme) url += `&theme=${encodeURIComponent(theme)}`;
   if (mode) url += `&mode=${encodeURIComponent(mode)}`;
   return url;

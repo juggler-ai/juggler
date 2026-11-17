@@ -88,6 +88,31 @@ func (api *SessionAPI) broadcastWorkspaces() {
 	api.broadcaster.BroadcastWorkspacesChanged(workspace.Describe(api.manager().ListWorkspaces()))
 }
 
+// boxPlaces is each workspace's place in the tab bar, by id: what a removal
+// is compared against to learn whether it moved a box.
+func (api *SessionAPI) boxPlaces() map[string]string {
+	rows := api.manager().ListWorkspaces()
+	places := make(map[string]string, len(rows))
+	for _, row := range rows {
+		places[row.ID] = row.Place
+	}
+	return places
+}
+
+// broadcastWorkspacesIfMoved publishes the table when a box's place differs
+// from `before`. Removing the conversation a box sits behind hands the box on
+// to its neighbour (core.reanchorBoxesAt), and a viewer still holding the old
+// place draws the box by a fallback until the table next reaches it — at which
+// point the box jumps past tabs nobody touched.
+func (api *SessionAPI) broadcastWorkspacesIfMoved(before map[string]string) {
+	for id, place := range api.boxPlaces() {
+		if prior, ok := before[id]; ok && prior != place {
+			api.broadcastWorkspaces()
+			return
+		}
+	}
+}
+
 // HandleListWorkspaces returns every registered workspace.
 //
 // The default workspace — the project itself — is deliberately not among them.

@@ -343,6 +343,69 @@ func TestWorkspaceRoutes_ClosedWorkspacesAreCapped(t *testing.T) {
 	}
 }
 
+// Removing the conversation a box sits behind hands the box on to the one ahead
+// of it, and every viewer is told. A viewer left holding the old place draws the
+// box by a fallback instead, until the table next reaches it for some other
+// reason — and then the box jumps past tabs nobody touched.
+func TestWorkspaceRoutes_RemovingABoxAnchorBroadcastsItsNewPlace(t *testing.T) {
+	for _, remove := range []struct {
+		name   string
+		method string
+		path   func(id string) string
+	}{
+		{"deleted", http.MethodDelete, func(id string) string { return "/api/session/conversations/" + id + "?permanent=true" }},
+		{"binned", http.MethodPost, func(id string) string { return "/api/session/conversations/" + id + "/bin" }},
+	} {
+		t.Run(remove.name, func(t *testing.T) {
+			dir := t.TempDir()
+			mgr, err := core.NewSessionManagerForPath(dir)
+			if err != nil {
+				t.Fatalf("NewSessionManagerForPath: %v", err)
+			}
+			t.Cleanup(mgr.Shutdown)
+			bc := &recordingBroadcaster{}
+			s := &Server{router: mux.NewRouter()}
+			s.setupSessionRoutes(handlers.NewSessionAPI(func() *core.SessionManager { return mgr }, nil, bc, nil, nil))
+
+			above, _, err := mgr.CreateConversation("above")
+			if err != nil {
+				t.Fatal(err)
+			}
+			anchor, _, err := mgr.CreateConversation("anchor")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := mgr.ReorderConversations([]string{above, anchor}, ""); err != nil {
+				t.Fatalf("setting up the order: %v", err)
+			}
+			ws, err := mgr.RegisterWorkspace(core.Workspace{Root: t.TempDir(), State: core.WorkspaceStateReady, Place: anchor})
+			if err != nil {
+				t.Fatalf("RegisterWorkspace: %v", err)
+			}
+			before := len(bc.workspaces)
+
+			rec := pinboardRequest(t, s, remove.method, remove.path(anchor), "")
+			if rec.Code != http.StatusNoContent {
+				t.Fatalf("%s %s: got %d (%s), want 204", remove.method, remove.path(anchor), rec.Code, rec.Body.String())
+			}
+
+			if len(bc.workspaces) != before+1 {
+				t.Fatalf("%d workspace broadcasts after the removal, want 1: every viewer still draws the box behind %s",
+					len(bc.workspaces)-before, anchor)
+			}
+			var place string
+			for _, row := range bc.workspaces[len(bc.workspaces)-1] {
+				if row.ID == ws.ID {
+					place = row.Place
+				}
+			}
+			if place != above {
+				t.Fatalf("broadcast place = %q, want %q — the conversation ahead of the one removed", place, above)
+			}
+		})
+	}
+}
+
 // Reconciling is destructive and only the browser can do it, so exactly one
 // viewer per run of the server is told to.
 func TestWorkspaceRoutes_ReconcileClaimedOnce(t *testing.T) {

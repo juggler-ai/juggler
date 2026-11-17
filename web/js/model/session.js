@@ -575,6 +575,10 @@ class Session {
   async _dropActiveConversation(id, { clearVisibleIfNoFallback }) {
     const conv = this.registry.get(id);
     if (!conv) return null;
+    // While it still has a neighbour to hand its boxes' place to. The server
+    // re-anchors the same rows when it removes the conversation and broadcasts
+    // the table, which settles any difference in what the two orders hold.
+    this._reanchorBoxesBeforeMove(id);
     await this._teardownConversation(conv, '_dropActiveConversation');
     // The one being dropped may be the conversation behind a workspace panel
     // rather than the one on screen, and it needs replacing either way.
@@ -1850,7 +1854,8 @@ class Session {
   }
 
   /**
-   * Hand a box's place on before the conversation it sits behind moves away.
+   * Hand a box's place on before the conversation it sits behind moves away or
+   * leaves the bar.
    *
    * A box is placed by a neighbour rather than a number, and the neighbour is an
    * ordinary tab with nothing drawn on it to say a box is anchored there. So

@@ -1092,6 +1092,7 @@ func (api *SessionAPI) HandleDeleteConversation(w http.ResponseWriter, r *http.R
 		api.closeConversation(convID)
 	}
 
+	places := api.boxPlaces()
 	if err := api.manager().DeleteConversation(convID, permanent); err != nil {
 		WriteErr(w, r, http.StatusInternalServerError, err)
 		return
@@ -1105,6 +1106,7 @@ func (api *SessionAPI) HandleDeleteConversation(w http.ResponseWriter, r *http.R
 	if api.broadcaster != nil {
 		api.broadcaster.BroadcastConversationsChanged("deleted", convID, "")
 	}
+	api.broadcastWorkspacesIfMoved(places)
 }
 
 // HandleBinConversation moves a conversation to the bin.
@@ -1126,6 +1128,7 @@ func (api *SessionAPI) HandleBinConversation(w http.ResponseWriter, r *http.Requ
 		api.closeConversation(convID)
 	}
 
+	places := api.boxPlaces()
 	if err := api.manager().BinConversation(convID); err != nil {
 		if errors.Is(err, core.ErrConversationNotFound) {
 			WriteMessageError(w, r, http.StatusNotFound, msg.New("Conversation not found"))
@@ -1140,6 +1143,7 @@ func (api *SessionAPI) HandleBinConversation(w http.ResponseWriter, r *http.Requ
 	if api.broadcaster != nil {
 		api.broadcaster.BroadcastConversationsChanged("binned", convID, "")
 	}
+	api.broadcastWorkspacesIfMoved(places)
 }
 
 // HandleRestoreConversation moves a conversation out of the bin back

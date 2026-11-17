@@ -282,7 +282,21 @@ app-container {
 
 .app-main {
     flex: 1;
-    overflow: hidden;
+
+    /* `clip`, never `hidden`: a `hidden` box is still a scroll box, just
+       without a scrollbar. Overlays parked off its edges by a transform (the
+       pinboard off the right, the sidebar drawer off the left) are overflow it
+       could scroll to, and any plain focus() inside one — mid-slide, from any
+       pin — would scroll the workspace to reveal it: the columns and the
+       overlay lurch sideways, then snap back as the transform settles. `clip`
+       crops identically and cannot be scrolled at all.
+
+       Not being a scroll box also costs it the zero minimum size flex gives
+       one, so the minimums are zeroed by hand: without them it grows to its
+       content's height and pushes the composer off the bottom of the window. */
+    overflow: clip;
+    min-width: 0;
+    min-height: 0;
     display: flex;
     flex-direction: row;
     position: relative;

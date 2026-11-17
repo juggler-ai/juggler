@@ -96,7 +96,9 @@ export function whenRevealed(el, fn) {
  * @param {number} [opts.gap=8] - Gap (px) between anchor and dropdown (wide).
  * @param {string[]} [opts.insideSelectors] - Selectors whose subtree counts as
  *   "inside" for outside-click dismissal. Omit for surfaces that keep the
- *   textarea focused (autocompletes) or do their own outside handling.
+ *   textarea focused (autocompletes) or do their own outside handling. With
+ *   them, a press of `anchor` while open closes the popup and is consumed, so a
+ *   trigger toggles; list the trigger here only to handle that press yourself.
  * @param {boolean} [opts.reposition=true] - Observe content changes and
  *   reposition while anchored (wide only).
  * @param {boolean} [opts.modal=true] - Sheet flavour on narrow screens: modal
@@ -146,7 +148,9 @@ export function presentPopup({
   // Mutual exclusion + Escape + open-state (+ optional outside-click). In sheet
   // mode the scrim is the visible outside target, but the same selector-based
   // handler still resolves taps on it to "outside", so one path serves both.
-  const releaseDismiss = registerOpenPopup({ id, onClose, insideSelectors, nested });
+  // The anchor is a toggle: pressing it again closes the popup instead of
+  // reopening it, for every trigger, without each one keeping an open flag.
+  const releaseDismiss = registerOpenPopup({ id, onClose, insideSelectors, nested, anchor });
 
   /** @type {HTMLElement|null} */
   let scrim = null;

@@ -268,6 +268,7 @@ The full set of specifiers, and what each is for:
 | `juggler/utils/html` | HTML escaping and templating helpers |
 | `juggler/utils/path-containment` | Path containment checks — use these rather than hand-rolling `startsWith` |
 | `juggler/utils/debounce` | `debounce(fn, wait, { maxWait })` — a trailing-edge debounce whose `maxWait` stops a steady stream of events postponing the call for ever |
+| `juggler/utils/virtual-list` | `createVirtualList(options)` — a windowed list of fixed-height rows and section headers: only the rows in view (and a margin) are elements, so a list of thousands costs a screenful. Document only, not the engine worker |
 
 - **`juggler/ops`** is the privileged host-operations layer — filesystem, shell,
   search, tree, and web operations that were once built-in-only. These ops run
@@ -300,7 +301,12 @@ The full set of specifiers, and what each is for:
   (`setDiff`) for one file. `createReviewPanel` is the layer around it for a pin
   reviewing several files at once: it owns the file rail, the comment editor and
   the draft footer, and is given an already-worded manifest, a per-file patch
-  loader and a `services.review` to keep the comments in.
+  loader and a `services.review` to keep the comments in. `openMenuAt(items, x,
+  y, anchor)` opens the app's context menu at a point, for a long-press or a ⋯
+  button on something an extension draws; `contextMenuFor(element, build)`
+  gives an element a right-click menu, `build(target, event)` returning the
+  rows for what was clicked. The app handles every right-click before the page
+  sees it, so a `contextmenu` listener of your own never fires.
   See `web/sdk/ui.js`. It has a worker-safe twin: in the
   engine, the pure formatters are real and the DOM helpers throw, so a capability
   that runs in both realms must keep its rendering on the viewer side.

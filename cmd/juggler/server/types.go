@@ -64,6 +64,14 @@ type ViewerRelay struct {
 	Payload json.RawMessage `json:"payload"` // Opaque to the server
 }
 
+// GitWatchRequest is a viewer naming every workspace whose git changes it wants
+// to hear of — "" for the project — in place of whatever it named before. An
+// empty list names none. See git_watch.go.
+type GitWatchRequest struct {
+	Type       frameType `json:"type"`       // "git-watch"
+	Workspaces []string  `json:"workspaces"` // Workspace ids
+}
+
 // GenericWSMessage is used to determine message type before parsing
 type GenericWSMessage struct {
 	Type string `json:"type,omitempty"`

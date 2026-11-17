@@ -73,10 +73,16 @@ export function workspaceCreatePlaces(session) {
  * finished with a tree — including discarding it, in the provider's words. A
  * second, briefer way to say the same thing would be a transient button
  * duplicating a permanent one that is already on screen.
+ *
+ * A caller that knows what it wants made — the git client's "New worktree from
+ * here…" — names the provider and fills in what it knows; everything else is
+ * the provider's form as it always is, with Create still the user's to press.
  * @param {any} session - The session it would belong to.
+ * @param {{providerId?: string, values?: object}} [prefill] - The kind to open
+ *   on, and the values its form starts with.
  * @returns {Promise<{created: boolean, workspaceId?: string}>} What was made.
  */
-export function openWorkspaceCreate(session) {
+export function openWorkspaceCreate(session, prefill = {}) {
   return new Promise((resolve) => {
     const modal = presentModal({
       className: 'workspace-create-overlay',
@@ -121,8 +127,12 @@ export function openWorkspaceCreate(session) {
     // selection only says which form is on screen, and nothing is built until
     // Create is pressed. An empty half of a two-part dialog teaches nobody what
     // the two parts are for.
-    const opening = places().find((row) => row.kind === 'new');
+    const asked = prefill.providerId
+      ? places().find((row) => row.id === NEW_ROW_PREFIX + prefill.providerId)
+      : null;
+    const opening = asked ?? places().find((row) => row.kind === 'new');
     if (opening) selection = opening.id;
+    if (asked && prefill.values) values = { ...prefill.values };
 
     /**
      * The provider the selection names, or '' when it names none.

@@ -27,6 +27,9 @@ import pinboardView from '../services/pinboard-view.js';
 import wsService from '../services/websocket.js';
 import gitStatusCache from '../services/git-status-cache.js';
 import gitReviewService from '../services/git-review-service.js';
+import gitOpsService from '../services/git-ops-service.js';
+import { watchGit } from '../services/git-watch.js';
+import { gitWorkspaceId, onGitWorkspaceChange } from '../services/git-workspace.js';
 import { shellListProcesses, shellStopProcess } from '../services/ops-api.js';
 import { presentPopup } from '../utils/popup-surface.js';
 import { applyMenuRoles, attachMenuKeyboard } from '../utils/menu-roles.js';
@@ -50,6 +53,10 @@ import { capabilityLabel } from '../utils/capability-label.js';
 import { t } from '../../sdk/lib/i18n.js';
 import { displayConversationName } from '../model/conversation-naming.js';
 import { findNearestContextItem } from '../services/nearest-context-item.js';
+import { openWorkspaceCreate } from './workspace-create-dialog.js';
+import { carryOutWorkspaceFinish } from './workspace-finish-dialog.js';
+import { workspaceFinishOptions } from '../services/workspace-provisioning.js';
+import { probeSetupAdoptions, adoptSetupRow, adoptionRowFor } from '../services/workspace-places.js';
 
 /** @typedef {import('../services/pinboard-store.js').Pin} Pin */
 /** @typedef {import('juggler/pinboard-item-type').PinActiveContext} PinActiveContext */
@@ -710,14 +717,10 @@ class PinboardContent extends JugglerElement {
    * @returns {void}
    */
   focusRegion() {
-    // The board is an overlay over a scroll box, so taking focus must never be
-    // what scrolls the workspace behind it. Without `preventScroll` this is
-    // where opening the board throws the workspace about: focus arrives in the
-    // same tick the panel is still translated off the right edge, and the
-    // browser scrolls every ancestor to reveal it — including `.app-main`, whose
-    // `overflow: hidden` makes it a scroll box all the same. The columns lurch
-    // left, the sliding panel overshoots with them, and it all springs back when
-    // the transform settles.
+    // Focus arrives in the same tick the panel is still translated off the
+    // right edge, and a plain focus() scrolls every ancestor that can scroll to
+    // reveal it. `.app-main` is `overflow: clip` so that it cannot (app-shell.css);
+    // `preventScroll` keeps this call from relying on that.
     this.focus({ preventScroll: true });
   }
 
@@ -855,7 +858,8 @@ class PinboardContent extends JugglerElement {
       this.removeAttribute('aria-labelledby');
       return;
     }
-    this._toolbar.hidden = false;
+    // A type that draws a head line of its own asks for no toolbar above it.
+    this._toolbar.hidden = pinboardItemRegistry.getType(pin.type)?.drawsToolbar === false;
     this.setAttribute('role', 'tabpanel');
     this.setAttribute('aria-labelledby', `pinboard-tab-${pin.id}`);
     const description = describePin(pin, this._active);
@@ -1270,7 +1274,14 @@ class PinboardContent extends JugglerElement {
     // different thing in the same tab, so that one is rebuilt like any other.
     const kept = this._retained.get(pin.id);
     if (kept) {
-      if (JSON.stringify(kept.pin.config) === JSON.stringify(config)) {
+      // The kept config may be one the pin wrote in place, spelled in its own
+      // key order and before normalization; the same config either way is
+      // the same thing in the tab.
+      let keptConfig = kept.pin.config;
+      try {
+        keptConfig = type.normalizeConfig(keptConfig) ?? keptConfig;
+      } catch (_) { /* compared as written */ }
+      if (canonicalConfig(keptConfig) === canonicalConfig(config)) {
         this._abort = kept.abort;
         this._controller = kept.controller;
         kept.element.hidden = false;
@@ -1440,15 +1451,42 @@ class PinboardContent extends JugglerElement {
           },
           review: (options) => this._gitRequest(
             signal, options?.signal,
-            (linked) => gitReviewService.review({ signal: linked, scope: options?.scope, workspace: options?.workspace })
+            (linked) => gitReviewService.review({
+              signal: linked, scope: options?.scope, workspace: options?.workspace, conv: options?.conv,
+            })
           ),
           diff: (repo, path, options) => this._gitRequest(
             signal, options?.signal,
             (linked) => gitReviewService.diff(repo, path, {
               signal: linked, contextLines: options?.contextLines, scope: options?.scope,
-              workspace: options?.workspace,
+              workspace: options?.workspace, conv: options?.conv,
             })
           ),
+          changes: (options) => this._gitRequest(
+            signal, options?.signal,
+            (linked) => gitReviewService.changes(options?.repo || '', { signal: linked, workspace: options?.workspace })
+          ),
+          read: (kind, options) => this._gitRequest(
+            signal, options?.signal,
+            (linked) => gitReviewService.read(kind, options?.repo || '', {
+              signal: linked, workspace: options?.workspace,
+              params: kind === 'log' ? options?.log : kind === 'commit' ? { commit: options?.commit }
+                : kind === 'blame' ? { path: options?.blame?.path, rev: options?.blame?.rev }
+                  : kind === 'stranded' ? { ref: options?.ref }
+                    : kind === 'attribution' ? { amend: options?.amend, conv: options?.conv }
+                      : kind === 'commit-context' ? { amend: options?.amend } : undefined,
+            })
+          ),
+          digest: (conv, paths, options) => this._gitRequest(
+            signal, options?.signal,
+            (linked) => gitReviewService.digest(conv, options?.repo || '', paths, { signal: linked, workspace: options?.workspace })
+          ),
+          run: (op, options) => gitOpsService.run(op, { workspace: options?.workspace }),
+          cancel: (id, options) => gitOpsService.cancel(id, options?.workspace),
+          answer: (id, reply, options) => gitOpsService.answer(id, reply, options?.workspace),
+          jobs: (options) => gitOpsService.jobs(options?.workspace),
+          fetchOnShow: (options) => gitOpsService.fetchOnShow(options?.repo || '', { workspace: options?.workspace }),
+          watch: (listener, options) => this._watchGitTree(listener, options?.workspace || '', signal),
         },
         tasks: {
           // A copy, like every other service here: what a pin is handed is a
@@ -1463,6 +1501,7 @@ class PinboardContent extends JugglerElement {
             : this._revealTask(task)),
           stop: (taskId) => this._stopTask(taskId),
         },
+        workspaces: this._workspacesService(signal),
         review: {
           draft: () => this._reviewDraft(),
           onChange: (listener) => this._watchReviewDraft(listener, signal),
@@ -1559,6 +1598,81 @@ class PinboardContent extends JugglerElement {
   }
 
   /**
+   * The session's workspaces, for a pin that shows trees: the git client's
+   * worktree switcher. What makes, finishes and adopts them is the workspace
+   * machinery's own — the create dialog, the panel's endings, the adoption
+   * offers — so a pin asks for those rather than doing them.
+   * @param {AbortSignal} signal - The pin's mount signal.
+   * @returns {import('juggler/pinboard-item-type').PinWorkspaces} The service.
+   * @private
+   */
+  _workspacesService(signal) {
+    const session = () => /** @type {any} */ (this._session);
+    const row = (/** @type {string} */ id) => (session()?.workspaces ?? []).find((/** @type {any} */ w) => w.id === id) ?? null;
+    return {
+      list: () => (session()?.workspaces ?? []).map((/** @type {any} */ w) => ({
+        id: w.id, label: w.label ?? '', root: w.root ?? '', providerId: w.providerId ?? '',
+        state: w.state ?? '', meta: JSON.parse(JSON.stringify(w.meta ?? {})),
+      })),
+      followed: () => gitWorkspaceId(),
+      onChange: (listener) => {
+        const onSession = (/** @type {any} */ event) => {
+          if (['session:workspaces-changed', 'conversation:created', 'conversation:deleted', 'conversation:renamed', 'conversation:switched'].includes(event.type)) {
+            this._notifyPin(listener, [], 'a workspace change');
+          }
+        };
+        const unsubscribe = session()?.subscribe?.(onSession) || null;
+        const unfollow = onGitWorkspaceChange(() => this._notifyPin(listener, [], 'a followed-tree change'));
+        const stop = () => { unsubscribe?.(); unfollow?.(); };
+        signal.addEventListener('abort', stop, { once: true });
+        return stop;
+      },
+      conversationsOf: (id) => {
+        const s = session();
+        if (!s?.conversations) return [];
+        return [...s.conversations.values()]
+          .filter((/** @type {any} */ c) => (c.workspaceId || '') === id)
+          .map((/** @type {any} */ c) => ({ id: c.id, title: s.getConversationName?.(c.id) || c.name || '' }));
+      },
+      // A board window draws no conversations, so it asks the window it was
+      // torn from to show this one, as its header's conversation name does.
+      showConversation: async (id) => {
+        if (isPinboardView()) return satelliteLink.selectConversation(id);
+        return showConversation(this._session, id);
+      },
+      create: async (request) => {
+        if (!session()) return { created: false };
+        return openWorkspaceCreate(session(), { providerId: request?.providerId, values: request?.values });
+      },
+      finishOptions: (id) => {
+        const w = row(id);
+        if (!w || !session()) return { options: [] };
+        return workspaceFinishOptions(session(), w);
+      },
+      finish: async (id, optionId) => {
+        const w = row(id);
+        if (!w || !session()) return null;
+        const option = workspaceFinishOptions(session(), w).options.find((o) => o.id === optionId);
+        if (!option) return null;
+        return carryOutWorkspaceFinish(session(), w, option);
+      },
+      adopt: async (tree) => {
+        if (!session()) return null;
+        await probeSetupAdoptions(session(), signal);
+        const offer = adoptionRowFor(tree);
+        return offer ? adoptSetupRow(session(), offer) : null;
+      },
+      startConversation: async (request) => {
+        const s = session();
+        if (!s) throw new Error('No session to start a conversation in.');
+        const id = await s.createConversation(request?.name || '', { activate: true, origin: 'pin', workspaceId: request?.workspace || '' });
+        await s.getConversation(id)?.sendMessage(request?.message || '');
+        return id;
+      },
+    };
+  }
+
+  /**
    * Go to the tool action that started a task, in whichever conversation that
    * was — switching to it first, because a task manager lists every
    * conversation's work and the one that started a row is seldom the one on
@@ -1622,9 +1736,63 @@ class PinboardContent extends JugglerElement {
   }
 
   /**
-   * Subscribe an item type to the shared git status. The poll belongs to the
-   * cache and runs only while something is watching, so a pin that goes away
-   * stops the git invocations along with itself.
+   * Hand an item type every git frame for one tree — its changes and the jobs
+   * running in it — for as long as it is mounted.
+   *
+   * A pin that names no workspace watches the tree in view, and is moved to the
+   * next one when the user moves to a conversation that works elsewhere. Two
+   * moments make whatever the pin read untrustworthy without a frame saying so:
+   * that move, and a new connection (frames sent while the window was cut off
+   * went nowhere). The pin is told of both with a `git-resync` event.
+   *
+   * Each frame is a copy, so a pin mutating what it was handed cannot reach
+   * another watcher of the same tree.
+   * @param {(event: import('juggler/pinboard-item-type').PinGitWatchEvent) => void} listener - Called with each event.
+   * @param {string} named - The workspace the pin named, '' to follow the one in view.
+   * @param {AbortSignal} signal - The subscribing pin's mount signal.
+   * @returns {() => void} Unsubscribe.
+   * @private
+   */
+  _watchGitTree(listener, named, signal) {
+    /** @type {(() => void)|null} */
+    let unwatch = null;
+    let tree = '';
+    const deliver = (/** @type {any} */ event) => {
+      this._notifyPin(listener, [JSON.parse(JSON.stringify(event))], 'a git event');
+    };
+    const follow = () => {
+      const next = named || gitWorkspaceId();
+      if (unwatch && next === tree) return;
+      // The new tree is watched before the old one is let go, so a tree the two
+      // share is never dropped and taken up again on the server.
+      const previous = unwatch;
+      tree = next;
+      unwatch = watchGit(next, deliver);
+      if (!previous) return;
+      previous();
+      deliver({ type: 'git-resync', workspace: next });
+    };
+    follow();
+    const stopFollowing = named ? null : onGitWorkspaceChange(follow);
+    const stopOnOpen = wsService.on('open', () => deliver({ type: 'git-resync', workspace: tree }));
+    let stopped = false;
+    const stop = () => {
+      if (stopped) return;
+      stopped = true;
+      stopFollowing?.();
+      stopOnOpen();
+      unwatch?.();
+      unwatch = null;
+    };
+    if (signal.aborted) stop();
+    else signal.addEventListener('abort', stop, { once: true });
+    return stop;
+  }
+
+  /**
+   * Subscribe an item type to the shared git status. The cache reads the tree
+   * only while something is watching, so a pin that goes away stops the git
+   * invocations along with itself.
    *
    * Tied to the pin's signal as well as to the returned function, like the file
    * watcher, so forgetting to unsubscribe leaks nothing.

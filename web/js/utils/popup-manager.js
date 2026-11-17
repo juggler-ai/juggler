@@ -270,6 +270,23 @@ function onOtherPopupOpened(ownPopupId, closeHandler) {
   };
 }
 
+/** The controls a press lands on, for `pressesAnchor`. */
+const PRESSABLE = 'button, a[href], input, select, textarea, summary, label, [role="button"], [role="combobox"], [role="tab"], [role="menuitem"]';
+
+/**
+ * Whether a click on `target` is a press of `anchor` itself: the control it
+ * landed in is the anchor. A popup hung off a whole region rather than a
+ * control (a panel, a row) is not toggled by a click on something inside that
+ * region, which goes on to do what it does.
+ * @param {Element|null} target - Where the click landed.
+ * @param {HTMLElement} anchor - The control that opened the popup.
+ * @returns {boolean} True when the click pressed the anchor.
+ */
+export function pressesAnchor(target, anchor) {
+  if (!target || !anchor.isConnected || !anchor.contains(target)) return false;
+  return target.closest?.(PRESSABLE) === anchor;
+}
+
 /**
  * Open a transient popup/dropdown and wire its standard dismissal in one call.
  * Call when the popup OPENS; run the returned release exactly once when it
@@ -293,9 +310,13 @@ function onOtherPopupOpened(ownPopupId, closeHandler) {
  *   another open popup (a field's completion list in the project picker): it
  *   does not announce itself, so the popup it sits in stays open. It still
  *   closes when another popup opens, and on Escape.
+ * @param {HTMLElement} [opts.anchor] - The control that opened it. With
+ *   `insideSelectors`, a click on that control closes the popup and goes no
+ *   further, so a second press of a trigger dismisses its popup rather than
+ *   dismissing it and opening it again (see `pressesAnchor`).
  * @returns {() => void} release - Removes every listener and the open-state.
  */
-export function registerOpenPopup({ id, onClose, insideSelectors, nested = false }) {
+export function registerOpenPopup({ id, onClose, insideSelectors, nested = false, anchor }) {
   // Single-instance: close any popup already open under this id before this one
   // takes its place. Makes stacking structurally impossible for every caller —
   // the behaviour does not depend on each button guarding its own open-state.
@@ -338,6 +359,12 @@ export function registerOpenPopup({ id, onClose, insideSelectors, nested = false
     // so it falls through.
     if (startedInside || isInside(/** @type {Element|null} */ (e.target))) return;
     onClose();
+    // The trigger's own handler would open it again at once; the press was
+    // the dismissal, so it stops here.
+    if (anchor && pressesAnchor(/** @type {Element|null} */ (e.target), anchor)) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
   };
     // Capture phase matches the existing dropdowns: the close listener is added
     // during the opening click's bubble phase, after that click's capture pass

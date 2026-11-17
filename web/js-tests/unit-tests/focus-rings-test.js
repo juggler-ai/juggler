@@ -19,6 +19,7 @@
  */
 
 import { assert } from '../utilities/test-helpers.js';
+import { injectGitClientStyles } from '../../extensions/juggler-core/pins/git/styles.js';
 
 /**
  * @typedef {object} TestResult
@@ -112,6 +113,9 @@ export async function runTests() {
     catch (e) { failed++; errors.push(`${name}: ${e instanceof Error ? e.message : String(e)}`); }
   };
 
+  // The Git pin injects its sheet when it first mounts, so whether this page
+  // holds it would otherwise depend on which suite this lane ran before.
+  injectGitClientStyles();
   const rules = styleRules();
 
   check('one base rule rings every control on :focus-visible', () => {

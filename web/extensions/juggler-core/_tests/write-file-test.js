@@ -80,5 +80,50 @@ export async function runTests() {
     errors.push(`en-XA: ${e instanceof Error ? e.message : String(e)}`);
   }
 
+  // A write records who wrote the file once it has landed, and only then: the
+  // approval preview of a write the user goes on to deny sends nothing, and
+  // neither does a write that failed.
+  try {
+    /** @type {any[]} */
+    const sent = [];
+    const writer = new WriteFileContextItem(/** @type {any} */ ({
+      id: 'w2', session, toolUseId: 'tu_1',
+      conversation: { id: 'conv_1', workspaceId: 'ws_1', session },
+      messageThread: { ...messageThread, threadItemId: 'th_1' },
+    }));
+    /** @type {any} */ (writer)._sendAttribution = (/** @type {any} */ body) => { sent.push(body); };
+    let writeOk = true;
+    /** @type {any} */ (writer)._ops = {
+      writeFile: async (/** @type {any} */ p) => {
+        if (!writeOk) throw new Error('disk full');
+        return { success: true, path: p.path, created: true, size: 1 };
+      },
+      readFile: async () => ({}),
+    };
+
+    await writer.getApprovalConfig({ path: '/2/denied.txt', content: 'x', _existingContent: 'old' });
+    if (sent.length) throw new Error(`the preview of a write sent an attribution: ${JSON.stringify(sent)}`);
+
+    writeOk = false;
+    await writer.execute({ path: '/2/failed.txt', content: 'x' }).catch(() => {});
+    if (sent.length) throw new Error(`a failed write sent an attribution: ${JSON.stringify(sent)}`);
+
+    writeOk = true;
+    await writer.execute({ path: '/2/a.txt', content: 'x' });
+    const want = { workspaceId: 'ws_1', path: '/2/a.txt', conv: 'conv_1', thread: 'th_1', item: 'tu_1' };
+    if (sent.length !== 1 || JSON.stringify(sent[0]) !== JSON.stringify(want)) {
+      throw new Error(`a successful write sent ${JSON.stringify(sent)}, want one ${JSON.stringify(want)}`);
+    }
+
+    // A sender that throws never fails the write it reports.
+    /** @type {any} */ (writer)._sendAttribution = () => { throw new Error('offline'); };
+    const result = await writer.execute({ path: '/2/b.txt', content: 'x' });
+    if (/** @type {any} */ (result)?.success !== true) throw new Error(`a failing attribution failed the write: ${JSON.stringify(result)}`);
+    passed++;
+  } catch (e) {
+    failed++;
+    errors.push(`attribution: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
   return { passed, failed, errors };
 }

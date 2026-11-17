@@ -39,7 +39,8 @@
       "juggler/i18n": ["../web/sdk/i18n.js"],
       "juggler/utils/html": ["../web/sdk/lib/html.js"],
       "juggler/utils/path-containment": ["../web/sdk/lib/path-containment.js"],
-      "juggler/utils/debounce": ["../web/sdk/lib/debounce.js"]
+      "juggler/utils/debounce": ["../web/sdk/lib/debounce.js"],
+      "juggler/utils/virtual-list": ["../web/sdk/lib/virtual-list.js"]
     }
   },
   "include": [

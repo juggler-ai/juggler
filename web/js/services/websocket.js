@@ -98,7 +98,7 @@ const RECONNECT_JITTER = 0.25;
 const LINK_STABLE_AFTER_MS = 10000;
 
 /**
- * @typedef {'open'|'close'|'error'|'message'|'session'|'file-change'|'plugin-changed'|'providers-update'|'providers-ready'|'shell-output'|'reconnect-attempt'|'engine-bridge'|'update-status'|'clients-changed'|'pinboard-changed'|'pinboard-reveal'|'processes-changed'|'viewer-relay'|'workspaces-changed'|'settings-changed'|'server-full'|'stable'} WSEventType
+ * @typedef {'open'|'close'|'error'|'message'|'session'|'file-change'|'git-change'|'git-job'|'agent-run-progress'|'agent-run-result'|'plugin-changed'|'providers-update'|'providers-ready'|'shell-output'|'reconnect-attempt'|'engine-bridge'|'update-status'|'clients-changed'|'pinboard-changed'|'pinboard-reveal'|'processes-changed'|'viewer-relay'|'workspaces-changed'|'settings-changed'|'server-full'|'stable'} WSEventType
  */
 
 /**
@@ -153,6 +153,12 @@ const LINK_STABLE_AFTER_MS = 10000;
  *   |import('../protocol/server-wire-types.gen.js').ErrorFrame
  *   |import('../protocol/server-wire-types.gen.js').ServerFullFrame
  *   |import('../protocol/server-wire-types.gen.js').ServerShutdownFrame
+ *   |import('../protocol/server-wire-types.gen.js').GitChangeFrame
+ *   |import('../protocol/server-wire-types.gen.js').GitJobFrame
+ *   |import('../protocol/server-wire-types.gen.js').RunAgentFrame
+ *   |import('../protocol/server-wire-types.gen.js').CancelAgentRunFrame
+ *   |import('../protocol/server-wire-types.gen.js').AgentRunProgressFrame
+ *   |import('../protocol/server-wire-types.gen.js').AgentRunResultFrame
  *   |EngineBridgeFrame} ServerFrame
  */
 
@@ -292,6 +298,10 @@ class WebSocketService {
       message: [],
       session: [],
       'file-change': [],
+      'git-change': [],
+      'git-job': [],
+      'agent-run-progress': [],
+      'agent-run-result': [],
       'plugin-changed': [],
       'providers-update': [],
       'providers-ready': [],
@@ -663,6 +673,24 @@ class WebSocketService {
   static TYPED_MESSAGE_ROUTES = {
     'file-change': (ws, data) => {
       ws._emit('file-change', data.changes);
+    },
+    // Only for the workspaces this connection named in a git-watch frame
+    // (services/git-watch.js).
+    'git-change': (ws, data) => {
+      ws._emit('git-change', data);
+    },
+    // A git write's job, on each change and at its end: likewise only for the
+    // workspaces this connection named in a git-watch frame.
+    'git-job': (ws, data) => {
+      ws._emit('git-job', data);
+    },
+    // An agent run's progress and its end, sent only to the connection that
+    // started it (services/agent-runs.js).
+    'agent-run-progress': (ws, data) => {
+      ws._emit('agent-run-progress', data);
+    },
+    'agent-run-result': (ws, data) => {
+      ws._emit('agent-run-result', data);
     },
 
     // Plugin file changes (hot reload)
@@ -1055,6 +1083,20 @@ class WebSocketService {
   }
 
   /**
+   * Name every workspace whose git changes this connection wants pushed, in
+   * place of whatever it named before ('' is the project; none names nothing).
+   * Silent when there is no connection: services/git-watch.js names them again
+   * on every 'open'.
+   * @param {string[]} workspaces - Workspace ids.
+   * @returns {boolean} Whether the message was sent
+   */
+  sendGitWatch(workspaces) {
+    /** @type {import('../protocol/server-wire-types.gen.js').GitWatchFrame} */
+    const frame = { type: 'git-watch', workspaces };
+    return this._sendJson(frame, 'git-watch', { silent: true });
+  }
+
+  /**
    * Tell the server this engine's realm is still running.
    *
    * The server cannot infer that from the socket: in WebKit the WebSocket lives
@@ -1122,6 +1164,47 @@ class WebSocketService {
    */
   sendOneShotResult(result) {
     return this._sendJson({ type: 'one-shot-result', ...result }, 'one-shot-result');
+  }
+
+  /**
+   * Ask the server for an ephemeral agent run. Its progress and its result come
+   * back to this connection alone, as 'agent-run-progress' and
+   * 'agent-run-result' events carrying the run id.
+   * @param {Omit<import('../protocol/server-wire-types.gen.js').AgentRunStartFrame, 'type'>} request - The run
+   * @returns {boolean} True if sent
+   */
+  sendAgentRunStart(request) {
+    return this._sendJson({ type: 'agent-run-start', ...request }, 'agent-run-start');
+  }
+
+  /**
+   * Abandon an agent run this connection started.
+   * @param {string} runId - The run
+   * @returns {boolean} True if sent
+   */
+  sendAgentRunCancel(runId) {
+    /** @type {import('../protocol/server-wire-types.gen.js').AgentRunCancelFrame} */
+    const frame = { type: 'agent-run-cancel', runId };
+    return this._sendJson(frame, 'agent-run-cancel');
+  }
+
+  /**
+   * Report one tool call of a run this engine is carrying out.
+   * @param {{runId: string, toolUseId: string, toolName: string, summary: string}} progress - The line
+   * @returns {boolean} True if sent
+   */
+  sendAgentRunProgress(progress) {
+    return this._sendJson({ type: 'agent-run-progress', ...progress }, 'agent-run-progress', { silent: true });
+  }
+
+  /**
+   * Report how a run this engine carried out ended. Not silent: the requester
+   * is waiting on it.
+   * @param {{runId: string, status: string, text: string, turns: number, parkedTool: string, errorText: string, errorKind?: string, conversationId: string}} result - The end
+   * @returns {boolean} True if sent
+   */
+  sendAgentRunResult(result) {
+    return this._sendJson({ type: 'agent-run-result', ...result }, 'agent-run-result');
   }
 
   /**

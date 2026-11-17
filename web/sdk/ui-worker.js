@@ -69,6 +69,7 @@ export const createElement = () => domUnavailable('createElement');
 export const getToggleIcons = () => domUnavailable('getToggleIcons');
 export const renderResultStatusMessage = () => domUnavailable('renderResultStatusMessage');
 export const positionDropdown = () => domUnavailable('positionDropdown');
+export const showFormDialog = () => domUnavailable('showFormDialog');
 export const presentPopup = () => domUnavailable('presentPopup');
 export const createCopyButton = () => domUnavailable('createCopyButton');
 export const createCopyableText = () => domUnavailable('createCopyableText');
@@ -103,5 +104,7 @@ export const createSummaryWithSubtitle = () => domUnavailable('createSummaryWith
 export const createLlmDescription = () => domUnavailable('createLlmDescription');
 export const attachMenuKeyboard = () => domUnavailable('attachMenuKeyboard');
 export const focusMenuItem = () => domUnavailable('focusMenuItem');
+export const openMenuAt = () => domUnavailable('openMenuAt');
+export const contextMenuFor = () => domUnavailable('contextMenuFor');
 export const renderLiveTaskOutput = () => domUnavailable('renderLiveTaskOutput');
 export const renderTaskDeliveryControl = () => domUnavailable('renderTaskDeliveryControl');

@@ -195,6 +195,28 @@
     --spacing-xl: var(--space-24);
     --spacing-2xl: var(--space-32);
 
+    /* Spacing roles — the jobs a gap or an inset does, each one rung of the
+       scale above. Where a role fits, write the role, not the rung: two panes
+       that both say --pane-inset line up, and changing the role moves every
+       one of them. A rung is still right for geometry no role describes.
+         --pane-inset       the inset of a pane's content from its edges, on
+                            every side: a list's or a detail's body, a section
+                            under a divider. Everything in one pane starts at
+                            this one left edge.
+         --stack-gap-tight  between a line and the line that qualifies it: a
+                            fact's rows, a label over its value.
+         --stack-gap        between the items of one group: a title, its
+                            chips, its message, its facts.
+         --section-gap      between groups: what a thing is, then what can be
+                            done with it. Grouping is said by spacing, so this
+                            is visibly wider than --stack-gap.
+         --toolbar-gap      between the controls of one row of buttons. */
+    --pane-inset: var(--space-12);
+    --stack-gap-tight: var(--space-4);
+    --stack-gap: var(--space-8);
+    --section-gap: var(--space-16);
+    --toolbar-gap: var(--space-6);
+
     /* Font size scale */
     --font-size-2xs: 0.625rem;   /* 10px */
     --font-size-xs: 0.6875rem;   /* 11px */
@@ -206,6 +228,15 @@
     --font-size-xl: 1.125rem;    /* 18px */
     --font-size-2xl: 1.25rem;    /* 20px: headings */
     --font-size-3xl: 1.5rem;     /* 24px: page titles */
+
+    /* Type roles — what a run of text is, each one size above. As with the
+       spacing roles, write the role where one fits:
+         --font-size-title  the heading of a pane or a detail: a commit's subject
+         --font-size-body   text read as text: a commit message, a description
+         --font-size-meta   facts about a thing: author, date, counts, labels */
+    --font-size-title: var(--font-size-md);
+    --font-size-body: var(--font-size-base);
+    --font-size-meta: var(--font-size-sm);
 
     /* Border radius scale */
     --radius-sm: 0.1875rem;  /* 3px */

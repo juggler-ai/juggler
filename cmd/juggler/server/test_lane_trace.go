@@ -12,11 +12,13 @@ import (
 	"time"
 
 	"juggler/cmd/juggler/server/handlers"
+	"juggler/internal/jlog"
 )
 
 // laneTrace is the server's record of how far each lane of its test pool got:
-// when the pool page was served, when each lane's page was served, and when
-// each lane last asked for work.
+// when the pool page was served, when each lane's page was served, when each
+// lane's page last said it was still booting, and when each lane last asked
+// for work.
 //
 // A lane that never takes work leaves nothing anywhere else. Its page cannot
 // report a load it never finished, and an empty poll of the queue records
@@ -40,6 +42,10 @@ type laneTraceState struct {
 	lanes    map[string]*laneMarks
 	// waiters are waitPolling calls still waiting for their count of lanes.
 	waiters []laneWaiter
+	// gaveUp is when a waitPolling last gave up, after which its caller loads
+	// the pool window again; zero while none has. A lane whose page has not
+	// been served since belongs to the load being replaced (pending).
+	gaveUp time.Time
 }
 
 // laneWaiter is a wait for n distinct lanes to have polled, released by
@@ -92,9 +98,13 @@ func (m *traceMark) hit(now time.Time) {
 	m.last = now
 }
 
-// laneMarks is one lane's progress: its page served, then its polls.
+// laneMarks is one lane's progress: its page served, its page saying it is
+// still booting, then its polls.
 type laneMarks struct {
-	page, poll traceMark
+	page, boot, poll traceMark
+	// refused counts the polls answered with no work because the lane belongs
+	// to a load being replaced.
+	refused int
 }
 
 func newLaneTrace() *laneTrace {
@@ -125,22 +135,51 @@ func (lt *laneTrace) servedLanePage(id string) {
 	lt.with(func(s *laneTraceState) { s.lane(id).page.hit(lt.now()) })
 }
 
-func (lt *laneTrace) polled(id string) {
-	lt.with(func(s *laneTraceState) {
-		m := s.lane(id)
-		m.poll.hit(lt.now())
-		if m.poll.count == 1 {
-			s.release()
+// booting notes a lane's page asking /api/test/booting: its script is running
+// and its poll loop has not started yet, which is the whole of a module graph's
+// load.
+func (lt *laneTrace) booting(id string) {
+	lt.with(func(s *laneTraceState) { s.lane(id).boot.hit(lt.now()) })
+}
+
+// pending returns h, the queue's destructive next-entry read, behind the lane's
+// poll mark and the fence a given-up wait puts up. A lane whose page has not
+// been served since the give-up is one of the load its caller is replacing, so
+// work handed to it would be destroyed with its page; it is answered as an
+// empty queue. A poll that passes the fence was marked in the same hold, so a
+// wait deciding after it sees it and does not give up.
+func (lt *laneTrace) pending(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.URL.Query().Get("lane")
+		fenced, first := false, false
+		lt.with(func(s *laneTraceState) {
+			m := s.lane(id)
+			m.poll.hit(lt.now())
+			if m.poll.count == 1 {
+				s.release()
+			}
+			if fenced = !s.gaveUp.IsZero() && !m.page.last.After(s.gaveUp); fenced {
+				m.refused++
+				first = m.refused == 1
+			}
+		})
+		if fenced {
+			if first {
+				jlog.Info("[test-pool] lane %q asked for work from the load being replaced; it gets none until its page is served again", id)
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
 		}
-	})
+		h(w, r)
+	}
 }
 
 // lastMark is when the pool last got any further: its page or a lane's served,
-// or a lane asking for work.
+// a lane's page booting, or a lane asking for work.
 func (s *laneTraceState) lastMark() time.Time {
 	last := s.poolPage.last
 	for _, m := range s.lanes {
-		for _, t := range []time.Time{m.page.last, m.poll.last} {
+		for _, t := range []time.Time{m.page.last, m.boot.last, m.poll.last} {
 			if t.After(last) {
 				last = t
 			}
@@ -154,6 +193,11 @@ func (s *laneTraceState) lastMark() time.Time {
 // Quiet is counted from the call or the pool's last mark, whichever is later,
 // so a load that is slow but getting further is waited for and only one that
 // has stopped is given up on.
+//
+// Giving up is for a caller that then loads the pool again, so it fences the
+// queue off from every lane of the load being replaced (pending). The last look
+// at the marks and the fence are one hold, so no lane is handed work between
+// them.
 func (lt *laneTrace) waitPolling(n int, quiet time.Duration) bool {
 	w := laneWaiter{n: n, ch: make(chan struct{})}
 	lt.with(func(s *laneTraceState) {
@@ -162,14 +206,23 @@ func (lt *laneTrace) waitPolling(n int, quiet time.Duration) bool {
 	})
 	since := lt.now()
 	for {
+		var left time.Duration
+		released := false
 		lt.with(func(s *laneTraceState) {
 			if last := s.lastMark(); last.After(since) {
 				since = last
 			}
+			if left = quiet - lt.now().Sub(since); left > 0 {
+				return
+			}
+			if !s.dropWaiter(w.ch) {
+				released = true // closed between the timer and this
+				return
+			}
+			s.gaveUp = lt.now()
 		})
-		left := quiet - lt.now().Sub(since)
 		if left <= 0 {
-			break
+			return released
 		}
 		select {
 		case <-w.ch:
@@ -177,17 +230,17 @@ func (lt *laneTrace) waitPolling(n int, quiet time.Duration) bool {
 		case <-lt.after(left):
 		}
 	}
-	released := false
-	lt.with(func(s *laneTraceState) {
-		for i, x := range s.waiters {
-			if x.ch == w.ch {
-				s.waiters = append(s.waiters[:i], s.waiters[i+1:]...)
-				return
-			}
+}
+
+// dropWaiter removes the waiter on ch, reporting whether it was still waiting.
+func (s *laneTraceState) dropWaiter(ch chan struct{}) bool {
+	for i, x := range s.waiters {
+		if x.ch == ch {
+			s.waiters = append(s.waiters[:i], s.waiters[i+1:]...)
+			return true
 		}
-		released = true // closed between the timer and this
-	})
-	return released
+	}
+	return false
 }
 
 // wrap returns h preceded by note, called with the request's lane query
@@ -210,7 +263,11 @@ type LaneMark struct {
 type LaneReport struct {
 	Lane       string   `json:"lane"`
 	PageServed LaneMark `json:"pageServed"`
+	Booting    LaneMark `json:"booting"`
 	Polled     LaneMark `json:"polled"`
+	// Refused counts the polls answered with no work because the lane was one
+	// of a load being replaced.
+	Refused int `json:"refused"`
 }
 
 // LaneTraceReport is what GET /api/test/lanes returns.
@@ -237,7 +294,7 @@ func (lt *laneTrace) report() LaneTraceReport {
 			Lanes:      []LaneReport{},
 		}
 		for id, m := range s.lanes {
-			out.Lanes = append(out.Lanes, LaneReport{Lane: id, PageServed: m.page.wire(now), Polled: m.poll.wire(now)})
+			out.Lanes = append(out.Lanes, LaneReport{Lane: id, PageServed: m.page.wire(now), Booting: m.boot.wire(now), Polled: m.poll.wire(now), Refused: m.refused})
 		}
 	})
 	sort.Slice(out.Lanes, func(i, j int) bool { return out.Lanes[i].Lane < out.Lanes[j].Lane })

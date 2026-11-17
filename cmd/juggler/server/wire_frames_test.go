@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"juggler/cmd/juggler/core"
+	"juggler/cmd/juggler/gitops"
 	"juggler/cmd/juggler/msg"
 	"juggler/cmd/juggler/ops"
 	"juggler/cmd/juggler/workspace"
@@ -86,6 +87,12 @@ func TestFramesKeepTheirShape(t *testing.T) {
 			providersUpdateFrame{Type: frameProvidersUpdate, Providers: []ProviderStatus{{}}, Ready: true}},
 		{"file-change", map[string]any{"type": "file-change", "changes": []core.FileChange{{}}},
 			fileChangeFrame{Type: frameFileChange, Changes: []core.FileChange{{}}}},
+		{"git-change", map[string]any{"type": "git-change", "workspace": "", "repos": []map[string]any{{"path": "", "kinds": []string{"index"}}}},
+			gitChangeFrame{Type: frameGitChange, Repos: []gitChangeRepo{{Kinds: []string{"index"}}}}},
+		{"git-job", map[string]any{"type": "git-job", "workspace": "ws", "job": map[string]any{
+			"id": "j", "workspace": "ws", "repo": "", "kind": "stage", "commands": [][]string{{"add"}},
+			"state": "running", "output": "", "errorKind": "", "result": map[string]any{}}},
+			gitJobFrame{Type: frameGitJob, Workspace: "ws", Job: gitJob{ID: "j", Workspace: "ws", Kind: gitops.OpStage, Commands: [][]string{{"add"}}, State: "running"}}},
 		{"plugin-changed", map[string]any{"type": "plugin-changed", "path": "config/plugins"},
 			pluginChangedFrame{Type: framePluginChanged, Path: "config/plugins"}},
 		{"settings-changed", map[string]any{"type": "settings-changed", "settings": core.GlobalSettings{}},

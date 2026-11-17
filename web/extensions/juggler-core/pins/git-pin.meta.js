@@ -3,7 +3,7 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   Apache-2.0 - see LICENSE
 // SPDX-License-Identifier: Apache-2.0
 
-import { DEFAULT_SCOPE, normalizeGitPinParameters, normalizeScope, pinnedWorkspace } from '../lib/git-scope.js';
+import { DEFAULT_SCOPE, normalizeGitPinParameters, normalizeScope, treeKeyOf, turnConversation } from '../lib/git-scope.js';
 
 /** @type {import('juggler/pinboard-item-type').PinAgentDescriptor} */
 export default {
@@ -15,7 +15,8 @@ export default {
       scope: {
         type: 'string',
         description: 'What to compare. A preset — @uncommitted (default: working tree against HEAD), @staged, '
-          + '@unstaged, @branch (working tree against where the branch left main/master), @last (the last commit) — '
+          + '@unstaged, @branch (working tree against where the branch left main/master), @last (the last commit), '
+          + '@turn (working tree against the start of your current turn: what this turn changed) — '
           + 'or a git diff expression: main...HEAD, main..feature, HEAD~3, --merge-base main, --cached [rev], --worktree.',
       },
       workspace: {
@@ -28,8 +29,9 @@ export default {
   normalize: normalizeGitPinParameters,
   identity: (parameters) => {
     const scope = normalizeScope(parameters?.scope);
-    const named = scope === DEFAULT_SCOPE ? '' : scope;
-    const workspace = pinnedWorkspace(parameters);
-    return workspace ? `${workspace}\u0000${named}` : named;
+    const conv = turnConversation(parameters);
+    const named = scope === DEFAULT_SCOPE ? '' : conv ? `${scope}\u0000${conv}` : scope;
+    const tree = treeKeyOf(parameters);
+    return tree ? `${tree}\u0000${named}` : named;
   },
 };

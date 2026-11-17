@@ -17,8 +17,9 @@ import gitReviewService from '../../../js/services/git-review-service.js';
 import { assert, nextTask } from '../../../js-tests/utilities/test-helpers.js';
 import { underPseudoLocale } from '../../../js-tests/utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../../sdk/lib/i18n.js';
-import { DEFAULT_SCOPE, SCOPE_PRESETS, SCOPE_SYNTAX } from '../lib/git-scope.js';
-import { repo, manifestOf, mountedPin } from './git-pin-helpers.js';
+import { DEFAULT_SCOPE, SCOPE_PRESETS, SCOPE_SYNTAX, normalizeGitPinParameters } from '../lib/git-scope.js';
+import gitDescriptor from '../pins/git-pin.meta.js';
+import { repo, manifestOf, mountedPin, pick, pickerChoices, pickerValue, refreshPin } from './git-pin-helpers.js';
 
 /** `lib/git-status.js`'s English, for the en-XA case's stand-in catalogue. */
 const GIT_STATUS_TEXT = [
@@ -354,9 +355,8 @@ export async function runTests(_ctx) {
       const m = await mounted({ manifest: manifestOf([]) });
       /** @type {string[]} */
       const shown = [];
-      const select = /** @type {HTMLSelectElement} */ (m.body.querySelector('.git-pin__scope-select'));
-      for (const option of [...select.options].filter((o) => SCOPE_PRESETS.some((p) => p.id === o.value))) {
-        shown.push(option.textContent || '', option.title);
+      for (const choice of pickerChoices(m.body.querySelector('.git-pin__scope-select')).filter((c) => SCOPE_PRESETS.some((p) => p.id === c.value))) {
+        shown.push(choice.label, choice.title);
       }
       shown.push(/** @type {HTMLInputElement} */ (m.body.querySelector('.git-pin__scope-input')).title);
       m.teardown();
@@ -378,8 +378,8 @@ export async function runTests(_ctx) {
       `expected the default scope, got ${JSON.stringify(m.reviewOptions())}`);
     assert(m.diffs()[0]?.options?.scope === '@uncommitted',
       `the patch must be read in the scope its row was listed in: ${JSON.stringify(m.diffs())}`);
-    const select = /** @type {HTMLSelectElement} */ (m.body.querySelector('.git-pin__scope-select'));
-    assert(select?.value === '@uncommitted', `the control should show the default, got ${select?.value}`);
+    const shown = pickerValue(m.body.querySelector('.git-pin__scope-select'));
+    assert(shown === '@uncommitted', `the control should show the default, got ${shown}`);
     m.teardown();
   });
 
@@ -390,18 +390,16 @@ export async function runTests(_ctx) {
     });
     assert(m.reviewOptions()[0]?.scope === 'main...HEAD', `review asked ${JSON.stringify(m.reviewOptions())}`);
     assert(m.diffs()[0]?.options?.scope === 'main...HEAD', `diff asked ${JSON.stringify(m.diffs())}`);
-    const select = /** @type {HTMLSelectElement} */ (m.body.querySelector('.git-pin__scope-select'));
+    const chosen = pickerValue(m.body.querySelector('.git-pin__scope-select'));
     const input = /** @type {HTMLInputElement} */ (m.body.querySelector('.git-pin__scope-input'));
-    assert(select.value === 'custom' && !input.hidden && input.value === 'main...HEAD',
-      `a custom scope shows as one: select ${select.value}, input ${input.hidden ? 'hidden' : input.value}`);
+    assert(chosen === 'custom' && !input.hidden && input.value === 'main...HEAD',
+      `a custom scope shows as one: picker ${chosen}, input ${input.hidden ? 'hidden' : input.value}`);
     m.teardown();
   });
 
   await test('choosing a preset saves it to the pin and reads the tree again in it', async () => {
     const m = await mounted({ manifest: manifestOf([{ path: 'a.js', index: 'M', worktree: '.' }]) });
-    const select = /** @type {HTMLSelectElement} */ (m.body.querySelector('.git-pin__scope-select'));
-    select.value = '@staged';
-    select.dispatchEvent(new Event('change'));
+    pick(m.body.querySelector('.git-pin__scope-select'), '@staged');
     await nextTask();
     await nextTask();
     assert(m.configs().at(-1)?.scope === '@staged', `config saved: ${JSON.stringify(m.configs())}`);
@@ -410,11 +408,49 @@ export async function runTests(_ctx) {
     m.teardown();
   });
 
+  await test('@turn is offered with a visible conversation, and choosing it sends that conversation', async () => {
+    const m = await mounted({ manifest: manifestOf([{ path: 'a.js', index: 'M', worktree: '.' }]) });
+    const offered = pickerChoices(m.body.querySelector('.git-pin__scope-select')).map((c) => c.value);
+    assert(offered.includes('@turn'), `a conversation is visible, so its turn can be compared: ${JSON.stringify(offered)}`);
+    pick(m.body.querySelector('.git-pin__scope-select'), '@turn');
+    await nextTask();
+    await nextTask();
+    assert(m.configs().at(-1)?.scope === '@turn', `config saved: ${JSON.stringify(m.configs())}`);
+    const asked = m.reviewOptions().at(-1);
+    assert(asked?.scope === '@turn' && asked?.conv === 'c1', `review asked ${JSON.stringify(asked)}`);
+    const patch = m.diffs().at(-1)?.options;
+    assert(patch?.scope === '@turn' && patch?.conv === 'c1', `diff asked ${JSON.stringify(patch)}`);
+    m.teardown();
+  });
+
+  await test('@turn is not offered without a conversation', async () => {
+    const m = await mounted({ draft: null, manifest: manifestOf([{ path: 'a.js', index: 'M', worktree: '.' }]) });
+    const offered = pickerChoices(m.body.querySelector('.git-pin__scope-select')).map((c) => c.value);
+    assert(!offered.includes('@turn'), `no conversation, no turn: ${JSON.stringify(offered)}`);
+    m.teardown();
+  });
+
+  await test('an @turn pin the agent opened compares the turn of the conversation that opened it', async () => {
+    const opened = normalizeGitPinParameters({ scope: '@turn' }, { conversationId: 'c9' });
+    assert(opened.scope === '@turn' && opened.conv === 'c9', `the opener is recorded: ${JSON.stringify(opened)}`);
+    const named = normalizeGitPinParameters({ scope: '@turn', conv: 'c7' }, { conversationId: 'c9' });
+    assert(named.conv === 'c7', `a conversation the agent named stands: ${JSON.stringify(named)}`);
+    const other = normalizeGitPinParameters({ scope: '@staged', conv: 'c7' }, { conversationId: 'c9' });
+    assert(!('conv' in other), `only @turn carries a conversation: ${JSON.stringify(other)}`);
+    assert(gitDescriptor.identity?.(opened) !== gitDescriptor.identity?.(named),
+      'two conversations\' turns are two pins');
+
+    const m = await mounted({ config: opened, manifest: manifestOf([{ path: 'a.js', index: 'M', worktree: '.' }]) });
+    const asked = m.reviewOptions().at(-1);
+    assert(asked?.scope === '@turn' && asked?.conv === 'c9',
+      `the opener's turn, not the visible conversation's: ${JSON.stringify(asked)}`);
+    assert(m.diffs().at(-1)?.options?.conv === 'c9', `diff asked ${JSON.stringify(m.diffs())}`);
+    m.teardown();
+  });
+
   await test('a custom expression is applied on Enter and remembered', async () => {
     const m = await mounted({ manifest: manifestOf([{ path: 'a.js', index: 'M', worktree: '.' }]) });
-    const select = /** @type {HTMLSelectElement} */ (m.body.querySelector('.git-pin__scope-select'));
-    select.value = 'custom';
-    select.dispatchEvent(new Event('change'));
+    pick(m.body.querySelector('.git-pin__scope-select'), 'custom');
     await nextTask();
     assert(m.reviews() === 1, 'choosing Custom… asks for nothing until there is something to ask');
     const input = /** @type {HTMLInputElement} */ (m.body.querySelector('.git-pin__scope-input'));
@@ -550,7 +586,7 @@ export async function runTests(_ctx) {
       m.teardown();
     }
     const m = await mounted({ manifest: manifestOf([{ path: 'a.js', index: 'M', worktree: '.' }]) });
-    const options = [...m.body.querySelectorAll('.git-pin__scope-select option')].map((o) => o.textContent);
+    const options = pickerChoices(m.body.querySelector('.git-pin__scope-select')).map((c) => c.label);
     assert(options[0] === 'Working tree' && !options.some((o) => /uncommitted/i.test(o || '')),
       `the presets say "working tree", never "uncommitted": ${JSON.stringify(options)}`);
     assert(pin.describe(/** @type {any} */ ({ scope: '@uncommitted' })).subtitle === 'Review changes',
@@ -644,18 +680,18 @@ export async function runTests(_ctx) {
       const m = await mounted({ config: { scope: '1..2' }, manifest: manifestOf([file], {
         scope: { input: '1..2', kind: 'commits', label: '1..2' },
       }) });
-      const select = /** @type {HTMLSelectElement} */ (m.body.querySelector('.git-pin__scope-select'));
+      const select = /** @type {HTMLElement} */ (m.body.querySelector('.git-pin__scope-select'));
       const input = /** @type {HTMLInputElement} */ (m.body.querySelector('.git-pin__scope-input'));
       const apply = /** @type {HTMLElement} */ (m.body.querySelector('.git-pin__scope-apply'));
-      const custom = [...select.options].find((o) => o.value === 'custom');
-      shown.push(select.getAttribute('aria-label') || '', custom?.textContent || '',
+      const custom = pickerChoices(select).find((c) => c.value === 'custom');
+      shown.push(select.getAttribute('aria-label') || '', custom?.label || '',
         input.getAttribute('aria-label') || '', apply.textContent || '');
       assert(input.placeholder === 'main...HEAD', `the placeholder is an expression, shown as typed: ${input.placeholder}`);
       // A refresh that fails keeps the review and says so under it.
       m.failReview(new Error('3'));
-      await m.controller.getActions()[0].run();
+      await refreshPin(m);
       shown.push(m.body.querySelector('.review-panel__error')?.textContent || '');
-      shown.push(...m.controller.getActions().map((/** @type {any} */ a) => a.label));
+      shown.push(m.body.querySelector('.git-pin__refresh')?.getAttribute('aria-label') || '');
       m.teardown();
 
       // Nothing read yet, and a read that failed, in the default scope and another.

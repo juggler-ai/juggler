@@ -214,6 +214,22 @@ export async function decideToolCall(call) {
 }
 
 /**
+ * Ask a strategy's `refuseToolCall` whether it refuses a call.
+ * @param {any} strategy - The thread's strategy (may be absent, or lack the hook)
+ * @param {{toolName: string, toolInput: Record<string, unknown>, category: string|undefined}} info - The call
+ * @returns {string} The refusal reason, or '' when the strategy lets it through
+ */
+function strategyRefusal(strategy, info) {
+  if (typeof strategy?.refuseToolCall !== 'function') return '';
+  try {
+    const reason = strategy.refuseToolCall(info);
+    return typeof reason === 'string' ? reason.trim() : '';
+  } catch (err) {
+    return `Refused: the strategy could not check this call (${extractErrorMessage(err)}).`;
+  }
+}
+
+/**
  * The body of {@link decideToolCall} once the tool's class is known.
  * @param {ContextItemClass} ActionClass - The tool's class
  * @param {ItemToolDefinition|undefined} toolDef - The tool's definition, if it has one
@@ -282,6 +298,19 @@ async function decideForAction(ActionClass, toolDef, call, opts = {}) {
     const denier = /** @type {import('../services/hook-runtime.js').HookRecord} */ (hookOutcome.decidedBy);
     const reason = `Blocked by hook "${denier.name}"` + (denier.reason ? `: ${denier.reason}` : '.');
     return { verdict: 'deny', reason, ...common, hookAsks: false, approvedByHook: false };
+  }
+
+  // The strategy may refuse a call outright, attended or not, before any
+  // approval question arises: a non-empty reason denies it, and the model is
+  // told that reason as the tool's error. A refuser that throws refuses — it
+  // was asked whether the call is safe and could not say it was.
+  const refusal = strategyRefusal(messageThread.strategy, {
+    toolName,
+    toolInput: toolInputPlain,
+    category: toolDef?.category
+  });
+  if (refusal) {
+    return { verdict: 'deny', reason: refusal, ...common, hookAsks: false, approvedByHook: false };
   }
 
   // The action's own default decision: needs approval unless it never requires

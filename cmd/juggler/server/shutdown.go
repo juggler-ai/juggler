@@ -231,8 +231,23 @@ func (s *Server) Shutdown(ctx context.Context) error {
 			s.broadcastShutdownNotice()
 		}},
 
-		// 3. Stop file watcher (no dependency on session manager or workers)
+		// 3. Stop the git jobs, then the git watches, then the file watcher
+		// (no dependency on session manager or workers). A job's last frame
+		// goes out through the git watches, and its write holds a turn on the
+		// git write queue, so the jobs end before either; the git watcher reads
+		// the file watcher's git feed, so it goes before that.
 		{"file watcher", func() {
+			s.stopGitJobs()
+			if st != nil && st.gitQueue != nil {
+				st.gitQueue.Close()
+			}
+			if st != nil && st.gitGraphs != nil {
+				st.gitGraphs.Close()
+			}
+			s.stopGitWatches()
+			if st != nil && st.gitWatcher != nil {
+				st.gitWatcher.Close()
+			}
 			if st != nil && st.fileWatcher != nil {
 				jlog.Info("⏳ Stopping file watcher...")
 				st.fileWatcher.Stop()

@@ -14,7 +14,9 @@
  *   2. An elicitation (AskUserQuestion) parks: no strategy answers for the user.
  *   3. A non-auto-approvable call (plan submit) parks.
  *   4. A beforeTool hook that asks parks the call, naming the hook.
- *   5. A beforeTool hook that denies denies, with the hook's reason.
+ *   5. A beforeTool hook that denies denies, with the hook's reason. A
+ *      strategy's refuseToolCall that returns a reason denies with that reason,
+ *      attended or not, ahead of the strategy's approval policy.
  *   6. An unknown tool and an invalid input are 'invalid', with the text the
  *      evaluate path would store.
  *   7. Nothing is written: the thread holds no new item afterwards.
@@ -207,6 +209,38 @@ export async function runTests(_ctx) {
       assert(d.verdict === 'deny', `expected deny, got ${d.verdict}`);
       assert(d.reason === 'Blocked by hook "denier": not today', `unexpected reason: ${d.reason}`);
     }));
+
+    // A strategy's refuseToolCall turns the call into a denial carrying its
+    // reason, ahead of its own approval policy (YOLO's would approve it), and
+    // the same whether or not anyone is attending — so an unattended run's
+    // model is told the strategy's reason, not the generic "nobody is here".
+    for (const unattended of [false, true]) {
+      await test(`a strategy that refuses a call denies it with its reason${unattended ? ' (unattended)' : ''}`, async () => {
+        const conversation = await createApprovalTestConversation(session);
+        if (unattended) conversation.setUnattended(true);
+        const mt = conversation.rootMessageThread;
+        /** @type {any[]} */
+        const asked = [];
+        mt.strategy = {
+          getApprovalPolicy: YoloStrategyType.prototype.getApprovalPolicy,
+          /**
+           * @param {any} info - The call
+           * @returns {string} The refusal, or '' to let it through
+           */
+          refuseToolCall(info) {
+            asked.push(info);
+            return info.toolName === 'bash' && /rm/.test(String(info.toolInput.command)) ? 'no deleting here' : '';
+          }
+        };
+        const refused = await decide(conversation, mt, 'bash', { command: 'rm -rf build' });
+        assert(refused.verdict === 'deny', `expected deny, got ${refused.verdict} (${refused.reason})`);
+        assert(refused.reason === 'no deleting here', `the reason should be the strategy's, got ${refused.reason}`);
+        assert(asked[0]?.toolName === 'bash' && asked[0]?.toolInput?.command === 'rm -rf build' && asked[0]?.category === 'write',
+          `refuseToolCall should be handed the tool name, input and category, got ${JSON.stringify(asked[0])}`);
+        const allowed = await decide(conversation, mt, 'bash', { command: 'echo hi' });
+        assert(allowed.verdict === 'approve', `an empty refusal must leave the decision alone, got ${allowed.verdict} (${allowed.reason})`);
+      });
+    }
 
     // The worker's ready message carries the metadata it had when it answered,
     // and the loader applies it after the document may already hold a later

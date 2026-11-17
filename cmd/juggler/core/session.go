@@ -430,7 +430,20 @@ type FileSessionStore struct {
 	// Populated by DeleteConversation; all access is from the SessionManager
 	// actor goroutine, so no mutex is needed.
 	deletedIDs map[string]bool
+	// ephemeral maps the id of each ephemeral conversation — the one a headless
+	// agent run works in — to its folder under ephemeralRoot. They are kept apart
+	// from index on purpose: index is what lists the session's conversations
+	// (ConvNames, the order's reconcile, the next load's scan), and an ephemeral
+	// conversation is never one of them. ConvDir answers for both, because the
+	// worker, its saves, its transactions and its assets resolve the folder by
+	// id and must not care which kind it is.
+	ephemeral map[string]string
 }
+
+// ephemeralRunsDirName is the folder under the state root that holds ephemeral
+// conversations. ParseDirName never matches it, so the load's scan of the state
+// root does not see it as a conversation.
+const ephemeralRunsDirName = "agent-runs"
 
 // NewFileSessionStore creates a new file-based store
 //
@@ -449,12 +462,16 @@ func NewFileSessionStore(projectPath string) (*FileSessionStore, error) {
 		index:       NewConvDirIndex(),
 		binIndex:    NewConvDirIndex(),
 		deletedIDs:  make(map[string]bool),
+		ephemeral:   make(map[string]string),
 	}, nil
 }
 
 // ConvDir returns the absolute folder path for the conversation, or "" if
 // the conversation is unknown.
 func (fs *FileSessionStore) ConvDir(convID string) (string, bool) {
+	if dir, ok := fs.ephemeral[convID]; ok {
+		return dir, true
+	}
 	if fs.index == nil {
 		return "", false
 	}
@@ -462,11 +479,106 @@ func (fs *FileSessionStore) ConvDir(convID string) (string, bool) {
 	return dir, ok
 }
 
+// IsEphemeral reports whether convID is an ephemeral conversation.
+func (fs *FileSessionStore) IsEphemeral(convID string) bool {
+	_, ok := fs.ephemeral[convID]
+	return ok
+}
+
+// isListed reports whether convID is one of the session's own conversations:
+// a folder in the state root, which an ephemeral conversation never is.
+func (fs *FileSessionStore) isListed(convID string) bool {
+	if fs.index == nil {
+		return false
+	}
+	_, ok := fs.index.ByID[convID]
+	return ok
+}
+
+// ephemeralRoot is the folder ephemeral conversations are made in.
+func (fs *FileSessionStore) ephemeralRoot() string {
+	return filepath.Join(fs.jugglerDir(), ephemeralRunsDirName)
+}
+
+// CreateEphemeralConversationFolder makes the folder for an ephemeral
+// conversation: one a worker can load, save and keep transactions in like any
+// other, which nothing that lists the session's conversations ever sees. It is
+// not named against the session's conversations, since it is never shown
+// beside them, and it lives under ephemeralRoot, which the next Load deletes
+// whole — a run never outlives the process that ran it.
+func (fs *FileSessionStore) CreateEphemeralConversationFolder(name, requestedID string) (string, string, error) {
+	if fs.ephemeral == nil {
+		fs.ephemeral = make(map[string]string)
+	}
+	sanitized := SanitizeName(name)
+	if sanitized == "" {
+		sanitized = UntitledBase
+	}
+	id := requestedID
+	if id == "" {
+		id = GenerateConvID()
+	} else if !IsValidConvID(id) {
+		return "", "", fmt.Errorf("%w: %q", ErrInvalidConvID, id)
+	}
+	if _, exists := fs.ConvDir(id); exists || fs.deletedIDs[id] {
+		return "", "", fmt.Errorf("%w: %s", ErrConvIDExists, id)
+	}
+	dir := filepath.Join(fs.ephemeralRoot(), BuildDirName(sanitized, id))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", "", fmt.Errorf("create ephemeral conv dir: %w", err)
+	}
+	if err := os.WriteFile(ConvDocPath(dir), nil, 0o644); err != nil {
+		return "", "", fmt.Errorf("touch doc.yjs: %w", err)
+	}
+	fs.ephemeral[id] = dir
+	return id, dir, nil
+}
+
+// removeEphemeralConversationFiles deletes an ephemeral conversation's folder
+// for good, and refuses any conversation that is not ephemeral. Like
+// removeConversationFiles it records the id as deleted, so a save from the
+// worker that is still stopping cannot recreate the folder.
+func (fs *FileSessionStore) removeEphemeralConversationFiles(convID string) error {
+	dir, ok := fs.ephemeral[convID]
+	if !ok {
+		return fmt.Errorf("%w: no ephemeral conversation %s", ErrConversationNotFound, convID)
+	}
+	if fs.deletedIDs == nil {
+		fs.deletedIDs = make(map[string]bool)
+	}
+	fs.deletedIDs[convID] = true
+	removeSpillDir(fs.jugglerDir(), convID)
+	if err := atomicio.RobustRemoveAll(dir); err != nil {
+		return fmt.Errorf("failed to delete ephemeral conversation dir: %w", err)
+	}
+	delete(fs.ephemeral, convID)
+	return nil
+}
+
+// sweepEphemeralRuns deletes every ephemeral conversation folder left on disk:
+// at load nothing can be running in one, so whatever is there is what a crash
+// or a kill left behind.
+func (fs *FileSessionStore) sweepEphemeralRuns() {
+	root := fs.ephemeralRoot()
+	if _, err := os.Stat(root); err != nil {
+		return
+	}
+	if err := atomicio.RobustRemoveAll(root); err != nil {
+		jlog.Info("[session] failed to sweep leftover agent runs in %s: %v", root, err)
+	}
+	fs.ephemeral = make(map[string]string)
+}
+
 // ConvName returns the human-readable name of one conversation, or ok=false
 // if the conversation is unknown. The name lives in the folder name, so this
 // is the answer for anyone who needs the name but has no business knowing how
-// a folder is spelled.
+// a folder is spelled. An ephemeral conversation answers too — its worker needs
+// its name like any other's — though ConvNames never lists it.
 func (fs *FileSessionStore) ConvName(convID string) (string, bool) {
+	if dir, ok := fs.ephemeral[convID]; ok {
+		name, _, parsed := ParseDirName(filepath.Base(dir))
+		return name, parsed
+	}
 	if fs.index == nil {
 		return "", false
 	}
@@ -865,7 +977,7 @@ func (fs *FileSessionStore) RenameConversation(convID, newName string) (string, 
 	}
 
 	oldDir, ok := fs.ConvDir(convID)
-	if !ok {
+	if !ok || fs.IsEphemeral(convID) {
 		return "", fmt.Errorf("%w: %s", ErrConversationNotFound, convID)
 	}
 
@@ -907,6 +1019,9 @@ func (fs *FileSessionStore) RenameConversation(convID, newName string) (string, 
 func (fs *FileSessionStore) removeConversationFiles(convID string, permanent bool) error {
 	if fs.deletedIDs == nil {
 		fs.deletedIDs = make(map[string]bool)
+	}
+	if fs.IsEphemeral(convID) {
+		return fs.removeEphemeralConversationFiles(convID)
 	}
 	fs.deletedIDs[convID] = true
 
@@ -965,7 +1080,7 @@ func (fs *FileSessionStore) BinConversation(convID string) error {
 // the job.
 func (fs *FileSessionStore) binConversationDeferred(convID string) (binnedDir string, err error) {
 	oldDir, ok := fs.ConvDir(convID)
-	if !ok {
+	if !ok || fs.IsEphemeral(convID) {
 		return "", fmt.Errorf("%w: %s", ErrConversationNotFound, convID)
 	}
 	if err := os.MkdirAll(fs.binDir(), 0o755); err != nil {
@@ -1305,6 +1420,7 @@ func (fs *FileSessionStore) Load() (*Session, error) {
 	// were orphaned by a crash mid-command): sweep _unassigned entries older than
 	// 24h. Best-effort; never fails the load.
 	sweepUnassignedSpills(fs.jugglerDir())
+	fs.sweepEphemeralRuns()
 
 	globalsPath := fs.sessionGlobalsPath()
 	globalsData, readErr := os.ReadFile(globalsPath)

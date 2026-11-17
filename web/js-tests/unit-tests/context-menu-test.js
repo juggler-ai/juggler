@@ -26,6 +26,7 @@
 
 import {
   buildTextEditMenu,
+  contextMenuFor,
   resolveMenu,
   registerContextMenuProvider,
   PASTE_REFERENCE_LABEL,
@@ -214,6 +215,35 @@ export async function runTests() {
 
   tally(check(resolveMenu(null) === null,
     'resolveMenu: null target should resolve to null', errors));
+
+  // === Element menus (contextMenuFor), asked after the providers ===
+  const outer = document.createElement('div');
+  const inner = document.createElement('div');
+  const leaf = document.createElement('span');
+  const claimed = document.createElement('span');
+  claimed.setAttribute(MARK, 'normal');
+  outer.append(inner);
+  inner.append(leaf, claimed);
+  /** @type {Element[]} */
+  const asked = [];
+  const dropOuter = contextMenuFor(outer, () => [{ label: 'Outer' }]);
+  const dropInner = contextMenuFor(inner, (target) => {
+    asked.push(target);
+    return target === leaf ? [{ label: 'Inner' }] : null;
+  });
+  const onLeaf = resolveMenu(leaf);
+  tally(check(onLeaf?.subject === inner && labelsOf(onLeaf.items).join() === 'Inner' && asked[0] === leaf,
+    `element menu: the innermost element with one builds it, for what was clicked (got ${JSON.stringify(onLeaf && labelsOf(onLeaf.items))})`, errors));
+  tally(check(labelsOf(resolveMenu(claimed)?.items || []).join() === 'Test Action',
+    'element menu: a provider that claims the target comes first', errors));
+  tally(check(resolveMenu(inner) === null,
+    'element menu: nothing from the innermost leaves the right-click to the app, not to an outer element', errors));
+  dropInner();
+  tally(check(labelsOf(resolveMenu(leaf)?.items || []).join() === 'Outer',
+    'element menu: once taken away, the next element out answers', errors));
+  dropOuter();
+  tally(check(resolveMenu(leaf) === null,
+    'element menu: with every menu taken away, nothing claims the element', errors));
 
   // === File references (data-file-path rows, links in rendered markdown) ===
   // A lane shares one realm, so the registry is emptied first: whatever an

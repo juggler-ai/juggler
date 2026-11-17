@@ -282,6 +282,7 @@ class WriteFileContextItem extends EditBase {
       // the status tile can show a `+A -B` indicator beside the filename. A new
       // file has no prior content, so every line counts as added.
       if (result && /** @type {any} */ (result).success !== false) {
+        this._attributeWrite(anyWrite.path);
         const stats = EditBase._lineStats(existingContent ?? '', /** @type {string} */ (anyWrite.content));
         if (stats) {
           /** @type {any} */ (result).linesAdded = stats.added;

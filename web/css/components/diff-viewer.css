@@ -113,6 +113,16 @@ diff-viewer .diff-view-btn[aria-pressed="true"]:hover:not(:disabled) {
     background: color-mix(in srgb, var(--accent-blue) 85%, var(--text-primary));
 }
 
+/* The blame toggle (`btn btn-xs`): unfilled when off, the switch's accent when on. */
+diff-viewer .diff-blame-btn {
+    color: var(--text-tertiary);
+}
+
+diff-viewer .diff-blame-btn[aria-pressed="true"] {
+    background: var(--accent-blue);
+    color: var(--text-on-accent);
+}
+
 diff-viewer .diff-context-picker {
     display: inline-flex;
     align-items: center;
@@ -183,6 +193,28 @@ diff-viewer .diff-hunk {
     margin-bottom: var(--space-8);
 }
 
+/* A windowed body draws a hunk as runs of rows (diff-viewer.js, renderBlock);
+   the gap after a hunk belongs to its last run only, so runs drawn together
+   read as one hunk. */
+diff-viewer .diff-hunk[data-continues] {
+    margin-bottom: 0;
+}
+
+/* A windowed unified body holds only the lines in view, so it is held at the
+   width of the longest line in the whole diff (`--diff-viewer-widest`, in `ch`,
+   set by _mountWindow) plus the gutters, and the horizontal scrollbar keeps its
+   length as the reader scrolls down. The gutters are the two line numbers
+   (2 × 2.75rem), the comment anchor, the +/- column and the content's padding
+   (about 1.5rem each); the blame gutter is 10rem more. Two columns wrap, so they
+   are not held. */
+diff-viewer[data-view="inline"] diff-body[data-windowed] {
+    min-width: calc(var(--diff-viewer-widest, 0ch) + 10rem);
+}
+
+diff-viewer[data-view="inline"][data-blame] diff-body[data-windowed] {
+    min-width: calc(var(--diff-viewer-widest, 0ch) + 20rem);
+}
+
 diff-viewer diff-hunk-header {
     padding: var(--space-4) var(--space-12);
     background: var(--bg-secondary);
@@ -194,6 +226,20 @@ diff-viewer diff-hunk-header {
     z-index: 1;
     min-width: fit-content;
     width: 100%;
+}
+
+/* A viewer that stages puts a button in each hunk header (`btn btn-xs
+   btn-neutral`, patterns/buttons.css), straight after the range so it stays in
+   view however wide the code beneath it scrolls. */
+diff-viewer[data-stage] diff-hunk-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-12);
+    box-sizing: border-box;
+}
+
+diff-viewer .diff-stage-btn {
+    flex-shrink: 0;
 }
 
 /* Inline diff line layout */
@@ -218,6 +264,22 @@ diff-viewer .diff-line.equal {
     background: var(--bg-primary);
 }
 
+/* A changed line the reader can pick to stage, drawn only when the viewer has a
+   staging verb. Picked is `aria-pressed="true"`: an accent bar down the leading
+   edge and an accent wash laid over the line's own colour, so a picked removal
+   still reads as a removal. Focus is the app-wide ring. */
+diff-viewer .diff-line[aria-pressed] {
+    cursor: pointer;
+}
+
+diff-viewer .diff-line[aria-pressed="true"] {
+    background-image: linear-gradient(
+        color-mix(in srgb, var(--accent-blue) 22%, transparent),
+        color-mix(in srgb, var(--accent-blue) 22%, transparent)
+    );
+    box-shadow: inset 0.1875rem 0 0 var(--accent-blue);
+}
+
 /* Two gutters, old then new: a line that exists on one side only leaves the
    other blank, which is what says which file it is in. */
 diff-viewer .line-num {
@@ -229,6 +291,43 @@ diff-viewer .line-num {
     -webkit-user-select: none;
     user-select: none;
     font-size: var(--font-size-sm);
+}
+
+/* The blame gutter, ahead of the numbers while it is on: the commit that last
+   changed each new-side line, named on the first line of each run of one
+   commit's lines. A committed line's cell is a bare button that selects the
+   commit; its title carries the subject and date. */
+diff-viewer .line-blame {
+    flex-shrink: 0;
+    width: 10rem;
+    padding: 0 var(--space-6);
+    overflow: hidden;
+    border: 0;
+    background: none;
+    color: var(--text-tertiary);
+    font: inherit;
+    font-size: var(--font-size-sm);
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+diff-viewer button.line-blame {
+    cursor: pointer;
+}
+
+diff-viewer button.line-blame:hover {
+    color: var(--text-primary);
+}
+
+diff-viewer .line-blame-sha {
+    font-family: var(--font-mono);
+}
+
+diff-viewer .line-blame--uncommitted {
+    font-style: italic;
 }
 
 /* Revealed by hovering the line, but never removed from the tab order or the
@@ -394,11 +493,14 @@ diff-viewer .diff-file-comment-list.stale .diff-comment {
 /* Review panel — the file rail, one diff, and the draft under both.
 
    A container query, not a media query: the docked Pinboard can be 20rem wide on
-   a desktop, so the viewport says nothing about the room this panel has. */
+   a desktop, so the viewport says nothing about the room this panel has.
+
+   It draws no inset of its own: a host puts it in a pane and gives it that
+   pane's --pane-inset, so the panel lines up with whatever else is there. */
 .review-panel {
     display: flex;
     flex-direction: column;
-    gap: var(--space-8);
+    gap: var(--stack-gap);
     height: 100%;
     min-height: 0;
     container-type: inline-size;
@@ -408,9 +510,9 @@ diff-viewer .diff-file-comment-list.stale .diff-comment {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: var(--space-6) var(--space-12);
+    gap: var(--stack-gap-tight) var(--space-12);
     color: var(--text-secondary);
-    font-size: var(--font-size-sm);
+    font-size: var(--font-size-meta);
 }
 
 /* The description gives way to a host's control rather than squeezing it: below
@@ -486,7 +588,7 @@ diff-viewer .diff-file-comment-list.stale .diff-comment {
 }
 
 .review-panel__group + .review-panel__group {
-    margin-top: var(--space-12);
+    margin-top: var(--section-gap);
 }
 
 .review-panel__group-head {
@@ -494,7 +596,7 @@ diff-viewer .diff-file-comment-list.stale .diff-comment {
     flex-wrap: wrap;
     align-items: baseline;
     gap: var(--space-8);
-    padding: 0 var(--space-6) var(--space-4);
+    padding: 0 var(--space-6) var(--stack-gap-tight);
 }
 
 .review-panel__group-name {
@@ -544,49 +646,11 @@ diff-viewer .diff-file-comment-list.stale .diff-comment {
     background: color-mix(in srgb, var(--accent-blue) 18%, transparent);
 }
 
-.review-panel__code {
-    flex-shrink: 0;
-    color: var(--text-tertiary);
-    font-family: var(--font-mono);
-    white-space: pre;
-}
-
-/* What happened to a file, as one colour per row, named once here and read by
-   both the parts that show it. A row is still legible with the colour ignored:
-   the letters say it, the label says it in words. */
-.review-panel__file[data-tone="added"] {
-    --review-tone: var(--diff-added-text);
-}
-
-.review-panel__file[data-tone="removed"] {
-    --review-tone: var(--diff-removed-text);
-}
-
-.review-panel__file[data-tone="modified"] {
-    --review-tone: var(--diff-warning-text);
-}
-
-.review-panel__file[data-tone="renamed"] {
-    --review-tone: var(--accent-blue);
-}
-
-.review-panel__file[data-tone="conflicted"] {
-    --review-tone: var(--danger);
-}
-
-/* The code is the row's legend, so it takes the colour at full strength. */
-.review-panel__file[data-tone] .review-panel__code {
-    color: var(--review-tone, var(--text-tertiary));
-}
-
-.review-panel__file[data-tone="conflicted"] .review-panel__code {
-    font-weight: var(--font-weight-semibold);
-}
-
-/* The name carries the same hue mixed back towards ordinary text: enough to
-   scan a rail by, not so much that a path stops reading as one. */
-.review-panel__file[data-tone] .review-panel__name {
-    color: color-mix(in srgb, var(--review-tone, var(--text-primary)) 60%, var(--text-primary));
+/* The code and the name are the app's change-status pair (patterns/labels.css),
+   which colours both from their data-tone. A row is still legible with the
+   colour ignored: the letter says it, the label says it in words. */
+.review-panel__code[hidden] {
+    display: none;
 }
 
 /* A path is longer than the rail is wide, so the row is not one string that
@@ -605,7 +669,6 @@ diff-viewer .diff-file-comment-list.stale .diff-comment {
 .review-panel__name {
     flex: 0 1 auto;
     min-width: 0;
-    font-family: var(--font-mono);
 }
 
 /* Basis 0: the directory takes what is left after the name rather than a share
@@ -638,23 +701,40 @@ diff-viewer .diff-file-comment-list.stale .diff-comment {
     background: color-mix(in srgb, var(--text-primary) 10%, transparent);
 }
 
+/* One line: the path takes what the controls leave, and gives it up from its
+   directory first (see .review-panel__diff-dir). */
 .review-panel__diff-head {
     display: flex;
-    flex-wrap: wrap;
     align-items: center;
-    gap: var(--space-8);
-    padding-bottom: var(--space-4);
+    gap: var(--toolbar-gap);
+    padding-bottom: var(--stack-gap);
     min-width: 0;
 }
 
-/* A basis rather than a share: below it the controls wrap to a line of their
-   own instead of squeezing the path they are about. */
 .review-panel__diff-path {
-    flex: 1 1 12rem;
+    display: flex;
+    flex: 1 1 0;
     min-width: 0;
     font-family: var(--font-mono);
-    font-size: var(--font-size-sm);
-    overflow-wrap: anywhere;
+    font-size: var(--font-size-meta);
+    white-space: nowrap;
+}
+
+/* Only the directory shrinks, so it is cut to an ellipsis before the name loses
+   a character; a name wider than the whole line is cut at the line. */
+.review-panel__diff-dir {
+    flex: 0 1 auto;
+    min-width: 0;
+    color: var(--text-tertiary);
+}
+
+.review-panel__diff-name {
+    flex: 0 0 auto;
+    max-width: 100%;
+}
+
+.review-panel__file-comment {
+    flex: none;
 }
 
 .review-panel__diff diff-viewer {
@@ -706,30 +786,7 @@ diff-viewer .diff-file-comment-list.stale .diff-comment {
 
 .review-panel__editor-actions {
     display: flex;
-    gap: var(--space-8);
-}
-
-.review-panel__file-comment,
-.review-panel__save,
-.review-panel__cancel,
-.review-panel__discard,
-.review-panel__compose {
-    padding: var(--space-2) var(--space-8);
-    border: 0.0625rem solid var(--border-color);
-    border-radius: var(--radius-md);
-    background: var(--bg-primary);
-    color: var(--text-secondary);
-    font-family: var(--font-sans);
-    font-size: var(--font-size-sm);
-    flex-shrink: 0;
-}
-
-/* The accepting button: after the shared rule above, which it refines. */
-.review-panel__save,
-.review-panel__compose {
-    background: var(--accent-blue);
-    border-color: var(--accent-blue);
-    color: var(--text-on-accent);
+    gap: var(--toolbar-gap);
 }
 
 /* Both buttons act on the draft, not on the Pinboard item, so they live with the
@@ -738,10 +795,10 @@ diff-viewer .diff-file-comment-list.stale .diff-comment {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: var(--space-8);
-    padding-top: var(--space-8);
+    gap: var(--toolbar-gap);
+    padding-top: var(--stack-gap);
     border-top: 0.0625rem solid var(--border-divider);
-    font-size: var(--font-size-sm);
+    font-size: var(--font-size-meta);
 }
 
 .review-panel__draft-count {

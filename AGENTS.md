@@ -258,6 +258,18 @@ Key invariants:
   - **After changing any message:** run `node scripts/i18n extract`. Prove a
     change with an `en-XA` case (`web/js-tests/utilities/pseudo-locale.js`).
   - **Adding a language:** `docs/translating.md`.
+- **A user action never waits on the network or on work that grows with the
+  data.** A click or key updates what it touched in the same task; anything
+  read for it lands later. Two rules make that hold:
+  - **Windowing.** Lists, rails and diffs draw only what is in view, through
+    `juggler/utils/virtual-list` or `web/sdk/lib/code-lines.js`'s windowing,
+    never by building every row. `unit:diff-window` and `unit:review-rail`
+    bound the DOM a 20k-line diff or a 5,000-file rail may build.
+  - **Latest-wins reads.** A read a newer action supersedes is aborted (its
+    signal reaches `fetch`, and the server's `r.Context()` kills the git
+    process), not left to finish ahead of the newer one. A selection that is
+    still moving reads nothing until it settles. See `pins/git/reader.js`
+    (`replace` vs `request`) and `unit:git-history`.
 - Transcript render cost is linear in conversation length. A `content-visibility`
   row skip was measured and removed (a constant factor, no change in scaling);
   if long-thread jank returns, the fix that changes the curve is windowing.

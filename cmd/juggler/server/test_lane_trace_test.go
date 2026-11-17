@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -84,6 +85,87 @@ func TestWaitForTestLanesIsBoundedByQuietNotByAge(t *testing.T) {
 	}
 	if <-done {
 		t.Fatal("the wait returned true with no lane polling after a quiet span")
+	}
+}
+
+// TestWaitForTestLanesCountsABootingLaneAsProgress: a lane page's module graph
+// can take longer than the span to load, with nothing served or polled the
+// while. Its page says it is running by asking /api/test/booting until its poll
+// loop starts, and the wait counts each ask as the pool getting further — so a
+// slow load is waited for, and only a page whose script never runs is given up
+// on.
+func TestWaitForTestLanesCountsABootingLaneAsProgress(t *testing.T) {
+	s, _ := ownershipGuardServer(t)
+	lt := newLaneTrace()
+	now := time.Unix(1000, 0)
+	lt.now = func() time.Time { return now }
+	fire := make(chan chan time.Time)
+	lt.after = func(time.Duration) <-chan time.Time {
+		c := make(chan time.Time, 1)
+		fire <- c
+		return c
+	}
+	const span = 30 * time.Second
+	done := make(chan bool, 1)
+	go func() { done <- lt.waitPolling(1, span) }()
+
+	first := <-fire
+	now = now.Add(25 * time.Second)
+	lt.booting("0")
+	now = now.Add(5 * time.Second)
+	first <- now
+	select {
+	case got := <-done:
+		t.Fatalf("the wait returned %v a span after it began, though the lane said it was booting 5s before", got)
+	case second := <-fire:
+		now = now.Add(span)
+		second <- now
+	}
+	if <-done {
+		t.Fatal("the wait returned true with no lane polling after a quiet span")
+	}
+
+	rec := httptest.NewRecorder()
+	s.router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/test/booting?lane=0", nil))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("GET /api/test/booting = %d, want 204", rec.Code)
+	}
+	rec = httptest.NewRecorder()
+	s.router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/test/lanes", nil))
+	var rep LaneTraceReport
+	if err := json.Unmarshal(rec.Body.Bytes(), &rep); err != nil {
+		t.Fatalf("undecodable report: %v (%s)", err, rec.Body.String())
+	}
+	if len(rep.Lanes) != 1 || rep.Lanes[0].Booting.Count != 1 {
+		t.Fatalf("lanes = %+v, want lane 0 booting once", rep.Lanes)
+	}
+}
+
+// TestAGivenUpPoolHandsNoWorkToTheLanesBeingReloaded: once the wait gives up,
+// the pool window is loaded again, and a lane of the old load may still ask for
+// work before the new one replaces it. The queue's read is destructive, so work
+// handed to it then would be destroyed with its page. A lane is handed work
+// again only once its page has been served since the give-up.
+func TestAGivenUpPoolHandsNoWorkToTheLanesBeingReloaded(t *testing.T) {
+	s, _ := ownershipGuardServer(t)
+	serve := func(method, path, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		s.router.ServeHTTP(rec, httptest.NewRequest(method, path, strings.NewReader(body)))
+		return rec
+	}
+	serve(http.MethodGet, "/headless-test?lane=0", "")
+	serve(http.MethodPost, "/api/test/run", `{"name":"unit:x"}`)
+	if s.WaitForTestLanes(2, 10*time.Millisecond) {
+		t.Fatal("the wait returned true with no lane polling")
+	}
+	if rec := serve(http.MethodGet, "/api/test/pending?lane=0", ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("a lane of the given-up load was handed work: %d %s", rec.Code, rec.Body.String())
+	}
+	serve(http.MethodGet, "/headless-test?lane=0", "")
+	rec := serve(http.MethodGet, "/api/test/pending?lane=0", "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"unit:x"`) {
+		t.Fatalf("the reloaded lane was not handed the queued work: %d %s", rec.Code, rec.Body.String())
 	}
 }
 

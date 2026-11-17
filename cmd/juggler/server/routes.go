@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"juggler/cmd/juggler/gitops"
+	"juggler/cmd/juggler/gitview"
 	"juggler/cmd/juggler/ops"
 	"juggler/cmd/juggler/providers/provider"
 	"juggler/cmd/juggler/server/handlers"
@@ -54,6 +56,8 @@ func (s *Server) seedProjectState(cfg Config) {
 		projectPath:    initialProjectPath,
 		sessionManager: cfg.SessionManager,
 		lock:           cfg.BootLock,
+		gitQueue:       gitops.NewQueue(),
+		gitGraphs:      gitview.NewGraphs(),
 		viewers:        newViewerGroup(),
 	})
 }
@@ -79,6 +83,10 @@ func (s *Server) wireWorkerManager() {
 	// Out-of-band tab auto-naming: the worker fires this on a conversation's
 	// first user message; the server resolves a cheap model and renames the tab.
 	s.workerManager.SetAutoNamer(s.autoNamer())
+
+	// The @turn scope's baseline: the worker fires this as each root user turn
+	// starts, and the server records the working tree it starts from.
+	s.workerManager.SetTurnSnapshot(s.turnSnapshotter())
 
 	// Engine-readiness gate for worker-driven strategy hooks: the worker waits
 	// for the hidden engine to be connected before dispatching onActivate at
@@ -349,6 +357,17 @@ func (s *Server) setupRoutes() {
 	api.HandleFunc("/git/diff", s.gitStatusAPI.HandleGitDiff).Methods("GET")
 	api.HandleFunc("/git/review", s.gitStatusAPI.HandleGitReview).Methods("GET")
 	api.HandleFunc("/git/status", s.gitStatusAPI.HandleGitStatus).Methods("GET")
+	api.HandleFunc("/git/read", s.gitStatusAPI.HandleGitRead).Methods("GET")
+	// The git client's writes, run as jobs (see git_jobs.go).
+	api.HandleFunc("/git/run", s.handleGitRun).Methods("POST")
+	api.HandleFunc("/git/jobs", s.handleGitJobs).Methods("GET")
+	api.HandleFunc("/git/jobs/cancel", s.handleGitJobCancel).Methods("POST")
+	api.HandleFunc("/git/jobs/answer", s.handleGitJobAnswer).Methods("POST")
+	api.HandleFunc("/git/fetch-on-show", s.handleGitFetchOnShow).Methods("POST")
+	// Which conversation wrote which file version (see git_attribute.go).
+	api.HandleFunc("/git/attribute", s.handleGitAttribute).Methods("POST")
+	// What a conversation says about why files changed, for a commit message (see git_digest.go).
+	api.HandleFunc("/git/conversation-digest", s.handleGitConversationDigest).Methods("GET")
 	api.HandleFunc("/providers", s.handleProviders).Methods("GET")
 	api.HandleFunc("/providers/refresh", s.handleRefreshProviders).Methods("POST")
 	api.HandleFunc("/providers/usage", s.handleProviderUsageStats).Methods("GET")

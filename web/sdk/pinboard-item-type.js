@@ -58,6 +58,12 @@ import { validateManifest } from './lib/manifest.js';
  *   sight. Its controller gets `hide()` and `show()` to quieten down and pick up
  *   again. `teardown()` then means what it says: the pin is going for good, not
  *   merely off screen.
+ * @property {boolean} [toolbar] - Set it `false` and the host draws no item toolbar
+ *   above this type's body: no title, no subtitle, no actions. For a pin whose
+ *   body opens with a head line of its own that already says what it shows and
+ *   carries its own controls, where the toolbar would be a second header saying
+ *   less. `describe()` still names the tab; actions belong in that head line,
+ *   since the toolbar `getActions()` fills is never shown.
  */
 
 /**
@@ -71,6 +77,12 @@ import { validateManifest } from './lib/manifest.js';
  *   a file, for a surface that already knows which it is offering
  * @property {'live'|'snapshot'} [presentation] - Whether the pin tracks the source
  *   or freezes what it said at pin time
+ */
+
+/**
+ * Who asked the `pin_to_pinboard` tool for a pin.
+ * @typedef {object} PinRequestOrigin
+ * @property {string} [conversationId] - The conversation whose agent asked.
  */
 
 /**
@@ -106,10 +118,12 @@ import { validateManifest } from './lib/manifest.js';
  * @property {object} parameters - JSON schema for the `parameters` the tool takes
  *   for this type. A type that needs none still declares an empty object schema,
  *   so the model can see there is nothing to supply.
- * @property {(parameters: Record<string, unknown>) => Record<string, unknown>|null} [normalize] -
+ * @property {(parameters: Record<string, unknown>, origin?: PinRequestOrigin) => Record<string, unknown>|null} [normalize] -
  *   Collapse the model's parameters to one spelling, or return null to reject
  *   them. Runs before the pin is written, so the type owns what a valid request
  *   is rather than discovering it at mount. Defaults to accepting any plain object.
+ *   `origin` says who asked; a type whose pin depends on the asking conversation
+ *   records it in what it returns, since the stored pin keeps nothing else.
  * @property {(parameters: Record<string, unknown>) => string} [identity] - What makes
  *   two requests the same pin. The tool hashes it into a stable id, so a repeated
  *   request reveals the existing pin instead of stacking a copy. Defaults to the
@@ -385,20 +399,67 @@ import { validateManifest } from './lib/manifest.js';
  */
 
 /**
- * The project's git working tree.
+ * Which conversations made what is staged, best first: the `attribution` read.
+ * Each lists the staged `files` it made, with the scores it was ranked by.
+ * @typedef {object} PinGitAttribution
+ * @property {number} staged - Files staged.
+ * @property {{conv: string, title: string, strong: number, weak: number, prior: number, files: string[]}[]} conversations -
+ *   The conversations, best first
+ */
+
+/**
+ * What a commit message is written from: the `commit-context` read.
+ * @typedef {object} PinGitCommitContext
+ * @property {string} repo - The repository, '' for the root.
+ * @property {boolean} amend - Whether it describes an amend of HEAD.
+ * @property {string} [headMessage] - HEAD's message, when amending.
+ * @property {{path: string, oldPath?: string, status: string}[]} files - The staged files.
+ * @property {string} stat - `--stat` of the change.
+ * @property {string} diff - The staged patch, cut to size, every cut marked.
+ * @property {boolean} truncated - Whether anything was cut.
+ * @property {string[]} subjects - Recent subjects, newest first.
+ * @property {string} rules - What the project's instruction files say about commits.
+ * @property {boolean} wrapsBody - Whether the repository's bodies are wrapped.
+ */
+
+/**
+ * What deleting one ref would leave unreachable: the `stranded` read. Only
+ * other refs and each tree's HEAD count as reaching a commit, not the reflogs.
+ * @typedef {object} PinGitStranded
+ * @property {string} ref - The full ref name asked about.
+ * @property {number} count - The commits only it reaches, counted up to a ceiling.
+ * @property {boolean} [more] - Whether there are more than `count`.
+ */
+
+/**
+ * One conversation's account of why files changed: the `digest` read.
+ * @typedef {object} PinGitDigest
+ * @property {string} conv - The conversation.
+ * @property {string} title - Its title.
+ * @property {string[]} userMessages - Its user messages, oldest first.
+ * @property {{user: string, closing: string, files: string[]}[]} turns - The turns that touched the files.
+ * @property {boolean} truncated - Whether anything was cut.
+ */
+
+/**
+ * The project's git working tree, and the writes that change it.
  *
- * There are two questions here and they are not the same one. `status` is
- * ambient: small, bounded, best-effort, and shared with the info card. `review`
- * and `diff` are the deliberate read — what the user works from before telling
- * the agent what to fix — and they are asked for, never polled.
+ * There are three kinds of question here and they are not the same one.
+ * `status` is ambient: small, bounded, best-effort, and shared with the info
+ * card. `review`, `diff` and `changes` are the deliberate read — what the user
+ * works from — and they are asked for, never on a timer. `run` is a write.
  *
- * The ambient half is a **poll, not a watch**. Nothing under `.git` is ever reported by the
- * file watcher — it skips dot-directories before it starts watching — so there is
- * no event to subscribe to and the host asks git on a timer, and only while the
- * window is focused. `onChange` therefore tells you a fresh answer arrived, not
- * that the repository changed at the moment it did. Offer the user a way to ask
- * again rather than implying the display is live, and never poll yourself: every
- * surface shares one poll, and a second one would run git twice.
+ * Nothing here is polled. The server watches a tree's git state — index, refs,
+ * HEAD, working files, an operation in progress — while a window asks it to, and
+ * pushes a change when any of them moves. The ambient status re-reads itself on
+ * those (`onChange` says a fresh answer arrived); a pin reading the deliberate
+ * half hears them through `watch` and decides for itself what to read again.
+ * Never poll: the push already covers it, and a timer would run git for nothing.
+ *
+ * A write is a **job**. `run` starts it on the server and settles when it ends;
+ * meanwhile `watch` hands you the job at every state change, with what a
+ * commit's hooks print as they print it. What the write did to the tree arrives
+ * as a change like any other.
  * @typedef {object} PinGitService
  * @property {() => PinGitStatus|null} status - The latest status, or null when
  *   nothing has been read yet. Null is not "no repositories": say you are still
@@ -411,7 +472,7 @@ import { validateManifest } from './lib/manifest.js';
  *   function; the host also drops the subscription when the pin is torn down.
  * @property {() => Promise<void>} refresh - Ask git now. Never rejects: a failure
  *   shows up on `error()`.
- * @property {(options?: {signal?: AbortSignal, scope?: string, workspace?: string}) => Promise<PinGitReview>} review -
+ * @property {(options?: {signal?: AbortSignal, scope?: string, workspace?: string, conv?: string}) => Promise<PinGitReview>} review -
  *   Read the whole working tree for review: every repository, every changed file,
  *   nothing skipped for being expensive, and whatever could not be reached named
  *   in `warnings` rather than quietly left out. Ask when a review is opened or
@@ -423,7 +484,9 @@ import { validateManifest } from './lib/manifest.js';
  *   tree against `HEAD`. A scope the host cannot read rejects, with the reason.
  *   `workspace` names the workspace whose tree to read; omit it for the tree
  *   of the workspace the visible conversation works in, or the project's.
- * @property {(repo: string, path: string, options?: {signal?: AbortSignal, contextLines?: number, scope?: string, workspace?: string}) => Promise<PinGitDiff>} diff -
+ *   `conv` names the conversation whose turn the `@turn` scope compares against,
+ *   and is required with it.
+ * @property {(repo: string, path: string, options?: {signal?: AbortSignal, contextLines?: number, scope?: string, workspace?: string, conv?: string}) => Promise<PinGitDiff>} diff -
  *   One file's change, named the way the manifest names it: `repo` is the
  *   repository's path within the project ('' for the root repo) and `path` is the
  *   file's path within that repository. Asked for one file at a time, when
@@ -434,7 +497,501 @@ import { validateManifest } from './lib/manifest.js';
  *   `contextLines` is how many unchanged lines to carry around each change, -1 for
  *   the whole file; omit it for the default. The patch reports the width it came
  *   back at, because you can draw less of it than that but not more.
- *   `scope` must be the one the manifest was read with, or the file may not be in it.
+ *   `scope` (and `conv`) must be the ones the manifest was read with, or the file may not be in it.
+ * @property {(options?: {repo?: string, workspace?: string, signal?: AbortSignal}) => Promise<PinGitChanges>} changes -
+ *   One repository's changes, every file with what is staged and what is not:
+ *   what a list to stage, discard and commit from is drawn from. `repo` is the
+ *   repository's path within the tree, '' or omitted for the root. Read it when
+ *   the pin opens and again when `watch` says so, never on a timer. Rejects on a
+ *   refusal or failure with the server's reason, if you cancelled it or the pin
+ *   went away, and — when no `workspace` was named — if the tree in view changed
+ *   while it was out.
+ * @property {(kind: 'refs'|'worktrees'|'log'|'commit'|'submodules'|'blame'|'attribution'|'commit-context'|'stranded', options?: {repo?: string, workspace?: string, signal?: AbortSignal, log?: PinGitLogQuery, commit?: string, blame?: {path: string, rev?: string}, amend?: boolean, conv?: string, ref?: string}) => Promise<PinGitRefs|PinGitWorktrees|PinGitLog|PinGitCommit|PinGitSubmodules|PinGitBlame|PinGitAttribution|PinGitCommitContext|PinGitStranded>} read -
+ *   One of the git client's other reads of one repository, read and refused as
+ *   `changes` is: `refs` answers a {@link PinGitRefs}, `worktrees` a
+ *   {@link PinGitWorktrees}, `log` one page of its history as `log` asks
+ *   ({@link PinGitLog}), `commit` the commit `commit` names
+ *   ({@link PinGitCommit}), `submodules` its submodules
+ *   ({@link PinGitSubmodules}), and `blame` which commit last changed each
+ *   line of the file `blame` names ({@link PinGitBlame}). `attribution` answers
+ *   which conversations made what is staged, best first
+ *   (`{staged, conversations: [{conv, title, strong, weak, prior, files}]}`),
+ *   scored for an amend of HEAD when `amend` is set, with `conv` (the visible
+ *   conversation) breaking ties; `commit-context` answers what a commit
+ *   message is written from — the staged files, stat, diff cut to size,
+ *   recent subjects and the project's commit rules — for an amend of HEAD
+ *   when `amend` is set; `stranded` answers how many commits only the full
+ *   ref `ref` names reaches — what deleting it would leave unreachable
+ *   ({@link PinGitStranded}).
+ * @property {(conv: string, paths: string[], options?: {repo?: string, workspace?: string, signal?: AbortSignal}) => Promise<PinGitDigest>} digest -
+ *   One conversation's account of why files changed, for a commit message: its
+ *   user messages, and the turns that touched `paths` with the agent's closing
+ *   message of each. Read-only; a conversation the project lacks rejects.
+ * @property {(op: PinGitOp, options?: {workspace?: string}) => Promise<PinGitJob>} run -
+ *   Start one write and wait for it to end. Resolves with the job once it is
+ *   done. Rejects, when it failed or was cancelled, with an Error whose `job` is
+ *   the job, whose `kind` is `job.errorKind`, and whose message is the server's
+ *   reason, ready to show. A write the server would not start at all rejects
+ *   with the request's error, which has no `job`. Without a `workspace` it
+ *   writes to the tree in view at the moment of the call; a job already out stays
+ *   with its own tree, and runs to its end even if the pin goes away.
+ * @property {(id: string, options?: {workspace?: string}) => Promise<PinGitJob>} cancel -
+ *   Ask the server to stop a job, by `job.id`, in the tree it runs in. Resolves
+ *   with the job as it stood once asked; a `run` waiting on it rejects once it
+ *   has stopped.
+ * @property {(options?: {workspace?: string}) => Promise<PinGitJob[]>} jobs -
+ *   A tree's jobs: every one running and the last hundred finished, newest
+ *   first. What a command log starts from before `watch` adds to it.
+ * @property {(options?: {repo?: string, workspace?: string}) => Promise<PinGitJob|null>} fetchOnShow -
+ *   The fetch a git client makes the first time it shows a repository: one per
+ *   repository per server session, whichever of its trees or pins asks first.
+ *   Resolves with the fetch once it is done, or null when the repository was
+ *   fetched this way before. Rejects as `run` does; the fetch is `auto`, and
+ *   never asks for credentials.
+ * @property {(id: string, reply: {prompt: string, answer?: string, decline?: boolean}, options?: {workspace?: string}) => Promise<PinGitJob>} answer -
+ *   Answer the question job `id` is waiting on — `prompt` is its `prompt.id` —
+ *   with `answer` ('yes' for a confirm), or decline it. The first answer from
+ *   any window is the one taken; one to a question already answered, or no
+ *   longer asked, rejects. Resolves with the job as it then stands. The answer
+ *   goes to git and nowhere else: no job, frame or log holds it.
+ * @property {(listener: (event: PinGitWatchEvent) => void, options?: {workspace?: string}) => (() => void)} watch -
+ *   Hear every git event of one tree: its changes, its jobs, and a resync when
+ *   what you read may be stale with no change to say so. Without a `workspace`,
+ *   the tree in view, moving with the user. Returns an unsubscribe function;
+ *   the host also drops the subscription when the pin is torn down.
+ */
+
+/**
+ * One side of one file's change, in lines.
+ * @typedef {object} PinGitChangeStat
+ * @property {number} added - Added lines
+ * @property {number} removed - Removed lines
+ */
+
+/**
+ * One changed file in {@link PinGitChanges}. `index` and `worktree` are git's
+ * porcelain letters for each side — '.' for an unchanged side, '?' for an
+ * untracked file — and a file staged and then edited again has both.
+ * @typedef {object} PinGitChangedFile
+ * @property {string} path - File path relative to the repository
+ * @property {string} [oldPath] - Former path, for a rename or copy
+ * @property {string} index - The staged side's letter
+ * @property {string} worktree - The unstaged side's letter
+ * @property {boolean} [conflicted] - Whether it is an unresolved merge
+ * @property {boolean} [submodule] - Whether the path is a submodule
+ * @property {boolean} [binary] - Whether git judged it binary
+ * @property {boolean} [lfs] - Whether it is stored in Git LFS
+ * @property {PinGitChangeStat} [staged] - The index against HEAD; absent when
+ *   that side has no line changes (a binary file never has one)
+ * @property {PinGitChangeStat} [unstaged] - The working tree against the index; absent likewise
+ */
+
+/**
+ * The operation in progress in a tree, as the Operation banner says it.
+ * @typedef {object} PinGitStopped
+ * @property {'merge'|'rebase'|'cherry-pick'|'revert'} kind - What it is
+ * @property {string} [branch] - The branch it changes; for a rebase, the one being rebased
+ * @property {string} [other] - The other side by name: the branch merged in or
+ *   rebased onto; absent when no branch points there
+ * @property {string} [otherSha] - The other side's commit
+ * @property {{sha: string, subject: string}} [commit] - The commit being applied
+ * @property {number} [step] - How far a rebase has got: the commit it is on
+ * @property {number} [steps] - Of how many
+ * @property {string} [from] - Where a rebase's branch was before it began, which aborting puts it back to
+ * @property {string} [setAside] - The stash the tree's changes wait in until it ends
+ * @property {boolean} [between] - A pick or revert of several commits stopped between them:
+ *   no `commit` is being applied, and continuing goes on to the rest
+ * @property {number} [left] - Commits of a pick or revert sequence still to come after this one
+ */
+
+/**
+ * One repository's changes, as `changes()` reads them.
+ * @typedef {object} PinGitChanges
+ * @property {string} repo - The repository, '' for the root
+ * @property {string} branch - Current branch, '' on a detached head
+ * @property {string} upstream - Tracking branch, '' when there is none
+ * @property {number} ahead - Commits this branch has that its upstream does not
+ * @property {number} behind - Commits its upstream has that this branch does not
+ * @property {boolean} detached - Whether HEAD is detached
+ * @property {boolean} initial - Whether the repository has no commits yet
+ * @property {{sha: string, message: string, pushed: boolean}} [head] - The commit
+ *   HEAD names, absent before the first: what an amend starts from, and whether
+ *   it has been pushed (and so is no longer the user's alone to undo)
+ * @property {boolean} wrapsBody - Whether this repository's commit bodies are
+ *   wrapped, so a commit box can follow suit
+ * @property {string} [operation] - A merge, rebase or the like in progress
+ * @property {PinGitStopped} [stopped] - That operation in full; absent when there is none
+ * @property {number} remotes - How many remotes the repository has: fetching,
+ *   pulling and pushing need one
+ * @property {PinGitChangedFile[]} files - Every changed file
+ * @property {boolean} truncated - Whether there are more files than listed
+ */
+
+/**
+ * A repository's branches, its remotes' branches, its tags and its stashes —
+ * the same for every worktree of it. Stashes are named by `sha`, never by
+ * position. `fetchedAt` is when it last fetched (ms, 0 for never).
+ * @typedef {object} PinGitRefs
+ * @property {string} repo - The repository
+ * @property {{name: string, sha: string, subject: string, date: number, upstream?: string, ahead: number, behind: number, gone?: boolean, worktree?: string, head?: boolean}[]} branches -
+ *   Local branches; `worktree` is the tree that has one out, anywhere on disk,
+ *   and `head` whether that is the tree read
+ * @property {{name: string, branches: {name: string, sha: string, subject: string, date: number}[]}[]} remotes -
+ *   Each remote, with its branches named without it
+ * @property {{name: string, sha: string, target: string, annotated: boolean, subject: string, date: number}[]} tags -
+ *   Newest first; `sha` is the tag's object, `target` its commit
+ * @property {{sha: string, message: string, date: number}[]} stashes - Newest first
+ * @property {number} fetchedAt - When it last fetched
+ * @property {boolean} truncated - Whether a section was cut short
+ */
+
+/**
+ * One read of a repository's history. The server keeps the list a client is
+ * reading as a graph session: the first read opens one (leave `graph` out)
+ * and names it in its answer; pass that `graph` back for every later page of
+ * the same list. One the server has dropped is opened again for the rest of
+ * the query, under a new id — so a new id means the rows you hold are gone.
+ * @typedef {object} PinGitLogQuery
+ * @property {string} [graph] - The session an earlier read named
+ * @property {'head'|'all'|'ref'|'reflog'} [scope] - What HEAD reaches (the default), every
+ *   branch, remote branch, tag and worktree HEAD, what `ref` reaches, or where the
+ *   tree's HEAD has been (its reflog, newest first, each commit once, flat)
+ * @property {string} [ref] - The ref, for the `ref` scope
+ * @property {string} [message] - Only commits whose message holds this text, any case
+ * @property {string} [author] - Only commits whose author holds this text, any case
+ * @property {string} [path] - Only commits that changed this path, followed across renames
+ * @property {number} [offset] - The first row wanted
+ * @property {number} [limit] - How many rows (200 when left out, at most 1000)
+ * @property {boolean} [refresh] - Catch up with refs that moved first: new commits
+ *   arrive on top, ones nothing reaches leave, and `gen` moves on
+ * @property {string} [find] - A full commit id to find in the list (`found`)
+ */
+
+/**
+ * One commit of a history, and where the graph puts it: `lane` is its dot's
+ * column, and `out` the column each of its parents continues in, in parent
+ * order.
+ * @typedef {object} PinGitLogRow
+ * @property {string} sha - The commit
+ * @property {string[]} parents - Its parents, first first
+ * @property {string} author - Its author's name
+ * @property {string} email - Its author's email
+ * @property {number} date - Its author time, Unix seconds
+ * @property {string} subject - Its message's first paragraph
+ * @property {number} lane - Its dot's lane (0 in a flat list)
+ * @property {number[]} out - Its parents' lanes (empty in a flat list)
+ * @property {string} [reflog] - In the reflog scope, git's words for the entry
+ *   ('commit: …', 'reset: moving to …'); `date` is then the entry's time
+ */
+
+/**
+ * One page of a history. Lanes never move: every lane in `lanes` other than a
+ * row's own passes straight through it, and the lanes entering the next row
+ * are these without the row's `lane`, with its `out` — so any page can be
+ * drawn by itself. A list filtered by message, author or path is flat
+ * (`graphed` false).
+ * @typedef {object} PinGitLog
+ * @property {string} graph - The session to pass back for the next page
+ * @property {number} gen - Moves on whenever the rows moved under the session; rows of
+ *   another generation are not where they were
+ * @property {number} offset - The first row's position
+ * @property {PinGitLogRow[]} rows - The rows
+ * @property {number[]} lanes - The lanes occupied entering `rows[0]`, in order
+ * @property {boolean} more - Whether there are rows past this page
+ * @property {number} total - How many rows the list holds, -1 while counting
+ * @property {boolean} graphed - Whether the rows carry lanes
+ * @property {number} found - Where `find` is in the list, -1 if it is not
+ */
+
+/**
+ * One commit as a history's detail shows it, and every file it changed
+ * against its first parent (the tree of nothing, for a root commit). `scope`
+ * is that comparison as a review scope (`<sha>^!`): pass it to `diff` for one
+ * file's change. `files` are lettered as a review's are, the change on the
+ * `worktree` side.
+ * @typedef {object} PinGitCommit
+ * @property {string} repo - The repository
+ * @property {string} sha - The commit
+ * @property {string[]} parents - Its parents, first first
+ * @property {{name: string, email: string, date: number}} author - Who wrote it, and when (Unix seconds)
+ * @property {{name: string, email: string, date: number}} committer - Who committed it, and when
+ * @property {string} subject - Its message's first paragraph
+ * @property {string} body - The rest of its message
+ * @property {string} scope - The review scope its files compare
+ * @property {string} base - The commit (or empty tree) it is compared against
+ * @property {string} target - The commit itself
+ * @property {PinGitFile[]} files - The files it changed, by path, up to a ceiling
+ * @property {number} total - How many files it changed
+ * @property {boolean} truncated - Whether `files` stops short of `total`
+ */
+
+/**
+ * Every working tree of a repository, the main one first. `tree` is the id
+ * that views one as a `workspace` option (null when it cannot be viewed: gone,
+ * or bare), and `treeRepo` the repository to view within it, by its path there
+ * (absent for its root: present when `tree` names the tree a nested
+ * repository's checkout is in); `rows` the open workspace rows rooted there.
+ * `dirty` is null when the tree's state could not be read.
+ * @typedef {object} PinGitWorktrees
+ * @property {string} repo - The repository
+ * @property {{path: string, head: string, branch?: string, detached?: boolean, bare?: boolean, main?: boolean, current?: boolean, locked?: boolean, lockReason?: string, prunable?: boolean, pruneReason?: string, dirty: number|null, upstream?: string, ahead: number, behind: number, operation?: string, tree: string|null, treeRepo?: string, rows?: string[]}[]} trees -
+ *   The trees
+ */
+
+/**
+ * A repository's submodules: each one `.gitmodules` names and the index records
+ * a commit for. `path` is relative to the repository; `recorded` is the commit
+ * an update checks out, and `head` and `branch` what is checked out in it now
+ * (absent when nothing is). `state` is 'current' (at the recorded commit),
+ * 'moved' (at another), 'uninitialized' (not checked out) or 'conflicted' (a
+ * merge left its commit in conflict).
+ * @typedef {object} PinGitSubmodules
+ * @property {string} repo - The repository
+ * @property {{name: string, path: string, url: string, recorded: string, head?: string, branch?: string, state: 'current'|'moved'|'uninitialized'|'conflicted'}[]} submodules -
+ *   The submodules, by path
+ * @property {boolean} truncated - Whether there were more than are listed
+ */
+
+/**
+ * Which commit last changed each line of a file: `lines[i]` is the index in
+ * `commits` of line i+1's. `rev` is the revision blamed — a commit, '' for
+ * the working tree, '@staged' for the index — and a commit with `sha` '' holds
+ * the lines nobody has committed yet.
+ * @typedef {object} PinGitBlame
+ * @property {string} repo - The repository
+ * @property {string} path - The file
+ * @property {string} rev - The revision blamed
+ * @property {{sha: string, author: string, date: number, summary: string}[]} commits -
+ *   The commits, each once; `date` its author time, Unix seconds
+ * @property {number[]} lines - Each line's commit, by index
+ */
+
+/**
+ * The session's workspaces, as a pin that shows trees needs them. Making,
+ * finishing and adopting one are the workspace machinery's: each opens what the
+ * rest of the app opens for it, and the user still confirms there.
+ * @typedef {object} PinWorkspaces
+ * @property {() => {id: string, label: string, root: string, providerId: string, state: string, meta: Record<string, unknown>}[]} list -
+ *   Every row, closed ones included
+ * @property {() => string} followed - The workspace id the visible conversation works in, '' for the project
+ * @property {(listener: () => void) => (() => void)} onChange - Hear the table,
+ *   the conversations in it or the followed tree change
+ * @property {(id: string) => {id: string, title: string}[]} conversationsOf - The conversations that work in a workspace
+ * @property {(conversationId: string) => Promise<boolean>} showConversation - Bring a conversation's tab forward
+ * @property {(request: {providerId: string, values?: Record<string, unknown>}) => Promise<{created: boolean, workspaceId?: string}>} create -
+ *   Open the create dialog on a provider's form, filled in with `values`
+ * @property {(id: string) => {options: {id: string, label: string, description?: string, danger?: boolean}[], unavailableReason?: string}} finishOptions -
+ *   A workspace's endings, as its provider offers them
+ * @property {(id: string, optionId: string) => Promise<unknown>} finish - Carry out
+ *   one, with the confirmation or question the panel would ask; null when it was
+ *   called off
+ * @property {(tree: {path: string, branch?: string}) => Promise<unknown>} adopt -
+ *   Register a tree a provider found and nothing names; null when none offers it
+ * @property {(request: {message: string, name?: string, workspace?: string}) => Promise<string>} startConversation -
+ *   Open a new visible conversation working in `workspace` ('' for the
+ *   project), switch to it and send `message` as its first message; resolves
+ *   with its id
+ */
+
+/**
+ * One write, as `run` takes it. `kind` says what to do, and which other fields
+ * matter is the kind's business; every path is relative to the repository.
+ *
+ * - `stage`, `unstage`, `discard`: `paths`. A discard is recoverable: the job's
+ *   `result.discard` is what an `undo-discard` names in `discard`.
+ * - `stage-all`, `unstage-all`: nothing more.
+ * - `stage-lines`, `unstage-lines`, `discard-lines`: `path`, `lines`, and the
+ *   `context` and `revision` of the diff the lines were chosen on — a different
+ *   revision refuses the write, since the same numbers would be other lines.
+ * - `ignore`: `paths[0]` and `pattern`.
+ * - `commit`: `message`, and `amend` or `all`. `result.head` is the new commit.
+ * - `undo-commit`: `expectHead`, the commit it undoes.
+ *
+ * The Refs place's writes name a branch, tag or stash as the client saw it —
+ * `expectSha` for a branch or tag, the stash's commit in `stash` — and one that
+ * has moved since is refused as 'stale'. `dirty` says what to do with local
+ * changes in the way: 'carry' them (refused as 'dirty' if git would overwrite
+ * them) or 'stash' them first.
+ *
+ * - `branch-create`: `name`, `rev` (default HEAD), `switch`.
+ * - `switch`: `branch`; with `track`, a new `branch` tracking `rev`; with
+ *   `detach`, `rev`. `dirty`; `result.stash` is a stash it made.
+ * - `branch-rename`: `branch` to `name`. `branch-upstream`: `branch` and
+ *   `upstream` ('' unsets it).
+ * - `branch-delete`: `branch`, `expectSha`, `force` for an unmerged one.
+ *   `result.sha` is what a `ref-restore` names in `sha`.
+ * - `merge`, `rebase`: `rev`, `dirty`.
+ * - `fast-forward`: `branch`, `expectSha`, `rev` (default its upstream).
+ * - `ref-restore`: `ref` (refs/heads/… or refs/tags/…) and `sha`, only if
+ *   the ref does not exist.
+ * - `stash-save`: `message`, `untracked`. `stash-apply`, `stash-pop`,
+ *   `stash-drop`: `stash`; a drop's `result.stash` and `result.message` are
+ *   what `stash-store` takes back. `stash-branch`: `stash`, `name`.
+ * - `tag-create`: `name`, `rev`, and `message` for an annotated tag.
+ *   `tag-delete`: `name`, `expectSha`; `result.sha` as for a branch.
+ * - `worktree-lock` (`reason`), `worktree-unlock`, `worktree-remove`
+ *   (`force`; a dirty tree's changes are saved first, in `result.saved`):
+ *   `worktree`, a path. `worktree-prune`: nothing more.
+ *
+ * The History place's writes act on the current branch:
+ *
+ * - `cherry-pick`, `revert`: `rev` (a merge against its first parent),
+ *   `dirty` as for a merge. One that would change nothing is refused.
+ * - `reset`: the current branch, at `expectHead`, to `rev`; `mode` 'soft',
+ *   'mixed', 'hard', or 'keep' (the files `rev` changes moved, local changes to
+ *   the rest kept; refused as 'dirty' when they overlap). `result.sha` is its old tip, which resetting back
+ *   names. A hard reset saves the changes it throws away first, in
+ *   `result.saved`; a hard reset back naming that save in `discard` writes
+ *   them back (not what was staged), refused as 'dirty' if the tree has changed.
+ *
+ * The rewrites act on the current branch at `expectHead`, on commits it holds.
+ * `result.sha` is its old tip, which a `reset` back to undoes. Rewriting a
+ * commit a remote-tracking branch has is refused as 'published' unless `force`.
+ *
+ * - `reword`: `rev`'s message to `message`. `squash`: the run of commits from
+ *   `rev` to `sha` (either way round, no merge in it) into one, with their
+ *   messages joined. Neither touches the index or the working tree.
+ * - `fixup`: what is staged folded into `rev`; `drop`: `rev` taken out. Both
+ *   rebase what follows, so `dirty` is as for a merge, they may stop as
+ *   'conflicts', and a merge after `rev` is refused.
+ *
+ * The Operation place's writes act on the merge, rebase, cherry-pick or revert
+ * in progress, named in `operation` as the client saw it ('stale' when another
+ * is in progress). Each ends with `result.head`; one that ends the operation
+ * puts back the changes a write set aside before it stopped, and a
+ * `result.stash` is one that did not go back cleanly.
+ *
+ * - `operation-continue`: refused as 'conflicts' while anything is unmerged;
+ *   a merge is committed with git's message, and the others go on, stopping as
+ *   'conflicts' on the next commit that conflicts.
+ * - `operation-skip`: drops the commit a rebase, pick or revert stopped on.
+ * - `operation-abort`: back to where it started.
+ * - `operation-quit`: a cherry-pick or revert forgotten, with the rest of its
+ *   sequence; HEAD, the index and the working tree are left as they are.
+ * - `resolve`: `path`'s conflict, by `mode` — 'ours' or 'theirs' takes that
+ *   side's version (no file, for a side that deleted it), 'resolved' stages
+ *   the file as it is, refused as 'markers' while it still has conflict
+ *   markers unless `force`. The working file is saved first; `result.discard`
+ *   names the save.
+ * - `unresolve`: undoes a resolve while the operation is in progress — `path`
+ *   conflicted again, and the save named in `discard` written back; 'stale'
+ *   if the file has changed since.
+ *
+ * The writes that talk to a remote run one at a time per repository, beside
+ * its local writes rather than queued behind them, and report their meter in
+ * the job's `progress`.
+ *
+ * - `fetch`: every remote, pruned.
+ * - `pull`: the current branch from its upstream, as a fast-forward; one that
+ *   can't be is refused as 'diverged', and `mode` 'merge' or 'rebase' says how
+ *   to bring it in instead. `dirty` as for a merge.
+ * - `push`: `branch` (default the current one) to its upstream; one with none
+ *   is published — pushed to `remote`, or the repository's obvious one, and
+ *   tracked. With `force`, only over `expectSha`, the remote sha the user saw.
+ * - `push-tag`: tag `name`, to `remote` or the obvious one.
+ * - `remote-branch-delete`: `ref`, a remote-tracking branch ('origin/feat'), at
+ *   `expectSha`.
+ * - `submodule-update`: the submodule at `path` checked out at the commit the
+ *   repository records — cloned first if it never was, and that commit fetched
+ *   if it lacks it. `result.sha` and `result.branch` are where its HEAD was
+ *   ('' for one not checked out): a `switch` of the submodule's own repository
+ *   back to them undoes it. Refused as 'dirty' when local changes are in the way.
+ * @typedef {object} PinGitOp
+ * @property {'stage'|'unstage'|'stage-all'|'unstage-all'|'stage-lines'|'unstage-lines'|'discard'|'discard-lines'|'undo-discard'|'ignore'|'commit'|'undo-commit'|'branch-create'|'switch'|'branch-rename'|'branch-upstream'|'branch-delete'|'merge'|'rebase'|'fast-forward'|'ref-restore'|'stash-save'|'stash-apply'|'stash-pop'|'stash-drop'|'stash-store'|'stash-branch'|'tag-create'|'tag-delete'|'worktree-lock'|'worktree-unlock'|'worktree-remove'|'worktree-prune'|'fetch'|'pull'|'push'|'push-tag'|'remote-branch-delete'|'submodule-update'|'cherry-pick'|'revert'|'reset'|'reword'|'squash'|'fixup'|'drop'|'operation-continue'|'operation-skip'|'operation-abort'|'operation-quit'|'resolve'|'unresolve'} kind - What to do
+ * @property {string} repo - The repository, '' for the root
+ * @property {string[]} [paths] - The files
+ * @property {string} [path] - The file, for the lines kinds
+ * @property {{old?: number, new?: number}[]} [lines] - The chosen lines, by their number on each side
+ * @property {string} [context] - The context the lines' diff was read at
+ * @property {string} [revision] - That diff's revision
+ * @property {'file'|'extension'|'folder'} [pattern] - What an ignore covers
+ * @property {string} [message] - A commit's message
+ * @property {boolean} [amend] - Whether a commit amends HEAD
+ * @property {boolean} [all] - Whether a commit takes everything rather than what is staged
+ * @property {string} [expectHead] - The HEAD an undo-commit undoes, or a reset moves from
+ * @property {string} [discard] - The discard an undo-discard restores, or the save a hard reset back or an unresolve writes back
+ * @property {string} [branch] - The branch
+ * @property {string} [name] - A new branch's, tag's or name's name
+ * @property {string} [rev] - A revision: where to start, what to merge
+ * @property {string} [upstream] - An upstream such as 'origin/main'
+ * @property {string} [ref] - The ref a ref-restore restores
+ * @property {string} [sha] - The object it restores it to; the other end of a squash
+ * @property {string} [stash] - A stash, by its commit
+ * @property {string} [worktree] - A worktree, by its path
+ * @property {string} [reason] - Why a worktree is locked
+ * @property {string} [expectSha] - Where the client saw the branch or tag
+ * @property {'carry'|'stash'} [dirty] - What to do with local changes in the way
+ * @property {boolean} [force] - Delete an unmerged branch; remove a dirty or locked worktree; mark a file with conflict markers resolved; rewrite a published commit
+ * @property {boolean} [switch] - Switch to the branch made
+ * @property {boolean} [track] - Make the branch track `rev`
+ * @property {boolean} [detach] - Switch to `rev` detached
+ * @property {boolean} [untracked] - Stash untracked files too
+ * @property {string} [remote] - The remote a publish or a tag goes to
+ * @property {'merge'|'rebase'|'soft'|'mixed'|'hard'|'keep'|'ours'|'theirs'|'resolved'} [mode] - How a pull brings in what it can't fast-forward to; what a reset keeps; how a conflict is resolved
+ * @property {'merge'|'rebase'|'cherry-pick'|'revert'} [operation] - The operation in progress the client saw
+ */
+
+/**
+ * One write as the server reports it.
+ * @typedef {object} PinGitJob
+ * @property {string} id - Identifies it, for `cancel`
+ * @property {string} workspace - The tree it runs in, '' for the project
+ * @property {string} repo - The repository
+ * @property {PinGitOp['kind']} kind - What it does
+ * @property {string[][]} commands - Every git command run so far, as argv after `git`
+ * @property {string} state - 'running', 'done', 'failed' or 'cancelled'
+ * @property {string} output - The tail of what hooks printed
+ * @property {string} [error] - Why it failed, in English
+ * @property {{key: string, params?: Record<string, unknown>, context?: string}} [errorMessage] -
+ *   The same, for `serverText()`
+ * @property {string} errorKind - Which refusal it was: 'refused' (the write did
+ *   not make sense), 'stale' (what it was chosen on has moved), 'locked'
+ *   (another git holds the lock), 'dirty' (local changes are in the way),
+ *   'unmerged' (a branch delete that needs `force`), 'checked-out' (the branch
+ *   is out in `worktree`), 'conflicts' (it stopped on them), 'markers' (a file
+ *   marked resolved still has conflict markers), 'diverged' (it
+ *   can't fast-forward), 'rejected' (the remote turned a push down), 'remote'
+ *   (a publish needs to be told which remote), 'auth' (the remote was not
+ *   signed in to: a question declined, a password refused, no key it takes) or
+ *   'published' (a rewrite of a commit a remote has, which needs `force`);
+ *   '' for any other failure
+ * @property {string} [lockPath] - The lock a 'locked' job was stopped by
+ * @property {string} [branch] - The branch an 'unmerged' or 'checked-out' refusal is about
+ * @property {string} [worktree] - The tree a 'checked-out' branch is out in
+ * @property {boolean} [auto] - Started unasked, by `fetchOnShow`: its failure is quiet
+ * @property {{phase: string, remote?: boolean, percent: number, done: number, total?: number, rate?: string, finished?: boolean}} [progress] -
+ *   A network write's latest meter reading: git's English `phase` ('Receiving
+ *   objects'), said by the remote end when `remote` is set, and how far
+ *   through it (`percent` -1 when git gives only a count)
+ * @property {string} [prefer] - The way into a 'diverged' pull the repository puts first, 'merge' or 'rebase'
+ * @property {string[]} [rejected] - The remote refs a 'rejected' push was turned down for
+ * @property {string} [reason] - Git's word for why ('fetch first', 'non-fast-forward', a hook's complaint)
+ * @property {string[]} [remotes] - The remotes a 'remote' publish could go to
+ * @property {{id: string, text: string, kind: string}} [prompt] -
+ *   The question a network write is waiting on the user to answer — git's or
+ *   ssh's own words in `text`: a username to type in the open ('text'), a
+ *   password or passphrase to type masked ('secret'), or a yes or no
+ *   ('confirm'). Answer it with `answer`. Gone once answered, from anywhere.
+ * @property {{head?: string, discard?: string, sha?: string, stash?: string, message?: string, saved?: string, branch?: string}} result -
+ *   What it left to know: the commit HEAD names after a commit or undo, a
+ *   discard's recovery point, and what undoing a delete, drop or stash needs
+ */
+
+/**
+ * What `watch` hands its listener, told apart by `type`:
+ *
+ * - `git-change`: some of the tree's git state moved. `repos` names each
+ *   repository by its path in the tree ('' for the root) and which parts
+ *   changed: 'index', 'refs', 'head', 'worktree', 'operation'. It carries no
+ *   status; read again what those parts affect.
+ * - `git-job`: a job in the tree changed state or printed output; `job` is it as
+ *   it now stands.
+ * - `git-resync`: anything read before may be stale with no change to say so —
+ *   the watch moved to another tree, or the connection was re-established. Read
+ *   everything again.
+ * @typedef {{type: 'git-change', workspace: string, repos: {path: string, kinds: string[]}[]}
+ *   | {type: 'git-job', workspace: string, job: PinGitJob}
+ *   | {type: 'git-resync', workspace: string}} PinGitWatchEvent
  */
 
 /**
@@ -584,17 +1141,21 @@ import { validateManifest } from './lib/manifest.js';
  */
 
 /**
- * Host services, for data the active-context snapshot does not carry. Each is
- * read-only and cancellable: a pin is a view, so it never gets a mutable handle
- * on model state, and it asks the host rather than reaching into it.
+ * Host services, for data the active-context snapshot does not carry. A pin is
+ * a view: it never gets a mutable handle on model state, and it asks the host
+ * rather than reaching into it. Reads are cancellable. Most of it is read-only;
+ * what writes is listed here, and each acts only at the user's request.
  *
- * `tasks.stop` is the one exception to read-only, and a narrow one: it acts on a
- * process rather than on any model state, at the user's request, on a surface the
- * conversation already offers a Stop button for. It is not a precedent for a
- * service that writes.
+ * `tasks.stop` acts on a process rather than on any model state, on a surface
+ * the conversation already offers a Stop button for.
  *
- * `review.save`, `review.clear` and `review.compose` are the second, and are
- * narrow in a different way: what they write is the user's own unsent text, at
+ * `git.run` and `git.cancel` write to the user's repository — stage, discard,
+ * commit — which is what a git client is for. They write nothing of Juggler's
+ * own: each write is one job on the server, run there under the checks every
+ * write to that tree passes, and a discard keeps what it discarded.
+ *
+ * `review.save`, `review.clear` and `review.compose` are narrow in a different
+ * way: what they write is the user's own unsent text, at
  * the moment the user saves, discards or hands it over, into a record that exists
  * for no other purpose. `compose` writes that text into the composer — which a
  * service may do only because the text is the user's own and they asked for it
@@ -608,9 +1169,10 @@ import { validateManifest } from './lib/manifest.js';
  * @typedef {object} PinServices
  * @property {PinFilesService} files - Files changing on disk
  * @property {PinContextItemsService} contextItems - The conversation's context items
- * @property {PinGitService} git - The project's git working tree
+ * @property {PinGitService} git - The project's git working tree, and writes to it
  * @property {PinTasksService} tasks - The background tasks this conversation is running
  * @property {PinReviewService} review - The unsent review comments on the thread being read
+ * @property {PinWorkspaces} workspaces - The session's workspaces, and what makes and finishes them
  */
 
 /**
@@ -618,7 +1180,7 @@ import { validateManifest } from './lib/manifest.js';
  * @typedef {object} PinContext
  * @property {{id: string, type: string, config: Record<string, unknown>}} pin - This pin instance
  * @property {PinActiveContext} active - Immutable active-context snapshot
- * @property {PinServices} services - Read-only host services
+ * @property {PinServices} services - Host services
  * @property {AbortSignal} signal - Aborted when the pin is torn down; every fetch must honour it
  * @property {(nextConfig: Record<string, unknown>, options?: PinConfigWriteOptions) => Promise<void>} updateConfig -
  *   Persist new config for this pin. A changed config mounts the pin afresh, which is
@@ -828,6 +1390,13 @@ class PinboardItemType {
    */
   get retainsMount() {
     return this.getManifest().retain === true;
+  }
+
+  /**
+   * @returns {boolean} False when this type's manifest asks for no item toolbar.
+   */
+  get drawsToolbar() {
+    return this.getManifest().toolbar !== false;
   }
 
   /**

@@ -26,4 +26,83 @@
 .caps-label-lg {
     font-size: var(--font-size-sm);
 }
+
+/* What happened to a file, wherever a list of changed files names one — the
+   Git pin's Changes list and every review rail:
+
+     <span class="change-status" data-tone="modified">M</span>
+     <span class="change-status-name" data-tone="modified">main.go</span>
+
+   The badge is the letter on a square of the change's colour; the name takes
+   that colour mixed back towards ordinary text — enough to scan a list by,
+   not so much that a path stops reading as one. data-tone is one of added,
+   modified, removed, renamed, untracked, conflicted; any other, or none, is
+   drawn neutral. The badge may be a <button> (a list that stages by it).
+
+   The letter is centred on its ink, not its line box: a line box centres the
+   font's ascent and descent, which are unequal, so a capital would sit high in
+   the square. text-box trims the line to cap height and baseline, and
+   align-content centres what is left. */
+.change-status {
+    --change-tone: var(--text-tertiary);
+
+    flex: none;
+    display: inline-block;
+    box-sizing: border-box;
+    min-width: 1.25rem;
+    height: 1.25rem;
+    padding: 0 var(--space-2);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-md);
+    font-weight: var(--font-weight-bold);
+    line-height: 1;
+    text-box: trim-both cap alphabetic;
+    align-content: center;
+    text-align: center;
+
+    /* The page's own colour: the tones are light in the dark theme and dark
+       in the light one, so the letter is cut out of them in either. */
+    color: var(--bg-primary);
+    background: var(--change-tone);
+    border: 0;
+    border-radius: var(--radius-sm);
+    white-space: pre;
+}
+
+.change-status-name {
+    --change-tone: var(--text-primary);
+
+    font-family: var(--font-mono);
+    color: color-mix(in srgb, var(--change-tone) 60%, var(--text-primary));
+}
+
+.change-status:where([data-tone="added"]),
+.change-status-name:where([data-tone="added"]) {
+    --change-tone: var(--diff-added-text);
+}
+
+.change-status:where([data-tone="modified"]),
+.change-status-name:where([data-tone="modified"]) {
+    --change-tone: var(--diff-warning-text);
+}
+
+.change-status:where([data-tone="removed"]),
+.change-status-name:where([data-tone="removed"]) {
+    --change-tone: var(--diff-removed-text);
+}
+
+.change-status:where([data-tone="renamed"]),
+.change-status-name:where([data-tone="renamed"]) {
+    --change-tone: var(--accent-blue);
+}
+
+.change-status:where([data-tone="untracked"]),
+.change-status-name:where([data-tone="untracked"]) {
+    --change-tone: var(--accent-purple);
+}
+
+.change-status:where([data-tone="conflicted"]),
+.change-status-name:where([data-tone="conflicted"]) {
+    --change-tone: var(--danger);
+}
 }

@@ -45,6 +45,12 @@
 import { presentModal } from '../utils/modal-surface.js';
 import { setupButton } from './workspace-setup-form.js';
 import { t } from '../../sdk/lib/i18n.js';
+import { showConfirm, showNotice } from './modal-dialog.js';
+import {
+  workspaceFinishActor,
+  workspaceFinishWarning,
+  finishWorkspace
+} from '../services/workspace-provisioning.js';
 
 /** Sole counter behind field ids, so a label binds to its own field. */
 let sequence = 0;
@@ -330,4 +336,67 @@ export function openWorkspaceFinish(option, context = {}) {
 
     field.focus();
   });
+}
+
+/**
+ * Carry out one of a workspace's endings for whoever chose it — the workspace
+ * panel, or the git client offering a tree's endings: ask, then do it.
+ *
+ * What is asked is the whole coordination story: nobody owns a workspace, so
+ * a turn in flight there is refused rather than confirmed — removing a tree
+ * under a running agent is the one thing here that loses work. An ending that
+ * needs something typed asks for it in {@link openWorkspaceFinish}, with the
+ * tree read again first; any other is confirmed in the provider's own words.
+ * @param {any} session - The session the workspace belongs to.
+ * @param {any} workspace - The row being finished with.
+ * @param {any} option - The ending that was chosen.
+ * @param {{status?: any, reread?: () => Promise<any>}} [known] - The tree's
+ *   status as last read, and how to read it again before an ending that asks.
+ * @returns {Promise<any>} What the provider answered, or null when it was
+ *   called off or refused.
+ */
+export async function carryOutWorkspaceFinish(session, workspace, option, known = {}) {
+  const conversation = workspaceFinishActor(session, workspace);
+  const warning = workspaceFinishWarning(session, workspace, {
+    action: option,
+    status: known.status ?? null
+  });
+  if (warning.refusal) {
+    showNotice(warning.refusal);
+    return null;
+  }
+
+  /** @type {object} */
+  let input = {};
+  if (option.prompt) {
+    // Asked again first: the dialog refuses an ending that needs work when the
+    // tree read clean, and lists the files the commit is about to take, and a
+    // reading as old as the surface is what the tree used to hold.
+    const status = known.reread ? await known.reread() : (known.status ?? null);
+    const answer = await openWorkspaceFinish(option, {
+      status,
+      warning: warning.warning,
+      conversation
+    });
+    if (answer === null) return null;
+    input = answer;
+  } else {
+    // The provider's sentence, then what the host has to add about this tree,
+    // as separate paragraphs.
+    const agreed = await showConfirm(
+      [option.description, warning.warning].filter(Boolean).join('\n\n'),
+      option.label,
+      { confirmText: option.label, danger: option.danger === true });
+    if (!agreed) return null;
+  }
+
+  const result = await finishWorkspace({
+    session,
+    workspace,
+    conversation,
+    actionId: option.id,
+    input
+  });
+  if (result?.message) showNotice(result.message);
+  return result;
 }

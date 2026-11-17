@@ -265,6 +265,21 @@ export async function runTests() {
       assert(heard === 2, `a dropped pin must stop hearing anything; got ${heard}`);
     });
 
+    await run('a retained pin that wrote its own config in place is revealed, whatever order the store spells it in', () => {
+      content.setPin(keptPin, active);
+      const before = bodies.get('pin_kept');
+      const mounts = tally('pin_kept').mounts;
+      // The pin records where the reader has got to; the server echoes the
+      // same config back with its keys in an order of its own.
+      content._noteInPlaceWrite('pin_kept', { place: 'history', n: 1 });
+      content.setPin(plainPin, active);
+      content.setPin({ ...keptPin, config: { n: 1, place: 'history' } }, active);
+
+      assert(tally('pin_kept').mounts === mounts,
+        `its own write coming home must not rebuild it; mounted ${tally('pin_kept').mounts - mounts} more time(s)`);
+      assert(bodies.get('pin_kept') === before, 'the identical node must come back');
+    });
+
     await run('a config change rebuilds the pin rather than revealing the old one', () => {
       content.setPin(keptPin, active);
       const before = bodies.get('pin_kept');

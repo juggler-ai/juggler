@@ -771,15 +771,33 @@ func (r *run) dispatchCallLLMOnThread(threadItemID string) {
 	// keeps the spinner's elapsed digit measuring the whole turn, instead of
 	// resetting to 0 every time a tool completes and the next LLM call dispatches.
 	// seedTurnBoundary is what carries it from one dispatch to the next.
+	//
+	// The same test marks the start of a user turn, which is when the @turn
+	// snapshot is taken — on the root thread only, and not for a Continue, which
+	// carries on the turn the snapshot already covers.
+	snapshot := false
 	if tr.t.processingStartedAt.Load() == 0 {
 		tr.t.processingStartedAt.Store(time.Now().UnixMilli())
+		snapshot = threadItemID == "" && !explicitContinuation
 	}
 	tr.storeState(StateProcessing)
 	tr.sendStatus("preparing", "")
 	tr.batcher.Flush()
 	r.runTurn(tr, func(tr *run) {
+		if snapshot {
+			tr.snapshotTurn()
+		}
 		tr.runStrategyLoopWithIntent("", true, explicitContinuation)
 	})
+}
+
+// snapshotTurn hands the turn-start snapshot to the server's callback. Called on
+// the turn's goroutine, so a slow snapshot delays this turn's first model call
+// and never the run loop.
+func (r *run) snapshotTurn() {
+	if fn := r.deps().turnSnapshot; fn != nil {
+		fn(r.conversationID, r.workspaceID())
+	}
 }
 
 // selectThreadFallbackResult returns a run's trailing assistant text — what a

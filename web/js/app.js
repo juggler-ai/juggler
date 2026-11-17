@@ -1162,7 +1162,7 @@ class JugglerApp {
     // (e.g., orphaned retries where user retried a cancelled action from history,
     // or a "Re-run command" click that runs outside any LLM turn).
     const wasProcessing = this._llmState?.isConversationProcessing(conversation.id) ?? false;
-    const wasRunningActions = actionExecutor.hasRunningActions();
+    const wasRunningActions = actionExecutor.hasRunningActionsFor(conversation.id);
     // Worker is in the post-tool "awaiting_llm" branch when activity is set
     // but no LLM is streaming (e.g. between a rerun's claim and its result).
     // `handleCancel` (worker.go) already does the right thing for that branch
@@ -1172,9 +1172,10 @@ class JugglerApp {
     // Always cancel pending approval dialogs for this conversation
     conversation.cancelAllPendingApprovals();
 
-    // Always cancel running actions (shells, etc.) regardless of LLM state
-    // This ensures actions are stopped during orphaned retries
-    actionExecutor.cancelAllActions();
+    // Always cancel this conversation's running actions (shells, etc.)
+    // regardless of LLM state. This ensures actions are stopped during orphaned
+    // retries; other conversations' actions are left alone.
+    actionExecutor.cancelConversationActions(conversation.id);
 
     if (wasProcessing) {
       // Mid-turn cancel: add the user-facing cancellation message AND

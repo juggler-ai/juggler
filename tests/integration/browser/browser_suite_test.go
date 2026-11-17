@@ -406,8 +406,8 @@ func listBrowserTests(srv testServerEntry) (names, exclusive []string, err error
 }
 
 // listProgressAge is how long ago the pool behind addr last got further
-// towards answering __list__: its page or a lane's page served, or a lane
-// taking __list__. A lane's polls are not progress — the first one takes
+// towards answering __list__: its page or a lane's page served, a lane's page
+// booting, or a lane taking __list__. A lane's polls are not progress — the first one takes
 // __list__, and every later one is a lane idling. ok is false when the server
 // could not say.
 func listProgressAge(addr string) (age time.Duration, ok bool) {
@@ -423,6 +423,7 @@ func listProgressAge(addr string) (age time.Duration, ok bool) {
 	}
 	for _, l := range trace.Lanes {
 		consider(l.PageServed.AgoMs)
+		consider(l.Booting.AgoMs)
 	}
 	if a, err := fetchAudit(addr, "__list__"); err == nil {
 		consider(a.DispatchedAgeMs)
@@ -841,7 +842,9 @@ type laneTrace struct {
 	Lanes      []struct {
 		Lane       string   `json:"lane"`
 		PageServed laneMark `json:"pageServed"`
+		Booting    laneMark `json:"booting"`
 		Polled     laneMark `json:"polled"`
+		Refused    int      `json:"refused"`
 	} `json:"lanes"`
 }
 
@@ -880,8 +883,12 @@ func laneReport(addr string) string {
 		b.WriteString("  STALLED AT: the pool window never requested /test-pool — it never navigated.\n")
 	}
 	for _, l := range rep.Lanes {
-		fmt.Fprintf(&b, "  lane %s: page served %d time(s), last %s; polled %d time(s), last %s\n",
-			l.Lane, l.PageServed.Count, progressAgo(l.PageServed.AgoMs), l.Polled.Count, progressAgo(l.Polled.AgoMs))
+		fmt.Fprintf(&b, "  lane %s: page served %d time(s), last %s; booting %d time(s), last %s; polled %d time(s), last %s\n",
+			l.Lane, l.PageServed.Count, progressAgo(l.PageServed.AgoMs), l.Booting.Count, progressAgo(l.Booting.AgoMs),
+			l.Polled.Count, progressAgo(l.Polled.AgoMs))
+		if l.Refused > 0 {
+			fmt.Fprintf(&b, "  lane %s was handed no work %d time(s): it asked from a pool load being replaced.\n", l.Lane, l.Refused)
+		}
 		if l.PageServed.Count > 0 && l.Polled.Count == 0 {
 			fmt.Fprintf(&b, "  STALLED AT: lane %s loaded its page and never reached its poll loop.\n", l.Lane)
 		}

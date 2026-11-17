@@ -9,6 +9,9 @@ import (
 	"time"
 
 	"juggler/cmd/juggler/core"
+	"juggler/cmd/juggler/gitattr"
+	"juggler/cmd/juggler/gitops"
+	"juggler/cmd/juggler/gitview"
 	"juggler/cmd/juggler/ops"
 	"juggler/cmd/juggler/providers/provider"
 	"juggler/cmd/juggler/workspace"
@@ -22,6 +25,9 @@ type projectState struct {
 	projectPath    string
 	sessionManager *core.SessionManager
 	fileWatcher    *core.FileWatcher
+	gitWatcher     *gitops.Watcher // every git watch's, fed the file watcher's git feed for the project's tree
+	gitQueue       *gitops.Queue   // every git write's, one repository at a time
+	gitGraphs      *gitview.Graphs // every History list a client is showing
 	lock           *core.InstanceLock
 	fileChangesCh  chan struct{} // closed when the file-change forwarder for this state has exited
 
@@ -73,7 +79,51 @@ func (s *Server) Workspaces() *workspace.Resolver {
 			return fw.Index()
 		}
 		return nil
-	})
+	}).WithGitWatcher(s.GitWatcher).WithGitQueue(s.GitQueue).WithGitGraphs(s.GitGraphs).
+		WithConversations(func() gitattr.Directory { return conversationDirectory{s} })
+}
+
+// GitTrees is the git surface's resolver: Workspaces, and the worktrees no
+// workspace names that only the git client may reach (see workspace.GitTrees).
+// Nothing but the git API and its watches and jobs resolves through it.
+func (s *Server) GitTrees() workspace.GitTrees {
+	return workspace.GitTrees{Resolve: s.Workspaces().Resolve, Rows: func() []core.Workspace {
+		mgr := s.SessionManager()
+		if mgr == nil {
+			return nil
+		}
+		return mgr.ListWorkspaces()
+	}}
+}
+
+// GitWatcher returns the git watcher every tree's git watch goes through, or
+// nil before it starts.
+func (s *Server) GitWatcher() *gitops.Watcher {
+	st := s.projectState.Load()
+	if st == nil {
+		return nil
+	}
+	return st.gitWatcher
+}
+
+// GitQueue returns the queue every tree's git writes wait their turn on, or nil
+// in a server that makes none.
+func (s *Server) GitQueue() *gitops.Queue {
+	st := s.projectState.Load()
+	if st == nil {
+		return nil
+	}
+	return st.gitQueue
+}
+
+// GitGraphs returns the store every tree's History lists are read from, or nil
+// in a server that keeps none.
+func (s *Server) GitGraphs() *gitview.Graphs {
+	st := s.projectState.Load()
+	if st == nil {
+		return nil
+	}
+	return st.gitGraphs
 }
 
 // turnDir is the directory a conversation's turn runs in, as a provider is told

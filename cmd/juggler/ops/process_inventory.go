@@ -70,6 +70,9 @@ type ProcessInfo struct {
 	ThreadID  string `json:"threadId,omitempty"`
 	ToolUseID string `json:"toolUseId,omitempty"`
 	StartedAt int64  `json:"startedAt"` // Unix milliseconds
+
+	Cwd         string `json:"cwd,omitempty"`         // The directory it runs in
+	WorkspaceID string `json:"workspaceId,omitempty"` // The workspace whose tree it runs in, "" for the project's
 }
 
 type processEntry struct {
@@ -245,15 +248,17 @@ func askInventory(op inventoryOp) inventoryResp {
 	return <-op.resp
 }
 
-// trackProcess lists a started process until the returned untrack is called.
-// stop must end the process and must be safe to call more than once and after
+// trackProcess lists a started process, running in cwd in scope's tree, until
+// the returned untrack is called. stop must end the process and must be safe to call more than once and after
 // the process has gone. untrack is idempotent.
-func trackProcess(id, kind, command, projectRoot string, owner ProcessOwner, stop func()) (untrack func()) {
+func trackProcess(id, kind, command string, scope PathScope, cwd string, owner ProcessOwner, stop func()) (untrack func()) {
+	projectRoot := scope.ProjectRoot()
 	entry := &processEntry{
 		info: ProcessInfo{
 			ID: id, Kind: kind, Command: command,
 			ConvID: owner.ConvID, ThreadID: owner.ThreadID, ToolUseID: owner.ToolUseID,
 			StartedAt: time.Now().UnixMilli(),
+			Cwd:       cwd, WorkspaceID: scope.Workspace(),
 		},
 		projectRoot: projectRoot,
 		stop:        stop,

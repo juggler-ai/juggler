@@ -81,6 +81,8 @@ import { runTests as runConversationNameTests } from '../unit-tests/conversation
 import { runTests as runConversationNamingTests } from '../unit-tests/conversation-naming-test.js';
 import { runTests as runNewConversationSystemPromptTests } from '../unit-tests/new-conversation-system-prompt-test.js';
 import { runTests as runOneShotRunTests } from '../unit-tests/one-shot-run-test.js';
+import { runTests as runRunAgentTests } from '../unit-tests/run-agent-test.js';
+import { runTests as runRunAgentLimitsTests } from '../unit-tests/run-agent-limits-test.js';
 import { runTests as runDraftPersistenceTests } from '../unit-tests/draft-persistence-test.js';
 import { runTests as runDraftCloseFlushTests } from '../unit-tests/draft-close-flush-test.js';
 import { runTests as runMessageHistoryTests } from '../unit-tests/message-history-test.js';
@@ -218,6 +220,7 @@ import { runTests as runDiffAsyncTests } from '../unit-tests/diff-async-test.js'
 import { runTests as runDiffHighlightTests } from '../unit-tests/diff-highlight-test.js';
 import { runTests as runDiffReviewTests } from '../unit-tests/diff-review-test.js';
 import { runTests as runDiffSplitTests } from '../unit-tests/diff-split-test.js';
+import { runTests as runDiffStageSelectTests } from '../unit-tests/diff-stage-select-test.js';
 import { runTests as runExternalLinkTests } from '../unit-tests/external-link-test.js';
 import { runTests as runApiUrlTests } from '../unit-tests/api-url-test.js';
 import { runTests as runLinkGuardTests } from '../unit-tests/link-guard-test.js';
@@ -322,10 +325,14 @@ import { runTests as runPinboardThreadSourceTests } from '../unit-tests/pinboard
 import { runTests as runPinboardTasksTests } from '../unit-tests/pinboard-tasks-test.js';
 import { runTests as runPinboardTaskRevealTests } from '../unit-tests/pinboard-task-reveal-test.js';
 import { runTests as runPinboardGitReviewTests } from '../unit-tests/pinboard-git-review-test.js';
+import { runTests as runGitStatusCacheTests } from '../unit-tests/git-status-cache-test.js';
+import { runTests as runGitOpsServiceTests } from '../unit-tests/git-ops-service-test.js';
 import { runTests as runReviewDraftTests } from '../unit-tests/review-draft-test.js';
 import { runTests as runReviewSendTests } from '../unit-tests/review-send-test.js';
 import { runTests as runReviewPanelTests } from '../unit-tests/review-panel-test.js';
+import { runTests as runReviewRailTests } from '../unit-tests/review-rail-test.js';
 import { runTests as runDiffViewerTests } from '../unit-tests/diff-viewer-test.js';
+import { runTests as runDiffWindowTests } from '../unit-tests/diff-window-test.js';
 import { runTests as runPinboardRetentionTests } from '../unit-tests/pinboard-retention-test.js';
 import { runTests as runPinboardViewStateTests } from '../unit-tests/pinboard-view-state-test.js';
 import { runTests as runWsListenerIsolationTests } from '../unit-tests/ws-listener-isolation-test.js';
@@ -709,6 +716,8 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:conversation-naming', run: runConversationNamingTests },
   { name: 'unit:new-conversation-system-prompt', run: runNewConversationSystemPromptTests },
   { name: 'unit:one-shot-run', run: runOneShotRunTests },
+  { name: 'unit:run-agent', run: runRunAgentTests },
+  { name: 'unit:run-agent-limits', run: runRunAgentLimitsTests },
   { name: 'unit:draft-persistence', run: runDraftPersistenceTests },
   { name: 'unit:draft-close-flush', run: runDraftCloseFlushTests },
   { name: 'unit:message-history', run: runMessageHistoryTests },
@@ -871,6 +880,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:diff-highlight', run: runDiffHighlightTests },
   { name: 'unit:diff-review', run: runDiffReviewTests },
   { name: 'unit:diff-split', run: runDiffSplitTests },
+  { name: 'unit:diff-stage-select', run: runDiffStageSelectTests },
   { name: 'unit:external-link', run: runExternalLinkTests },
   { name: 'unit:api-url', run: runApiUrlTests },
   { name: 'unit:link-guard', run: runLinkGuardTests },
@@ -961,10 +971,14 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:pinboard-tasks', run: runPinboardTasksTests },
   { name: 'unit:pinboard-task-reveal', run: runPinboardTaskRevealTests },
   { name: 'unit:pinboard-git-review', run: runPinboardGitReviewTests },
+  { name: 'unit:git-status-cache', run: runGitStatusCacheTests },
+  { name: 'unit:git-ops-service', run: runGitOpsServiceTests },
   { name: 'unit:review-draft', run: runReviewDraftTests },
   { name: 'unit:review-send', run: runReviewSendTests },
   { name: 'unit:review-panel', run: runReviewPanelTests },
+  { name: 'unit:review-rail', run: runReviewRailTests },
   { name: 'unit:diff-viewer', run: runDiffViewerTests },
+  { name: 'unit:diff-window', run: runDiffWindowTests },
   { name: 'unit:pinboard-retention', run: runPinboardRetentionTests },
   { name: 'unit:pinboard-view-state', run: runPinboardViewStateTests },
   { name: 'unit:ws-listener-isolation', run: runWsListenerIsolationTests },

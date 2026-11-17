@@ -575,16 +575,18 @@ export const satelliteLink = {
   },
 
   /**
-   * Ask the owner to show this board's conversation — the whole of it, with
-   * nothing singled out inside it. What a board window's header offers when its
-   * conversation is named there: the board is a view of that conversation, and
-   * this is how the user gets to the rest of it.
+   * Ask the owner to show a conversation — the whole of it, with nothing
+   * singled out inside it. What a board window's header offers when its
+   * conversation is named there (the board is a view of that conversation, and
+   * this is how the user gets to the rest of it), and what a pin on the board
+   * does to show any other conversation of the project, which the board itself
+   * has nowhere to draw.
    * @param {string} conversationId - The conversation to show.
-   * @returns {void}
+   * @returns {boolean} True when there is an owner and the relay took it.
    */
   selectConversation(conversationId) {
-    if (!this._owner || !conversationId) return;
-    send(this._owner, SELECT, { conversation: conversationId });
+    if (!this._owner || !conversationId) return false;
+    return send(this._owner, SELECT, { conversation: conversationId });
   },
 
   /**

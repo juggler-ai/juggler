@@ -62,7 +62,7 @@
  */
 
 import { copyToClipboard, readFromClipboard } from '../../sdk/lib/clipboard.js';
-import { markPopupOpen } from '../utils/popup-manager.js';
+import { markPopupOpen, pressesAnchor } from '../utils/popup-manager.js';
 import { attachMenuKeyboard } from '../utils/menu-roles.js';
 import { resolveCodeSelection, proseReference } from '../utils/code-selection.js';
 import { t, markForTranslation } from '../../sdk/lib/i18n.js';
@@ -351,12 +351,43 @@ export function codeReferenceMenuItem({ path = '', outOfRoot = false, side, with
 }
 
 /**
- * Run the registered providers against the right-clicked element. Pure w.r.t.
- * the DOM: returns the first non-empty menu (and its subject) or null. Exposed
- * for unit testing provider dispatch.
+ * What an element given a menu of its own with {@link contextMenuFor} shows.
+ * @type {WeakMap<Element, (target: Element, event: MouseEvent) => (ContextMenuItem[]|null|undefined)>}
+ * @private
+ */
+const _elementMenus = new WeakMap();
+
+/**
+ * Give an element a context menu of its own, for rows an extension draws: a
+ * right-click on it or on anything inside it shows what `build` returns for the
+ * element under the pointer. Registered providers are asked first, so a
+ * component inside it (a diff viewer, a code block) keeps its own menu; of
+ * nested elements with menus, the innermost decides, and when it returns
+ * nothing the app's own menus are left to answer.
+ *
+ * This is what makes a right-click reach an extension: the service handles
+ * every `contextmenu` before it gets to the page, so a listener of the
+ * extension's own never hears one.
+ * @param {Element} element - What the menu is on.
+ * @param {(target: Element, event: MouseEvent) => (ContextMenuItem[]|null|undefined)} build -
+ *   The rows for a right-click on `target`, inside `element`.
+ * @returns {() => void} Takes the menu away again.
+ */
+export function contextMenuFor(element, build) {
+  _elementMenus.set(element, build);
+  return () => {
+    if (_elementMenus.get(element) === build) _elementMenus.delete(element);
+  };
+}
+
+/**
+ * Run the registered providers against the right-clicked element, then the
+ * nearest element given a menu with {@link contextMenuFor}. Pure w.r.t. the
+ * DOM: returns the first non-empty menu (and its subject) or null. Exposed for
+ * unit testing provider dispatch.
  * @param {Element|null} start - The right-clicked element (event target).
  * @param {MouseEvent} [event] - The originating event (passed through to providers).
- * @returns {{items: ContextMenuItem[], subject: Element}|null} The first matching menu, or null when no provider claims the element.
+ * @returns {{items: ContextMenuItem[], subject: Element}|null} The first matching menu, or null when nothing claims the element.
  */
 export function resolveMenu(start, event) {
   const ev = /** @type {MouseEvent} */ (event || /** @type {any} */ ({}));
@@ -377,6 +408,18 @@ export function resolveMenu(start, event) {
     const filtered = (items || []).filter(Boolean);
     if (filtered.length === 0) continue;
     return { items: filtered, subject };
+  }
+  for (let el = start; el; el = el.parentElement) {
+    const build = _elementMenus.get(el);
+    if (!build || !start) continue;
+    let items = null;
+    try {
+      items = build(start, ev);
+    } catch (e) {
+      items = null;
+    }
+    const filtered = (items || []).filter(Boolean);
+    return filtered.length ? { items: filtered, subject: el } : null;
   }
   return null;
 }
@@ -469,7 +512,33 @@ function _onScroll(e) {
 function _onOutside(e) {
   const target = /** @type {globalThis.Node|null} */ (e.target);
   if (_openMenu && target && _openMenu.contains(target)) return;
+  // A press of the button the menu hangs off is its dismissal, as it is for a
+  // popup (popup-manager.js): the click it becomes would open the menu again.
+  const toggled = _anchor instanceof HTMLElement && target instanceof Element && pressesAnchor(target, _anchor);
   closeMenu();
+  if (toggled) _swallowClick();
+}
+
+/**
+ * Stop the click the current press becomes from reaching the page. Called from
+ * a press, so the next click is that press's own, or — dragged off and let go
+ * elsewhere — there is none and the next press calls it off.
+ * @private
+ */
+function _swallowClick() {
+  /** @param {Event} e */
+  const stop = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    callOff();
+  };
+  const callOff = () => {
+    document.removeEventListener('click', stop, true);
+    document.removeEventListener('pointerdown', callOff, true);
+  };
+  document.addEventListener('click', stop, true);
+  // Added during this press's own dispatch, so only the next press hears it.
+  document.addEventListener('pointerdown', callOff, true);
 }
 
 /**

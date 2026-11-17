@@ -13,6 +13,12 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
+// newFileWatcher is a watcher with no options: the viewers' stream and the
+// index, and nothing for git.
+func newFileWatcher(projectPath string) (*FileWatcher, error) {
+	return NewFileWatcherWith(projectPath, FileWatcherOptions{})
+}
+
 // writeGitignore writes root/.gitignore with the given content.
 func writeGitignore(t *testing.T, root, content string) {
 	t.Helper()
@@ -45,7 +51,7 @@ func TestFileWatcher_IndexBuildsFromTree(t *testing.T) {
 		"src/main.go",
 	})
 
-	w, err := NewFileWatcher(root)
+	w, err := newFileWatcher(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +76,7 @@ func TestFileWatcher_StopReclaimsIndexWithoutStart(t *testing.T) {
 	root := t.TempDir()
 	writeTree(t, root, []string{"a.go"})
 
-	w, err := NewFileWatcher(root)
+	w, err := newFileWatcher(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +102,7 @@ func TestFileWatcher_GitignoredNotIndexed(t *testing.T) {
 		"visible-widget.go",       // tracked
 	})
 
-	w, err := NewFileWatcher(root)
+	w, err := newFileWatcher(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +126,7 @@ func TestFileWatcher_RebuildPicksUpGitignoreChange(t *testing.T) {
 	writeGitignore(t, root, "secret/\n")
 	writeTree(t, root, []string{"secret/hidden-widget.go", "visible-widget.go"})
 
-	w, err := NewFileWatcher(root)
+	w, err := newFileWatcher(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +159,7 @@ func TestFileWatcher_CreatedIgnoredFileNotAdded(t *testing.T) {
 	writeGitignore(t, root, "*.log\n")
 	writeTree(t, root, []string{"seed.go"})
 
-	w, err := NewFileWatcher(root)
+	w, err := newFileWatcher(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +187,7 @@ func TestFileWatcher_FileInNewDirectoryIsReported(t *testing.T) {
 	root := t.TempDir()
 	writeTree(t, root, []string{"seed.go"})
 
-	w, err := NewFileWatcher(root)
+	w, err := newFileWatcher(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +217,7 @@ func TestFileWatcher_FileInNewDirectoryIsReported(t *testing.T) {
 func TestFileWatcher_ScheduleRebuildSignals(t *testing.T) {
 	root := t.TempDir()
 	writeTree(t, root, []string{"a.go"})
-	w, err := NewFileWatcher(root)
+	w, err := newFileWatcher(root)
 	if err != nil {
 		t.Fatal(err)
 	}

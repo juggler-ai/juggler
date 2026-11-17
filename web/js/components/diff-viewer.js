@@ -13,7 +13,7 @@ import { escapeHtml, escapeAttr } from '../../sdk/lib/html.js';
 import { registerContextMenuProvider, codeReferenceMenuItem } from '../services/context-menu-service.js';
 import { copyToClipboard } from '../../sdk/lib/clipboard.js';
 import { isAbsolutePath } from '../utils/code-selection.js';
-import { t, formatNumber, markForTranslation } from '../../sdk/lib/i18n.js';
+import { t, formatDate, formatNumber, numberFormatter, markForTranslation } from '../../sdk/lib/i18n.js';
 import { errorText } from '../../sdk/lib/error-utils.js';
 
 /** @typedef {import('../lib/diff-types.js').DiffHunk} DiffHunk */
@@ -24,6 +24,98 @@ import { errorText } from '../../sdk/lib/error-utils.js';
 /** @typedef {import('../lib/diff-snapshot.js').SnapshotInput} SnapshotInput */
 /** @typedef {{oldLine: number|null, newLine: number|null, side: 'old'|'new', text: string}} DiffRow */
 /** @typedef {{kind: string, text: string, detail?: string}} DiffNotice */
+/** @typedef {'stage'|'unstage'|'discard'} StageVerb */
+/**
+ * Which commit last changed each line of the new side: `lines[n - 1]` is the
+ * index in `commits` of line n's, and a commit with `sha` '' holds lines nobody
+ * has committed.
+ * @typedef {{commits: {sha: string, author: string, date: number, summary: string}[], lines: number[]}} DiffBlame
+ */
+/**
+ * A run of one hunk's rows drawn as one element: rows `from` to `to` (exclusive)
+ * of the hunk's rows in the layout in force, with the hunk's header when it
+ * starts the hunk, and how many comments hang from its rows.
+ * @typedef {{hunk: number, from: number, to: number, header: boolean, last: boolean, comments: number}} DiffBlock
+ */
+/**
+ * The body as blocks: each hunk's rows (its lines, or its paired rows in two
+ * columns), the blocks cut from them, and the first block of each hunk.
+ * @typedef {{view: 'inline'|'split', rows: any[][], blocks: DiffBlock[], hunkFirst: number[], windowed: boolean}} DiffLayout
+ */
+/**
+ * A windowed body.
+ * @typedef {object} DiffWindow
+ * @property {DiffLayout} layout - The blocks it draws from.
+ * @property {DiffHunk[]} hunks - The hunks the layout was cut from.
+ * @property {HTMLElement} body - The `diff-body` it draws into.
+ * @property {HTMLElement} top - The spacer standing for the blocks above those drawn.
+ * @property {HTMLElement} bottom - The spacer standing for the blocks below.
+ * @property {HTMLElement[]} gaps - Spacers between drawn blocks that are not adjacent.
+ * @property {Float64Array} heights - Each block's height, once measured.
+ * @property {Uint8Array} measured - Which blocks have been measured.
+ * @property {Float64Array|null} sums - Where each block starts, estimated where unmeasured; null when stale.
+ * @property {Map<number, HTMLElement>} drawn - The blocks drawn, by index.
+ * @property {HTMLElement|null} scroller - What scrolls the body, once found.
+ */
+
+/**
+ * Rows up to which the whole body is drawn. Below it every line is in the
+ * document, so find-in-page and a selection across the file work as they always
+ * have; above it only the rows the scroller can show are, between spacers that
+ * stand in for the rest, so what a render costs tracks the window and not the
+ * patch. A diff row is five or six elements, and this many is drawn and laid
+ * out in a few tens of milliseconds; the server's cap (20,000 lines) is twenty
+ * times that.
+ */
+const EAGER_ROW_LIMIT = 1000;
+
+/**
+ * Rows to a block of a windowed body. The block, not the row, is what is drawn,
+ * measured and dropped, so the prefix sum the window is found by has a few
+ * hundred entries rather than twenty thousand, and a row whose comments make it
+ * taller than the rest is measured as part of its block, not guessed at.
+ */
+const BLOCK_ROWS = 25;
+
+/** Rows' worth of height drawn beyond each edge of the view, so a small scroll draws nothing. */
+const OVERSCAN_ROWS = 20;
+
+/** How line numbers read: localised digits, never grouped (see lineNumber). */
+const LINE_NUMBER_FORMAT = { useGrouping: false };
+
+/**
+ * Stands for the line number in a comment anchor's label while the label is
+ * formatted once per render; private-use, so no message or path contains it.
+ */
+const NUMBER_SLOT = '\uE000';
+
+/**
+ * The block at a height: the last whose top is at or above it.
+ * @param {Float64Array} sums - Each block's top, and the total last.
+ * @param {number} px - A height within the body.
+ * @returns {number} The block's index.
+ */
+function blockAt(sums, px) {
+  let lo = 0;
+  let hi = sums.length - 2;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (/** @type {number} */ (sums[mid]) <= px) lo = mid;
+    else hi = mid - 1;
+  }
+  return Math.max(0, lo);
+}
+
+/**
+ * How many columns a line's text takes, tabs at the default tab stop of eight.
+ * @param {string} text - The line.
+ * @returns {number} Its width, in `ch`.
+ */
+function columnsOf(text) {
+  let tabs = 0;
+  for (let at = text.indexOf('\t'); at >= 0; at = text.indexOf('\t', at + 1)) tabs++;
+  return text.length + tabs * 7;
+}
 
 /**
  * How wide the viewer must be before it will draw two columns, in rem.
@@ -55,6 +147,59 @@ export const SPLIT_MIN_REM = 40;
  * common way to meet this.
  */
 const SPLIT_TOO_NARROW = markForTranslation('Two columns need a wider panel.');
+
+/** What a hunk's staging button says when no line of it is picked, by verb. */
+const STAGE_HUNK_LABELS = {
+  stage: markForTranslation('Stage hunk'),
+  unstage: markForTranslation('Unstage hunk'),
+  discard: markForTranslation('Discard hunk'),
+};
+
+/** What a hunk's staging button says when lines of it are picked, by verb. */
+const STAGE_LINES_LABELS = {
+  stage: markForTranslation('Stage {count, plural, one {# line} other {# lines}}'),
+  unstage: markForTranslation('Unstage {count, plural, one {# line} other {# lines}}'),
+  discard: markForTranslation('Discard {count, plural, one {# line} other {# lines}}'),
+};
+
+/**
+ * Where a changed line lives, as a key: a removal by its old-side number, an
+ * addition by its new-side number. The key is the line's coordinate in the file,
+ * so it names the same line however the hunks around it are grouped.
+ * @param {DiffLine} line - The line.
+ * @returns {string|null} `old:<n>` or `new:<n>`, or null for an unchanged line
+ *   or one without a number on its side.
+ */
+function stageKey(line) {
+  if (line.type === 'remove') return line.oldLineNum === null ? null : `old:${line.oldLineNum}`;
+  if (line.type === 'add') return line.newLineNum === null ? null : `new:${line.newLineNum}`;
+  return null;
+}
+
+/**
+ * The coordinate a key stands for, as a staging request names it.
+ * @param {string} key - A key from {@link stageKey}.
+ * @returns {{old?: number, new?: number}} The coordinate.
+ */
+function stageCoordinate(key) {
+  const number = Number(key.slice(key.indexOf(':') + 1));
+  return key.startsWith('old:') ? { old: number } : { new: number };
+}
+
+/**
+ * The keys of a hunk's changed lines, in file order.
+ * @param {DiffHunk} hunk - The hunk.
+ * @returns {string[]} The keys.
+ */
+function changedKeys(hunk) {
+  /** @type {string[]} */
+  const keys = [];
+  for (const line of hunk.lines) {
+    const key = stageKey(line);
+    if (key !== null) keys.push(key);
+  }
+  return keys;
+}
 
 /**
  * The root font size, which the zoom preference sets.
@@ -146,6 +291,33 @@ function splitRows(lines) {
 }
 
 /**
+ * The blame gutter's cell for a new-side line: the commit's short id and author
+ * on the first line of a run from one commit, blank on the rest, and the
+ * commit's subject and date as its title. A committed line's cell is a button
+ * that names the commit; a line with no blame — a removal, or one the blame
+ * does not reach — is an empty cell, which keeps the columns aligned.
+ * @param {DiffBlame|null} blame - The blame, null while it is being read.
+ * @param {number|null} number - The line's new-side number.
+ * @param {boolean} first - Whether it starts a run.
+ * @returns {string} The cell as HTML.
+ */
+function blameCell(blame, number, first) {
+  const at = blame && number !== null ? blame.lines[number - 1] : undefined;
+  const commit = at === undefined ? undefined : blame?.commits[at];
+  if (!commit) return '<span class="line-blame" aria-hidden="true"></span>';
+  if (!commit.sha) {
+    const label = first ? escapeHtml(t('Not committed')) : '';
+    return `<span class="line-blame line-blame--uncommitted" title="${escapeAttr(t('Not committed yet'))}">${label}</span>`;
+  }
+  const title = t('{summary} — {author}, {date}', {
+    summary: commit.summary, author: commit.author,
+    date: formatDate(new Date(commit.date * 1000), { dateStyle: 'medium' }),
+  });
+  const label = first ? `<span class="line-blame-sha">${escapeHtml(commit.sha.slice(0, 7))}</span> ${escapeHtml(commit.author)}` : '';
+  return `<button type="button" class="line-blame" data-sha="${escapeAttr(commit.sha)}" title="${escapeAttr(title)}">${label}</button>`;
+}
+
+/**
  * One line-number gutter cell.
  *
  * The two sides are written out rather than interpolated so the class list stays
@@ -153,11 +325,10 @@ function splitRows(lines) {
  * which tag a class lands on, and a class it can only see as `${…}` is one it has
  * to treat as able to land on anything.
  * @param {'old'|'new'} side - Which file's numbering.
- * @param {number|null} number - The line's number there, if it has one.
+ * @param {string} shown - The line's number there as it reads, or '' when it has none.
  * @returns {string} The gutter cell as HTML.
  */
-function lineNumberCell(side, number) {
-  const shown = number === null || number === undefined ? '' : lineNumber(number);
+function lineNumberCell(side, shown) {
   return side === 'old'
     ? `<span class="line-num old">${shown}</span>`
     : `<span class="line-num new">${shown}</span>`;
@@ -222,7 +393,9 @@ function hunkLabel(hunk) {
  * It knows about one file and no more. A file rail, a draft, and where comments
  * are kept belong to whatever mounts it; all it does for review is anchor them —
  * it offers a comment anchor per line when it is not read-only, reports the line
- * the reader chose, and draws the comments it is handed back.
+ * the reader chose, and draws the comments it is handed back. Staging is the same:
+ * given a verb (`setStageable`), it lets the reader pick changed lines and asks
+ * for them, by coordinate, to be staged, and leaves the staging to its host.
  * @class
  * @augments JugglerElement
  */
@@ -277,6 +450,77 @@ class DiffViewer extends JugglerElement {
     // been given is a width nothing was decided from.
     /** @type {boolean} @private */
     this._rendered = false;
+    // Staging: the verb the hunk buttons offer (null when the viewer offers no
+    // staging), the changed lines the reader has picked, keyed by coordinate (see
+    // stageKey), the patch revision they were picked in (null for a snapshot), and
+    // the line a shift-click extends from. The hunks last drawn are kept because a
+    // hunk button names a rendered hunk, which after regrouping is not necessarily
+    // one the server sent.
+    /** @type {StageVerb|null} @private */
+    this._stageVerb = null;
+    /** @type {Set<string>} @private */
+    this._picked = new Set();
+    /** @type {string|null} @private */
+    this._pickRevision = null;
+    /** @type {string|null} @private */
+    this._pickAnchor = null;
+    /** @type {DiffHunk[]} @private */
+    this._drawnHunks = [];
+    // Blame: whether the host can supply it (and so the toggle is offered),
+    // whether the reader has it on, what the host gave for the file shown, and
+    // the commit the last new-side line drawn came from, which is what says
+    // where a run of one commit's lines starts.
+    /** @type {boolean} @private */
+    this._blameable = false;
+    /** @type {boolean} @private */
+    this._blameOn = false;
+    /** @type {DiffBlame|null} @private */
+    this._blame = null;
+    /** @type {number|undefined} @private */
+    this._blameRun = undefined;
+    // What a render indexes once so that drawing a row costs the same however
+    // long the diff is: every line the diff holds, by side and number, with
+    // where it is; the comments that hang from each line; the comments set
+    // aside as outdated; and each comment's place in the order it was given.
+    /** @type {Map<string, {hunk: number, at: number}>} @private */
+    this._lineIndex = new Map();
+    /** @type {Map<string, DiffAnnotation[]>} @private */
+    this._lineComments = new Map();
+    /** @type {Set<DiffAnnotation>} @private */
+    this._staleComments = new Set();
+    /** @type {Map<DiffAnnotation, number>} @private */
+    this._commentOrder = new Map();
+    // The per-line words a render formats once: line numbers, and each side's
+    // comment-anchor label around its number (null when formatted per line).
+    /** @type {(value: number) => string} @private */
+    this._formatLine = lineNumber;
+    /** @type {{old: string[]|null, new: string[]|null}} @private */
+    this._anchorLabels = { old: null, new: null };
+    // The windowed body, null while every row is drawn.
+    /** @type {DiffWindow|null} @private */
+    this._win = null;
+    // Heights learned from drawn rows, for the blocks not yet drawn: a row in
+    // each layout, a hunk header, the gap after a hunk, and a comment. Kept
+    // across renders, because the same component draws the same rows the same
+    // height whichever patch it is showing.
+    /** @private */
+    this._metrics = { row: { inline: 0, split: 0 }, header: 0, gap: -1, comment: 0 };
+    // A node of the host's hung under a line, or with the file's comments; see
+    // setAttachment.
+    /** @type {{node: HTMLElement, side: 'old'|'new'|'file', line: number|null}|null} @private */
+    this._attachment = null;
+    /**
+     * @param {Event} event - A scroll or resize anywhere in the window.
+     * @private
+     */
+    this._onScroll = (event) => {
+      if (!this._win) return;
+      // Captured at the window, so it hears whichever ancestor scrolls; one that
+      // does not hold this viewer moved nothing it shows.
+      const target = event.target;
+      if (target instanceof Node && !target.contains(this)) return;
+      this._drawWindow(false);
+    };
     /** @private */
     this._onPrefsChanged = () => {
       // A viewer the reader has set for themselves has stopped following the
@@ -285,6 +529,7 @@ class DiffViewer extends JugglerElement {
     };
     this.addEventListener('click', (event) => this._onClick(event));
     this.addEventListener('change', (event) => this._onChange(event));
+    this.addEventListener('keydown', (event) => this._onKeyDown(event));
   }
 
   connectedCallback() {
@@ -308,14 +553,24 @@ class DiffViewer extends JugglerElement {
     if (typeof ResizeObserver !== 'undefined') {
       const observer = new ResizeObserver(() => {
         if (this._measure() && this._rendered) this.render();
+        else this._drawWindow(false);
       });
       observer.observe(this);
       this.addCleanup(() => observer.disconnect());
     }
     this.onWindow(DIFF_VIEW_PREFS_EVENT, this._onPrefsChanged);
+    this.onWindow('scroll', this._onScroll, { capture: true, passive: true });
+    this.onWindow('resize', this._onScroll);
     // A snapshot given while detached has had no job yet; mounting is when it
     // gets one, and the render that asks for it is the one a width change wants.
-    if ((roomChanged && this._rendered) || !this._settled()) this.render();
+    if ((roomChanged && this._rendered) || !this._settled()) {
+      this.render();
+    } else if (this._win) {
+      // A window drawn detached was drawn from no measurement and no scroller,
+      // and a viewer moved to another host scrolls in another one.
+      this._win.scroller = null;
+      this._drawWindow(true);
+    }
   }
 
   disconnectedCallback() {
@@ -417,6 +672,92 @@ class DiffViewer extends JugglerElement {
   }
 
   /**
+   * Offer staging, or stop offering it. With a verb, every changed line can be
+   * picked — a click toggles it, shift-click extends from the last line clicked,
+   * Space toggles the focused one — and each hunk header carries a button that
+   * dispatches a bubbling `diff-stage-request` whose detail is
+   * `{verb, revision, context, lines}`: `lines` are the picked lines of that
+   * rendered hunk, or every changed line of it when none is picked, each as
+   * `{old: n}` for a removal or `{new: n}` for an addition; `revision` and
+   * `context` are the patch's own. The viewer stages nothing itself, and keeps the
+   * selection after a request; the host clears it, or a new revision does.
+   * @param {StageVerb|null} verb - What the buttons offer, or null for no staging.
+   *   Turning staging off drops the selection.
+   * @returns {void}
+   */
+  setStageable(verb) {
+    const next = verb === 'stage' || verb === 'unstage' || verb === 'discard' ? verb : null;
+    if (next === this._stageVerb) return;
+    this._stageVerb = next;
+    if (next === null) this._clearPicks();
+    this.render();
+  }
+
+  /**
+   * Offer a blame gutter, or stop offering it. Offered, the toolbar has a Blame
+   * toggle; turning it on or off dispatches a bubbling `diff-blame-toggle`
+   * whose detail is `{on}`, and the host answers an `on` with `setBlame`.
+   * While it is on, each new-side line has a cell naming the commit that last
+   * changed it, and a click on one dispatches `diff-blame-select` with the
+   * commit's `{sha}`. Withdrawn, the gutter goes too.
+   * @param {boolean} offered - Whether the host can blame this file.
+   * @returns {void}
+   */
+  setBlameable(offered) {
+    const next = offered === true;
+    if (next === this._blameable) return;
+    this._blameable = next;
+    if (!next) this._blame = null;
+    this.render();
+  }
+
+  /**
+   * Whether the blame gutter is on: what a host asks before reading blame for
+   * a file it has just shown.
+   * @returns {boolean} True while the reader has it on.
+   */
+  get blameOn() {
+    return this._blameable && this._blameOn;
+  }
+
+  /**
+   * The blame of the file shown, or null to clear it. A patch for another file
+   * clears it too.
+   * @param {DiffBlame|null} blame - Which commit each new-side line came from.
+   * @returns {void}
+   */
+  setBlame(blame) {
+    this._blame = blame && Array.isArray(blame.lines) && Array.isArray(blame.commits) ? blame : null;
+    this.render();
+  }
+
+  /**
+   * The lines the reader has picked to stage, in file order.
+   * @returns {{old?: number, new?: number}[]} Each picked line by its coordinate.
+   */
+  getStageSelection() {
+    const drawn = this._drawnHunks.flatMap(changedKeys).filter((key) => this._picked.has(key));
+    const inDiff = new Set(drawn);
+    const undrawn = [...this._picked].filter((key) => !inDiff.has(key));
+    return [...drawn, ...undrawn].map(stageCoordinate);
+  }
+
+  /**
+   * Unpick every line.
+   * @returns {void}
+   */
+  clearStageSelection() {
+    this._clearPicks();
+    this._paintStageMarks();
+  }
+
+  /** @private */
+  _clearPicks() {
+    this._picked.clear();
+    this._pickAnchor = null;
+  }
+
+  /**
    * Draw the difference between two whole files.
    *
    * Nothing is diffed or highlighted in this call. What it draws at once is the
@@ -430,6 +771,8 @@ class DiffViewer extends JugglerElement {
    * @param {number} [startLineNumber=1]
    */
   setDiff(oldContent, newContent, filePath, startLineNumber = 1) {
+    this._clearPicks();
+    this._pickRevision = null;
     this.mode = 'snapshot';
     this.patch = null;
     this.errorText = '';
@@ -446,14 +789,26 @@ class DiffViewer extends JugglerElement {
   /**
    * Draw a patch the server produced, hunk for hunk.
    * @param {any} patch - A `GitFileDiff`, as `services.git.diff()` answers with.
+   * @param {DiffAnnotation[]} [annotations] - The comments to draw against it:
+   *   the same as calling `setAnnotations` straight after, in one render rather
+   *   than two. Absent, the comments already given are kept.
    */
-  setPatch(patch) {
+  setPatch(patch, annotations) {
+    if (annotations !== undefined) this.annotations = Array.isArray(annotations) ? annotations : [];
+    // A picked line is a coordinate in one revision of the diff; in another, the
+    // same number may be a different line, or no change at all. A loading or
+    // error state in between leaves the selection alone.
+    const revision = typeof patch?.revision === 'string' ? patch.revision : '';
+    if (revision !== this._pickRevision) this._clearPicks();
+    this._pickRevision = revision;
     this.mode = 'patch';
     this.errorText = '';
     this.oldContent = '';
     this.newContent = '';
     this.startLineNumber = 1;
-    this.filePath = typeof patch?.path === 'string' ? patch.path : '';
+    const path = typeof patch?.path === 'string' ? patch.path : '';
+    if (path !== this.filePath) this._blame = null;
+    this.filePath = path;
     this.patch = /** @type {DiffPatch} */ ({
       repo: typeof patch?.repo === 'string' ? patch.repo : '',
       path: this.filePath,
@@ -502,6 +857,52 @@ class DiffViewer extends JugglerElement {
   setAnnotations(annotations) {
     this.annotations = Array.isArray(annotations) ? annotations : [];
     this.render();
+  }
+
+  /**
+   * Hang a node of the host's — a comment being written — under a line of the
+   * diff, after the comments already there, or with the file's comments when it
+   * is about the whole file or the line is not in the diff. The viewer puts it
+   * back after every redraw, and in a windowed diff keeps the rows around that
+   * line drawn however far the reader scrolls, so half-written words are where
+   * they were left. The node stays the host's: the viewer never removes it, and
+   * forgets it when given null.
+   * @param {HTMLElement|null} node - The node, or null to stop hanging one.
+   * @param {{side: 'old'|'new'|'file', line?: number}} [anchor] - Where.
+   * @returns {void}
+   */
+  setAttachment(node, anchor) {
+    const side = anchor?.side === 'old' || anchor?.side === 'new' ? anchor.side : 'file';
+    const line = typeof anchor?.line === 'number' ? anchor.line : null;
+    this._attachment = node ? { node, side, line } : null;
+    // Drawing first, so a line that has to be pinned is in the document to hang from.
+    this._drawWindow(false);
+    this._hangAttachment();
+  }
+
+  /**
+   * Put the host's node where setAttachment said, without moving it when it is
+   * there already — moving a node takes the focus out of it.
+   * @private
+   */
+  _hangAttachment() {
+    const attachment = this._attachment;
+    if (!attachment) return;
+    const { node, side, line } = attachment;
+    if (side !== 'file' && line !== null) {
+      const drawn = this.querySelector(side === 'old' ? `.diff-line[data-old-line="${line}"]` : `.diff-line[data-new-line="${line}"]`);
+      // In two columns the line is a cell of a row, and what hangs from it hangs
+      // from the row, as its comments do.
+      const row = drawn?.closest('.diff-row') || drawn;
+      if (row) {
+        const next = row.nextElementSibling;
+        const after = next?.classList.contains('diff-comments') ? next : row;
+        if (after.nextElementSibling !== node) after.after(node);
+        return;
+      }
+    }
+    const home = this.querySelector('diff-file-comments') || this.querySelector('diff-content') || this;
+    if (node.parentNode !== home) home.append(node);
   }
 
   /**
@@ -636,16 +1037,23 @@ class DiffViewer extends JugglerElement {
     return { hunks: snapshot.hunks, notices, added: snapshot.added, removed: snapshot.removed, drawable: true };
   }
 
-  /** @private */
+  /**
+   * Draw everything: the shell, and either every row or — past EAGER_ROW_LIMIT —
+   * the rows in view. What it costs past the indexing (a pass over the lines in
+   * plain JavaScript, no DOM) is bounded by the window, not by the patch.
+   * @private
+   */
   render() {
     this._syncSnapshot();
     const model = this.viewModel();
     this.indexRows(model.hunks);
+    this._drawnHunks = model.hunks;
+    this._indexAnnotations();
+    this._prepareLineText();
 
     const view = this.effectiveView();
-    const bodyHTML = view === 'split'
-      ? this.renderSplitView(model.hunks, model.drawable)
-      : this.renderInlineView(model.hunks, model.drawable);
+    const layout = this._layOut(model.hunks, view);
+    const bodyHTML = this.renderBody(layout, model.drawable);
     const controlsHTML = this.renderControls(view);
     const noticesHTML = model.notices.map((notice) => this.renderNotice(notice)).join('');
     const fileCommentsHTML = this.renderFileComments();
@@ -654,6 +1062,18 @@ class DiffViewer extends JugglerElement {
     // The layout in force is on the element itself, so the stylesheet reads the
     // renderer's decision rather than making a second one of its own.
     this.dataset.view = view;
+    if (this._stageVerb) this.dataset.stage = this._stageVerb;
+    else delete this.dataset.stage;
+    if (this.blameOn) this.dataset.blame = '';
+    else delete this.dataset.blame;
+
+    // The host's node goes out with the markup it is hung in; whatever had the
+    // focus in it gets it back once the node is back.
+    const attached = this._attachment?.node;
+    const active = document.activeElement;
+    const refocus = attached && active instanceof HTMLElement && attached.contains(active) ? active : null;
+    const previous = this._win;
+    this._win = null;
 
     this.innerHTML = `
       <diff-content>
@@ -673,6 +1093,9 @@ class DiffViewer extends JugglerElement {
       </diff-content>
     `;
     this._rendered = true;
+    if (layout.windowed) this._mountWindow(layout, previous);
+    this._hangAttachment();
+    if (refocus?.isConnected) refocus.focus({ preventScroll: true });
     if (this._settled() && this._drawnWaiters.length > 0) {
       const waiters = this._drawnWaiters.splice(0);
       for (const resolve of waiters) resolve();
@@ -717,7 +1140,13 @@ class DiffViewer extends JugglerElement {
     // reliably answer the pointer, so a title on one is a title nobody reads.
     const why = this._wide ? '' : ` title="${escapeAttr(t(SPLIT_TOO_NARROW))}"`;
 
+    const blame = this._blameable
+      ? `<button type="button" class="btn btn-xs diff-blame-btn" aria-pressed="${this.blameOn}"`
+        + ` title="${escapeAttr(t('Show which commit last changed each line'))}">${escapeHtml(t('Blame'))}</button>`
+      : '';
+
     return '<div class="diff-controls">'
+      + blame
       + `<span class="diff-view-switch" role="group" aria-label="${escapeAttr(t('Diff layout'))}"${why}>`
       + button('inline', t('Unified', undefined, { context: 'diff layout' }))
       + button('split', t('Split', undefined, { context: 'diff layout' }))
@@ -738,16 +1167,139 @@ class DiffViewer extends JugglerElement {
    */
   indexRows(hunks) {
     this._rows = [];
-    for (const hunk of hunks || []) {
-      for (const line of hunk.lines) {
+    this._lineIndex = new Map();
+    for (const [hunk, { lines }] of (hunks || []).entries()) {
+      for (const [at, line] of lines.entries()) {
         // A removal exists only in the old file and an addition only in the new,
         // so each anchors where it lives. A context line is in both: it anchors
         // to the new side, which is the file as it now stands.
         const side = /** @type {'old'|'new'} */ (
           line.type === 'remove' || line.newLineNum === null ? 'old' : 'new');
         this._rows.push({ oldLine: line.oldLineNum, newLine: line.newLineNum, side, text: line.content });
+        if (line.oldLineNum !== null && !this._lineIndex.has(`old:${line.oldLineNum}`)) {
+          this._lineIndex.set(`old:${line.oldLineNum}`, { hunk, at });
+        }
+        if (line.newLineNum !== null && !this._lineIndex.has(`new:${line.newLineNum}`)) {
+          this._lineIndex.set(`new:${line.newLineNum}`, { hunk, at });
+        }
       }
     }
+  }
+
+  /**
+   * Sort the comments once for the render: each one that still holds is filed
+   * under the line it hangs from, and each outdated one is set aside, so a row
+   * asks a map rather than every comment and the file comments ask a set.
+   * @private
+   */
+  _indexAnnotations() {
+    this._lineComments = new Map();
+    this._staleComments = new Set();
+    this._commentOrder = new Map();
+    for (const [order, annotation] of this.annotations.entries()) {
+      this._commentOrder.set(annotation, order);
+      if (this.outdated(annotation)) {
+        this._staleComments.add(annotation);
+        continue;
+      }
+      if (annotation.side === 'file') continue;
+      const key = `${annotation.side === 'old' ? 'old' : 'new'}:${this.anchorLine(annotation)}`;
+      const here = this._lineComments.get(key);
+      if (here) here.push(annotation);
+      else this._lineComments.set(key, [annotation]);
+    }
+  }
+
+  /**
+   * The comments hanging from a row, in the order they were given.
+   * @param {number|null} oldLine - The row's old-side number, if it has one.
+   * @param {number|null} newLine - Its new-side number, if it has one.
+   * @returns {DiffAnnotation[]|null} The comments, or null for none.
+   * @private
+   */
+  _commentsAt(oldLine, newLine) {
+    if (this._lineComments.size === 0) return null;
+    const old = oldLine === null ? undefined : this._lineComments.get(`old:${oldLine}`);
+    const now = newLine === null ? undefined : this._lineComments.get(`new:${newLine}`);
+    if (old && now) {
+      const order = this._commentOrder;
+      return [...old, ...now].sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0));
+    }
+    return old || now || null;
+  }
+
+  /**
+   * Format, once for the render, what every row would otherwise format for
+   * itself: the line-number formatter, and each side's comment-anchor label
+   * with a slot where the number goes. A label the slot does not come back from
+   * intact is formatted per line instead.
+   * @private
+   */
+  _prepareLineText() {
+    this._formatLine = numberFormatter(LINE_NUMBER_FORMAT);
+    if (this._readOnly) {
+      this._anchorLabels = { old: null, new: null };
+      return;
+    }
+    /**
+     * @param {'old'|'new'} side - Which file.
+     * @returns {string[]|null} The label's escaped text either side of the number.
+     */
+    const around = (side) => {
+      const parts = this.anchorLabel(side, NUMBER_SLOT).split(NUMBER_SLOT);
+      return parts.length === 2 ? parts.map((part) => escapeAttr(part)) : null;
+    };
+    this._anchorLabels = { old: around('old'), new: around('new') };
+  }
+
+  /**
+   * A line number as the gutter shows it.
+   * @param {number|null} number - The number, if there is one.
+   * @returns {string} It formatted, or '' for none.
+   * @private
+   */
+  _shownNumber(number) {
+    return number === null || number === undefined ? '' : this._formatLine(number);
+  }
+
+  /**
+   * Cut the hunks into the blocks the body is drawn in: one per hunk while the
+   * diff is short enough to draw whole, and runs of BLOCK_ROWS rows when not.
+   * @param {DiffHunk[]} hunks - What to draw.
+   * @param {'inline'|'split'} view - The layout in force.
+   * @returns {DiffLayout} The layout.
+   * @private
+   */
+  _layOut(hunks, view) {
+    /** @type {any[][]} */
+    const rows = hunks.map((hunk) => (view === 'split' ? splitRows(hunk.lines) : hunk.lines));
+    let total = 0;
+    for (const list of rows) total += list.length;
+    const windowed = total > EAGER_ROW_LIMIT;
+    const size = windowed ? BLOCK_ROWS : Infinity;
+    /** @type {DiffBlock[]} */
+    const blocks = [];
+    /** @type {number[]} */
+    const hunkFirst = [];
+    for (const [hunk, list] of rows.entries()) {
+      hunkFirst.push(blocks.length);
+      let from = 0;
+      do {
+        const to = Math.min(list.length, from + size);
+        let comments = 0;
+        if (windowed && this._lineComments.size > 0) {
+          for (let at = from; at < to; at++) {
+            const row = list[at];
+            const old = view === 'split' ? row.old?.oldLineNum ?? null : row.oldLineNum;
+            const now = view === 'split' ? row.new?.newLineNum ?? null : row.newLineNum;
+            comments += this._commentsAt(old, now)?.length ?? 0;
+          }
+        }
+        blocks.push({ hunk, from, to, header: from === 0, last: to === list.length, comments });
+        from = to;
+      } while (from < list.length);
+    }
+    return { view, rows, blocks, hunkFirst, windowed };
   }
 
   /**
@@ -779,58 +1331,422 @@ class DiffViewer extends JugglerElement {
   }
 
   /**
-   * Render inline view (unified diff).
-   * @param {DiffHunk[]} hunks
+   * The body's markup, in either layout: every block when the diff is drawn
+   * whole, and when it is windowed only the two spacers the window is drawn
+   * between, which `_mountWindow` sizes and fills.
+   * @param {DiffLayout} layout - The blocks.
    * @param {boolean} drawable - Whether a file with no hunks has nothing to show
    *   (rather than nothing showable, which the notices have already said).
-   * @returns {string} HTML string representing the inline diff view.
+   * @returns {string} The body as HTML.
    * @private
    */
-  renderInlineView(hunks, drawable) {
-    if (!hunks || hunks.length === 0) {
+  renderBody(layout, drawable) {
+    if (layout.blocks.length === 0) {
       return drawable ? `<diff-no-changes>${escapeHtml(t('No changes'))}</diff-no-changes>` : '';
     }
-
-    let html = '';
-    for (const hunk of hunks) {
-      const label = hunkLabel(hunk);
-      const heading = hunk.heading ? ` ${hunk.heading}` : '';
-      html += `<diff-hunk class="diff-hunk" role="group" aria-label="${escapeAttr(label)}">`;
-      html += `<diff-hunk-header>${escapeHtml(`@@ -${hunk.oldStart},${hunk.oldCount} +${hunk.newStart},${hunk.newCount} @@${heading}`)}</diff-hunk-header>`;
-      for (const line of hunk.lines) html += this.renderRow(line);
-      html += '</diff-hunk>';
+    if (layout.windowed) {
+      return '<div class="diff-spacer" aria-hidden="true"></div><div class="diff-spacer" aria-hidden="true"></div>';
     }
+    let html = '';
+    for (let index = 0; index < layout.blocks.length; index++) html += this.renderBlock(layout, index);
     return html;
   }
 
   /**
-   * Render the two sides beside each other.
+   * One block: a hunk, or in a windowed body a run of one. A run is its own
+   * `diff-hunk` carrying the hunk's label, with the header only on the first
+   * and the gap after a hunk only on the last (`data-continues` on the rest),
+   * so the blocks of one hunk drawn together read as the hunk drawn whole.
    *
-   * The same hunks and the same headers as the unified view; only the rows differ,
-   * and each half of a row is the same `.diff-line` the unified view draws, so
-   * every other part of the component — the comment anchors, the line the right
-   * button menu reports, which side a selection is in — goes on reading them the
-   * way it already does.
-   * @param {DiffHunk[]} hunks - What to draw.
-   * @param {boolean} drawable - Whether a file with no hunks has nothing to show.
-   * @returns {string} HTML string representing the two-column diff.
+   * Each row is the same `.diff-line` either layout draws — in two columns each
+   * half of a row is — so every other part of the component, the comment
+   * anchors, the line the right button menu reports, which side a selection is
+   * in, goes on reading them the way it already does.
+   * @param {DiffLayout} layout - The blocks.
+   * @param {number} index - Which block.
+   * @returns {string} The block as HTML.
    * @private
    */
-  renderSplitView(hunks, drawable) {
-    if (!hunks || hunks.length === 0) {
-      return drawable ? `<diff-no-changes>${escapeHtml(t('No changes'))}</diff-no-changes>` : '';
+  renderBlock(layout, index) {
+    const block = /** @type {DiffBlock} */ (layout.blocks[index]);
+    const hunk = /** @type {DiffHunk} */ (this._drawnHunks[block.hunk]);
+    const rows = /** @type {any[]} */ (layout.rows[block.hunk]);
+    const label = escapeAttr(hunkLabel(hunk));
+    let html = !layout.windowed
+      ? `<diff-hunk class="diff-hunk" role="group" aria-label="${label}">`
+      : `<diff-hunk class="diff-hunk" role="group" aria-label="${label}" data-block="${index}"${block.last ? '' : ' data-continues=""'}>`;
+    if (block.header) html += this.renderHunkHeader(hunk, block.hunk);
+    else this._blameRun = this._blameRunBefore(rows, block.from, layout.view);
+    for (let at = block.from; at < block.to; at++) {
+      html += layout.view === 'split' ? this.renderSplitRow(rows[at]) : this.renderRow(rows[at]);
+    }
+    return `${html}</diff-hunk>`;
+  }
+
+  /**
+   * The commit the new-side line before a row came from, which is what decides
+   * whether the row's blame cell names its commit or is blank — the state the
+   * rows above it would have left, had they been drawn in the same pass.
+   * @param {any[]} rows - The hunk's rows in the layout in force.
+   * @param {number} from - The row a block starts at.
+   * @param {'inline'|'split'} view - The layout.
+   * @returns {number|undefined} The commit's index in the blame, if any.
+   * @private
+   */
+  _blameRunBefore(rows, from, view) {
+    if (!this.blameOn) return undefined;
+    for (let at = from - 1; at >= 0; at--) {
+      const line = view === 'split' ? rows[at].new : rows[at];
+      const number = line?.newLineNum ?? null;
+      if (number !== null) return this._blame ? this._blame.lines[number - 1] : undefined;
+    }
+    return undefined;
+  }
+
+  /**
+   * Make the body a window: size the spacers, pin the horizontal extent, and
+   * draw what is in view. Heights measured in the last render carry over when it
+   * drew the same hunks in the same layout, which is what a comment, a blame or
+   * a staging change re-renders with — so the window comes back where it was.
+   *
+   * The unified view's rows do not wrap and are as wide as the longest of them,
+   * which a window would have be only as wide as the longest line it holds: the
+   * horizontal scrollbar would change length as the reader scrolled down. So the
+   * body is held at least as wide as the longest line in the whole diff, counted
+   * in `ch` of the code font (tabs at eight), plus the gutters — see the
+   * `--diff-viewer-widest` rule in diff-viewer.css. A line of wide characters
+   * can still be wider than its count, and then the body grows to it once drawn.
+   * Two columns wrap, so they need none of this.
+   * @param {DiffLayout} layout - The blocks.
+   * @param {DiffWindow|null} previous - The last render's window, if it had one.
+   * @private
+   */
+  _mountWindow(layout, previous) {
+    const body = /** @type {HTMLElement|null} */ (this.querySelector('diff-body'));
+    const spacers = body?.querySelectorAll(':scope > .diff-spacer');
+    const top = /** @type {HTMLElement|undefined} */ (spacers?.[0]);
+    const bottom = /** @type {HTMLElement|undefined} */ (spacers?.[1]);
+    if (!body || !top || !bottom) return;
+    const count = layout.blocks.length;
+    const same = previous !== null && previous.hunks === this._drawnHunks
+      && previous.layout.view === layout.view && previous.layout.blocks.length === count;
+    /** @type {DiffWindow} */
+    const win = {
+      layout,
+      hunks: this._drawnHunks,
+      body,
+      top,
+      bottom,
+      gaps: [],
+      heights: same ? previous.heights : new Float64Array(count),
+      measured: same ? previous.measured : new Uint8Array(count),
+      sums: null,
+      drawn: new Map(),
+      scroller: previous?.scroller?.isConnected && previous.scroller.contains(this) ? previous.scroller : null,
+    };
+    this._win = win;
+    body.dataset.windowed = '';
+    if (layout.view === 'inline') {
+      let widest = 0;
+      for (const hunk of this._drawnHunks) {
+        for (const line of hunk.lines) widest = Math.max(widest, columnsOf(line.content));
+      }
+      body.style.setProperty('--diff-viewer-widest', `${widest}ch`);
+    }
+    // The whole height before anything is laid out, so the scroller keeps the
+    // offset it had rather than clamping it to a body of two empty spacers.
+    bottom.style.height = `${this._sums(win)[count]}px`;
+    this._drawWindow(true);
+  }
+
+  /**
+   * How tall a block is: as measured once it has been drawn, and until then from
+   * the heights learned from the rows that have been — or the stylesheet's own
+   * sizes, before anything has.
+   * @param {DiffBlock} block - The block.
+   * @param {'inline'|'split'} view - The layout.
+   * @returns {number} Its height, in px.
+   * @private
+   */
+  _estimate(block, view) {
+    const rem = remInPx();
+    const m = this._metrics;
+    const row = m.row[view] || 1.5 * rem + 5;
+    const header = block.header ? m.header || 2 * rem : 0;
+    const gap = block.last ? (m.gap >= 0 ? m.gap : 0.5 * rem) : 0;
+    return (block.to - block.from) * row + header + block.comments * (m.comment || 3 * rem) + gap;
+  }
+
+  /**
+   * Where each block starts in the body, and the body's height last.
+   * @param {DiffWindow} win - The window.
+   * @returns {Float64Array} The prefix sum.
+   * @private
+   */
+  _sums(win) {
+    if (win.sums) return win.sums;
+    const { blocks, view } = win.layout;
+    const sums = new Float64Array(blocks.length + 1);
+    for (let i = 0; i < blocks.length; i++) {
+      const height = win.measured[i] ? /** @type {number} */ (win.heights[i]) : this._estimate(/** @type {DiffBlock} */ (blocks[i]), view);
+      sums[i + 1] = /** @type {number} */ (sums[i]) + height;
+    }
+    win.sums = sums;
+    return sums;
+  }
+
+  /**
+   * The element that scrolls the body: this viewer when its own height is
+   * capped, as it is in a transcript or the review panel, or the nearest
+   * ancestor that is, as in a properties panel that lets it grow; null when the
+   * page itself scrolls. Being overflow-scrollable is not enough — an element
+   * whose height is unconstrained grows to fit rather than scrolling — so it has
+   * to be shown to hold more than it shows.
+   * @returns {HTMLElement|null} The scroller.
+   * @private
+   */
+  _findScroller() {
+    for (let node = /** @type {HTMLElement|null} */ (this); node; node = node.parentElement) {
+      const overflowY = getComputedStyle(node).overflowY;
+      const scrollable = overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay';
+      if (scrollable && node.scrollHeight > node.clientHeight) return node;
+    }
+    return null;
+  }
+
+  /**
+   * What of the body is in view, as heights within it, and where the view's top
+   * edge is on screen. A viewer not in a document, or not laid out, is taken to
+   * be looking at the top of the diff through a window-sized view.
+   * @param {DiffWindow} win - The window.
+   * @returns {{from: number, to: number, edge: number}} The view.
+   * @private
+   */
+  _viewRange(win) {
+    const fallback = window.innerHeight || 800;
+    if (!this.isConnected) return { from: 0, to: fallback, edge: 0 };
+    if (!win.scroller) win.scroller = this._findScroller();
+    const scroller = win.scroller;
+    const edge = scroller ? scroller.getBoundingClientRect().top + scroller.clientTop : 0;
+    const height = (scroller ? scroller.clientHeight : window.innerHeight) || fallback;
+    const from = edge - win.body.getBoundingClientRect().top;
+    return { from, to: from + height, edge };
+  }
+
+  /**
+   * Bring the windowed body into line with the view: draw the blocks in it and
+   * OVERSCAN_ROWS rows' worth either side, keep those the host's attachment
+   * hangs from and the one holding the focus, drop the rest, and stand spacers
+   * in for what is not drawn. A block that stays is not touched, so the focus,
+   * a hover or a selection in it survives. Every drawn block is then measured,
+   * and the scroller moved by however much that shifted what the reader was
+   * looking at, so a block above them arriving at its real height does not jump
+   * the page.
+   *
+   * Synchronous, on the scroll event itself and in the render that made the
+   * window: a scroll is never shown a gap, and nothing waits on a frame.
+   * @param {boolean} force - Measure and lay out even when the same blocks are drawn.
+   * @private
+   */
+  _drawWindow(force) {
+    const win = this._win;
+    if (!win || win.body !== this.querySelector('diff-body')) return;
+    const { layout, body, drawn } = win;
+    const count = layout.blocks.length;
+    const view = this._viewRange(win);
+    const overscan = OVERSCAN_ROWS * (this._metrics.row[layout.view] || 1.5 * remInPx() + 5);
+    const sums = this._sums(win);
+    const first = blockAt(sums, view.from - overscan);
+    const last = blockAt(sums, view.to + overscan);
+    /** @type {Set<number>} */
+    const wanted = new Set();
+    for (let i = first; i <= last && i < count; i++) wanted.add(i);
+    for (const pinned of this._pinnedBlocks(win)) wanted.add(pinned);
+    if (!force && wanted.size === drawn.size && [...wanted].every((i) => drawn.has(i))) return;
+
+    // What the reader is looking at: the first drawn block reaching into view.
+    /** @type {{el: HTMLElement, top: number}|null} */
+    let anchor = null;
+    for (const i of [...drawn.keys()].sort((a, b) => a - b)) {
+      const el = /** @type {HTMLElement} */ (drawn.get(i));
+      if (!wanted.has(i)) continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.bottom > view.edge) {
+        anchor = { el, top: rect.top };
+        break;
+      }
     }
 
-    let html = '';
-    for (const hunk of hunks) {
-      const label = hunkLabel(hunk);
-      const heading = hunk.heading ? ` ${hunk.heading}` : '';
-      html += `<diff-hunk class="diff-hunk" role="group" aria-label="${escapeAttr(label)}">`;
-      html += `<diff-hunk-header>${escapeHtml(`@@ -${hunk.oldStart},${hunk.oldCount} +${hunk.newStart},${hunk.newCount} @@${heading}`)}</diff-hunk-header>`;
-      for (const row of splitRows(hunk.lines)) html += this.renderSplitRow(row);
-      html += '</diff-hunk>';
+    for (const gap of win.gaps) gap.remove();
+    win.gaps = [];
+    for (const [i, el] of drawn) {
+      if (wanted.has(i)) continue;
+      el.remove();
+      drawn.delete(i);
     }
-    return html;
+    const order = [...wanted].sort((a, b) => a - b);
+    const template = document.createElement('template');
+    let before = win.bottom;
+    for (let k = order.length - 1; k >= 0; k--) {
+      const i = /** @type {number} */ (order[k]);
+      let el = drawn.get(i);
+      if (!el) {
+        template.innerHTML = this.renderBlock(layout, i);
+        el = /** @type {HTMLElement} */ (template.content.firstElementChild);
+        body.insertBefore(el, before);
+        drawn.set(i, el);
+      }
+      before = el;
+    }
+    this._hangAttachment();
+
+    this._learnMetrics(win);
+    for (const [i, el] of drawn) {
+      const height = el.getBoundingClientRect().height;
+      if (height <= 0) continue;
+      const block = /** @type {DiffBlock} */ (layout.blocks[i]);
+      win.heights[i] = height + (block.last ? Math.max(0, this._metrics.gap) : 0);
+      win.measured[i] = 1;
+    }
+    win.sums = null;
+    const next = this._sums(win);
+
+    const start = /** @type {number} */ (order[0] ?? 0);
+    const end = /** @type {number} */ (order[order.length - 1] ?? -1) + 1;
+    win.top.style.height = `${next[start]}px`;
+    win.bottom.style.height = `${/** @type {number} */ (next[count]) - /** @type {number} */ (next[end])}px`;
+    for (let k = 1; k < order.length; k++) {
+      const a = /** @type {number} */ (order[k - 1]);
+      const b = /** @type {number} */ (order[k]);
+      if (b === a + 1) continue;
+      const gap = document.createElement('div');
+      gap.className = 'diff-spacer';
+      gap.setAttribute('aria-hidden', 'true');
+      gap.style.height = `${/** @type {number} */ (next[b]) - /** @type {number} */ (next[a + 1])}px`;
+      body.insertBefore(gap, /** @type {HTMLElement} */ (drawn.get(b)));
+      win.gaps.push(gap);
+    }
+
+    if (anchor) {
+      const moved = anchor.el.getBoundingClientRect().top - anchor.top;
+      if (Math.abs(moved) >= 1) {
+        if (win.scroller) win.scroller.scrollTop += moved;
+        else window.scrollBy(0, moved);
+      }
+    }
+  }
+
+  /**
+   * The blocks a windowed body keeps drawn wherever the reader is: the one the
+   * host's attachment hangs from, and the one holding the focus.
+   * @param {DiffWindow} win - The window.
+   * @returns {number[]} Their indices.
+   * @private
+   */
+  _pinnedBlocks(win) {
+    /** @type {number[]} */
+    const pinned = [];
+    const attachment = this._attachment;
+    if (attachment && attachment.side !== 'file' && attachment.line !== null) {
+      const at = this._blockOfLine(win.layout, attachment.side, attachment.line);
+      if (at !== null) pinned.push(at);
+    }
+    const active = document.activeElement;
+    const holder = active && win.body.contains(active) ? active.closest('[data-block]') : null;
+    if (holder instanceof HTMLElement) pinned.push(Number(holder.dataset.block));
+    return pinned;
+  }
+
+  /**
+   * The block a line is drawn in.
+   * @param {DiffLayout} layout - The blocks.
+   * @param {'old'|'new'} side - Which file.
+   * @param {number} line - Its number there.
+   * @returns {number|null} The block, or null when the diff does not hold the line.
+   * @private
+   */
+  _blockOfLine(layout, side, line) {
+    const where = this._lineIndex.get(`${side}:${line}`);
+    if (!where) return null;
+    let row = where.at;
+    if (layout.view === 'split') {
+      const number = side === 'old' ? 'oldLineNum' : 'newLineNum';
+      row = (layout.rows[where.hunk] || []).findIndex((pair) => pair[side]?.[number] === line);
+      if (row < 0) return null;
+    }
+    const first = layout.hunkFirst[where.hunk];
+    return first === undefined ? null : first + Math.floor(row / BLOCK_ROWS);
+  }
+
+  /**
+   * Learn, from what has just been drawn, the heights the blocks not yet drawn
+   * are estimated from: a row, a header, the gap after a hunk, a comment.
+   * @param {DiffWindow} win - The window.
+   * @private
+   */
+  _learnMetrics(win) {
+    const m = this._metrics;
+    const view = win.layout.view;
+    const row = win.body.querySelector(view === 'split' ? '.diff-row' : '.diff-line');
+    const rowHeight = row ? row.getBoundingClientRect().height : 0;
+    if (rowHeight > 0) m.row[view] = rowHeight;
+    const header = win.body.querySelector('diff-hunk-header');
+    const headerHeight = header ? header.getBoundingClientRect().height : 0;
+    if (headerHeight > 0) m.header = headerHeight;
+    if (m.gap < 0) {
+      const ending = win.body.querySelector('[data-block]:not([data-continues])');
+      if (ending && ending.getBoundingClientRect().height > 0) m.gap = parseFloat(getComputedStyle(ending).marginBottom) || 0;
+    }
+    const comment = win.body.querySelector('.diff-comment');
+    const commentHeight = comment ? comment.getBoundingClientRect().height : 0;
+    if (commentHeight > 0) m.comment = commentHeight;
+  }
+
+  /**
+   * A hunk's header: its range and heading, and when the viewer offers staging,
+   * the button that stages it or the picked part of it.
+   * @param {DiffHunk} hunk - The hunk.
+   * @param {number} index - Its place among the hunks drawn.
+   * @returns {string} The header as HTML.
+   * @private
+   */
+  renderHunkHeader(hunk, index) {
+    // Each hunk names its first line's commit again: the run above it is out of sight.
+    this._blameRun = undefined;
+    const heading = hunk.heading ? ` ${hunk.heading}` : '';
+    const range = escapeHtml(`@@ -${hunk.oldStart},${hunk.oldCount} +${hunk.newStart},${hunk.newCount} @@${heading}`);
+    if (!this._stageVerb) return `<diff-hunk-header>${range}</diff-hunk-header>`;
+    return `<diff-hunk-header>${range}`
+      + `<button type="button" class="btn btn-xs btn-neutral diff-stage-btn" data-hunk="${index}">${escapeHtml(this.stageLabel(hunk))}</button>`
+      + '</diff-hunk-header>';
+  }
+
+  /**
+   * What a hunk's staging button says: the whole hunk, or how many of its lines
+   * are picked.
+   * @param {DiffHunk} hunk - The hunk.
+   * @returns {string} The label, or nothing when the viewer offers no staging.
+   * @private
+   */
+  stageLabel(hunk) {
+    const verb = this._stageVerb;
+    if (!verb) return '';
+    const count = changedKeys(hunk).filter((key) => this._picked.has(key)).length;
+    return count === 0 ? t(STAGE_HUNK_LABELS[verb]) : t(STAGE_LINES_LABELS[verb], { count });
+  }
+
+  /**
+   * The attributes that make a changed line pickable, when the viewer offers
+   * staging: a toggle button in the tab order, pressed when picked.
+   * @param {DiffLine} line - The line.
+   * @returns {string} The attributes, with a leading space, or nothing.
+   * @private
+   */
+  stageAttributes(line) {
+    if (!this._stageVerb) return '';
+    const key = stageKey(line);
+    if (key === null) return '';
+    return ` role="button" tabindex="0" aria-pressed="${this._picked.has(key)}"`;
   }
 
   /**
@@ -875,8 +1791,9 @@ class DiffViewer extends JugglerElement {
     const number = side === 'old' ? line.oldLineNum : line.newLineNum;
     const data = number !== null ? ` data-${side}-line="${number}"` : '';
 
-    let html = `<div class="diff-line ${kind} ${side}"${data}>`;
-    html += lineNumberCell(side, number);
+    let html = `<div class="diff-line ${kind} ${side}"${data}${this.stageAttributes(line)}>`;
+    if (side === 'new') html += this.renderBlame(number);
+    html += lineNumberCell(side, this._shownNumber(number));
     html += this.renderAnchor(side, number);
     html += `<span class="line-prefix">${prefix}</span>`;
     html += `<span class="line-content">${this.lineMarkup(line)}</span>`;
@@ -896,19 +1813,35 @@ class DiffViewer extends JugglerElement {
     const side = /** @type {'old'|'new'} */ (
       line.type === 'remove' || line.newLineNum === null ? 'old' : 'new');
 
-    const numbers = lineNumberCell('old', line.oldLineNum) + lineNumberCell('new', line.newLineNum);
+    const numbers = lineNumberCell('old', this._shownNumber(line.oldLineNum))
+      + lineNumberCell('new', this._shownNumber(line.newLineNum));
     const data = [
       line.oldLineNum !== null ? ` data-old-line="${line.oldLineNum}"` : '',
       line.newLineNum !== null ? ` data-new-line="${line.newLineNum}"` : '',
     ].join('');
 
-    let html = `<div class="diff-line ${kind}"${data}>`;
+    let html = `<div class="diff-line ${kind}"${data}${this.stageAttributes(line)}>`;
+    html += this.renderBlame(line.newLineNum);
     html += numbers;
     html += this.renderAnchor(side, side === 'old' ? line.oldLineNum : line.newLineNum);
     html += `<span class="line-prefix">${prefix}</span>`;
     html += `<span class="line-content">${this.lineMarkup(line)}</span>`;
     html += '</div>';
     return html + this.renderLineComments(line);
+  }
+
+  /**
+   * A line's blame cell, while the gutter is on: nothing otherwise.
+   * @param {number|null} number - Its new-side number, null for a removal.
+   * @returns {string} The cell as HTML.
+   * @private
+   */
+  renderBlame(number) {
+    if (!this.blameOn) return '';
+    const at = this._blame && number !== null ? this._blame.lines[number - 1] : undefined;
+    const first = at !== undefined && at !== this._blameRun;
+    if (number !== null) this._blameRun = at;
+    return blameCell(this._blame, number, first);
   }
 
   /**
@@ -920,10 +1853,23 @@ class DiffViewer extends JugglerElement {
    */
   renderAnchor(side, number) {
     if (this._readOnly || number === null) return '';
-    const label = t('Add comment to {side, select, old {old} other {new}} line {line}{named, select, yes { in {path}} other {}}',
-      { side, line: lineNumber(number), named: this.filePath ? 'yes' : 'no', path: this.filePath });
+    const shown = this._formatLine(number);
+    const around = this._anchorLabels[side];
+    const label = around ? around[0] + escapeAttr(shown) + around[1] : escapeAttr(this.anchorLabel(side, shown));
     return `<button type="button" class="btn btn-icon btn-icon-sm btn-primary diff-comment-btn" data-side="${side}" data-line="${number}"`
-      + ` title="${escapeAttr(label)}" aria-label="${escapeAttr(label)}">+</button>`;
+      + ` title="${label}" aria-label="${label}">+</button>`;
+  }
+
+  /**
+   * What a comment anchor says.
+   * @param {'old'|'new'} side - Which file the line is in.
+   * @param {string} line - Its number, as it reads.
+   * @returns {string} The label.
+   * @private
+   */
+  anchorLabel(side, line) {
+    return t('Add comment to {side, select, old {old} other {new}} line {line}{named, select, yes { in {path}} other {}}',
+      { side, line, named: this.filePath ? 'yes' : 'no', path: this.filePath });
   }
 
   /**
@@ -936,11 +1882,8 @@ class DiffViewer extends JugglerElement {
    * @private
    */
   renderLineComments(line) {
-    const here = this.annotations.filter((annotation) => {
-      const number = annotation.side === 'old' ? line.oldLineNum : line.newLineNum;
-      return number !== null && this.anchorLine(annotation) === number && !this.isStale(annotation);
-    });
-    if (here.length === 0) return '';
+    const here = this._commentsAt(line.oldLineNum, line.newLineNum);
+    if (!here) return '';
     const side = /** @type {'old'|'new'} */ (here[0]?.side === 'old' ? 'old' : 'new');
     const number = this.anchorLine(/** @type {DiffAnnotation} */ (here[0]));
     return `<div class="diff-comments" data-side="${side}" data-line="${number}">`
@@ -1038,6 +1981,16 @@ class DiffViewer extends JugglerElement {
   }
 
   /**
+   * Whether a comment was set aside as outdated by this render.
+   * @param {DiffAnnotation} annotation - The comment.
+   * @returns {boolean} True when it can no longer be trusted to its line.
+   * @private
+   */
+  isStale(annotation) {
+    return this._staleComments.has(annotation);
+  }
+
+  /**
    * Whether the diff under a comment has changed since it was written. Silence
    * here would be the worst outcome of all: a line number that still exists in a
    * rewritten file would carry the comment onto code the reader never saw.
@@ -1045,14 +1998,14 @@ class DiffViewer extends JugglerElement {
    * @returns {boolean} True when it can no longer be trusted to its line.
    * @private
    */
-  isStale(annotation) {
+  outdated(annotation) {
     if (annotation.stale === true) return true;
     const revision = this.patch?.revision;
     if (revision && annotation.revision && annotation.revision !== revision) return true;
     if (annotation.side === 'file') return false;
     const line = this.anchorLine(annotation);
     if (line === null) return true;
-    return !this._rows.some((row) => (annotation.side === 'old' ? row.oldLine : row.newLine) === line);
+    return !this._lineIndex.has(`${annotation.side === 'old' ? 'old' : 'new'}:${line}`);
   }
 
   /**
@@ -1095,6 +2048,19 @@ class DiffViewer extends JugglerElement {
     const target = event.target instanceof Element ? event.target : null;
     if (!target) return;
 
+    if (target.closest('.diff-blame-btn')) {
+      this._blameOn = !this._blameOn;
+      this.render();
+      this._emit('diff-blame-toggle', { on: this._blameOn });
+      return;
+    }
+
+    const blamed = target.closest('.line-blame[data-sha]');
+    if (blamed instanceof HTMLElement) {
+      this._emit('diff-blame-select', { sha: blamed.dataset.sha || '' });
+      return;
+    }
+
     const layout = target.closest('.diff-view-btn');
     if (layout instanceof HTMLElement) {
       // Either button switches layout. Clicking the one already in force means
@@ -1108,6 +2074,22 @@ class DiffViewer extends JugglerElement {
     const anchor = target.closest('.diff-comment-btn');
     if (anchor instanceof HTMLElement) {
       this._requestComment(anchor, event.shiftKey === true);
+      return;
+    }
+
+    const stageButton = target.closest('.diff-stage-btn');
+    if (stageButton instanceof HTMLElement) {
+      this._requestStage(Number(stageButton.dataset.hunk));
+      return;
+    }
+
+    const pickable = this._stageVerb ? target.closest('.diff-line[aria-pressed]') : null;
+    if (pickable instanceof HTMLElement) {
+      // A click that ends a drag across the text is the reader selecting it to
+      // copy, not picking the line.
+      const selection = window.getSelection?.();
+      if (selection && !selection.isCollapsed && selection.containsNode(pickable, true)) return;
+      this._pickLine(pickable, event.shiftKey === true);
       return;
     }
 
@@ -1130,6 +2112,102 @@ class DiffViewer extends JugglerElement {
     if (!(select instanceof HTMLElement)) return;
     const lines = Number(/** @type {any} */ (select).value);
     this.setContextLines(Number.isFinite(lines) ? lines : WHOLE_FILE);
+  }
+
+  /**
+   * Space on a focused pickable line toggles it, as a click would. Only the line
+   * itself answers — Space on a button inside it is that button's — and nothing
+   * else is claimed: the keys that move between files and act on them belong to
+   * whatever hosts the viewer.
+   * @param {KeyboardEvent} event - The key.
+   * @private
+   */
+  _onKeyDown(event) {
+    if (event.key !== ' ' || !this._stageVerb) return;
+    const target = event.target;
+    if (!(target instanceof HTMLElement) || !target.matches('.diff-line[aria-pressed]')) return;
+    event.preventDefault();
+    this._pickLine(target, event.shiftKey === true);
+  }
+
+  /**
+   * The key of the changed line an element draws.
+   * @param {Element} element - A `.diff-line`.
+   * @returns {string|null} Its key, or null when it is not a changed line.
+   * @private
+   */
+  _lineKey(element) {
+    if (!(element instanceof HTMLElement)) return null;
+    if (element.classList.contains('remove') && element.dataset.oldLine) return `old:${element.dataset.oldLine}`;
+    if (element.classList.contains('add') && element.dataset.newLine) return `new:${element.dataset.newLine}`;
+    return null;
+  }
+
+  /**
+   * Toggle a line, or — held with shift — set every changed line from the last
+   * one clicked to this one, in file order, to the state the last one is in.
+   * Marked in place rather than re-rendered, so the focus stays on the line.
+   * @param {HTMLElement} element - The line clicked.
+   * @param {boolean} extend - Whether shift was held.
+   * @private
+   */
+  _pickLine(element, extend) {
+    const key = this._lineKey(element);
+    if (key === null) return;
+    const order = this._drawnHunks.flatMap(changedKeys);
+    const anchor = this._pickAnchor;
+    const from = extend && anchor !== null ? order.indexOf(anchor) : -1;
+    const to = order.indexOf(key);
+    if (anchor !== null && from >= 0 && to >= 0) {
+      const pick = this._picked.has(anchor);
+      for (const each of order.slice(Math.min(from, to), Math.max(from, to) + 1)) {
+        if (pick) this._picked.add(each);
+        else this._picked.delete(each);
+      }
+    } else if (this._picked.has(key)) {
+      this._picked.delete(key);
+    } else {
+      this._picked.add(key);
+    }
+    this._pickAnchor = key;
+    this._paintStageMarks();
+  }
+
+  /**
+   * Bring what is drawn into line with the selection: each pickable line's
+   * pressed state, and each hunk button's count.
+   * @private
+   */
+  _paintStageMarks() {
+    for (const line of this.querySelectorAll('.diff-line[aria-pressed]')) {
+      const key = this._lineKey(line);
+      line.setAttribute('aria-pressed', String(key !== null && this._picked.has(key)));
+    }
+    for (const button of this.querySelectorAll('.diff-stage-btn')) {
+      const hunk = this._drawnHunks[Number(/** @type {HTMLElement} */ (button).dataset.hunk)];
+      if (hunk) button.textContent = this.stageLabel(hunk);
+    }
+  }
+
+  /**
+   * Ask for a rendered hunk to be staged: the lines of it that are picked, or all
+   * of its changed lines when none is.
+   * @param {number} index - The hunk's place among those drawn.
+   * @private
+   */
+  _requestStage(index) {
+    const hunk = this._drawnHunks[index];
+    const verb = this._stageVerb;
+    if (!hunk || !verb) return;
+    const all = changedKeys(hunk);
+    const picked = all.filter((key) => this._picked.has(key));
+    const context = this.patch?.context;
+    this._emit('diff-stage-request', {
+      verb,
+      revision: this.patch?.revision ?? '',
+      context: typeof context === 'number' && Number.isFinite(context) ? context : null,
+      lines: (picked.length > 0 ? picked : all).map(stageCoordinate),
+    });
   }
 
   /**
@@ -1246,10 +2324,17 @@ registerContextMenuProvider({
  *   line. An annotatable viewer reports the reader's choice as a bubbling
  *   `diff-comment-request` event and draws back whatever `setAnnotations` is
  *   given; it keeps no comments of its own.
+ * @param {{verb: StageVerb}} [options.stage] - Offer line and hunk staging with
+ *   this verb; the same as calling `setStageable(verb)`, which says what the
+ *   viewer then does. Absent, nothing is pickable and no hunk has a button.
+ * @param {boolean} [options.blame] - Offer a blame gutter; the same as calling
+ *   `setBlameable(true)`, which says what the viewer then does.
  * @returns {DiffViewer} The element, not yet in the document.
  */
-export function createDiffViewer({ readOnly = true } = {}) {
+export function createDiffViewer({ readOnly = true, stage, blame = false } = {}) {
   const viewer = /** @type {DiffViewer} */ (document.createElement('diff-viewer'));
   viewer.readOnly = readOnly;
+  if (stage) viewer.setStageable(stage.verb);
+  if (blame) viewer.setBlameable(true);
   return viewer;
 }

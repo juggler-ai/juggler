@@ -725,3 +725,112 @@ func answerEngineRequests(w *ConversationWorker, tools []ToolDefinition, nextSpe
 	})
 	w.SetEngineClientID("engine")
 }
+
+// TestTurnSnapshotFiresOncePerUserTurn pins when the @turn snapshot is taken: as
+// a user turn starts on the root thread, once — not again when the turn's own
+// tool round-trip dispatches the next call, not for a Continue, and not for a
+// sub-thread's dispatch. Each is a dispatchCallLLMOnThread; only the first
+// starts a turn the user asked for.
+func TestTurnSnapshotFiresOncePerUserTurn(t *testing.T) {
+	mc := newMsgChan()
+	w := startDelegatingWorker(t, mc, []ToolDefinition{{Name: "bash"}}, nil)
+	releaseParkedRuns(t, w)
+
+	type snap struct{ conv, workspace string }
+	fired := make(chan snap, 16)
+	w.SetTurnSnapshot(func(convID, workspaceID string) { fired <- snap{convID, workspaceID} })
+	var snaps []snap
+	taken := func() []snap {
+		for {
+			select {
+			case s := <-fired:
+				snaps = append(snaps, s)
+			default:
+				return snaps
+			}
+		}
+	}
+	w.doc.SetMetadata(metaWorkspaceID, "ws-turn")
+
+	text := func(s string) MockResponse {
+		return MockResponse{Blocks: []LLMResponseBlock{{Type: provider.ContentBlockTypeText, Content: s}}, StopReason: "end_turn"}
+	}
+	w.setMockResponses([]MockResponse{
+		{
+			Blocks:     []LLMResponseBlock{{Type: "tool_use", ID: "tu-snap", Name: "bash", Input: json.RawMessage(`{"command":"true"}`)}},
+			StopReason: "tool_use",
+		},
+		text("after the tool"),
+		text("continued"),
+		text("child answer"),
+		text("second turn"),
+	})
+
+	waitFor := func(what string, cond func() bool) {
+		t.Helper()
+		deadline := time.After(10 * time.Second)
+		for !cond() {
+			select {
+			case <-deadline:
+				t.Fatalf("timed out waiting for %s (snapshots %v, %d scripted turns left)", what, taken(), w.mock().remaining())
+			case <-time.After(5 * time.Millisecond):
+			}
+		}
+	}
+	settled := func(left int) func() bool {
+		return func() bool { return w.mock().remaining() == left && !w.sched.hasLive() && w.anyRunState() == StateIdle }
+	}
+	hasTool := func() bool {
+		for _, item := range w.doc.GetItems() {
+			if item.ToolUseID == "tu-snap" {
+				return true
+			}
+		}
+		return false
+	}
+
+	// A user turn whose tool round-trip is finished by hand, as the engine would.
+	sendUserMessage(t, w, "run the tool")
+	waitFor("the tool-action", hasTool)
+	if err := w.doc.UpdateItemByToolUseID("tu-snap", "state", StateApproved); err != nil {
+		t.Fatal(err)
+	}
+	signalItemsChange(w)
+	if err := w.doc.UpdateItemByToolUseID("tu-snap", "result", map[string]any{"content": "ok", "isError": false}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.doc.UpdateItemByToolUseID("tu-snap", "state", StateCompleted); err != nil {
+		t.Fatal(err)
+	}
+	signalItemsChange(w)
+	waitFor("the turn to finish after its tool", settled(3))
+	want := []snap{{"conv-live-turn", "ws-turn"}}
+	if got := taken(); len(got) != 1 || got[0] != want[0] {
+		t.Fatalf("after one user turn with a tool round-trip, snapshots = %v, want %v", got, want)
+	}
+
+	// A Continue is not a new user turn.
+	payload, err := json.Marshal(SendMessageMessage{Type: "send-message", IsContinuation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Send("send-message", payload)
+	waitFor("the Continue's turn", settled(2))
+	if got := taken(); len(got) != 1 {
+		t.Fatalf("a Continue took a snapshot: %v", got)
+	}
+
+	// Nor is a sub-thread's dispatch.
+	insertReadOnlyChild(w, "read it", "look")
+	waitFor("the sub-thread's turn", settled(1))
+	if got := taken(); len(got) != 1 {
+		t.Fatalf("a sub-thread's dispatch took a snapshot: %v", got)
+	}
+
+	// The next user turn takes the next one.
+	sendUserMessage(t, w, "again")
+	waitFor("the second user turn", settled(0))
+	if got := taken(); len(got) != 2 || got[1] != want[0] {
+		t.Fatalf("after a second user turn, snapshots = %v, want two of %v", got, want[0])
+	}
+}

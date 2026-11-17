@@ -26,6 +26,8 @@ import pinboardItemRegistry from '../../js/registries/pinboard-item-registry.js'
 import PinboardItemType from 'juggler/pinboard-item-type';
 import gitStatusCache from '../../js/services/git-status-cache.js';
 import gitReviewService from '../../js/services/git-review-service.js';
+import { setGitWorkspace } from '../../js/services/git-workspace.js';
+import wsService from '../../js/services/websocket.js';
 import '../../js/components/pinboard-content.js';
 import { createReviewPanel } from '../../js/components/review-panel.js';
 
@@ -524,16 +526,55 @@ export async function runTests() {
         'a review is a property of the project, so a detached board asks the server itself');
     });
 
+    // --- watching the tree ------------------------------------------------------
+
+    await run('watch hears the tree in view, and nothing once the pin has gone', async () => {
+      const socket = /** @type {any} */ (wsService);
+      const originalSend = wsService.sendGitWatch;
+      /** @type {string[][]} */
+      const asked = [];
+      wsService.sendGitWatch = /** @type {any} */ ((/** @type {string[]} */ ids) => {
+        asked.push([...ids]);
+        return true;
+      });
+      try {
+        setGitWorkspace('ws_seen');
+        /** @type {any[]} */
+        const heard = [];
+        const watching = service();
+        watching.watch((/** @type {any} */ event) => heard.push(event));
+        assert(asked.some((ids) => ids.includes('ws_seen')),
+          `the tree in view is watched, asked ${JSON.stringify(asked)}`);
+
+        socket._emit('git-change', { type: 'git-change', workspace: '', repos: [{ path: '', kinds: ['index'] }] });
+        socket._emit('git-change', { type: 'git-change', workspace: 'ws_seen', repos: [{ path: '', kinds: ['worktree'] }] });
+        await waitFor(() => heard.length > 0, 'the change to the tree in view');
+        await nextTask();
+        const changes = heard.filter((e) => e.type === 'git-change');
+        assert(changes.length === 1 && changes[0].workspace === 'ws_seen' && changes[0].repos[0].kinds[0] === 'worktree',
+          `heard ${JSON.stringify(heard)}, want only the change to ws_seen`);
+
+        content.setPin({ id: 'pin_watch_gone', type: 'git-review-probe', config: {} }, activeContext());
+        await waitFor(() => probe.context.pin.id === 'pin_watch_gone', 'the next pin never mounted');
+        const before = heard.length;
+        socket._emit('git-change', { type: 'git-change', workspace: 'ws_seen', repos: [{ path: '', kinds: ['head'] }] });
+        await nextTask();
+        assert(heard.length === before, `a pin that has gone still heard ${JSON.stringify(heard.slice(before))}`);
+      } finally {
+        wsService.sendGitWatch = originalSend;
+        setGitWorkspace('');
+      }
+    });
+
     // --- taking focus ----------------------------------------------------------
 
     await run('taking focus moves the rail and nothing above it', async () => {
       // The panel is the body of a pin, and the board holding it is parked off
       // the right edge of the workspace by a transform until it has slid in. A
       // plain focus() there makes the browser scroll every ancestor to reveal
-      // it — and `.app-main` is `overflow: hidden`, which is a scroll box with
-      // the scrollbar taken away. The columns lurch left, the sliding panel
-      // overshoots with them, and it springs back when the transform settles.
-      // So focus must scroll the rail it landed in, and nothing outside it.
+      // it. (`.app-main` refuses to scroll — pinboard-shell's own test holds
+      // it to that — but the panel should not lean on it.) So focus must
+      // scroll the rail it landed in, and nothing outside it.
       const workspace = document.createElement('div');
       workspace.style.cssText = 'position:relative;width:600px;height:400px;overflow:hidden';
       const parked = document.createElement('div');

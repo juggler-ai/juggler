@@ -246,5 +246,41 @@ export async function runTests(_ctx) {
     }
   }
 
+  // Test 3: stopping one conversation cancels its own tools and no other's. The
+  // engine runs every conversation's tools, concurrent agent runs included, so a
+  // stop that cancelled the executor's whole registry would abort work in
+  // conversations nobody asked to stop.
+  {
+    /** @type {string[]} */
+    const created = [];
+    try {
+      const stopped = await createTestConversation(session);
+      created.push(stopped.id);
+      const bystander = await createTestConversation(session);
+      created.push(bystander.id);
+
+      const { run: stoppedRun } = await startHangingTool(session, stopped, 'stop-stopped');
+      const { run: bystanderRun } = await startHangingTool(session, bystander, 'stop-bystander');
+
+      stopped.stopProcessing('test');
+
+      const stoppedResult = await withTimeout(stoppedRun, 4000, 'the stopped conversation\'s tool never settled');
+      assert(stoppedResult.success === false, 'a stopped conversation\'s tool must settle as unsuccessful');
+      assert(actionExecutor.executingSetFor(bystander.id).length === 1,
+        'stopping one conversation must leave another conversation\'s tool running');
+
+      actionExecutor.cancelByToolUseId('stop-bystander', bystander.id);
+      await withTimeout(bystanderRun, 4000, 'the bystander\'s tool never settled after its own cancel');
+
+      passed++;
+    } catch (e) {
+      failed++;
+      errors.push(`stopProcessing cancels only its own tools: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      actionExecutor.cancelAllActions();
+      for (const id of created) await deleteOnServer(id);
+    }
+  }
+
   return { passed, failed, errors };
 }

@@ -1,0 +1,110 @@
+//     ▄▄ ▄▄ ▄▄  ▄▄▄▄  ▄▄▄▄ ▄▄    ▄▄▄▄▄ ▄▄▄▄
+//     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
+//   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   Apache-2.0 - see LICENSE
+// SPDX-License-Identifier: Apache-2.0
+
+/**
+ * The command log: the exact git each action in the pin ran, newest last, with
+ * what a failed one printed. Closed it is one line — the last command — and a
+ * click opens it; it starts from the tree's `jobs()` and is kept current by the
+ * `git-job` events the pin hears. A network write shows its meter's last phase.
+ * @module pins/git/command-log
+ */
+
+import { translator } from 'juggler/i18n';
+import { createElement } from 'juggler/ui';
+import { progressText } from './primary.js';
+
+const t = translator('@juggler/core');
+
+/** How many jobs the log keeps. */
+const KEEP = 100;
+
+/**
+ * @typedef {import('juggler/pinboard-item-type').PinGitJob} PinGitJob
+ * @typedef {object} CommandLog
+ * @property {HTMLElement} element - The strip, to be placed in the pin.
+ * @property {(jobs: PinGitJob[]) => void} setJobs - Start from these, newest first.
+ * @property {(job: PinGitJob) => void} upsert - A job started or moved.
+ * @property {() => void} toggle - Open or close it.
+ * @property {() => boolean} isOpen - Whether it is open.
+ */
+
+/**
+ * The state of a job in a word.
+ * @param {string} state - The job's state.
+ * @returns {string} Its word.
+ */
+function stateWord(state) {
+  return t('{state, select, running {running} done {done} failed {failed} cancelled {cancelled} other {{state}}}', { state });
+}
+
+/**
+ * @returns {CommandLog} A closed, empty log.
+ */
+export function createCommandLog() {
+  const element = createElement('div', 'git-pin__log');
+  const toggleButton = /** @type {HTMLButtonElement} */ (createElement('button', 'git-pin__log-toggle text-truncate'));
+  toggleButton.type = 'button';
+  toggleButton.setAttribute('aria-expanded', 'false');
+  const list = createElement('div', 'git-pin__log-list');
+  list.hidden = true;
+  element.append(toggleButton, list);
+
+  /** @type {PinGitJob[]} Oldest first. */
+  let jobs = [];
+
+  /**
+   * @param {PinGitJob} job - A job.
+   * @returns {string[]} Its commands as typed.
+   */
+  const commandLines = (job) => (job.commands || []).map((argv) => `$ git ${argv.join(' ')}`);
+
+  const render = () => {
+    const open = toggleButton.getAttribute('aria-expanded') === 'true';
+    const last = jobs.at(-1);
+    toggleButton.textContent = last
+      ? (commandLines(last).at(-1) || `$ ${last.kind}`)
+      : t('The git commands this pin runs appear here');
+    toggleButton.title = open ? t('Hide the command log') : t('Show every git command this pin ran');
+    list.hidden = !open;
+    if (!open) return;
+    list.replaceChildren(...jobs.map((job) => {
+      const entry = createElement('div', 'git-pin__log-entry');
+      entry.dataset.state = job.state;
+      const commands = commandLines(job);
+      entry.append(createElement('div', 'git-pin__log-cmd', commands.length ? commands.join('\n') : `$ ${job.kind}`));
+      entry.append(createElement('div', 'git-pin__log-state', stateWord(job.state)));
+      const progress = progressText(job.progress);
+      if (progress) entry.append(createElement('div', 'git-pin__log-progress', progress));
+      if (job.state === 'failed' && (job.output || job.error)) {
+        entry.append(createElement('pre', 'git-pin__log-output', [job.output, job.error].filter(Boolean).join('\n')));
+      }
+      return entry;
+    }));
+  };
+
+  toggleButton.addEventListener('click', () => api.toggle());
+
+  const api = {
+    element,
+    setJobs: (/** @type {PinGitJob[]} */ newestFirst) => {
+      jobs = [...newestFirst].reverse().slice(-KEEP);
+      render();
+    },
+    upsert: (/** @type {PinGitJob} */ job) => {
+      const at = jobs.findIndex((j) => j.id === job.id);
+      if (at >= 0) jobs[at] = job;
+      else jobs.push(job);
+      if (jobs.length > KEEP) jobs = jobs.slice(-KEEP);
+      render();
+    },
+    toggle: () => {
+      toggleButton.setAttribute('aria-expanded', String(toggleButton.getAttribute('aria-expanded') !== 'true'));
+      render();
+    },
+    isOpen: () => toggleButton.getAttribute('aria-expanded') === 'true',
+  };
+  render();
+  return api;
+}

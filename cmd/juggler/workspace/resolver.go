@@ -6,6 +6,9 @@ package workspace
 
 import (
 	"juggler/cmd/juggler/core"
+	"juggler/cmd/juggler/gitattr"
+	"juggler/cmd/juggler/gitops"
+	"juggler/cmd/juggler/gitview"
 	"juggler/cmd/juggler/msg"
 	"juggler/cmd/juggler/ops"
 )
@@ -24,6 +27,10 @@ type Resolver struct {
 	project func() string
 	lookup  core.WorkspaceLookup
 	index   func() ops.PathSearcher
+	git     func() *gitops.Watcher
+	queue   func() *gitops.Queue
+	graphs  func() *gitview.Graphs
+	convs   func() gitattr.Directory
 }
 
 // NewResolver builds a Resolver over the live project path, the session's
@@ -33,6 +40,36 @@ type Resolver struct {
 // "@" search is a prefix scan only.
 func NewResolver(project func() string, lookup core.WorkspaceLookup, index func() ops.PathSearcher) *Resolver {
 	return &Resolver{project: project, lookup: lookup, index: index}
+}
+
+// WithGitWatcher gives every tree it resolves the server's git watcher, read on
+// every Resolve like the rest. Without one, a tree's GitWatch refuses.
+func (r *Resolver) WithGitWatcher(git func() *gitops.Watcher) *Resolver {
+	r.git = git
+	return r
+}
+
+// WithGitQueue gives every tree it resolves the server's git write queue, read
+// on every Resolve like the rest. Without one, a tree's GitRun refuses.
+func (r *Resolver) WithGitQueue(queue func() *gitops.Queue) *Resolver {
+	r.queue = queue
+	return r
+}
+
+// WithGitGraphs gives every tree it resolves the server's store of History
+// lists, read on every Resolve like the rest. Without one, a tree's log reads
+// refuse.
+func (r *Resolver) WithGitGraphs(graphs func() *gitview.Graphs) *Resolver {
+	r.graphs = graphs
+	return r
+}
+
+// WithConversations gives every tree it resolves the project's conversations,
+// read on every Resolve like the rest. Without them, a tree's attribution
+// reads refuse.
+func (r *Resolver) WithConversations(convs func() gitattr.Directory) *Resolver {
+	r.convs = convs
+	return r
 }
 
 // Resolve returns the workspace an id names, or the reason it cannot be worked
@@ -50,7 +87,7 @@ func NewResolver(project func() string, lookup core.WorkspaceLookup, index func(
 func (r *Resolver) Resolve(id string) (Workspace, error) {
 	project := r.project()
 	if id == core.DefaultWorkspaceID {
-		return r.withIndex(&local{root: project, isProject: true}), nil
+		return r.withGit(r.withIndex(&local{root: project, isProject: true})), nil
 	}
 	if r.lookup == nil {
 		return nil, msg.NewError("no session is loaded, so workspace {id} cannot be resolved", "id", id)
@@ -64,9 +101,27 @@ func (r *Resolver) Resolve(id string) (Workspace, error) {
 		return nil, err
 	}
 	if w, ok := ws.(*local); ok {
-		r.withIndex(w)
+		r.withGit(r.withIndex(w))
 	}
 	return ws, nil
+}
+
+// withGit gives a tree the server's git watcher, write queue, graph store and
+// conversations, when there are any.
+func (r *Resolver) withGit(w *local) *local {
+	if r.graphs != nil {
+		w.graphs = r.graphs()
+	}
+	if r.git != nil {
+		w.git = r.git()
+	}
+	if r.queue != nil {
+		w.queue = r.queue()
+	}
+	if r.convs != nil {
+		w.convs = r.convs()
+	}
+	return w
 }
 
 // withIndex gives the project's tree the project's path index.

@@ -117,7 +117,12 @@ func (s *Server) RegisterTestRoutes(testAPI any) {
 	s.testPool.laneWait.Store(&wait)
 	api.HandleFunc("/lanes", lanes.handleReport).Methods("GET")
 	api.HandleFunc("/run", rapi.HandleRun).Methods("POST")
-	api.HandleFunc("/pending", lanes.wrap(lanes.polled, rapi.HandlePending)).Methods("GET")
+	api.HandleFunc("/pending", lanes.pending(rapi.HandlePending)).Methods("GET")
+	// A lane page's word that its script runs and its poll loop has not started
+	// yet: while its module graph loads, the only sign it is getting further.
+	api.HandleFunc("/booting", lanes.wrap(lanes.booting, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})).Methods("GET")
 	api.HandleFunc("/result", rapi.HandlePostResult).Methods("POST")
 	api.HandleFunc("/result", rapi.HandleGetResult).Methods("GET")
 	api.HandleFunc("/names", rapi.HandlePostNames).Methods("POST")

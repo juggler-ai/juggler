@@ -284,8 +284,12 @@ func scopedFiles(ctx context.Context, dir string, scope resolvedScope, status Re
 	if err != nil {
 		return nil, err
 	}
-	meta := parseGitRawDiff(out.Kept)
+	return scopedFilesFrom(ctx, dir, scope, status, parseGitRawDiff(out.Kept))
+}
 
+// scopedFilesFrom is scopedFiles given the raw diff of the scope, which it may
+// change. Only a scope against the working tree runs git here.
+func scopedFilesFrom(ctx context.Context, dir string, scope resolvedScope, status RepoStatus, meta map[string]gitFileMeta) ([]gitFileStatus, error) {
 	inStatus := make(map[string]gitFileStatus, len(status.Files))
 	for _, file := range status.Files {
 		inStatus[file.Path] = file

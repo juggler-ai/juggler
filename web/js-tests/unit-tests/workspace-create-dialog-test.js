@@ -111,6 +111,31 @@ class SecondKindProvider extends WorkspaceProvider {
 }
 
 /**
+ * A kind that remembers what its form was opened with, for the case that opens
+ * the dialog already knowing what it wants made.
+ */
+class RemembersValues extends WorkspaceProvider {
+  static MANIFEST = {
+    id: 'remembers-values-workspace-provider',
+    name: 'Remembers what it was given',
+    version: '1.0.0',
+    description: 'Says back the values its form opened with'
+  };
+
+  /** @type {any} What the last form was rendered with. */
+  static opened = null;
+
+  /**
+   * @param {HTMLElement} container - Where its fields go.
+   * @param {any} ctx - What the host renders it with.
+   */
+  renderSetup(container, ctx) {
+    RemembersValues.opened = ctx?.values ?? null;
+    container.appendChild(document.createElement('input'));
+  }
+}
+
+/**
  * The dialog's rows, as the DOM holds them.
  * @returns {HTMLElement[]} Every place row on screen.
  */
@@ -200,6 +225,9 @@ export async function runTests() {
     if (!workspaceProviderRegistry.get(SecondKindProvider.MANIFEST.id)) {
       workspaceProviderRegistry.registerClass(SecondKindProvider, { extensionId: 'test', modulePath: '(test)' });
     }
+    if (!workspaceProviderRegistry.get(RemembersValues.MANIFEST.id)) {
+      workspaceProviderRegistry.registerClass(RemembersValues, { extensionId: 'test', modulePath: '(test)' });
+    }
 
     await run('it offers only the ways to make one', async () => {
       // The suite has a registered workspace on the table and the session has a
@@ -270,6 +298,27 @@ export async function runTests() {
         const create = /** @type {HTMLButtonElement} */ (document.querySelector('.workspace-create-commit'));
         assert(create.disabled,
           'and Create is refused until the form says it may be pressed');
+      } finally {
+        press('.workspace-create-cancel');
+        await settled;
+      }
+    });
+
+    await run('a caller that knows what it wants opens on that kind, its form filled in', async () => {
+      // The git client's "New worktree from here…": the provider's own form,
+      // with what the client knows already in it, and Create still the user's.
+      RemembersValues.opened = null;
+      const settled = openWorkspaceCreate(session, {
+        providerId: RemembersValues.MANIFEST.id,
+        values: { branch: 'feat/from-here', base: 'origin/main' }
+      });
+      try {
+        await waitFor(() => RemembersValues.opened !== null, 2000);
+        const opened = rowsOnScreen().find((row) => row.getAttribute('aria-checked') === 'true');
+        assert(opened?.dataset.rowId === NEW_ROW_PREFIX + RemembersValues.MANIFEST.id,
+          `it opens on the kind asked for, got ${JSON.stringify(opened?.dataset.rowId)}`);
+        assert(RemembersValues.opened.branch === 'feat/from-here' && RemembersValues.opened.base === 'origin/main',
+          `and its form is rendered with the values given, got ${JSON.stringify(RemembersValues.opened)}`);
       } finally {
         press('.workspace-create-cancel');
         await settled;

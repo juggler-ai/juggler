@@ -38,7 +38,7 @@ func watcherForEvents(t *testing.T, rels ...string) (*FileWatcher, string) {
 	if len(rels) > 0 {
 		writeTree(t, root, rels)
 	}
-	w, err := NewFileWatcher(root)
+	w, err := newFileWatcher(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +211,7 @@ func TestFileWatcher_TheMemoryDirectoryIsWatched(t *testing.T) {
 func TestFileWatcher_AMissingMemoryDirectoryIsNotAnError(t *testing.T) {
 	root := t.TempDir()
 	writeTree(t, root, []string{"src/main.go"})
-	w, err := NewFileWatcher(root)
+	w, err := newFileWatcher(root)
 	if err != nil {
 		t.Fatalf("a project with no .juggler directory must still be watchable: %v", err)
 	}

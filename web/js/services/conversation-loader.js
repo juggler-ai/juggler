@@ -143,11 +143,14 @@ export class ConversationLoader {
    * @param {string} id - Server-allocated conversation id
    * @param {string} name - Server-canonical conversation name (folder name on disk)
    * @param {import('../model/session.js').default} session - Parent session
-   * @param {{workspaceId?: string}} [options] - The tree it will work in, which
-   *   is where in the tab bar it belongs — see `Session#_placeNewConversation`
+   * @param {{workspaceId?: string, unplaced?: boolean}} [options] - `workspaceId`:
+   *   the tree it will work in, which is where in the tab bar it belongs — see
+   *   `Session#_placeNewConversation`. `unplaced`: the conversation has no place
+   *   in the tab bar at all (an agent run's), so it is only registered — the
+   *   same registration an auto-load gives it, so either may come first.
    * @returns {Promise<import('../model/conversation.js').default>} Fully initialized conversation
    */
-  async createNew(id, name, session, { workspaceId = '' } = {}) {
+  async createNew(id, name, session, { workspaceId = '', unplaced = false } = {}) {
     // Check if already creating (lock via in-flight promise). In the ENGINE this
     // is the normal path, not a rarity: the worker the server spawns for the new
     // conversation flushes its first yjs-sync before the create's HTTP response
@@ -164,8 +167,19 @@ export class ConversationLoader {
       return conversation;
     }
 
+    // The same race with the load already over — nothing brackets an agent
+    // run's create, so its auto-load is not held back and can finish before the
+    // HTTP response does. The loaded conversation is the one its worker syncs
+    // to. A fresh one built in its place would find the worker entry already
+    // there, so its spawn sends no init, and its document is never sent anything.
+    const loaded = session.getConversation(id);
+    if (loaded && this._wm.workerState(id) === 'ready') {
+      await this._ensureNewConversationSystemPrompt(loaded);
+      return loaded;
+    }
+
     // Start creation (atomic)
-    const promise = this._doCreateNew(name, session, id, workspaceId);
+    const promise = this._doCreateNew(name, session, id, workspaceId, unplaced);
     this._inFlight.set(id, promise);
 
     try {
@@ -197,10 +211,11 @@ export class ConversationLoader {
    * @param {import('../model/session.js').default} session - Parent session
    * @param {string} id - Generated conversation ID
    * @param {string} [workspaceId] - The tree it will work in, if it is one
+   * @param {boolean} [unplaced] - Register it without giving it a place in the tab bar
    * @returns {Promise<import('../model/conversation.js').default>} Fully initialized conversation
    * @private
    */
-  async _doCreateNew(name, session, id, workspaceId = '') {
+  async _doCreateNew(name, session, id, workspaceId = '', unplaced = false) {
     try {
       // 1. Create conversation instance
       const services = session.getServices();
@@ -227,7 +242,7 @@ export class ConversationLoader {
       // (broadcast echo, etc.) sees the new tab in its final position rather
       // than briefly painting it at the end of the bar, or briefly dragging a
       // workspace's whole box up there with it.
-      session.adoptConversation(id, conversation, { atHead: true, workspaceId, from: 'loader.createNew' });
+      session.adoptConversation(id, conversation, { atHead: !unplaced, workspaceId, from: 'loader.createNew' });
 
       // 2. Spawn worker with full metadata (LoadFromDisk: false)
       const workerInit = conversation.getWorkerInitData();

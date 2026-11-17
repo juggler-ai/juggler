@@ -81,8 +81,11 @@ type windowApp struct {
 // — the engine's own startup policy (startEngineHost), for the same failure.
 // On Windows a web view's first load occasionally hangs with nothing reported,
 // its pages served and none of their script ever running, and a reload clears
-// it. A load that is slow but still getting further is left to finish, since a
-// reload would only restart it. One that is still stalled after the reload is
+// it. A load that is slow but still getting further — a lane page booting
+// counts — is left to finish, since a reload would only restart it. From the
+// give-up on, the server hands no work to a lane until its page is served
+// again, so a lane of the old load that asks before the reload replaces it
+// takes nothing down with it. One that is still stalled after the reload is
 // left for the harness, whose lane report then shows it.
 func (a *windowApp) reloadStalledPool() {
 	if a.srv.WaitForTestLanes(a.poolLanes, engineReloadAfter) {

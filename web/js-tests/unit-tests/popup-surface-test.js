@@ -414,6 +414,63 @@ export async function runTests() {
       }
     });
 
+    await run('pressing the trigger again closes its popup rather than reopening it', async () => {
+      __resetPopupManagerForTests();
+      const button = document.createElement('button');
+      const label = document.createElement('span');
+      button.append(label);
+      const region = document.createElement('div');
+      const inRegion = document.createElement('button');
+      region.append(inRegion);
+      document.body.append(button, region);
+      let opens = 0;
+      /** @type {(() => void)|null} */
+      let release = null;
+      /** @type {{surface: HTMLElement|null}} */
+      const shown = { surface: null };
+      const close = () => { release?.(); release = null; };
+      // A trigger that keeps no open flag of its own: it opens on every click.
+      const open = (/** @type {HTMLElement} */ anchor) => {
+        close();
+        opens++;
+        const surface = document.createElement('nav');
+        surface.className = 'toggle-test-surface';
+        shown.surface = surface;
+        release = presentPopup({ surface, anchor, id: 'toggle-test', onClose: close, insideSelectors: ['.toggle-test-surface'] });
+      };
+      button.addEventListener('click', () => open(button));
+      let regionClicks = 0;
+      inRegion.addEventListener('click', () => { regionClicks++; });
+      try {
+        button.click();
+        await nextTask();
+        assert(opens === 1 && isAnyPopupOpen(), 'the first press opens it');
+
+        label.click();
+        await nextTask();
+        assert(opens === 1, `the second press, on the trigger's label, opened it again (${opens} opens)`);
+        assert(!release && !shown.surface?.isConnected && !isAnyPopupOpen(), 'the second press closes it');
+
+        button.click();
+        await nextTask();
+        assert(opens === 2 && isAnyPopupOpen(), 'a third press opens it once more');
+
+        // Hung off a region rather than a control, a click on a control inside
+        // the region closes the popup and still does what it does.
+        close();
+        open(region);
+        await nextTask();
+        inRegion.click();
+        assert(regionClicks === 1, 'a control inside a region anchor lost its click');
+        assert(!isAnyPopupOpen(), 'the click in the region left the popup open');
+      } finally {
+        close();
+        button.remove();
+        region.remove();
+        __resetPopupManagerForTests();
+      }
+    });
+
     await run('an ordinary open then close leaves nothing behind', async () => {
       __resetPopupManagerForTests();
       const host = mountHost();

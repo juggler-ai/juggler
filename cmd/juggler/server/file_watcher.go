@@ -12,6 +12,7 @@ import (
 
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/extmanifest"
+	"juggler/cmd/juggler/gitops"
 	"juggler/internal/jlog"
 	"juggler/internal/projectpaths"
 
@@ -39,7 +40,9 @@ const pluginReloadDebounce = 300 * time.Millisecond
 func (s *Server) StartBackgroundServices() {
 	st := s.projectState.Load()
 	if st != nil && st.fileWatcher == nil {
-		fw, err := core.NewFileWatcher(st.projectPath)
+		// The git feed is the git watcher's: the project's tree is told of its
+		// working tree by this watcher rather than by one of its own.
+		fw, err := core.NewFileWatcherWith(st.projectPath, core.FileWatcherOptions{GitFeed: true})
 		if err != nil {
 			jlog.Error("Failed to create file watcher: %v", err)
 		} else {
@@ -49,6 +52,12 @@ func (s *Server) StartBackgroundServices() {
 			newSt := *st
 			newSt.fileWatcher = fw
 			newSt.fileChangesCh = make(chan struct{})
+			if gw, err := gitops.NewWatcher(st.projectPath, fw); err != nil {
+				jlog.Error("Failed to create git watcher: %v", err)
+			} else {
+				gw.AttributeShells(runningShells)
+				newSt.gitWatcher = gw
+			}
 			s.projectState.Store(&newSt)
 			go s.forwardFileChanges(&newSt)
 		}

@@ -426,6 +426,22 @@ function parseUnmerged(text) {
 /**
  * A git worktree, as a place a conversation can work.
  */
+/**
+ * Whether an open row of this provider still describes a tree its path matched:
+ * the tree is on the branch the row was made for, or the row names none. A row
+ * on a tree that has moved to another branch is a stale record — reconcile
+ * tombstones it — and anything else that asks "is this tree that workspace?"
+ * (the git client's worktree list) asks here, so the two cannot disagree.
+ * @param {any} row - A workspace row whose root is the tree.
+ * @param {{branch?: string}} tree - The tree as `git worktree list` describes it.
+ * @returns {boolean} Whether the row is that tree's workspace.
+ */
+export function tracksTree(row, tree) {
+  if (row?.state === 'closed') return false;
+  const expected = String(row?.meta?.branch ?? '');
+  return !expected || (tree?.branch ?? '') === expected;
+}
+
 class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
   static MANIFEST = {
     id: 'git-worktree',
@@ -2394,7 +2410,7 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
         }
         found.delete(treeRel);
         const expected = String(workspace?.meta?.branch ?? '');
-        if (expected && tree.branch !== expected) {
+        if (!tracksTree(workspace, tree)) {
           orphanedWorkspaces.push({
             ...workspace,
             tombstone: true,

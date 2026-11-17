@@ -14,8 +14,8 @@
       "imports": ["web/js/utils/compaction-utils.js"]
     },
     "web/sdk/ops.js": {
-      "why": "the host operations themselves",
-      "imports": ["web/js/services/fs.js", "web/js/services/ops-api.js", "web/js/services/shell-streaming.js"]
+      "why": "the host operations themselves, and agent runs carried out by the host",
+      "imports": ["web/js/services/agent-runs.js", "web/js/services/fs.js", "web/js/services/git-attribution.js", "web/js/services/ops-api.js", "web/js/services/shell-streaming.js"]
     },
     "web/sdk/pinboard.js": {
       "why": "pins go to the host's board; pin descriptors come from the loaded extensions",
@@ -33,9 +33,11 @@
       "why": "the host's own UI components and formatters, so an extension's UI matches the app's",
       "imports": [
         "web/js/components/diff-viewer.js",
+        "web/js/components/modal-dialog.js",
         "web/js/components/project-picker.js",
         "web/js/components/reveal-button.js",
         "web/js/components/review-panel.js",
+        "web/js/services/context-menu-service.js",
         "web/js/services/key-shortcut-manager.js",
         "web/js/services/nearest-context-item.js",
         "web/js/utils/asset-url.js",

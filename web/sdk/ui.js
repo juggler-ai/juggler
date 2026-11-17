@@ -44,6 +44,10 @@ export { positionDropdown } from './lib/dropdown-positioning.js';
 // Popup presentation (anchored dropdown ↔ phone bottom sheet)
 export { presentPopup } from '../js/utils/popup-surface.js';
 
+// The app's dialog holding an extension's own fields, with Cancel and a confirm
+// button — for asking for a name or a message the way the app itself does
+export { showFormDialog } from '../js/components/modal-dialog.js';
+
 // Properties-panel building blocks
 export {
   createCopyButton,
@@ -102,6 +106,11 @@ export { formatRelativeDateTime, formatTokens } from '../js/utils/format.js';
 
 // Keyboard navigation for a role="menu" popup (arrow keys, Home/End, Escape)
 export { attachMenuKeyboard, focusMenuItem } from '../js/utils/menu-roles.js';
+
+// The app's context menu, opened at a point (for a long-press, or a ⋯ button)
+// or on a right-click within an element an extension draws, with the same
+// chrome and dismissal as every other context menu
+export { contextMenuFor, openMenuAt } from '../js/services/context-menu-service.js';
 
 // A background task's live output, tailed while it runs, and the control that
 // says whether its output is delivered to the model

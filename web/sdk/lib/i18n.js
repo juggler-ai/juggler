@@ -769,6 +769,20 @@ export function formatNumber(value, options) {
 }
 
 /**
+ * {@link formatNumber} for a caller formatting many numbers with one set of
+ * options — a gutter of line numbers — with the formatter looked up once rather
+ * than per number. It formats in the locale active when it was taken, so take
+ * one per batch rather than keeping it.
+ * @param {Intl.NumberFormatOptions} [options]
+ * @returns {(value: number|bigint) => string} Formats a number as `formatNumber` would.
+ */
+export function numberFormatter(options) {
+  const locale = formattingLocale();
+  const format = cachedFormatter('number', locale, options, () => new Intl.NumberFormat(locale, options));
+  return (value) => format.format(value);
+}
+
+/**
  * Format a date and/or time for the active locale (`Intl.DateTimeFormat`).
  * An invalid date (a missing or garbled timestamp) formats as '' rather than
  * throwing the RangeError `Intl` raises for it.

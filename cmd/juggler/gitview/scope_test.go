@@ -39,6 +39,8 @@ func TestParseScopeReadsWhatGitDiffWouldHave(t *testing.T) {
 		{"HEAD^1 HEAD", Scope{input: "HEAD^1 HEAD", kind: ScopeCommits, left: "HEAD^1", right: "HEAD"}},
 		{"--merge-base main feature", Scope{input: "--merge-base main feature", kind: ScopeCommits, left: "main", right: "feature", mergeBase: true}},
 		{"@{u}", Scope{input: "@{u}", kind: ScopeWorktree, left: "@{u}"}},
+		{"feature^!", Scope{input: "feature^!", kind: ScopeCommits, right: "feature", one: true}},
+		{"HEAD~2^!", Scope{input: "HEAD~2^!", kind: ScopeCommits, right: "HEAD~2", one: true}},
 	} {
 		t.Run(tc.input, func(t *testing.T) {
 			got, err := ParseScope(tc.input)
@@ -70,6 +72,10 @@ func TestParseScopeRefusesWhatIsNotARevision(t *testing.T) {
 		"main\x00",
 		"@nonsense",
 		"a....b",
+		"^!",
+		"-p^!",
+		"--cached HEAD^!",
+		"HEAD^! main",
 		strings.Repeat("a", scopeMaxLen+1),
 	} {
 		t.Run(input, func(t *testing.T) {
@@ -146,6 +152,8 @@ func TestResolveScopeFindsTheCommitsEitherSide(t *testing.T) {
 		{"main...HEAD", forkID, featureID, ""},
 		{"main...", forkID, featureID, ""},
 		{"@last", forkID, featureID, ""},
+		{"HEAD^!", forkID, featureID, ""},
+		{"main^!", forkID, mainID, ""},
 		{"HEAD", "HEAD", "", ""},
 		{"@staged", "HEAD", "", ""},
 		{"@unstaged", "", "", ""},
@@ -204,14 +212,22 @@ func TestResolveScopeLastCommitOfARootCommitIsAgainstTheEmptyTree(t *testing.T) 
 	p := newGitProject(t)
 	p.write("a.txt", "a\n")
 	p.commit("init")
-	s, _ := ParseScope("@last")
-	r, err := resolveScope(t.Context(), p.dir, s, clocks.Diff.PerCmd)
-	if err != nil {
-		t.Fatal(err)
-	}
+	root := strings.TrimSpace(p.git("rev-parse", "HEAD"))
+	p.write("b.txt", "b\n")
+	p.commit("second")
 	empty := strings.TrimSpace(p.git("hash-object", "-t", "tree", "/dev/null"))
-	if r.base != empty {
-		t.Errorf("base = %q, want the empty tree %q", r.base, empty)
+	for _, input := range []string{"@last", root + "^!"} {
+		if input == "@last" {
+			p.git("checkout", "-q", root)
+		}
+		s, _ := ParseScope(input)
+		r, err := resolveScope(t.Context(), p.dir, s, clocks.Diff.PerCmd)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.base != empty || r.target != root {
+			t.Errorf("%s: base %q target %q, want the empty tree %q and %q", input, r.base, r.target, empty, root)
+		}
 	}
 }
 

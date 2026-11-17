@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"juggler/cmd/juggler/gitcmd"
 	"juggler/cmd/juggler/gitview/gitviewtest"
 	"juggler/cmd/juggler/gitview/internal/clocks"
 )
@@ -67,6 +68,7 @@ func TestMain(m *testing.M) {
 		}
 	}
 	shipped = shippedClocks{status: clocks.Status, review: clocks.Review, diff: clocks.Diff}
+	gitcmd.Observe = observeGit
 	restore := gitviewtest.LendClocks(time.Minute, 5*time.Minute)
 	code := m.Run()
 	restore()

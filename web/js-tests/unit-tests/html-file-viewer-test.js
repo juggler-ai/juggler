@@ -118,27 +118,23 @@ const ASSET_PAGE = '<!doctype html><img src="beside.svg"><img src="../above.svg"
   + '{ htmlViewerImages: [...document.images].map((i) => i.naturalWidth) }, "*"));</script>\n';
 
 /**
- * Wait for a framed page's image report (see {@link ASSET_PAGE}).
+ * Wait for a framed page's image report (see {@link ASSET_PAGE}). The page
+ * sends it from its own load handler, whether or not its images loaded, so
+ * the wait is bounded by the frame's progress rather than by a clock: a frame
+ * that never reports is caught by the suite's own deadline.
  * @param {HTMLElement} host - Where the viewer rendered its frame
- * @param {number} timeoutMs - How long to wait
- * @returns {Promise<number[]|null>} Each image's natural width, or null on timeout
+ * @returns {Promise<number[]>} Each image's natural width
  */
-function imageReport(host, timeoutMs) {
+function imageReport(host) {
   return new Promise((resolve) => {
     /** @param {MessageEvent} event - A message from some frame */
     const onMessage = (event) => {
       const frame = host.querySelector('iframe');
       if (!frame || event.source !== frame.contentWindow) return;
       if (!Array.isArray(event.data?.htmlViewerImages)) return;
-      done(event.data.htmlViewerImages);
-    };
-    /** @param {number[]|null} result - What to resolve with */
-    const done = (result) => {
-      clearTimeout(timer);
       window.removeEventListener('message', onMessage);
-      resolve(result);
+      resolve(event.data.htmlViewerImages);
     };
-    const timer = setTimeout(() => done(null), timeoutMs);
     window.addEventListener('message', onMessage);
   });
 }
@@ -263,7 +259,7 @@ export async function runTests() {
     const absPath = `${root.replace(/[\\/]+$/, '')}/${dir}/page/index.html`;
     const host = document.createElement('div');
     document.body.append(host);
-    const report = imageReport(host, 8000);
+    const report = imageReport(host);
     const teardown = await new HtmlFileViewer().render(createFileSource({
       path: `${dir}/page/index.html`,
       absPath,
@@ -272,7 +268,6 @@ export async function runTests() {
     }), host, { signal: new AbortController().signal });
     try {
       const widths = await report;
-      tally(check(widths !== null, 'the framed page should load and report its images', errors));
       tally(check(JSON.stringify(widths) === '[4,4]',
         `a sibling and a ../ image should both load, got natural widths ${JSON.stringify(widths)}`, errors));
     } finally {
@@ -315,7 +310,7 @@ export async function runTests() {
 
     const host = document.createElement('div');
     document.body.append(host);
-    const report = imageReport(host, 8000);
+    const report = imageReport(host);
     const teardown = await new HtmlFileViewer().render(outsideSource({ userInitiated: true }), host,
       { signal: new AbortController().signal });
     try {

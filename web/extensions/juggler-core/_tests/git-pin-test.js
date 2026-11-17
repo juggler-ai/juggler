@@ -14,7 +14,7 @@
 import GitPin from '../pins/git-pin.js';
 import { assert, nextTask } from '../../../js-tests/utilities/test-helpers.js';
 import { isolateFocus } from '../../../js-tests/utilities/isolate-focus.js';
-import { repo, manifestOf, patchOf, mountPin, mountedPin } from './git-pin-helpers.js';
+import { repo, manifestOf, patchOf, mountPin, mountedPin, refreshPin } from './git-pin-helpers.js';
 
 /**
  * @typedef {object} TestResult
@@ -296,10 +296,8 @@ export async function runTests(_ctx) {
     });
     m.rows()[1].click();
     await nextTask();
-    const actions = m.controller.getActions();
-    assert(actions.some((/** @type {any} */ a) => a.id === 'refresh'),
-      `Refresh is how the user asks again, got ${actions.map((/** @type {any} */ a) => a.id).join(', ')}`);
-    await actions.find((/** @type {any} */ a) => a.id === 'refresh').run();
+    assert(Boolean(m.body.querySelector('.git-pin__refresh')), 'Refresh is how the user asks again');
+    await refreshPin(m);
     await nextTask();
     assert(m.reviews() === 2, `expected a second review, got ${m.reviews()}`);
     assert(m.active()?.textContent?.includes('b.js'),
@@ -319,7 +317,7 @@ export async function runTests(_ctx) {
     m.rows()[1].click();
     await nextTask();
     m.setManifest(manifestOf([{ path: 'a.js', index: 'M', worktree: '.' }]));
-    await m.controller.getActions().find((/** @type {any} */ a) => a.id === 'refresh').run();
+    await refreshPin(m);
     await nextTask();
     assert(m.rows().length === 1, `expected the one remaining file, got ${m.rows().length}`);
     assert(m.active()?.textContent?.includes('a.js'),
@@ -332,7 +330,7 @@ export async function runTests(_ctx) {
       manifest: manifestOf([{ path: 'a.js', index: 'M', worktree: '.' }]),
     });
     m.failReview(new Error('network error'));
-    await m.controller.getActions().find((/** @type {any} */ a) => a.id === 'refresh').run();
+    await refreshPin(m);
     await nextTask();
     const text = m.text();
     assert(text.includes('a.js'), `blanking the panel loses more than staleness costs:\n${text}`);
@@ -715,7 +713,7 @@ export async function runTests(_ctx) {
     });
     const tones = m.rows().map((/** @type {any} */ row) => row.dataset.tone || '');
     assert(JSON.stringify(tones) === JSON.stringify(
-      ['modified', 'added', 'removed', 'added', 'renamed', 'conflicted']),
+      ['modified', 'added', 'removed', 'untracked', 'renamed', 'conflicted']),
     `each kind of change is marked as its own: ${JSON.stringify(tones)}`);
     m.teardown();
   });
@@ -730,7 +728,7 @@ export async function runTests(_ctx) {
       }]),
     });
     const row = m.rows()[0];
-    assert(row.querySelector('.review-panel__code')?.textContent === 'R ',
+    assert(row.querySelector('.review-panel__code')?.textContent === 'R',
       `git's own letter for a rename: ${JSON.stringify(row.querySelector('.review-panel__code')?.textContent)}`);
     assert(row.querySelector('.review-panel__name')?.textContent === 'review-panel.js',
       `a row is read for where the file is now: ${row.querySelector('.review-panel__name')?.textContent}`);

@@ -139,7 +139,14 @@ never as a literal; `scale-literal` fails one written out.
   and gap. A value between two steps is a choice between them, not a new step.
   `--spacing-xs` … `--spacing-2xl` are aliases kept for third-party extension
   stylesheets; nothing in this tree writes them.
-- **Font size, radius** — `--font-size-*`, `--radius-*`.
+- **Spacing roles** — `--pane-inset`, `--stack-gap-tight`, `--stack-gap`,
+  `--section-gap`, `--toolbar-gap`: the jobs a gap does, each one rung of the
+  scale. **Where a role fits, write the role, not the rung.** The scale keeps
+  every value on a step; only the roles keep the same job at the same value, so
+  everything in a pane starts at one left edge and a group reads as a group.
+  `scale.css` says what each one is for.
+- **Font size, radius** — `--font-size-*`, `--radius-*`. Type has roles too:
+  `--font-size-title`, `--font-size-body`, `--font-size-meta`.
 - **Font weight** — the roles `--font-weight-normal`, `-medium`, `-semibold`,
   `-bold`. Each theme sets its own (dark a step lighter, because light text on
   a dark ground reads heavier), so a weight written as a number is the one
@@ -309,6 +316,11 @@ reference.
   heading. `patterns/labels.css` holds only the type; colour and spacing are
   the component's. A chip, badge or toggle in capitals is not a label: it keeps
   its own type and takes only `--tracking-caps`.
+- **A changed file is `.change-status` and `.change-status-name`**
+  (`patterns/labels.css`): its status letter on a square of the change's
+  colour, and its name in that colour, both from `data-tone` (added,
+  modified, removed, renamed, untracked, conflicted). Every list of changed
+  files draws them — the review rail and the Git pin's Changes list alike.
 - **One line cut with an ellipsis is `.text-truncate`** (`patterns/text.css`).
   A pattern, not a utility, because a component may take the cut back (a row
   that wraps when expanded). In a flex row the item also needs `min-width: 0`;

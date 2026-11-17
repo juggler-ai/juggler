@@ -54,6 +54,10 @@ type workerDeps struct {
 	// (tests / not wired) ⇒ no auto-naming. See AutoNameFunc.
 	autoNameFunc AutoNameFunc
 
+	// turnSnapshot records the working tree at the start of each root user
+	// turn. Nil (tests / not wired) ⇒ no snapshot. See TurnSnapshotFunc.
+	turnSnapshot TurnSnapshotFunc
+
 	// engineReadyFunc brings the on-demand engine WebView up and waits until it
 	// is connected, returning false if it could not. Used by the worker to
 	// guarantee the engine is present before dispatching a strategy hook to it
@@ -149,6 +153,12 @@ func (w *ConversationWorker) SetKeepRecent(fn KeepRecentFunc) {
 // AutoNameFunc.
 func (w *ConversationWorker) SetAutoNamer(fn AutoNameFunc) {
 	w.setDeps(func(d *workerDeps) { d.autoNameFunc = fn })
+}
+
+// SetTurnSnapshot registers the turn-start snapshot callback. See
+// TurnSnapshotFunc.
+func (w *ConversationWorker) SetTurnSnapshot(fn TurnSnapshotFunc) {
+	w.setDeps(func(d *workerDeps) { d.turnSnapshot = fn })
 }
 
 // SetEngineReadyFunc registers the gate that brings the on-demand engine up and

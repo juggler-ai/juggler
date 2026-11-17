@@ -115,5 +115,35 @@ export async function runTests() {
     errors.push(`diff upload fallback: ${e instanceof Error ? e.message : String(e)}`);
   }
 
+  // A replacement that landed records who made it; one that failed does not.
+  try {
+    /** @type {any[]} */
+    const sent = [];
+    const editor = new ReplaceTextContextItem(/** @type {any} */ ({
+      id: 'r2', session, toolUseId: 'tu_2',
+      conversation: { id: 'conv_2', session }, messageThread,
+    }));
+    /** @type {any} */ (editor)._sendAttribution = (/** @type {any} */ body) => { sent.push(body); };
+    let editOk = false;
+    /** @type {any} */ (editor)._ops = {
+      editFile: async (/** @type {any} */ p) => {
+        if (!editOk) throw new Error('disk full');
+        return { success: true, path: p.path };
+      },
+    };
+    await editor.execute({ path: '/2/a.txt', old_str: 'a', new_str: 'b' }).catch(() => {});
+    if (sent.length) throw new Error(`a failed replacement sent an attribution: ${JSON.stringify(sent)}`);
+    editOk = true;
+    await editor.execute({ path: '/2/a.txt', old_str: 'a', new_str: 'b' });
+    const want = { workspaceId: '', path: '/2/a.txt', conv: 'conv_2', thread: '', item: 'tu_2' };
+    if (sent.length !== 1 || JSON.stringify(sent[0]) !== JSON.stringify(want)) {
+      throw new Error(`a successful replacement sent ${JSON.stringify(sent)}, want one ${JSON.stringify(want)}`);
+    }
+    passed++;
+  } catch (e) {
+    failed++;
+    errors.push(`attribution: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
   return { passed, failed, errors };
 }

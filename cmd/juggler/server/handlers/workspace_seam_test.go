@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"juggler/cmd/juggler/gitops"
 	"juggler/cmd/juggler/gitview"
 	"juggler/cmd/juggler/ops"
 	"juggler/cmd/juggler/workspace"
@@ -37,6 +38,10 @@ type scripted struct {
 	statable   string   // the one path Stat says exists
 	diffErr    error    // what GitDiff fails with, if anything
 	reviewWarn string
+
+	read    gitview.Query // the query GitRead was last asked
+	readErr error         // what GitRead fails with, if anything
+	ran     *gitops.Op    // the op GitRun was last asked to run
 }
 
 func (s *scripted) ID() string               { return s.id }
@@ -75,6 +80,23 @@ func (s *scripted) GitDiff(context.Context, gitview.DiffRequest) (gitview.FileDi
 		return gitview.FileDiff{}, s.diffErr
 	}
 	return gitview.FileDiff{Path: "scripted.txt", Status: "scripted"}, nil
+}
+
+func (s *scripted) GitWatch(context.Context) (<-chan []gitops.Change, error) {
+	return nil, errors.New("the script watches nothing")
+}
+
+func (s *scripted) GitRead(_ context.Context, q gitview.Query) (any, error) {
+	s.read = q
+	if s.readErr != nil {
+		return nil, s.readErr
+	}
+	return gitview.Changes{Repo: q.Repo, Branch: "scripted-branch", Files: []gitview.ChangedFile{}}, nil
+}
+
+func (s *scripted) GitRun(_ context.Context, op gitops.Op, _ gitops.Hooks) (gitops.Result, error) {
+	s.ran = &op
+	return gitops.Result{Head: "scripted-head"}, nil
 }
 
 func (s *scripted) Stat(path string) (fs.FileInfo, error) {
@@ -178,5 +200,74 @@ func TestGitAPIAsksTheWorkspace(t *testing.T) {
 	far.diffErr = &gitview.RequestError{}
 	if rec := askGit(t, api, t.Context(), "/api/git/diff?workspace=ws_far&path=x"); rec.Code != http.StatusBadRequest {
 		t.Errorf("a diff the workspace refused = %d, want 400", rec.Code)
+	}
+}
+
+// Every read of the git client is the workspace's answer to the query the
+// request names, and fails as a diff does: an unusable tree or a refused
+// request is the asker's (400), a read that failed is not (502).
+func TestGitReadAsksTheWorkspace(t *testing.T) {
+	far := &scripted{id: "ws_far", root: nowhere}
+	api := NewGitStatusAPI(resolveTo(far))
+
+	rec := askGit(t, api, t.Context(), "/api/git/read?workspace=ws_far&kind=changes&repo=libs/inner")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"branch":"scripted-branch"`) {
+		t.Errorf("changes = %d %s, want the workspace's answer", rec.Code, rec.Body.String())
+	}
+	if want := (gitview.Query{Kind: gitview.QueryChanges, Repo: "libs/inner"}); far.read != want {
+		t.Errorf("the workspace was asked %+v, want %+v", far.read, want)
+	}
+	askGit(t, api, t.Context(), "/api/git/read?workspace=ws_far&kind=worktrees")
+	if want := (gitview.Query{Kind: gitview.QueryWorktrees}); far.read != want {
+		t.Errorf("the workspace was asked %+v, want %+v", far.read, want)
+	}
+	askGit(t, api, t.Context(), "/api/git/read?workspace=ws_far&kind=log&repo=sub&graph=g1&scope=ref&ref=main"+
+		"&message=fix+it&author=ann&path=a%2Fb.go&offset=400&limit=200&refresh=1&find=abc123")
+	if want := (gitview.Query{Kind: gitview.QueryLog, Repo: "sub", Log: gitview.LogQuery{
+		Graph: "g1", Scope: "ref", Ref: "main", Message: "fix it", Author: "ann", Path: "a/b.go",
+		Offset: 400, Limit: 200, Refresh: true, Find: "abc123",
+	}}); far.read != want {
+		t.Errorf("the workspace was asked %+v, want %+v", far.read, want)
+	}
+	askGit(t, api, t.Context(), "/api/git/read?workspace=ws_far&kind=commit&commit=abc123")
+	if want := (gitview.Query{Kind: gitview.QueryCommit, Commit: "abc123"}); far.read != want {
+		t.Errorf("the workspace was asked %+v, want %+v", far.read, want)
+	}
+	askGit(t, api, t.Context(), "/api/git/read?workspace=ws_far&kind=blame&repo=sub&path=a%2Fb.go&rev=%40staged")
+	if want := (gitview.Query{Kind: gitview.QueryBlame, Repo: "sub", Blame: gitview.BlameQuery{Path: "a/b.go", Rev: "@staged"}}); far.read != want {
+		t.Errorf("the workspace was asked %+v, want %+v", far.read, want)
+	}
+	askGit(t, api, t.Context(), "/api/git/read?workspace=ws_far&kind=attribution&repo=sub&amend=1&conv=conv_seen")
+	if want := (gitview.Query{Kind: gitview.QueryAttribution, Repo: "sub", Attribution: gitview.AttributionQuery{Amend: true, Conv: "conv_seen"}}); far.read != want {
+		t.Errorf("the workspace was asked %+v, want %+v", far.read, want)
+	}
+	askGit(t, api, t.Context(), "/api/git/read?workspace=ws_far&kind=attribution")
+	if want := (gitview.Query{Kind: gitview.QueryAttribution}); far.read != want {
+		t.Errorf("the workspace was asked %+v, want %+v", far.read, want)
+	}
+	askGit(t, api, t.Context(), "/api/git/read?workspace=ws_far&kind=commit-context&repo=sub&amend=1")
+	if want := (gitview.Query{Kind: gitview.QueryCommitContext, Repo: "sub", CommitContext: gitview.CommitContextQuery{Amend: true}}); far.read != want {
+		t.Errorf("the workspace was asked %+v, want %+v", far.read, want)
+	}
+	if rec := askGit(t, api, t.Context(), "/api/git/read?workspace=ws_far&kind=log&offset=many"); rec.Code != http.StatusBadRequest {
+		t.Errorf("a log read with an offset that is not a number = %d, want 400", rec.Code)
+	}
+
+	far.readErr = errors.New("the far side went away")
+	if rec := askGit(t, api, t.Context(), "/api/git/read?workspace=ws_far&kind=refs"); rec.Code != http.StatusBadGateway ||
+		!strings.Contains(rec.Body.String(), `"key":"Couldn't read the repository. {detail}"`) {
+		t.Errorf("a read the workspace could not make = %d %s, want 502 with the message", rec.Code, rec.Body.String())
+	}
+	far.readErr = &gitview.RequestError{}
+	if rec := askGit(t, api, t.Context(), "/api/git/read?workspace=ws_far&kind=changes"); rec.Code != http.StatusBadRequest {
+		t.Errorf("a read the workspace refused = %d, want 400", rec.Code)
+	}
+	if rec := askGit(t, api, t.Context(), "/api/git/read?workspace=ws_gone&kind=changes"); rec.Code != http.StatusBadRequest {
+		t.Errorf("a read of an unknown workspace = %d, want 400", rec.Code)
+	}
+	unopened := NewGitStatusAPI(func(string) (workspace.Workspace, error) { return &scripted{}, nil })
+	if rec := askGit(t, unopened, t.Context(), "/api/git/read?kind=changes"); rec.Code != http.StatusBadRequest ||
+		!strings.Contains(rec.Body.String(), "No project is open") {
+		t.Errorf("a read with no project open = %d %s, want 400 No project is open", rec.Code, rec.Body.String())
 	}
 }

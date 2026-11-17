@@ -60,6 +60,12 @@ var serverFrameTypedefs = []frameTypedef{
 	{entry: wireschema.Entry{Name: "ErrorFrame", Value: textFrame{}, Types: frameTypes(frameError)}, out: true},
 	{entry: wireschema.Entry{Name: "ServerFullFrame", Value: messageFrame{}, Types: frameTypes(frameServerFull)}, out: true},
 	{entry: wireschema.Entry{Name: "ServerShutdownFrame", Value: messageFrame{}, Types: frameTypes(frameServerShutdown)}, out: true},
+	{entry: wireschema.Entry{Name: "GitChangeFrame", Value: gitChangeFrame{}, Types: frameTypes(frameGitChange)}, out: true},
+	{entry: wireschema.Entry{Name: "GitJobFrame", Value: gitJobFrame{}, Types: frameTypes(frameGitJob)}, out: true},
+	{entry: wireschema.Entry{Name: "RunAgentFrame", Value: runAgentFrame{}, Types: frameTypes(frameRunAgent)}, out: true},
+	{entry: wireschema.Entry{Name: "CancelAgentRunFrame", Value: cancelAgentRunFrame{}, Types: frameTypes(frameCancelAgentRun)}, out: true},
+	{entry: wireschema.Entry{Name: "AgentRunProgressFrame", Value: agentRunProgressFrame{}, Types: frameTypes(frameAgentRunProgress)}, out: true, in: true},
+	{entry: wireschema.Entry{Name: "AgentRunResultFrame", Value: agentRunResultFrame{}, Types: frameTypes(frameAgentRunResult)}, out: true, in: true},
 
 	{entry: wireschema.Entry{Name: "EngineHeartbeatFrame", Value: bareFrame{}, Types: frameTypes(frameEngineHeartbeat)}, in: true},
 	{entry: wireschema.Entry{Name: "ViewerHeartbeatFrame", Value: bareFrame{}, Types: frameTypes(frameViewerHeartbeat)}, in: true},
@@ -67,6 +73,9 @@ var serverFrameTypedefs = []frameTypedef{
 	{entry: wireschema.Entry{Name: "ShellStartFrame", Value: ShellStartRequest{}, Types: frameTypes(frameShellStart)}, in: true},
 	{entry: wireschema.Entry{Name: "ShellCancelFrame", Value: ShellCancelRequest{}, Types: frameTypes(frameShellCancel)}, in: true},
 	{entry: wireschema.Entry{Name: "ViewerRelayRequestFrame", Value: ViewerRelay{}, Types: frameTypes(frameViewerRelay)}, in: true},
+	{entry: wireschema.Entry{Name: "GitWatchFrame", Value: GitWatchRequest{}, Types: frameTypes(frameGitWatch)}, in: true},
+	{entry: wireschema.Entry{Name: "AgentRunStartFrame", Value: AgentRunStart{}, Types: frameTypes(frameAgentRunStart)}, in: true},
+	{entry: wireschema.Entry{Name: "AgentRunCancelFrame", Value: AgentRunCancel{}, Types: frameTypes(frameAgentRunCancel)}, in: true},
 }
 
 // serverFramesUntyped is the frames with no struct to render. engine-bridge

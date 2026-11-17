@@ -49,6 +49,7 @@ type gitFileStatus struct {
 	Index      string `json:"index"`
 	Worktree   string `json:"worktree"`
 	Conflicted bool   `json:"conflicted,omitempty"`
+	Submodule  bool   `json:"submodule,omitempty"`
 	Added      *int   `json:"added,omitempty"`
 	Removed    *int   `json:"removed,omitempty"`
 }
@@ -374,6 +375,7 @@ func parseGitStatusV2(out []byte) RepoStatus {
 		}
 
 		var index, worktree, path, oldPath string
+		submodule := false
 		switch kind {
 		case "?":
 			// Untracked. v1 wrote "??": unmodified in the index, present in the
@@ -386,6 +388,9 @@ func parseGitStatusV2(out []byte) RepoStatus {
 			}
 			index, worktree = string(xy[0]), string(xy[1])
 			path, oldPath = gitEntryPaths(kind, tail)
+			// The first field is the submodule state: "N..." for an ordinary
+			// file, "S<c><m><u>" for a submodule.
+			submodule = strings.HasPrefix(tail, "S")
 		default:
 			continue
 		}
@@ -409,6 +414,7 @@ func parseGitStatusV2(out []byte) RepoStatus {
 			Index:      index,
 			Worktree:   worktree,
 			Conflicted: kind == "u",
+			Submodule:  submodule,
 		})
 	}
 
@@ -495,6 +501,11 @@ func parseGitNumstat(out []byte) map[string]gitDiffstat {
 		added, addErr := strconv.Atoi(fields[0])
 		removed, removeErr := strconv.Atoi(fields[1])
 		if addErr != nil || removeErr != nil {
+			if fields[2] == "" {
+				// A binary file renamed: its two paths follow, and are paths
+				// rather than records, whatever they hold.
+				i += 2
+			}
 			continue
 		}
 		path := fields[2]

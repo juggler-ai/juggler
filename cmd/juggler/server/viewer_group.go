@@ -25,6 +25,7 @@ const (
 	vgSendToAll
 	vgSendRawToAll
 	vgSendToViewer
+	vgSendToClient
 	vgStartShell
 	vgCompleteShell
 	vgCancelShell
@@ -134,6 +135,11 @@ func (g *viewerGroup) run() {
 		case vgSendToViewer:
 			sendToViewer(op.viewerID, op.msg)
 
+		case vgSendToClient:
+			if e, ok := clients[op.clientID]; ok {
+				e.mb.Enqueue(outboundMsg{json: op.msg})
+			}
+
 		case vgStartShell:
 			if _, exists := shells[op.shellID]; exists {
 				op.boolResult <- false
@@ -166,6 +172,9 @@ func (g *viewerGroup) sendToAll(msg any)       { g.ch <- viewerOp{kind: vgSendTo
 func (g *viewerGroup) sendRawToAll(raw []byte) { g.ch <- viewerOp{kind: vgSendRawToAll, raw: raw} }
 func (g *viewerGroup) sendToViewer(viewerID string, msg any) {
 	g.ch <- viewerOp{kind: vgSendToViewer, viewerID: viewerID, msg: msg}
+}
+func (g *viewerGroup) sendToClient(clientID string, msg any) {
+	g.ch <- viewerOp{kind: vgSendToClient, clientID: clientID, msg: msg}
 }
 func (g *viewerGroup) completeShell(id string) { g.ch <- viewerOp{kind: vgCompleteShell, shellID: id} }
 
@@ -361,6 +370,15 @@ func (s *Server) viewerSendRawToAll(data []byte) {
 func (s *Server) viewerSendToViewer(viewerID string, msg any) {
 	if g := s.viewers(); g != nil {
 		g.sendToViewer(viewerID, msg)
+	}
+}
+
+// viewerSendToClient delivers a message to one connection, by its client id,
+// in order with everything else the viewer group sends it. A connection that
+// has gone is sent nothing.
+func (s *Server) viewerSendToClient(clientID string, msg any) {
+	if g := s.viewers(); g != nil {
+		g.sendToClient(clientID, msg)
 	}
 }
 

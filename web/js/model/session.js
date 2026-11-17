@@ -17,7 +17,7 @@ import {
   MAX_CONVERSATION_NAME_LENGTH
 } from '../utils/constants.js';
 import workerManager from '../services/worker-manager.js';
-import { markForTranslation, t } from '../../sdk/lib/i18n.js';
+import { markForTranslation, markUntranslated, t } from '../../sdk/lib/i18n.js';
 import { isEngine } from '../../sdk/lib/client-role.js';
 import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
 import { recordTape } from '../utils/event-tape.js';
@@ -51,7 +51,7 @@ const RENAME_ERROR_CODES = new Map(/** @type {const} */ ([
  * @property {function(): Promise<{active: boolean, conversationIds: string[]}>} getActiveConversations - Conversations actively running a turn (excludes approval-parked)
  * @property {function(string | null, HistoryMessage[]|undefined, Record<string, unknown>|undefined): Promise<{success: boolean}>} updateSession - Update session state
  * @property {function(Record<string, unknown>): Promise<{metadata: Record<string, unknown>}>} patchSessionMetadata - Patch session metadata keys
- * @property {function(string, string=, {lane?: string, duplicateFrom?: string, origin?: string, focus?: boolean, focusFrom?: string, place?: string, after?: string}=): Promise<{id: string, name: string, created: string}>} createConversation - Atomically create a new conversation (POST /api/conversations); duplicateFrom clones that conversation's files server-side before announcing; origin is a gesture label logged for create attribution; focus broadcasts a "focus" op asking viewers to switch to the new conversation, attributed to focusFrom; place is 'head', 'after' or 'end' and after names the conversation to sit behind for 'after'
+ * @property {function(string, string=, {lane?: string, duplicateFrom?: string, origin?: string, focus?: boolean, focusFrom?: string, place?: string, after?: string, ephemeral?: boolean, agentRun?: string}=): Promise<{id: string, name: string, created: string}>} createConversation - Atomically create a new conversation (POST /api/conversations); duplicateFrom clones that conversation's files server-side before announcing; origin is a gesture label logged for create attribution; focus broadcasts a "focus" op asking viewers to switch to the new conversation, attributed to focusFrom; place is 'head', 'after' or 'end' and after names the conversation to sit behind for 'after'
  * @property {function(string, string): Promise<{name: string}>} renameConversation - Rename a conversation's on-disk folder
  * @property {function(string, object): Promise<{success: boolean}>} updateConversation - Update single conversation
  * @property {function(string, {permanent?: boolean, reason?: string}=): Promise<void>} deleteConversation - Delete single conversation
@@ -1523,6 +1523,34 @@ class Session {
     }
 
     return conversation.id;
+  }
+
+  /**
+   * Create an agent run's conversation: seeded exactly as
+   * {@link Session#createConversation} seeds one, and otherwise invisible.
+   *
+   * The server makes it ephemeral — never in the session's list, order or cap —
+   * and bound to the run, which tears it down when the run ends. So everything
+   * that announces or places a conversation is left out here: no local-create
+   * bracket (the server broadcasts nothing to bracket), no place in the tab bar
+   * or a workspace box, no `conversation:created`. It is only registered, so its
+   * worker's syncs find it and the engine's tools can run in it.
+   * @param {{name?: string, agentRun: string, workspaceId?: string}} options -
+   *   `name` labels it in logs; `agentRun` is the run it belongs to;
+   *   `workspaceId` the tree it works in.
+   * @returns {Promise<import('./conversation.js').default>} The seeded conversation
+   */
+  async createEphemeralConversation({ name = '', agentRun, workspaceId = '' }) {
+    const requestedName = name || markUntranslated('Agent run');
+    const response = await this._apiService.createConversation(requestedName, this._generateConversationId(), {
+      origin: 'agent-run',
+      ephemeral: true,
+      agentRun
+    });
+    const conversation = await workerManager.loader.createNew(response.id, response.name, this, { workspaceId, unplaced: true });
+    await seedCreationDefaults(this, conversation);
+    await this.initialiseConversation(conversation, { workspaceId }, { atCreation: true });
+    return conversation;
   }
 
   /**

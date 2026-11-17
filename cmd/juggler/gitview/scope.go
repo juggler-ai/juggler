@@ -56,12 +56,15 @@ var defaultBranchCandidates = []string{"origin/HEAD", "main", "master", "origin/
 //	@unstaged             working tree against the index
 //	@branch               working tree against its merge-base with the default branch
 //	@last                 the last commit against its first parent
+//	@turn                 the working tree against a conversation's snapshot of it
+//	                      at its latest user turn's start (see WithConversation)
 //	<rev>                 working tree against <rev>
 //	--merge-base <rev>    working tree against the merge-base of <rev> and HEAD
 //	--cached [<rev>]      index against <rev> (HEAD by default); --staged is the same
 //	--worktree            working tree against the index
 //	<a>..<b>, <a> <b>     <b> against <a>; an omitted side is HEAD
 //	<a>...<b>             <b> against the merge-base of <a> and <b>
+//	<rev>^!               <rev> against its first parent: one commit's change
 //
 // Nothing typed reaches git as an option. Every revision is checked here for the
 // shape of one and then resolved to an object id by rev-parse, and the diff runs
@@ -74,6 +77,16 @@ type Scope struct {
 	mergeBase bool   // the old side is the merge-base of left and the new side
 	branch    bool   // left is the repository's default branch, found at resolve time
 	last      bool   // left is HEAD's first parent, or the empty tree for a root commit
+	one       bool   // right against its first parent, or the empty tree for a root commit
+	turn      bool   // the conversation's turn snapshot against the working tree, both as trees
+	conv      string // the conversation @turn is about; see WithConversation
+}
+
+// WithConversation is the scope for one conversation: what @turn compares
+// against is that conversation's own snapshot. Every other scope ignores it.
+func (s Scope) WithConversation(conv string) Scope {
+	s.conv = conv
+	return s
 }
 
 // ScopeInfo is how a scope is reported back: the spelling it was asked for by,
@@ -109,9 +122,11 @@ func ParseScope(raw string) (Scope, error) {
 		return Scope{input: input, kind: ScopeWorktree, mergeBase: true, branch: true}, nil
 	case "@last":
 		return Scope{input: input, kind: ScopeCommits, left: "HEAD^1", right: "HEAD", last: true}, nil
+	case "@turn":
+		return Scope{input: input, kind: ScopeCommits, turn: true}, nil
 	}
 	if presetPattern.MatchString(input) {
-		return Scope{}, &RequestError{msg.NewError("Unknown scope {scope}: the presets are @uncommitted, @staged, @unstaged, @branch and @last", "scope", input)}
+		return Scope{}, &RequestError{msg.NewError("Unknown scope {scope}: the presets are @uncommitted, @staged, @unstaged, @branch, @last and @turn", "scope", input)}
 	}
 
 	var cached, mergeBase, worktree bool
@@ -142,6 +157,14 @@ func ParseScope(raw string) (Scope, error) {
 		return s, nil
 	case len(revs) > 2:
 		return Scope{}, &RequestError{msg.NewError("A scope compares at most two commits")}
+	case len(revs) == 1 && strings.HasSuffix(revs[0], "^!"):
+		if cached || mergeBase {
+			return Scope{}, &RequestError{msg.NewError("A commit's own change compares it with its parent, so --cached and --merge-base do not apply")}
+		}
+		s.kind, s.right, s.one = ScopeCommits, strings.TrimSuffix(revs[0], "^!"), true
+		if s.right == "" {
+			return Scope{}, &RequestError{msg.NewError("Not a revision: {revision}", "revision", revs[0])}
+		}
 	case len(revs) == 1 && strings.Contains(revs[0], ".."):
 		if cached || mergeBase {
 			return Scope{}, &RequestError{msg.NewError("A range compares two commits, so --cached and --merge-base do not apply")}
@@ -183,12 +206,13 @@ func ParseScope(raw string) (Scope, error) {
 // resolve it. A leading dash is the one shape that matters for safety: it is
 // what turns a name into an option. A leading dot or a ".." left over from a
 // range git would not have split this way is no name git accepts either, and is
-// refused here so the message says why. "" is allowed and means HEAD.
+// refused here so the message says why, as is a "^!" anywhere but the end of
+// a scope's only revision. "" is allowed and means HEAD.
 func checkRevision(rev string) error {
 	switch {
 	case rev == "":
 		return nil
-	case strings.HasPrefix(rev, "-"), strings.HasPrefix(rev, "."), strings.Contains(rev, ".."):
+	case strings.HasPrefix(rev, "-"), strings.HasPrefix(rev, "."), strings.Contains(rev, ".."), strings.Contains(rev, "^!"):
 		return &RequestError{msg.NewError("Not a revision: {revision}", "revision", rev)}
 	}
 	return nil
@@ -225,7 +249,10 @@ func (s Scope) Label() string {
 	if m, words := s.labelMessage(); words {
 		return m.English()
 	}
-	if s.mergeBase {
+	switch {
+	case s.one:
+		return s.right + "^!"
+	case s.mergeBase:
 		return revisionName(s.left) + "..." + revisionName(s.right)
 	}
 	return revisionName(s.left) + ".." + revisionName(s.right)
@@ -248,6 +275,8 @@ func (s Scope) labelMessage() (msg.Message, bool) {
 		return msg.New("Working tree against the merge-base with the default branch"), true
 	case s.last:
 		return msg.New("Last commit against its parent"), true
+	case s.turn:
+		return msg.New("Working tree against the start of this turn"), true
 	}
 	switch s.Kind() {
 	case ScopeIndex:
@@ -293,27 +322,23 @@ type resolvedScope struct {
 // repository does not have is a *RequestError naming it; anything else is git
 // failing or the clock running out.
 func resolveScope(ctx context.Context, dir string, s Scope, budget time.Duration) (resolvedScope, error) {
+	if s.turn {
+		return resolveTurn(ctx, dir, s, budget)
+	}
 	r := resolvedScope{Scope: s}
 	switch s.Kind() {
 	case ScopeUnstaged:
 		return r, nil
 
 	case ScopeCommits:
-		if s.last {
-			head, err := resolveCommit(ctx, dir, "HEAD", budget)
+		if s.last || s.one {
+			rev := "HEAD"
+			if s.one {
+				rev = s.right
+			}
+			head, parent, err := resolveWithParent(ctx, dir, rev, budget)
 			if err != nil {
 				return r, err
-			}
-			parent, ok, err := revParse(ctx, dir, "HEAD^1", budget)
-			if err != nil {
-				return r, err
-			}
-			if !ok {
-				// A root commit has no parent to be compared with, and is all
-				// addition against the tree of nothing.
-				if parent, err = gitEmptyTree(ctx, dir, budget); err != nil {
-					return r, err
-				}
 			}
 			r.base, r.target = parent, head
 			return r, nil
@@ -391,21 +416,77 @@ func revParse(ctx context.Context, dir, rev string, budget time.Duration) (strin
 	return gitResolve(ctx, dir, budget, "rev-parse", "--verify", "-q", "--end-of-options", rev+"^{commit}")
 }
 
-// resolveCommit is revParse for a revision the user named, "" being HEAD.
+// resolveCommit is revParse for a revision the user named, "" being HEAD. A
+// whole id a read of this repository has already resolved is a commit without
+// asking git again: what an id names cannot change.
 func resolveCommit(ctx context.Context, dir, rev string, budget time.Duration) (string, error) {
 	if rev == "" {
 		rev = "HEAD"
 	}
+	if knownCommit(dir, rev) {
+		return rev, nil
+	}
 	id, ok, err := revParse(ctx, dir, rev, budget)
-	switch {
-	case err != nil:
+	if err != nil {
 		return "", err
-	case !ok && rev == "HEAD":
-		return "", &RequestError{msg.NewError("This repository has no commits yet")}
-	case !ok:
-		return "", &RequestError{msg.NewError("Unknown revision {revision}", "revision", rev)}
+	}
+	if !ok {
+		return "", unknownRevision(rev)
 	}
 	return id, nil
+}
+
+// unknownRevision is the refusal of a revision the repository does not have.
+func unknownRevision(rev string) error {
+	if rev == "HEAD" {
+		return &RequestError{msg.NewError("This repository has no commits yet")}
+	}
+	return &RequestError{msg.NewError("Unknown revision {revision}", "revision", rev)}
+}
+
+// resolveWithParent is the commit rev names and what its own change is
+// compared against: its first parent, or for a root commit the tree of
+// nothing. One rev-parse names both — the commit, then its parents (^@, none
+// for a root commit) — and an id already resolved costs nothing.
+//
+// Without --verify rev-parse echoes its --end-of-options and "--" back among
+// the ids, which is why only the lines that are ids are read; a name it cannot
+// resolve fails the whole command, which is the refusal revParse gives.
+func resolveWithParent(ctx context.Context, dir, rev string, budget time.Duration) (id, base string, err error) {
+	if rev == "" {
+		rev = "HEAD"
+	}
+	if base, ok := cachedParent(dir, rev); ok {
+		return rev, base, nil
+	}
+	out, ok, err := gitResolveOutput(ctx, dir, budget, "rev-parse", "--end-of-options", rev+"^{commit}", rev+"^{commit}^@", "--")
+	if err != nil {
+		return "", "", err
+	}
+	var ids []string
+	for _, line := range strings.Split(out, "\n") {
+		if isObjectID(line) {
+			ids = append(ids, line)
+		}
+	}
+	if !ok || len(ids) == 0 {
+		return "", "", unknownRevision(rev)
+	}
+	id = ids[0]
+	switch empty, known := emptyTreeFor(id); {
+	case len(ids) > 1:
+		base = ids[1]
+	case known:
+		// A root commit has no parent to be compared with, and is all addition
+		// against the tree of nothing.
+		base = empty
+	default:
+		if base, err = gitEmptyTree(ctx, dir, budget); err != nil {
+			return "", "", err
+		}
+	}
+	rememberParent(dir, id, base)
+	return id, base, nil
 }
 
 // mergeBaseOf is the best common ancestor of two commits.
@@ -453,6 +534,13 @@ func gitEmptyTree(ctx context.Context, dir string, budget time.Duration) (string
 // no — exit status non-zero, nothing on the clock — is ok=false; the clock, the
 // caller going away and git failing to start are errors.
 func gitResolve(ctx context.Context, dir string, budget time.Duration, args ...string) (string, bool, error) {
+	id, ok, err := gitResolveOutput(ctx, dir, budget, args...)
+	return id, ok && id != "", err
+}
+
+// gitResolveOutput is gitResolve for a command that prints any number of
+// lines: what it printed, trimmed, and ok=false when it said no.
+func gitResolveOutput(ctx context.Context, dir string, budget time.Duration, args ...string) (string, bool, error) {
 	cctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 	out, err := gitCommand(cctx, dir, args...).Output()
@@ -466,8 +554,7 @@ func gitResolve(ctx context.Context, dir string, budget time.Duration, args ...s
 		}
 		return "", false, err
 	}
-	id := strings.TrimSpace(string(out))
-	return id, id != "", nil
+	return strings.TrimSpace(string(out)), true, nil
 }
 
 // shortID is an object id as a person reads one.

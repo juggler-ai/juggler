@@ -2342,8 +2342,10 @@ class Conversation {
     // Call all registered stop handlers (e.g. plan strategy aborting its drive controller).
     for (const fn of this._stopHandlers) fn();
 
-    // Cancel all running actions (shells, etc.) via action executor
-    this._actionExecutor.cancelAllActions();
+    // Cancel this conversation's running actions (shells, etc.). The executor
+    // spans every conversation the realm holds, so the cancel is scoped to this
+    // one: other conversations' tools, concurrent agent runs included, run on.
+    this.cancelLocalActions();
 
     // Cancel worker if active
     if (this._workerManager.isWorkerReady(this.id)) {

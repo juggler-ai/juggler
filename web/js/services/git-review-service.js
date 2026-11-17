@@ -122,21 +122,24 @@ const gitReviewService = {
    * Read the manifest. Concurrent callers share one request, so a board and a
    * detached window opening on the same moment cost one review and not two; each
    * of them may still cancel its own wait without disturbing the other's.
-   * @param {{signal?: AbortSignal, scope?: string, workspace?: string}} [options] - Cancellation,
+   * @param {{signal?: AbortSignal, scope?: string, workspace?: string, conv?: string}} [options] - Cancellation,
    *   what to compare ('' or omitted for the working tree against HEAD), and
    *   which workspace's tree (omitted for the visible conversation's). A named
    *   workspace does not follow the view, so moving between conversations does
-   *   not make its answer stale.
+   *   not make its answer stale. `conv` is the conversation whose turn `@turn`
+   *   compares against.
    * @returns {Promise<GitReview>} The manifest, as the server described it.
    */
   async review(options = {}) {
     const generation = _generation;
     const scope = options.scope || '';
     const named = options.workspace || '';
-    const key = named ? `${named}\u0000${scope}` : scope;
+    const conv = options.conv || '';
+    const asked = conv ? `${scope}\u0000${conv}` : scope;
+    const key = named ? `${named}\u0000${asked}` : asked;
     let pending = _inFlight.get(key);
     if (!pending) {
-      const request = api.getGitReview({ workspaceId: named || gitWorkspaceId(), scope }).finally(() => {
+      const request = api.getGitReview({ workspaceId: named || gitWorkspaceId(), scope, conv }).finally(() => {
         // Only if it is still ours: a change of tree in between has already let
         // go of this one, and clearing unconditionally would discard the request
         // that replaced it.
@@ -160,11 +163,12 @@ const gitReviewService = {
    * a queue of patches nobody will look at behind them.
    * @param {string} repo - Repository relative to the project root, '' for the root repo.
    * @param {string} path - File relative to that repository.
-   * @param {{signal?: AbortSignal, contextLines?: number, scope?: string, workspace?: string}} [options] - Cancellation,
+   * @param {{signal?: AbortSignal, contextLines?: number, scope?: string, workspace?: string, conv?: string}} [options] - Cancellation,
    *   and how much of the file around each change to ask for (-1 for the whole
    *   file). The reader chooses that, so it belongs to the request and not to the
    *   endpoint; the patch says which width it came back at. `scope` is what to
-   *   compare, as for `review`, and must be the one the manifest was read with.
+   *   compare, as for `review`, and must be the one the manifest was read with;
+   *   so must `conv`.
    * @returns {Promise<GitFileDiff>} The patch and what happened to the file.
    */
   async diff(repo, path, options = {}) {
@@ -172,10 +176,69 @@ const gitReviewService = {
     const named = options.workspace || '';
     const data = await api.getGitDiff(repo, path, {
       signal: options.signal, workspaceId: named || gitWorkspaceId(), contextLines: options.contextLines,
-      scope: options.scope || undefined,
+      scope: options.scope || undefined, conv: options.conv || undefined,
     });
     if (!named && generation !== _generation) throw staleError();
     return asDiff(data);
+  },
+
+  /**
+   * Read one repository's changes, file by file and side by side, as the git
+   * client's Changes place shows them.
+   *
+   * Not shared and not kept, like a patch: the caller's signal goes straight to
+   * the request.
+   * @param {string} repo - Repository relative to the tree's root, '' for the root repo.
+   * @param {{signal?: AbortSignal, workspace?: string}} [options] - Cancellation, and
+   *   which workspace's tree (omitted for the visible conversation's).
+   * @returns {Promise<import('./api.js').GitChanges>} The repository's changes.
+   */
+  async changes(repo, options = {}) {
+    const generation = _generation;
+    const named = options.workspace || '';
+    const data = await api.getGitChanges(repo, named || gitWorkspaceId(), { signal: options.signal });
+    if (!named && generation !== _generation) throw staleError();
+    if (!data) throw new Error('Git said nothing about that repository.');
+    return { ...data, files: Array.isArray(data.files) ? data.files : [] };
+  },
+
+  /**
+   * Make one of the git client's other reads of one repository — its refs, its
+   * worktrees, a page of its history, one commit, its submodules, a file's
+   * blame or what deleting a ref would strand (see api.readGit) — as
+   * `changes` makes its own: not shared, not kept, and refused as stale when
+   * the followed tree moved meanwhile.
+   * @param {string} kind - 'refs', 'worktrees', 'log', 'commit', 'submodules', 'blame' or 'stranded'.
+   * @param {string} repo - Repository relative to the tree's root, '' for the root repo.
+   * @param {{signal?: AbortSignal, workspace?: string, params?: Record<string, string|number|boolean|undefined>}} [options] -
+   *   Cancellation, which tree (omitted for the visible conversation's), and
+   *   the read's own parameters.
+   * @returns {Promise<any>} The read.
+   */
+  async read(kind, repo, options = {}) {
+    const generation = _generation;
+    const named = options.workspace || '';
+    const data = await api.readGit(kind, repo, named || gitWorkspaceId(), { signal: options.signal, params: options.params });
+    if (!named && generation !== _generation) throw staleError();
+    if (!data) throw new Error('Git said nothing about that repository.');
+    return data;
+  },
+
+  /**
+   * One conversation's digest for a commit message, read and refused as `read` is.
+   * @param {string} conv - The conversation.
+   * @param {string} repo - Repository relative to the tree's root, '' for the root.
+   * @param {string[]} paths - The files it made, relative to that repository.
+   * @param {{signal?: AbortSignal, workspace?: string}} [options] - Cancellation, and the tree.
+   * @returns {Promise<any>} The digest.
+   */
+  async digest(conv, repo, paths, options = {}) {
+    const generation = _generation;
+    const named = options.workspace || '';
+    const data = await api.getGitConversationDigest(conv, repo, paths, named || gitWorkspaceId(), { signal: options.signal });
+    if (!named && generation !== _generation) throw staleError();
+    if (!data) throw new Error('Git said nothing about that conversation.');
+    return data;
   },
 
   /**

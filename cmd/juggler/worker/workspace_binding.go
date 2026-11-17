@@ -26,3 +26,25 @@ func (r *run) workspaceID() string {
 	id, _ := r.doc.GetMetadata(metaWorkspaceID).(string)
 	return id
 }
+
+// WorkspaceID is the workspace the conversation is bound to, "" for the
+// project.
+func (cd *ConversationDocument) WorkspaceID() string {
+	id, _ := cd.GetMetadata(metaWorkspaceID).(string)
+	return id
+}
+
+// WorkspaceIDInState is WorkspaceID for a conversation that is not loaded,
+// read from its stored document state (doc.yjs).
+func WorkspaceIDInState(state []byte) (string, error) {
+	cd := NewConversationDocument("", "")
+	if err := cd.LoadFromState(state); err != nil {
+		return "", err
+	}
+	return cd.WorkspaceID(), nil
+}
+
+// WorkspaceID is WorkspaceID of a loaded conversation's live document.
+func (w *ConversationWorker) WorkspaceID() string {
+	return w.doc.WorkspaceID()
+}

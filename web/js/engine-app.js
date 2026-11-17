@@ -16,7 +16,7 @@ import { reloadRegistries, initAllRegistries } from './registries/reload-registr
 import wsService from './services/websocket.js';
 import actionExecutor from './services/action-executor.js';
 import workerManager from './services/worker-manager.js';
-import { runOneShot } from './engine-one-shot.js';
+import { runOneShot, runAgentRun, cancelAgentRun } from './engine-one-shot.js';
 import { followUILocale } from './services/ui-locale.js';
 
 /**
@@ -226,6 +226,18 @@ class EngineApp {
       // Handed the realm's readiness rather than waited on here: runOneShot owes
       // the caller exactly one reply, including when the wait is what failed.
       runOneShot(this.getSession(), data, this._connectionManager?.whenReadyToRun?.());
+      return;
+    }
+
+    // An agent run: a prompt carried out in an ephemeral conversation for a
+    // caller that hears its progress and its one result (engine-one-shot.js).
+    // The server owns its clock and its teardown, and says when it has ended.
+    if (data.type === 'run-agent') {
+      runAgentRun(this.getSession(), data, this._connectionManager?.whenReadyToRun?.());
+      return;
+    }
+    if (data.type === 'cancel-agent-run') {
+      cancelAgentRun(data.runId);
       return;
     }
 

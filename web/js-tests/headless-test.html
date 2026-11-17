@@ -35,6 +35,20 @@
         // itself again — at most twice, so a file that is really missing fails
         // where the harness can see it rather than reloading forever.
         window.__laneBooted = false;
+
+        // Until the poll loop starts, the lane tells the server every 2s that
+        // its script is running (GET /api/test/booting). Its module graph can
+        // take longer to load than the pool window waits before loading itself
+        // again, and nothing else the lane does meanwhile reaches the server's
+        // account of how far the pool got.
+        const bootLane = new URL(location.href).searchParams.get('lane') || '';
+        const bootPing = setInterval(() => {
+            if (window.__laneBooted) {
+                clearInterval(bootPing);
+                return;
+            }
+            fetch('{{.BasePath}}/api/test/booting?lane=' + encodeURIComponent(bootLane)).catch(() => {});
+        }, 2000);
         window.addEventListener('error', (e) => {
             const el = e.target;
             if (!el || el === window || !(el.src || el.href)) return;
@@ -208,7 +222,8 @@
             "juggler/i18n": "{{.BasePath}}/v{{.StaticVersion}}/sdk/i18n.js",
             "juggler/utils/html": "{{.BasePath}}/v{{.StaticVersion}}/sdk/lib/html.js",
             "juggler/utils/path-containment": "{{.BasePath}}/v{{.StaticVersion}}/sdk/lib/path-containment.js",
-            "juggler/utils/debounce": "{{.BasePath}}/v{{.StaticVersion}}/sdk/lib/debounce.js"
+            "juggler/utils/debounce": "{{.BasePath}}/v{{.StaticVersion}}/sdk/lib/debounce.js",
+            "juggler/utils/virtual-list": "{{.BasePath}}/v{{.StaticVersion}}/sdk/lib/virtual-list.js"
         }
     }
     </script>

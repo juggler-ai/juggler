@@ -26,6 +26,7 @@ import (
 
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/extconfig"
+	"juggler/cmd/juggler/gitaskpass"
 	"juggler/cmd/juggler/machineserver"
 	"juggler/cmd/juggler/mcp"
 	"juggler/cmd/juggler/ops"
@@ -61,6 +62,13 @@ type Config struct {
 // then the App startup phases, blocking until shutdown. It returns the
 // process exit code — the caller owns os.Exit so its own defers run.
 func Run(cfg Config) int {
+	// Git or ssh, run by one of the git client's network writes, asking the
+	// user a question through this binary (gitaskpass). First, so every server
+	// binary built on Run answers it, and nothing else starts.
+	if gitaskpass.Invoked(os.Args[1:], os.Getenv) {
+		return gitaskpass.Main(os.Args[1:], os.Getenv, os.Stdout)
+	}
+
 	// Developer CLI: `juggler ext …` is a self-contained tool (scaffold/link/add
 	// an extension) that must NOT boot a server. Dispatch it before flag parsing
 	// or the banner so it behaves like a plain command-line utility.

@@ -214,6 +214,28 @@ export async function probeSetupAdoptions(session, signal) {
 }
 
 /**
+ * The adoption offer, if any, for a tree someone else names by its path and
+ * branch — the git client, whose paths have their symbolic links resolved where
+ * a provider's are joined from the project's. A path the two spell the same is
+ * the tree; failing that, an offer with the same last part and the same branch.
+ * Call {@link probeSetupAdoptions} first: this reads what that found.
+ * @param {{path: string, branch?: string}} tree - The tree.
+ * @returns {string|null} The `adopt:` row to hand {@link adoptSetupRow}, or null.
+ */
+export function adoptionRowFor(tree) {
+  const last = (/** @type {string} */ p) => String(p ?? '').replace(/[\\/]+$/, '').split(/[\\/]/).pop();
+  let likely = null;
+  for (const [id, offer] of adoptable) {
+    const root = offer.artifact.workspace?.root ?? '';
+    if (root === tree.path) return id;
+    if (!likely && last(root) === last(tree.path) && (offer.artifact.workspace?.meta?.branch ?? '') === (tree.branch ?? '')) {
+      likely = id;
+    }
+  }
+  return likely;
+}
+
+/**
  * Register something a provider found, so a conversation can be bound to it.
  *
  * Adopting builds nothing and changes nothing on disk — it is the table

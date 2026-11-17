@@ -801,6 +801,40 @@ export async function runTests(_ctx) {
       }
     });
 
+    await run('nothing between the board and the workspace can be scrolled to reveal it', async () => {
+      // Closed and mid-slide, the panel is translated past the workspace's right
+      // edge. Any box around it that can scroll is one a plain focus() inside a
+      // pin will scroll to reveal the focused element — dragging the columns and
+      // the sliding panel left, until the transform settles and it all snaps
+      // back. Every pin's focus() is a chance to forget `preventScroll`, so the
+      // guarantee is that there is nothing to scroll: each box from the panel up
+      // to the workspace must refuse a scroll outright.
+      const { shell, teardown } = await mountShell([]);
+      const main = document.createElement('main');
+      main.className = 'app-main';
+      main.style.cssText = 'position:relative;width:600px;height:400px;flex:none';
+      document.body.appendChild(main);
+      main.appendChild(shell);
+      try {
+        const panel = /** @type {HTMLElement} */ (shell.querySelector('.pinboard-panel'));
+        assert(panel.getBoundingClientRect().left >= main.getBoundingClientRect().right - 1,
+          'the closed board must be parked past the workspace edge, or there is no overflow to scroll');
+        /** @type {string[]} */
+        const scrolled = [];
+        for (let box = panel.parentElement; box; box = box.parentElement) {
+          box.scrollLeft = 200;
+          if (box.scrollLeft !== 0) scrolled.push(`${box.localName}.${box.className} to ${box.scrollLeft}`);
+          box.scrollLeft = 0;
+          if (box === main) break;
+        }
+        assert(scrolled.length === 0,
+          `a box around the board scrolled sideways, so focus inside a pin can throw the workspace left: ${scrolled.join(', ')}`);
+      } finally {
+        teardown();
+        main.remove();
+      }
+    });
+
     await run('an empty board keeps its chrome and offers the same picker', async () => {
       const { shell, teardown } = await mountShell([]);
       try {

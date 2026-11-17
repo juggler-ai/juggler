@@ -43,6 +43,7 @@ type PathValidationResult struct {
 type PathScope struct {
 	root         string
 	projectRoot  string
+	workspace    string
 	allowedRoots []string
 }
 
@@ -69,6 +70,20 @@ func (s PathScope) Root() string {
 func (s PathScope) WithProjectRoot(projectRoot string) PathScope {
 	s.projectRoot = projectRoot
 	return s
+}
+
+// WithWorkspace returns a copy that knows the id of the workspace it is the
+// tree of ("" for the project's), so the processes it starts are listed under
+// it.
+func (s PathScope) WithWorkspace(id string) PathScope {
+	s.workspace = id
+	return s
+}
+
+// Workspace is the id of the workspace the scope is the tree of, "" for the
+// project's.
+func (s PathScope) Workspace() string {
+	return s.workspace
 }
 
 // ProjectRoot returns the project this scope belongs to, which is the working

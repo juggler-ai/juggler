@@ -217,6 +217,14 @@ type AutoCompactGateFunc func() bool
 // server hands off to its own goroutine).
 type AutoNameFunc func(convID, firstMessage, provider, model, thinking string, force bool)
 
+// TurnSnapshotFunc is an injected server callback the worker fires as a user
+// turn starts on the root thread, so the server can record the working tree the
+// turn begins from (the git pin's @turn scope diffs against it). It receives the
+// conversation id and the workspace the conversation is bound to, "" for the
+// project. It runs on the turn's goroutine before the strategy loop, never on
+// the run loop; a nil callback takes no snapshot.
+type TurnSnapshotFunc func(convID, workspaceID string)
+
 // =============================================================================
 // Generic Message Envelope
 // =============================================================================

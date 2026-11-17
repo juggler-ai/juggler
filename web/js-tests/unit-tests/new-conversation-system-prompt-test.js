@@ -16,6 +16,13 @@
  * exists — so unless the create finishes the job, the conversation is born
  * without a system prompt: nothing to edit in the properties panel, and every
  * sub-thread clones a starting context with no prompt in it.
+ *
+ * The load can also have FINISHED by then — an agent run's create is not
+ * bracketed, so nothing holds the auto-load back — leaving the conversation
+ * held with a ready worker and nothing in flight. The create must take that
+ * conversation too: a fresh one put in its place is one whose spawn finds the
+ * worker entry already there, so no init is sent and its document never
+ * receives anything.
  * @module unit-tests/new-conversation-system-prompt-test
  */
 
@@ -71,5 +78,17 @@ export async function runTests() {
     workerManager.loader._inFlight.delete(conversation.id);
   }
 
-  return { passed: 4, failed: 0, errors: [] };
+  // The same race with the load already over: the conversation is held, its
+  // worker ready, and nothing is in flight for the id.
+  stripSystemPrompt(mt);
+  assert(workerManager.workerState(conversation.id) === 'ready' && !workerManager.loader._inFlight.has(conversation.id),
+    'setup: the conversation should be held with a ready worker and no load in flight');
+  const returned = await workerManager.loader.createNew(conversation.id, conversation.name, session);
+  assert(returned === conversation, 'a create after a finished load must return the loaded conversation');
+  assert(session.conversations.get(conversation.id) === conversation,
+    'a create after a finished load replaced the loaded conversation in the session');
+  assert(!!mt.findByItemId('SYSTEM_1'),
+    'a create after a finished load left the conversation with no system prompt');
+
+  return { passed: 7, failed: 0, errors: [] };
 }

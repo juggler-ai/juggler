@@ -134,7 +134,7 @@ func (ops *ShellOperations) ExecuteStreamingFor(
 	// turns into SIGTERM and then the process group. Untracked on return — the
 	// output channel's close is deferred first, so it runs after this.
 	stopper := newUserStop(cancel)
-	untrack := trackProcess(shellID, ProcessForeground, command, ops.scope.ProjectRoot(), owner, stopper.stop)
+	untrack := trackProcess(shellID, ProcessForeground, command, ops.scope, workingDir, owner, stopper.stop)
 	defer untrack()
 
 	// Channel to signal command completion, and the channel that closes the

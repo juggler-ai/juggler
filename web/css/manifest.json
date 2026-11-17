@@ -283,7 +283,9 @@
 			"file": "patterns/labels.css",
 			"layer": "patterns",
 			"owns": [
-				"caps-label*"
+				"caps-label*",
+				"change-status*",
+				"--change-tone"
 			]
 		},
 		{
@@ -817,7 +819,8 @@
 		"--scrim-from",
 		"--spinner-angle",
 		"--spinner-phase",
-		"--line-digits",
+    "--line-digits",
+    "--diff-viewer-widest",
 		"--tt-arrow-x",
 		"--column-fit-floor",
 		"--visual-viewport-height",
@@ -934,6 +937,10 @@
 		{
 			"pattern": "text-truncate",
 			"why": "README ▸ Labels and text: the caps label and the one-line cut"
+		},
+		{
+			"pattern": "change-status*",
+			"why": "README ▸ Labels and text: a changed file's status letter and its name, coloured by what happened to it"
 		},
 		{
 			"pattern": "surface-*",

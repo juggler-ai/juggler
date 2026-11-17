@@ -12,6 +12,7 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"juggler/cmd/juggler/gitaskpass"
 	"juggler/cmd/juggler/msg"
 	"juggler/cmd/juggler/tunnel"
 	"juggler/internal/ingress"
@@ -22,6 +23,11 @@ import (
 const testTunnelMode = "relay-test"
 
 func TestMain(m *testing.M) {
+	// Git, fetching from a remote that wants a password, runs this binary to
+	// ask for it (git_askpass_test.go), as it runs the server's.
+	if gitaskpass.Invoked(os.Args[1:], os.Getenv) {
+		os.Exit(gitaskpass.Main(os.Args[1:], os.Getenv, os.Stdout))
+	}
 	tunnel.RegisterMode(tunnel.ModeSpec{
 		Mode:  testTunnelMode,
 		Title: msg.New("Test relay"),

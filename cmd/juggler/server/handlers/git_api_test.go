@@ -86,7 +86,7 @@ func gitAPIOn(project func() string) *GitStatusAPI {
 	return NewGitStatusAPI(workspace.NewResolver(project, nil, nil).Resolve)
 }
 
-// askGit calls one of the three endpoints the way the router would.
+// askGit calls one of the git endpoints the way the router would.
 func askGit(t *testing.T, api *GitStatusAPI, ctx context.Context, target string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
@@ -98,6 +98,8 @@ func askGit(t *testing.T, api *GitStatusAPI, ctx context.Context, target string)
 		api.HandleGitReview(rec, req)
 	case strings.HasPrefix(target, "/api/git/diff"):
 		api.HandleGitDiff(rec, req)
+	case strings.HasPrefix(target, "/api/git/read"):
+		api.HandleGitRead(rec, req)
 	default:
 		t.Fatalf("not a git endpoint: %s", target)
 	}
@@ -212,6 +214,38 @@ func TestGitReviewAndDiffTakeAScope(t *testing.T) {
 		if rec := askGit(t, api, t.Context(), target); rec.Code != http.StatusBadRequest {
 			t.Errorf("GET %s = %d, want 400\n%s", target, rec.Code, rec.Body.String())
 		}
+	}
+}
+
+// @turn takes its conversation from conv=, on the review and the diff alike.
+func TestGitTurnScopeTakesItsConversation(t *testing.T) {
+	p := newGitProject(t)
+	p.write("f.txt", "one\n")
+	p.commit("init")
+	out, err := exec.Command("git", "-C", p.root, "write-tree").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.git("update-ref", "refs/juggler/turns/conv-1", strings.TrimSpace(string(out)))
+	p.write("f.txt", "two\n")
+	api := gitAPIOn(func() string { return p.root })
+
+	rec := askGit(t, api, t.Context(), "/api/git/review?scope=%40turn&conv=conv-1")
+	var resp gitReviewResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil || rec.Code != http.StatusOK {
+		t.Fatalf("review in @turn = %d %s", rec.Code, rec.Body.String())
+	}
+	if len(resp.Repos) != 1 || resp.Repos[0].Error != "" || len(resp.Repos[0].Files) != 1 {
+		t.Errorf("review in @turn = %+v, want f.txt alone", resp.Repos)
+	}
+	rec = askGit(t, api, t.Context(), "/api/git/diff?path=f.txt&scope=%40turn&conv=conv-1")
+	var diff gitview.FileDiff
+	if err := json.Unmarshal(rec.Body.Bytes(), &diff); err != nil || rec.Code != http.StatusOK || len(diff.Hunks) == 0 {
+		t.Errorf("diff of f.txt in @turn = %d %s, want its edit", rec.Code, rec.Body.String())
+	}
+	if rec := askGit(t, api, t.Context(), "/api/git/diff?path=f.txt&scope=%40turn&conv=conv-2"); rec.Code != http.StatusBadRequest ||
+		!strings.Contains(rec.Body.String(), "no turn snapshot") {
+		t.Errorf("diff in @turn of a conversation with no snapshot = %d %s, want 400 saying so", rec.Code, rec.Body.String())
 	}
 }
 

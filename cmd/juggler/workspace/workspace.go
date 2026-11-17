@@ -15,7 +15,8 @@
 // to hand out.
 //
 // The methods come in two layers. The bulk operations — Operations,
-// StreamShell, SearchFiles, CompletePath and the three git views — are the
+// StreamShell, SearchFiles, CompletePath, the git views, the git watch and the git
+// client's reads and writes — are the
 // ones whose cost is in touching many files, so a Workspace performs them
 // beside the files rather than having them assembled out of single reads by the
 // caller. The primitives, Stat and Open, are the single-file reads a caller
@@ -27,6 +28,7 @@ import (
 	"io"
 	"io/fs"
 
+	"juggler/cmd/juggler/gitops"
 	"juggler/cmd/juggler/gitview"
 	"juggler/cmd/juggler/ops"
 )
@@ -81,6 +83,24 @@ type Workspace interface {
 	// GitDiff is one file's diff. A refusal of the request itself is a
 	// *gitview.RequestError.
 	GitDiff(ctx context.Context, req gitview.DiffRequest) (gitview.FileDiff, error)
+
+	// GitWatch reports changes to the git state of every repository in the
+	// tree — which repository, and which parts of its state — until ctx ends,
+	// when the channel is closed (see gitops.Watcher.Watch). It is the git
+	// surface's, acting for the user: it widens nothing the agent's tools may
+	// reach.
+	GitWatch(ctx context.Context) (<-chan []gitops.Change, error)
+
+	// GitRead is one of the git client's reads of a repository in the tree
+	// (see gitview.Read): a gitview.Changes for gitview.QueryChanges. A
+	// refusal of the query itself is a *gitview.RequestError.
+	GitRead(ctx context.Context, q gitview.Query) (any, error)
+
+	// GitRun makes one of the git client's writes to a repository in the tree,
+	// queued behind every other write to the same repository (see gitops.Run,
+	// whose typed errors it returns). Like GitWatch it acts for the user and
+	// widens nothing the agent's tools may reach.
+	GitRun(ctx context.Context, op gitops.Op, hooks gitops.Hooks) (gitops.Result, error)
 
 	// Stat describes one path: relative to Root, absolute, or under "~".
 	Stat(path string) (fs.FileInfo, error)

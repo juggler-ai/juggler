@@ -11,8 +11,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path"
@@ -21,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"juggler/cmd/juggler/gitcmd"
 	"juggler/cmd/juggler/msg"
 
 	"juggler/cmd/juggler/gitview/internal/clocks"
@@ -140,12 +139,14 @@ type FileDiff struct {
 // they climb out of where they belong. Context is how many unchanged lines to
 // carry around each change, "-1" for the whole file, and the shipped default
 // when it is absent or unusable. Scope is what to compare, as ParseScope reads
-// it; "" is the working tree against HEAD.
+// it; "" is the working tree against HEAD. Conv is the conversation a
+// conversation's own scope (@turn) is about.
 type DiffRequest struct {
 	Repo    string
 	Path    string
 	Context string
 	Scope   string
+	Conv    string
 }
 
 // RequestError is a diff refused for what it asked for — a path outside the
@@ -182,35 +183,49 @@ func (e *RequestError) Unwrap() error {
 // A refusal of the request itself is a *RequestError; any other error is a diff
 // that could not be read, cancellation and running out of time included.
 func Diff(ctx context.Context, root string, req DiffRequest) (FileDiff, error) {
+	p, err := ReadPatch(ctx, root, req)
+	return p.FileDiff, err
+}
+
+// Patch is one file's diff as Diff answers it, with what a writer needs to act
+// on exactly that diff: the repository's directory and the patch text git
+// wrote, byte for byte — carriage returns and "\ No newline at end of file"
+// included, which the parsed hunks leave out. Raw is empty for an untracked
+// file, whose diff git did not write, and cut short where the diff was.
+// Revision fingerprints Raw (or an untracked file's content) whole, so a
+// client's revision says whether this is the diff it was looking at.
+type Patch struct {
+	FileDiff
+	Dir string
+	Raw []byte
+}
+
+// ReadPatch reads one file's diff as Diff does, keeping the patch text.
+func ReadPatch(ctx context.Context, root string, req DiffRequest) (Patch, error) {
 	repoRel, ok := cleanRepoRelative(req.Repo)
 	if !ok {
-		return FileDiff{}, &RequestError{msg.NewError("Not a path inside the project: repo")}
+		return Patch{}, &RequestError{msg.NewError("Not a path inside the project: repo")}
 	}
 	fileRel, ok := cleanRepoRelative(req.Path)
 	if !ok || fileRel == "" {
-		return FileDiff{}, &RequestError{msg.NewError("Not a path inside the repository: path")}
+		return Patch{}, &RequestError{msg.NewError("Not a path inside the repository: path")}
 	}
 	asked, err := ParseScope(req.Scope)
 	if err != nil {
-		return FileDiff{}, err
+		return Patch{}, err
 	}
+	asked = asked.WithConversation(req.Conv)
 
 	ctx, cancel := context.WithTimeout(ctx, clocks.Diff.Budget)
 	defer cancel()
 
-	dir, ok := resolveRepoDir(ctx, root, repoRel)
-	if !ok {
-		// Discovery that ran out of time finds nothing, which is not the same as
-		// there being nothing to find. Reported as the latter it becomes a settled
-		// fact about the project rather than the passing failure it is.
-		if ctx.Err() != nil {
-			return FileDiff{}, ctx.Err()
-		}
-		return FileDiff{}, &RequestError{msg.NewError("Not a repository in this project: repo")}
+	dir, err := ResolveRepo(ctx, root, repoRel)
+	if err != nil {
+		return Patch{}, err
 	}
 	abs := filepath.Join(dir, filepath.FromSlash(fileRel))
 	if !fileWithinRepo(abs, dir) {
-		return FileDiff{}, &RequestError{msg.NewError("Not a path inside the repository: path")}
+		return Patch{}, &RequestError{msg.NewError("Not a path inside the repository: path")}
 	}
 
 	unified := diffContextFrom(req.Context)
@@ -221,7 +236,7 @@ func Diff(ctx context.Context, root string, req DiffRequest) (FileDiff, error) {
 
 	scope, err := resolveScope(ctx, dir, asked, clocks.Diff.PerCmd)
 	if err != nil {
-		return FileDiff{}, err
+		return Patch{}, err
 	}
 
 	// What happened to a file is settled before the file's own patch is asked
@@ -231,7 +246,7 @@ func Diff(ctx context.Context, root string, req DiffRequest) (FileDiff, error) {
 	// the path the review lists a renamed file under.
 	meta, err := gitDiffMetadata(ctx, dir, scope)
 	if err != nil {
-		return FileDiff{}, err
+		return Patch{}, err
 	}
 	file, changed := meta[fileRel]
 
@@ -244,7 +259,7 @@ func Diff(ctx context.Context, root string, req DiffRequest) (FileDiff, error) {
 
 	patch, err := gitFilePatch(ctx, dir, scope, paths, unified)
 	if err != nil {
-		return FileDiff{}, err
+		return Patch{}, err
 	}
 	resp.Revision, resp.Truncated = patch.Revision, patch.Truncated
 	if len(patch.Kept) > 0 {
@@ -280,7 +295,7 @@ func Diff(ctx context.Context, root string, req DiffRequest) (FileDiff, error) {
 			untrackedDiff(ctx, abs, &resp)
 		}
 	}
-	return resp, nil
+	return Patch{FileDiff: resp, Dir: dir, Raw: patch.Kept}, nil
 }
 
 // applyGitFileMeta overlays what the repository-wide pass established onto what
@@ -309,19 +324,96 @@ func applyGitFileMeta(resp *FileDiff, file gitFileMeta) {
 // upward for a repository when the directory it is given is not one — answers
 // from whatever repository sits above the project, which may be one the user
 // never opened.
+// ResolveRepo is resolveRepoDir for a writer: the repository a client named by
+// its path relative to root, or a *RequestError when root holds no such
+// repository, or the context's error when the search ran out of time.
+func ResolveRepo(ctx context.Context, root, repoRel string) (string, error) {
+	rel, ok := cleanRepoRelative(repoRel)
+	if !ok {
+		return "", &RequestError{msg.NewError("Not a path inside the project: repo")}
+	}
+	dir, ok := resolveRepoDir(ctx, root, rel)
+	if !ok {
+		// Discovery that ran out of time finds nothing, which is not the same as
+		// there being nothing to find. Reported as the latter it becomes a settled
+		// fact about the project rather than the passing failure it is.
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		return "", &RequestError{msg.NewError("Not a repository in this project: repo")}
+	}
+	return dir, nil
+}
+
+// FileInRepo turns a client's repository-relative path into an absolute one
+// inside dir, or refuses it with a *RequestError: empty, climbing out, or
+// reaching out through a symbolic link (see fileWithinRepo).
+func FileInRepo(dir, fileRel string) (string, error) {
+	rel, ok := cleanRepoRelative(fileRel)
+	if !ok || rel == "" {
+		return "", &RequestError{msg.NewError("Not a path inside the repository: path")}
+	}
+	abs := filepath.Join(dir, filepath.FromSlash(rel))
+	if !fileWithinRepo(abs, dir) {
+		return "", &RequestError{msg.NewError("Not a path inside the repository: path")}
+	}
+	return abs, nil
+}
+
+// resolveRepoDir is the search behind ResolveRepo.
+//
+// Every read of the git client starts here, so a repository found is
+// remembered for repoFindFresh, and only one found: one that was not is
+// searched for again on the next read, which is how a repository created a
+// moment ago is found. What is remembered is checked again on every use, and
+// cheaply — the directory still holds a `.git`, and still resolves to the
+// place it did — so a repository deleted, or a directory swapped for a link to
+// somewhere else, is refused at once, by the search it is sent back to. What
+// the check cannot see is a repository the searches would no longer reach for
+// their limits (one past the count they stop at, say), and that lasts no
+// longer than the freshness.
+//
+// The git watcher (gitops) knows when a tree's repositories change, but it
+// watches only the trees a client is watching, and lives above this package;
+// the check on use is what makes a remembered repository safe, and the
+// freshness only bounds the rare change it misses.
 func resolveRepoDir(ctx context.Context, root, repoRel string) (string, bool) {
 	dir := filepath.Join(root, filepath.FromSlash(repoRel))
-	if repoIsAmong(dir, discoverRepos(ctx, root)) {
-		return dir, true
+	key := cacheKey{kind: cacheRepoDir, base: root, target: repoRel}
+	if v, ok := historyCache.get(key); ok {
+		found := v.(repoFound)
+		if time.Since(found.at) < repoFindFresh && found.stillThere(dir) {
+			return dir, true
+		}
+		historyCache.remove(key)
 	}
-	// The cheap search skips the directories that cost the most to walk, and the
-	// review's search does not — so a checkout under vendor/ can be listed for
-	// review, and a file in it has to be openable from that list. The thorough
-	// search is only paid for once the cheap one has said no.
-	if repoIsAmong(dir, scanRepos(ctx, root, reviewScanLimits()).Repos) {
-		return dir, true
+	if !repoIsAmong(dir, discoverRepos(ctx, root)) &&
+		// The cheap search skips the directories that cost the most to walk, and
+		// the review's search does not — so a checkout under vendor/ can be listed
+		// for review, and a file in it has to be openable from that list. The
+		// thorough search is only paid for once the cheap one has said no.
+		!repoIsAmong(dir, scanRepos(ctx, root, reviewScanLimits()).Repos) {
+		return "", false
 	}
-	return "", false
+	historyCache.put(key, repoFound{real: resolvedPath(dir), at: time.Now()}, len(root)+2*len(dir)+64)
+	return dir, true
+}
+
+// repoFound is a repository a search found under a project: where it really
+// is, and when it was found.
+type repoFound struct {
+	real string
+	at   time.Time
+}
+
+// stillThere reports whether dir is still the repository that was found: the
+// same place, and still holding the `.git` the search found it by.
+func (f repoFound) stillThere(dir string) bool {
+	if resolvedPath(dir) != f.real {
+		return false
+	}
+	_, err := os.Lstat(filepath.Join(dir, ".git"))
+	return err == nil
 }
 
 // repoIsAmong reports whether dir is one of the repositories found, comparing
@@ -432,159 +524,27 @@ type gitFileMeta struct {
 	NewID   string
 }
 
-// boundedOutput is what was read from a stream that may be larger than anything
-// worth returning.
-//
-// Revision fingerprints every byte of the stream, including the ones past the
-// ceiling that were dropped: a change is not a different change because the part
-// that differs fell off the end, and an anchor that moved when nothing moved is
-// worse than no anchor. Lines counts the whole stream for the same reason, so an
-// untracked file can say how long it is without being held in memory.
-type boundedOutput struct {
-	Kept      []byte
-	Lines     int
-	Truncated bool
-	Revision  string
-}
+// boundedOutput is what a bounded read of git kept; see gitcmd.Output.
+type boundedOutput = gitcmd.Output
 
-// readBounded reads r to the end, keeping at most limit bytes of it and hashing
-// all of it.
-//
-// What is kept ends at a line boundary whenever anything was dropped. Half a
-// line parses as a real line holding half its text — a quieter wrong answer than
-// a missing one — and cutting at a newline is also what keeps a multi-byte
-// character whole, since no byte of one can be a newline.
-func readBounded(ctx context.Context, r io.Reader, limit int) (boundedOutput, error) {
-	var (
-		out    boundedOutput
-		kept   bytes.Buffer
-		digest = sha256.New()
-		buf    = make([]byte, 64*1024)
-		total  int64
-		last   byte
-	)
-	for {
-		if err := ctx.Err(); err != nil {
-			return out, err
-		}
-		n, err := r.Read(buf)
-		if chunk := buf[:n]; len(chunk) > 0 {
-			digest.Write(chunk)
-			out.Lines += bytes.Count(chunk, []byte{'\n'})
-			last = chunk[len(chunk)-1]
-			total += int64(len(chunk))
-			if room := limit - kept.Len(); room > 0 {
-				if room > len(chunk) {
-					room = len(chunk)
-				}
-				kept.Write(chunk[:room])
-			}
-		}
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return out, err
-		}
-	}
+// readBounded reads a stream under a ceiling, fingerprinting all of it; see
+// gitcmd.ReadBounded.
+var readBounded = gitcmd.ReadBounded
 
-	// A final line nobody terminated is still a line.
-	if total > 0 && last != '\n' {
-		out.Lines++
-	}
-	out.Revision = hex.EncodeToString(digest.Sum(nil))
-	out.Kept = kept.Bytes()
-	if total > int64(len(out.Kept)) {
-		out.Truncated = true
-		if i := bytes.LastIndexByte(out.Kept, '\n'); i >= 0 {
-			out.Kept = out.Kept[:i+1]
-		} else {
-			out.Kept = nil
-		}
-	}
-	return out, nil
-}
+// gitDeadlineError says which clock ran out; see gitcmd.DeadlineError.
+var gitDeadlineError = gitcmd.DeadlineError
 
-// gitCommand builds one git invocation with the flags every read here carries.
-// --no-optional-locks keeps a read from taking index.lock and contending with
-// the user's own git client mid-operation, and core.quotePath=false stops git
-// escaping non-ASCII paths into \303\251. diff.external is emptied for the same
-// reason --no-ext-diff and --no-textconv are passed to the commands that accept
-// them: reading a project is not consent to run commands its configuration
-// names. --literal-pathspecs makes a path a path: without it a file the user
-// named `*` or `:(glob)x` would be read as a pattern over the whole repository.
-//
-// --no-optional-locks is not on its own enough to keep a read from writing, and
-// this is why every comparison against a tree here is asked of the plumbing
-// diff-index rather than of diff. Porcelain diff refreshes the index and writes
-// the refreshed stat information back whatever GIT_OPTIONAL_LOCKS says, so a
-// user who only looked at a review would find their index rewritten underneath
-// whatever their own git client was doing with it. diff-index answers the same
-// question — the same records, byte for byte, given the rename and abbreviation
-// options porcelain applies from configuration — and refreshes nothing.
+// gitCommand builds one read of git (see gitcmd.Command). Every command here is
+// a Read: looking at a project must never take a lock its owner's git client
+// may be waiting on.
 func gitCommand(ctx context.Context, dir string, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, "git", append([]string{
-		"--no-optional-locks", "--literal-pathspecs", "-c", "core.quotePath=false", "-c", "diff.external=",
-	}, args...)...)
-	cmd.Dir = dir
-	return cmd
+	return gitcmd.Command(ctx, dir, gitcmd.Read, args...)
 }
 
-// gitRead runs one git command and streams its output under a ceiling, so that
-// nothing git can produce has to fit in memory first. Every failure is a
-// failure: read as an empty diff, a command that could not run becomes the claim
-// that a file did not change, which is the one thing this must never say wrongly.
-// The budget is the caller's, because how long one command may take is a
-// property of what is being served: a poll that wants an answer now, or a diff
-// somebody is waiting to read.
+// gitRead runs one read under its clock and a ceiling on what it keeps; see
+// gitcmd.Capture.
 func gitRead(ctx context.Context, dir string, budget time.Duration, limit int, args ...string) (boundedOutput, error) {
-	cctx, cancel := context.WithTimeout(ctx, budget)
-	defer cancel()
-
-	cmd := gitCommand(cctx, dir, args...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return boundedOutput{}, err
-	}
-	if err := cmd.Start(); err != nil {
-		return boundedOutput{}, err
-	}
-
-	out, readErr := readBounded(cctx, stdout, limit)
-	// The output is read to the end even when it is past the ceiling, so git is
-	// never left blocked on a pipe nobody is draining.
-	_, _ = io.Copy(io.Discard, stdout)
-	waitErr := cmd.Wait()
-
-	switch {
-	case cctx.Err() != nil:
-		return boundedOutput{}, gitDeadlineError(ctx, cctx, budget)
-	case readErr != nil:
-		return boundedOutput{}, readErr
-	case waitErr != nil:
-		return boundedOutput{}, gitFailure(waitErr, stderr.String())
-	}
-	return out, nil
-}
-
-// gitDeadlineError says which clock ran out: the request's, meaning the caller
-// is gone or the whole budget is spent, or this one command's.
-func gitDeadlineError(ctx, cctx context.Context, budget time.Duration) error {
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-	return fmt.Errorf("git took longer than %s", budget)
-}
-
-// gitFailure names what git complained about, since "exit status 128" names
-// nothing.
-func gitFailure(err error, stderr string) error {
-	if line, _, _ := strings.Cut(strings.TrimSpace(stderr), "\n"); line != "" {
-		return errors.New(line)
-	}
-	return err
+	return gitcmd.Capture(ctx, dir, budget, limit, args...)
 }
 
 // gitDiffBase names what the working tree is compared against: HEAD, or — in a
@@ -602,7 +562,12 @@ func gitDiffBase(ctx context.Context, dir string, budget time.Duration) (string,
 	if cctx.Err() != nil {
 		return "", gitDeadlineError(ctx, cctx, budget)
 	}
+	return emptyTree(ctx, dir, budget)
+}
 
+// emptyTree is the id of the empty tree in the repository at dir, under
+// whichever hash it was created with.
+func emptyTree(ctx context.Context, dir string, budget time.Duration) (string, error) {
 	out, err := gitRead(ctx, dir, budget, 1024, "hash-object", "-t", "tree", "--stdin")
 	if err != nil {
 		return "", err
@@ -622,13 +587,27 @@ func gitDiffBase(ctx context.Context, dir string, budget time.Duration) (string,
 // A metadata pass past its ceiling simply stops describing the files past the
 // cut; their patches still carry their own headers, which is less than this
 // knows but more than nothing.
+//
+// Between two commits the pass is the same for every file of them, so it is
+// run once and kept (see historyCache); the map it returns is then shared, and
+// is only ever read.
 func gitDiffMetadata(ctx context.Context, dir string, scope resolvedScope) (map[string]gitFileMeta, error) {
+	key, cacheable := immutableScope(dir, scope, cacheDiffMeta, gitDiffMaxMeta)
+	if cacheable {
+		if v, ok := historyCache.get(key); ok {
+			return v.(map[string]gitFileMeta), nil
+		}
+	}
 	out, err := gitRead(ctx, dir, clocks.Diff.PerCmd, gitDiffMaxMeta, scope.diffArgs(
 		"--no-ext-diff", "--no-textconv", "--find-renames", "--find-copies", "--raw", "--abbrev", "-z")...)
 	if err != nil {
 		return nil, err
 	}
-	return parseGitRawDiff(out.Kept), nil
+	meta := parseGitRawDiff(out.Kept)
+	if cacheable {
+		historyCache.put(key, meta, metaSize(meta))
+	}
+	return meta, nil
 }
 
 // parseGitRawDiff reads `git diff --raw -z`: a record of colon-prefixed fields,

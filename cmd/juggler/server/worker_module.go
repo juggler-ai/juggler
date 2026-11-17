@@ -41,6 +41,7 @@ var workerSDKImports = map[string]string{
 	"juggler/utils/html":             "/sdk/lib/html.js",
 	"juggler/utils/path-containment": "/sdk/lib/path-containment.js",
 	"juggler/utils/debounce":         "/sdk/lib/debounce.js",
+	"juggler/utils/virtual-list":     "/sdk/lib/virtual-list.js",
 }
 
 // serveWorkerModule serves a JS module transformed for module-worker imports.

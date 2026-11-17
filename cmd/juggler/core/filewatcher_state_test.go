@@ -25,7 +25,7 @@ func TestFileWatcher_OutsideStateFiles(t *testing.T) {
 	if err := os.MkdirAll(state, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	w, err := NewFileWatcher(root)
+	w, err := newFileWatcher(root)
 	if err != nil {
 		t.Fatal(err)
 	}

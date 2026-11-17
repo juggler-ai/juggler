@@ -30,6 +30,8 @@
  * @property {string} [confirmText] - Confirm button text; empty for a step with
  *   nothing to confirm, which has Cancel alone
  * @property {string} [cancelText] - Cancel button text
+ * @property {boolean} [danger] - The confirm button is a danger one: what it
+ *   does cannot be taken back
  * @property {() => boolean|Promise<boolean>} [onConfirm] - As for {@link ModalOptions}
  * @property {(() => void)|null} [onBack] - Adds a Back button, which runs it
  */
@@ -330,7 +332,7 @@ class ModalDialog extends JugglerElement {
       input.addEventListener('keydown', onPromptKeydown);
       this._showCleanups.push(() => input.removeEventListener('keydown', onPromptKeydown));
     } else if (type === 'form' && content) {
-      this.showStep({ title, message, content, confirmText, cancelText, onConfirm });
+      this.showStep({ title, message, content, confirmText, cancelText, danger, onConfirm });
     } else if (type === 'choice') {
       // Choice type doesn't use footer buttons - everything is in the choice options
       footer.classList.add('hidden');
@@ -376,6 +378,7 @@ class ModalDialog extends JugglerElement {
       content,
       confirmText = t('OK'),
       cancelText = t('Cancel'),
+      danger = false,
       onConfirm = () => true,
       onBack = null,
     } = step;
@@ -407,7 +410,7 @@ class ModalDialog extends JugglerElement {
     }));
     // A step with nothing to confirm (a list to pick from) has Cancel alone.
     if (confirmText) {
-      const confirmButton = this.createButton(confirmText, 'primary', async () => {
+      const confirmButton = this.createButton(confirmText, danger ? 'danger' : 'primary', async () => {
         if (confirmButton.disabled) return;
         confirmButton.disabled = true;
         let done = false;

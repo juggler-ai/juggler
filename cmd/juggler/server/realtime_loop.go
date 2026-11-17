@@ -68,6 +68,7 @@ func (s *Server) runRealtimeClientLoop(ctx context.Context, client RealtimeClien
 		jlog.Debug("Internal browser connected")
 		defer func() {
 			s.workerManager.ClearEngineClient(client.ClientID())
+			s.dropAgentRunsOf(client.ClientID(), true)
 			if wsClient, ok := client.(*WSClient); ok && s.engineClient.CompareAndSwap(wsClient, nil) {
 				jlog.Debug("Internal browser disconnected")
 			}
@@ -118,6 +119,13 @@ func (s *Server) runRealtimeClientLoop(ctx context.Context, client RealtimeClien
 	// Join viewer group for multi-view broadcasting.
 	s.joinViewerGroup(client)
 	defer s.leaveViewerGroup(client.ClientID())
+	// A connection's git watches end with it (git_watch.go).
+	defer s.dropGitWatches(client.ClientID())
+	// So do the agent runs it started (agent_runs.go). The engine's own are
+	// dropped with every other run when it goes, above.
+	if role != ClientRoleEngine {
+		defer s.dropAgentRunsOf(client.ClientID(), false)
+	}
 
 	clientCtx, cancelClient := context.WithCancel(ctx)
 	defer cancelClient()
@@ -256,10 +264,45 @@ func (s *Server) runRealtimeClientLoop(ctx context.Context, client RealtimeClien
 				}
 				s.oneShot.deliver(res)
 
+			case frameAgentRunStart:
+				req, ok := unmarshalWS[AgentRunStart](msgBytes, "agent-run-start")
+				if !ok {
+					continue
+				}
+				s.startAgentRun(req, client, client.ClientID())
+
+			case frameAgentRunCancel:
+				req, ok := unmarshalWS[AgentRunCancel](msgBytes, "agent-run-cancel")
+				if !ok {
+					continue
+				}
+				s.cancelAgentRun(req.RunID, client.ClientID())
+
+			case frameAgentRunProgress:
+				p, ok := unmarshalWS[agentRunProgressFrame](msgBytes, "agent-run-progress")
+				if !ok {
+					continue
+				}
+				s.forwardAgentRunProgress(p)
+
+			case frameAgentRunResult:
+				res, ok := unmarshalWS[agentRunResultFrame](msgBytes, "agent-run-result")
+				if !ok {
+					continue
+				}
+				s.finishAgentRun(res.RunID, res, false)
+
 			case frameSessionChanged:
 				// Every other client re-reads the session on this; the sender
 				// wrote it and already holds what it wrote.
 				s.broadcastToOthers(bareFrame{Type: frameSessionChanged}, client.ClientID())
+
+			case frameGitWatch:
+				req, ok := unmarshalWS[GitWatchRequest](msgBytes, "git-watch")
+				if !ok {
+					continue
+				}
+				s.setGitWatches(client.ClientID(), req.Workspaces)
 
 			case frameWorkerMessage:
 				if s.workerManager == nil {
@@ -375,17 +418,29 @@ func (s *Server) runRealtimeClientLoop(ctx context.Context, client RealtimeClien
 //     realm makes, and carries nothing but "re-read it" to every client but the
 //     one that wrote it.
 //   - worker-message is how both realms talk to a conversation's worker.
+//   - git-watch names the trees a viewer shows the git state of; the engine
+//     shows none.
+//   - agent-run-start / agent-run-cancel ask for and abandon an agent run,
+//     which either realm may want (an engine plugin can call runAgent). Its
+//     progress and result go back to the requester alone (agent_runs.go).
+//   - agent-run-progress / agent-run-result speak for the engine carrying the
+//     run out, as one-shot-result does.
 var inboundFrameRoles = map[frameType][]ClientRole{
-	frameEngineHeartbeat: {ClientRoleEngine},
-	frameViewerHeartbeat: {ClientRoleViewer},
-	frameViewerFault:     {ClientRoleViewer},
-	frameShellStart:      {ClientRoleViewer, ClientRoleEngine},
-	frameShellCancel:     {ClientRoleViewer, ClientRoleEngine},
-	frameEngineBridge:    {ClientRoleEngine},
-	frameViewerRelay:     {ClientRoleViewer},
-	frameOneShotResult:   {ClientRoleEngine},
-	frameSessionChanged:  {ClientRoleViewer, ClientRoleEngine},
-	frameWorkerMessage:   {ClientRoleViewer, ClientRoleEngine},
+	frameEngineHeartbeat:  {ClientRoleEngine},
+	frameViewerHeartbeat:  {ClientRoleViewer},
+	frameViewerFault:      {ClientRoleViewer},
+	frameShellStart:       {ClientRoleViewer, ClientRoleEngine},
+	frameShellCancel:      {ClientRoleViewer, ClientRoleEngine},
+	frameEngineBridge:     {ClientRoleEngine},
+	frameViewerRelay:      {ClientRoleViewer},
+	frameOneShotResult:    {ClientRoleEngine},
+	frameSessionChanged:   {ClientRoleViewer, ClientRoleEngine},
+	frameWorkerMessage:    {ClientRoleViewer, ClientRoleEngine},
+	frameGitWatch:         {ClientRoleViewer},
+	frameAgentRunStart:    {ClientRoleViewer, ClientRoleEngine},
+	frameAgentRunCancel:   {ClientRoleViewer, ClientRoleEngine},
+	frameAgentRunProgress: {ClientRoleEngine},
+	frameAgentRunResult:   {ClientRoleEngine},
 }
 
 // inboundFrameAllowed reports whether t is an inbound frame type at all, and

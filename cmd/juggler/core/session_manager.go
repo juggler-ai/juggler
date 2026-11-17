@@ -5,6 +5,7 @@
 package core
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -12,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"juggler/cmd/juggler/gitattr"
+	"juggler/cmd/juggler/gitview"
 	"juggler/cmd/juggler/msg"
 	"juggler/internal/jlog"
 )
@@ -570,7 +573,8 @@ func (m *SessionManager) LoadConversationBinary(convID string) ([]byte, error) {
 // being dropped. When the client posts the full set (the production case) the
 // merge is an exact replacement.
 //
-// Ids with no folder on disk are dropped before merging. A viewer posts its
+// Ids with no folder among the session's own — unknown ones, and an ephemeral
+// run's (CreateEphemeralConversation) — are dropped before merging. A viewer posts its
 // whole tab list, and it keeps a tab for a conversation whose load failed, so
 // without this an id binned in one window is put straight back into the
 // manifest by the next reorder from another — reinstating a tab that names no
@@ -593,7 +597,7 @@ func (m *SessionManager) ReorderConversations(order []string, moved string) ([]s
 	res, err := runWrite(m, func(s *sessionState) (reorderResult, error) {
 		known := make([]string, 0, len(order))
 		for _, id := range order {
-			if _, ok := s.store.ConvDir(id); ok {
+			if s.store.isListed(id) {
 				known = append(known, id)
 			}
 		}
@@ -670,7 +674,8 @@ func mergeConversationOrder(current, desired []string) []string {
 }
 
 // DeleteConversation removes the conversation's folder and session manifest entry,
-// along with the detached boards that were views of it.
+// along with the detached boards that were views of it and the project's record
+// of which files it wrote (gitattr).
 // Set permanent=true for test teardown (permanent delete); false for user-initiated
 // deletion (moves to OS trash so the user can recover if needed).
 func (m *SessionManager) DeleteConversation(convID string, permanent bool) error {
@@ -685,6 +690,43 @@ func (m *SessionManager) DeleteConversation(convID string, permanent bool) error
 		}
 		return struct{}{}, nil
 	})
+	if err == nil {
+		m.pruneConversationGit(convID)
+	}
+	return err
+}
+
+// CreateEphemeralConversation makes the conversation a headless agent run
+// works in: it has a folder, so its worker loads and saves like any other, but
+// it never enters ConversationOrder, is never named in ConvNames, does not count
+// toward MaxConversations, and session.json is not written for it. Returns its
+// id and folder. See FileSessionStore.CreateEphemeralConversationFolder.
+func (m *SessionManager) CreateEphemeralConversation(name, requestedID string) (string, string, error) {
+	r, err := runWrite(m, func(s *sessionState) (pair[string, string], error) {
+		id, dir, err := s.store.CreateEphemeralConversationFolder(name, requestedID)
+		return pair[string, string]{id, dir}, err
+	})
+	return r.a, r.b, err
+}
+
+// IsEphemeral reports whether convID is an ephemeral conversation.
+func (m *SessionManager) IsEphemeral(convID string) bool {
+	v, _ := runRead(m, func(s *sessionState) (bool, error) {
+		return s.store.IsEphemeral(convID), nil
+	})
+	return v
+}
+
+// DeleteEphemeralConversation removes an ephemeral conversation's folder for
+// good. It refuses a conversation of the session's own, whose delete is
+// DeleteConversation's — with its order, its boards and its trash.
+func (m *SessionManager) DeleteEphemeralConversation(convID string) error {
+	_, err := runWrite(m, func(s *sessionState) (struct{}, error) {
+		return struct{}{}, s.store.removeEphemeralConversationFiles(convID)
+	})
+	if err == nil {
+		m.pruneConversationGit(convID)
+	}
 	return err
 }
 
@@ -799,16 +841,39 @@ func (m *SessionManager) ListBinnedConversations() []BinnedConvInfo {
 }
 
 // DeleteBinnedConversation permanently removes (via OS trash) a single
-// conversation folder from the trash/.
+// conversation folder from the trash/, and its record of which files it wrote.
+// Binning keeps that record, since a binned conversation can be restored.
 func (m *SessionManager) DeleteBinnedConversation(convID string) error {
 	_, err := runWrite(m, func(s *sessionState) (struct{}, error) {
 		return struct{}{}, s.store.removeBinnedConversationFiles(convID)
 	})
 	if err == nil {
+		m.pruneConversationGit(convID)
 		m.kickBinSizeRecompute()
 	}
 	return err
 }
+
+// pruneConversationGit forgets what the project's git surfaces kept for a
+// conversation that is gone for good: its record of which files it wrote
+// (gitattr) and its turn snapshot ref (refs/juggler/turns/<conv>), which a
+// workspace on a worktree of the project's repository shares with it. A ref
+// that could not be dropped is logged and left behind.
+func (m *SessionManager) pruneConversationGit(convID string) {
+	gitattr.PruneConversation(m.projectPath, convID)
+	if m.projectPath == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), turnSnapshotDropBudget)
+	defer cancel()
+	if err := gitview.DropTurnSnapshot(ctx, m.projectPath, convID); err != nil {
+		jlog.Error("[session] couldn't drop the turn snapshot of %s: %v", convID, err)
+	}
+}
+
+// turnSnapshotDropBudget bounds dropping a conversation's turn snapshot ref,
+// which a delete waits for.
+const turnSnapshotDropBudget = 5 * time.Second
 
 // EmptyBin permanently removes (via OS trash) every conversation currently in
 // .juggler/trash/, returning the ids removed. The actor only does the fast
@@ -822,7 +887,8 @@ func (m *SessionManager) EmptyBin() ([]string, error) {
 
 // emptyBinSelection is the shape both bin-emptying calls share: moveAside runs
 // on the actor and renames the chosen folders into one staging directory, which
-// trashAside then OS-trashes off it. Returns the ids moved aside.
+// trashAside then OS-trashes off it. The record of which files each wrote goes
+// with it. Returns the ids moved aside.
 func (m *SessionManager) emptyBinSelection(moveAside func(*FileSessionStore) (ids []string, trashPath string, err error)) ([]string, error) {
 	ids, err := runWrite(m, func(s *sessionState) ([]string, error) {
 		ids, trashPath, e := moveAside(s.store)
@@ -833,6 +899,9 @@ func (m *SessionManager) emptyBinSelection(moveAside func(*FileSessionStore) (id
 	})
 	if err != nil {
 		return nil, err
+	}
+	for _, id := range ids {
+		m.pruneConversationGit(id)
 	}
 	m.kickBinSizeRecompute()
 	return ids, nil

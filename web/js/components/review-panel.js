@@ -22,6 +22,7 @@
 
 import { createDiffViewer } from './diff-viewer.js';
 import { serverText, t, formatNumber } from '../../sdk/lib/i18n.js';
+import { createVirtualList, remHeight, WINDOWED_ABOVE } from '../../sdk/lib/virtual-list.js';
 
 /**
  * Scroll one box just far enough to show something inside it, and scroll
@@ -39,6 +40,18 @@ function revealInScroller(scroller, target) {
   // difference between them is unaffected by the board's slide.
   if (item.top < box.top) scroller.scrollTop -= box.top - item.top;
   else if (item.bottom > box.bottom) scroller.scrollTop += item.bottom - box.bottom;
+}
+
+/**
+ * Where something inside a scroller starts in the scroller's content, however
+ * far it has been scrolled.
+ * @param {HTMLElement} scroller - The scrolling box.
+ * @param {HTMLElement} node - Something inside it.
+ * @returns {number} Its offset from the top of the content, in px.
+ */
+function offsetInScroller(scroller, node) {
+  return node.getBoundingClientRect().top - scroller.getBoundingClientRect().top
+    - scroller.clientTop + scroller.scrollTop;
 }
 
 /**
@@ -98,8 +111,11 @@ function revealInScroller(scroller, target) {
 /** How wide a quoted line may be before the editor's label stops naming it. */
 const LABEL_PATH_MAX = 80;
 
+/** A rail row's height, in rem, until one has been measured in place. */
+const ROW_REM = 1.5;
+
 /** The kinds of change a row's code is coloured for; anything else is not. */
-const TONES = new Set(['added', 'removed', 'modified', 'renamed', 'conflicted']);
+const TONES = new Set(['added', 'removed', 'modified', 'renamed', 'untracked', 'conflicted']);
 
 /**
  * A file's address, as one string. Two `src/main.go` in two repositories are two
@@ -156,17 +172,68 @@ class ReviewPanel {
    *   manifest, and given a signal that is aborted when the reader moves on.
    * @param {any} options.review - Where the comments live: `draft`, `onChange`,
    *   `save`, `clear` and `compose`, as `services.review` provides them.
+   * @param {(file: ReviewFile, options: {signal: AbortSignal}) => Promise<any>} [options.loadBlame] - One file's
+   *   blame, as the diff viewer's `setBlame` takes it. Given, the viewer offers
+   *   its blame gutter; it is asked for the file shown while the reader has the
+   *   gutter on, and for each file shown after, until they turn it off. The
+   *   signal is aborted when the reader moves on.
    */
-  constructor({ scopeLabel, loadPatch, review }) {
+  constructor({ scopeLabel, loadPatch, review, loadBlame }) {
     /** @type {string} @private */
     this._scopeLabel = scopeLabel || '';
     /** @type {(file: ReviewFile, options: {signal: AbortSignal, contextLines?: number}) => Promise<any>} @private */
     this._loadPatch = loadPatch;
     /** @type {any} @private */
     this._review = review;
+    /** @type {((file: ReviewFile, options: {signal: AbortSignal}) => Promise<any>)|null} @private */
+    this._loadBlame = typeof loadBlame === 'function' ? loadBlame : null;
+    // The blame being read, aborted when another is asked or the file is left.
+    /** @type {AbortController|null} @private */
+    this._blameRequest = null;
+    // Counts blame asks, so one for a file the reader has left is dropped.
+    /** @type {number} @private */
+    this._blameAsks = 0;
 
     /** @type {ReviewManifest|null} @private */
     this._manifest = null;
+    /**
+     * The manifest's files in rail order, and each one's place by key — built
+     * once per manifest, so nothing on a selection or a draft change walks them.
+     * @type {{files: ReviewFile[], byKey: Map<string, {file: ReviewFile, at: number, group: number, row: number}>}}
+     * @private
+     */
+    this._index = { files: [], byKey: new Map() };
+    /**
+     * The rail rows that are elements now, by key: every one below
+     * WINDOWED_ABOVE files, the window's above it.
+     * @type {Map<string, HTMLElement>} @private
+     */
+    this._rows = new Map();
+    /**
+     * Each group's windowed list, or null while the rail draws every row.
+     * @type {(import('../../sdk/lib/virtual-list.js').VirtualList<ReviewFile>|null)[]} @private
+     */
+    this._lists = [];
+    /**
+     * A rail row's measured height, in px; 0 until measured.
+     * @type {number} @private
+     */
+    this._rowHeight = 0;
+    /**
+     * The draft's comments and, of those in scope, each file's — read once per
+     * change to the draft or the manifest, since a read builds every comment anew.
+     * @type {{comments: any[], byFile: Map<string, any[]>}|null} @private
+     */
+    this._commentCache = null;
+    /**
+     * The diff viewer, made once and kept in the document while files change
+     * under it, and the head above it with the file and comment rights it was
+     * built for.
+     * @type {any} @private
+     */
+    this._viewer = null;
+    /** @type {{file: ReviewFile, canComment: boolean, el: HTMLElement}|null} @private */
+    this._head = null;
     /** @type {string|null} @private */
     this._activeKey = null;
     /** @type {Map<string, any>} @private */
@@ -231,6 +298,9 @@ class ReviewPanel {
     // what fetches the lines it could not have, and _loadActive decides whether
     // anything actually needs asking for.
     this._diffEl.addEventListener('diff-context-change', () => this._loadActive());
+    this._diffEl.addEventListener('diff-blame-toggle', (event) => {
+      if (/** @type {CustomEvent} */ (event).detail?.on) this._blameActive();
+    });
 
     /** @type {() => void} @private */
     this._stopWatching = typeof review?.onChange === 'function'
@@ -249,17 +319,19 @@ class ReviewPanel {
    */
   setManifest(manifest) {
     this._manifest = manifest;
+    this._indexFiles();
+    this._commentCache = null;
     this._patches.clear();
     this._closeEditor();
     this._renderScope();
     this._renderWarnings();
-    this._renderRail();
 
     const files = this._files();
-    const wanted = files.some((file) => fileKey(file.repo, file.path) === this._activeKey)
+    const wanted = this._activeKey !== null && this._index.byKey.has(this._activeKey)
       ? this._activeKey
       : (files[0] ? fileKey(files[0].repo, files[0].path) : null);
     this._activeKey = null;
+    this._renderRail();
     this._select(wanted, false);
     this._renderFooter();
   }
@@ -310,26 +382,37 @@ class ReviewPanel {
 
   /** Move focus to the file being read. */
   focus() {
-    /** @type {HTMLElement|null} */
-    const active = this._railEl.querySelector('.review-panel__file[aria-current="true"]');
+    // A windowed rail may have scrolled the row away; drawing it comes first.
+    this._revealRow(this._activeKey);
+    const active = this._rowButton(this._activeKey);
     if (!active) return;
     // This panel is the body of a pin, and the board holding it is parked off
     // the right edge of the workspace by a transform until it has slid in. A
-    // plain focus() there has the browser scroll every ancestor to reveal it,
-    // and `.app-main` is a scroll box with the scrollbar taken away: the columns
-    // lurch left, the sliding panel overshoots with them, and it all springs
-    // back when the transform settles. So the reveal is done here instead, on
-    // the one box that should move — clamped scrollTop on the rail, which can
-    // neither overshoot nor drag an ancestor along.
+    // plain focus() there has the browser scroll every ancestor that can scroll
+    // to reveal it. So the reveal is done here instead, on the one box that
+    // should move — clamped scrollTop on the rail, which can neither overshoot
+    // nor drag an ancestor along.
     active.focus({ preventScroll: true });
     revealInScroller(this._railEl, active);
+  }
+
+  /**
+   * Abort the patch and blame being read, keeping what is shown: the host has
+   * moved on, and nothing will look at their answers.
+   */
+  cancel() {
+    this._request?.abort();
+    this._request = null;
+    this._blameRequest?.abort();
+    this._blameRequest = null;
   }
 
   /** Stop watching the draft and cancel whatever is still being read. */
   destroy() {
     this._stopWatching();
-    this._request?.abort();
-    this._request = null;
+    this.cancel();
+    for (const list of this._lists) list?.destroy();
+    this._lists = [];
   }
 
   // --- the manifest ---------------------------------------------------------
@@ -339,7 +422,22 @@ class ReviewPanel {
    * @private
    */
   _files() {
-    return (this._manifest?.groups || []).flatMap((group) => group.files || []);
+    return this._index.files;
+  }
+
+  /** @private */
+  _indexFiles() {
+    /** @type {ReviewFile[]} */
+    const files = [];
+    const byKey = new Map();
+    (this._manifest?.groups || []).forEach((group, g) => {
+      (group.files || []).forEach((file, row) => {
+        const key = fileKey(file.repo, file.path);
+        if (!byKey.has(key)) byKey.set(key, { file, at: files.length, group: g, row });
+        files.push(file);
+      });
+    });
+    this._index = { files, byKey };
   }
 
   /**
@@ -348,7 +446,7 @@ class ReviewPanel {
    * @private
    */
   _fileFor(key) {
-    return this._files().find((file) => fileKey(file.repo, file.path) === key) || null;
+    return key === null ? null : this._index.byKey.get(key)?.file || null;
   }
 
   /** @private */
@@ -382,9 +480,29 @@ class ReviewPanel {
     this._warningsEl.append(list);
   }
 
-  /** @private */
+  /**
+   * The rail: each group's head and note, then its rows.
+   *
+   * Up to WINDOWED_ABOVE files every row is an element in normal flow. Past
+   * that — a commit may carry thousands — each group's rows are a windowed list
+   * sharing the rail as their scroller, so only the rows in view are elements
+   * while the heads and notes stay in flow above them, at their own heights.
+   * The current row is kept once drawn, as the rail's tab stop, and so is one
+   * holding focus, so a scroll neither drops focus nor leaves Tab nowhere to land.
+   * @private
+   */
   _renderRail() {
-    this._railEl.replaceChildren();
+    const rail = this._railEl;
+    for (const list of this._lists) list?.destroy();
+    this._lists = [];
+    this._rows.clear();
+    const windowed = this._files().length > WINDOWED_ABOVE;
+    // Measured in place before the rail is emptied, and kept across the swap:
+    // an empty rail would clamp the scroll to the top.
+    this._rowHeight = 0;
+    const top = windowed ? rail.scrollTop : 0;
+    if (windowed) this._rowPx();
+    rail.replaceChildren();
     for (const group of this._manifest?.groups || []) {
       const block = el('div', 'review-panel__group');
       const head = el('div', 'review-panel__group-head');
@@ -393,11 +511,88 @@ class ReviewPanel {
       if (head.childNodes.length > 0) block.append(head);
       if (group.note) block.append(el('div', 'review-panel__group-note', group.note));
 
-      const rows = el('div', 'review-panel__rows');
-      for (const file of group.files || []) rows.append(this._buildRow(file));
-      block.append(rows);
-      this._railEl.append(block);
+      const files = group.files || [];
+      if (!windowed) {
+        const rows = el('div', 'review-panel__rows');
+        for (const file of files) rows.append(this._buildRow(file));
+        block.append(rows);
+        this._lists.push(null);
+      } else {
+        /** @type {import('../../sdk/lib/virtual-list.js').VirtualList<ReviewFile>} */
+        const list = createVirtualList({
+          scroller: rail,
+          spacerClass: 'review-panel__rows',
+          rowHeight: () => this._rowPx(),
+          keyOf: (file) => fileKey(file.repo, file.path),
+          build: (file) => this._buildRow(file),
+          originOf: () => offsetInScroller(rail, list.spacer),
+          retain: (row) => {
+            const button = /** @type {HTMLElement|null} */ (row.firstElementChild);
+            return button?.dataset.key === this._activeKey || row.contains(document.activeElement);
+          },
+          afterDraw: () => this._pruneRows(),
+        });
+        list.setItems(files);
+        // Its whole height before anything is read, so the rail's own height is
+        // right at the first layout and the restored scroll is not clamped.
+        list.spacer.style.height = `${list.offsetOf(files.length)}px`;
+        block.append(list.spacer);
+        this._lists.push(list);
+      }
+      rail.append(block);
     }
+    if (!windowed) return;
+    rail.scrollTop = top;
+    for (const list of this._lists) list?.render();
+  }
+
+  /**
+   * A rail row's height, measured from a row put in the rail for the purpose,
+   * or the usual one while the rail is not laid out.
+   * @returns {number} The height, in px.
+   * @private
+   */
+  _rowPx() {
+    if (this._rowHeight > 0) return this._rowHeight;
+    const probe = el('div', 'review-panel__row');
+    const button = el('button', 'review-panel__file');
+    const address = el('span', 'review-panel__path');
+    address.append(el('span', 'review-panel__name change-status-name text-truncate', 'x'));
+    button.append(el('span', 'review-panel__code change-status', 'M'), address,
+      el('span', 'review-panel__stat', '+1 −1'), el('span', 'review-panel__count', '1'));
+    probe.append(button);
+    probe.style.visibility = 'hidden';
+    this._railEl.append(probe);
+    const height = probe.getBoundingClientRect().height;
+    probe.remove();
+    if (height > 0) this._rowHeight = height;
+    return height > 0 ? height : remHeight(ROW_REM)();
+  }
+
+  /**
+   * Forget the rows a windowed list has let go of.
+   * @private
+   */
+  _pruneRows() {
+    for (const [key, button] of this._rows) {
+      if (!button.isConnected) this._rows.delete(key);
+    }
+  }
+
+  /**
+   * Make sure a file's row is drawn and in view, for a rail that draws only a
+   * window of them; one that draws every row has nothing to do.
+   * @param {string|null} key - The file's address.
+   * @private
+   */
+  _revealRow(key) {
+    const entry = key === null ? undefined : this._index.byKey.get(key);
+    const list = entry ? this._lists[entry.group] : null;
+    if (!entry || !list) return;
+    list.reveal(entry.row);
+    // Every group's window moves with the scroll, and the scroll event that
+    // would tell them arrives later.
+    for (const other of this._lists) other?.render();
   }
 
   /**
@@ -417,19 +612,29 @@ class ReviewPanel {
     const button = el('button', 'review-panel__file');
     /** @type {HTMLButtonElement} */ (button).type = 'button';
     button.dataset.key = fileKey(file.repo, file.path);
-    // An attribute rather than a modifier class, and allow-listed: the tone
-    // comes from a host, and the palette is the panel's to name. It sits on the
-    // row because both the code and the name are coloured from it.
-    if (TONES.has(file.tone || '')) button.dataset.tone = /** @type {string} */ (file.tone);
+    // Allow-listed: the tone comes from a host, and the palette is the
+    // pattern's to name. The row carries it for whoever reads the row; the code
+    // and the name below carry it for their colour.
+    const tone = TONES.has(file.tone || '') ? /** @type {string} */ (file.tone) : '';
+    if (tone) button.dataset.tone = tone;
     button.tabIndex = -1;
     button.title = file.oldPath ? `${file.oldPath} → ${file.path}` : file.path;
     // The same right-click menu as every other surface naming a file, so a row
     // that is not the one being read is still a row you can act on.
     if (file.filePath) button.dataset.filePath = file.filePath;
-    button.append(el('span', 'review-panel__code', file.code || ''));
+    // The status letter and the name are the app's change-status pair, which the
+    // Git pin's Changes list draws too, so a file reads the same in both.
     const cut = file.path.lastIndexOf('/');
+    const code = el('span', 'review-panel__code change-status', (file.code || '').trim());
+    const name = el('span', 'review-panel__name change-status-name text-truncate', file.path.slice(cut + 1));
+    if (tone) {
+      code.dataset.tone = tone;
+      name.dataset.tone = tone;
+    }
+    if (!code.textContent) code.hidden = true;
+    button.append(code);
     const address = el('span', 'review-panel__path');
-    address.append(el('span', 'review-panel__name text-truncate', file.path.slice(cut + 1)));
+    address.append(name);
     if (cut > 0) address.append(el('span', 'review-panel__dir text-truncate', file.path.slice(0, cut)));
     button.append(address);
     const added = file.added || 0;
@@ -440,8 +645,23 @@ class ReviewPanel {
     button.append(el('span', 'review-panel__count', ''));
     button.addEventListener('click', () => this._select(fileKey(file.repo, file.path), true));
     row.append(button);
+    this._markRow(button, button.dataset.key === this._activeKey);
     this._labelRow(button, file);
+    // The first file of a key is its row, as the index has it; a row a window
+    // let go of is replaced by the one drawn for it now.
+    if (!this._rows.get(button.dataset.key)?.isConnected) this._rows.set(button.dataset.key, button);
     return row;
+  }
+
+  /**
+   * @param {HTMLElement} button - A row's button.
+   * @param {boolean} current - Whether it is the file being read.
+   * @private
+   */
+  _markRow(button, current) {
+    if (current) button.setAttribute('aria-current', 'true');
+    else button.removeAttribute('aria-current');
+    button.tabIndex = current ? 0 : -1;
   }
 
   /**
@@ -472,24 +692,27 @@ class ReviewPanel {
   }
 
   /**
-   * The row for one file. Found by reading the keys rather than by selecting on
-   * one: a key holds a path, and a path holds whatever the user called it.
+   * The row for one file, when it is drawn. Looked up by key rather than by
+   * selecting on one: a key holds a path, and a path holds whatever the user
+   * called it.
    * @param {string|null} key - The file's address.
    * @returns {HTMLElement|null} Its button, or null.
    * @private
    */
   _rowButton(key) {
-    if (!key) return null;
-    return /** @type {HTMLElement|null} */ (
-      Array.from(this._railEl.querySelectorAll('.review-panel__file'))
-        .find((button) => /** @type {HTMLElement} */ (button).dataset.key === key) || null);
+    if (key === null) return null;
+    const button = this._rows.get(key);
+    return button?.isConnected ? button : null;
   }
 
-  /** @private */
+  /**
+   * Relabel the rows that are drawn; one drawn later is labelled as it is built.
+   * @private
+   */
   _updateCounts() {
-    for (const file of this._files()) {
-      const button = this._rowButton(fileKey(file.repo, file.path));
-      if (button) this._labelRow(button, file);
+    for (const [key, button] of this._rows) {
+      const file = this._fileFor(key);
+      if (file && button.isConnected) this._labelRow(button, file);
     }
   }
 
@@ -509,13 +732,11 @@ class ReviewPanel {
       return;
     }
     this._closeEditor();
+    const previous = this._rowButton(this._activeKey);
     this._activeKey = key;
-    for (const button of Array.from(this._railEl.querySelectorAll('.review-panel__file'))) {
-      const current = /** @type {HTMLElement} */ (button).dataset.key === key;
-      if (current) button.setAttribute('aria-current', 'true');
-      else button.removeAttribute('aria-current');
-      /** @type {HTMLElement} */ (button).tabIndex = current ? 0 : -1;
-    }
+    if (previous) this._markRow(previous, false);
+    const current = this._rowButton(key);
+    if (current) this._markRow(current, true);
     if (focus) this._focusRow(key);
     this._loadActive();
   }
@@ -525,13 +746,13 @@ class ReviewPanel {
    * @private
    */
   _focusRow(key) {
+    this._revealRow(key);
     this._rowButton(key)?.focus();
   }
 
   /** @private */
   _loadActive() {
-    this._request?.abort();
-    this._request = null;
+    this.cancel();
     const generation = ++this._generation;
 
     const file = this._fileFor(this._activeKey);
@@ -584,15 +805,50 @@ class ReviewPanel {
    * @private
    */
   _mountDiff(file) {
-    /** @type {any} */
-    let viewer = this._diffEl.querySelector('diff-viewer');
+    const canComment = this._canComment();
+    if (!this._viewer) this._viewer = createDiffViewer({ readOnly: !canComment, blame: Boolean(this._loadBlame) });
+    const viewer = this._viewer;
+    viewer.readOnly = !canComment;
+    // The head is built once per file — its controls are the host's, and cost a
+    // build — and the viewer stays in the document while it is swapped: putting
+    // the viewer back would have it measure itself and start over.
+    const previous = this._head;
+    if (!previous || previous.file !== file || previous.canComment !== canComment) {
+      this._head = { file, canComment, el: this._buildHead(file, canComment) };
+    }
+    const head = /** @type {{el: HTMLElement}} */ (this._head).el;
+    if (viewer.parentNode !== this._diffEl) {
+      this._diffEl.replaceChildren(head, viewer);
+    } else if (head.parentNode !== this._diffEl) {
+      if (previous?.el.parentNode === this._diffEl) previous.el.replaceWith(head);
+      else this._diffEl.insertBefore(head, viewer);
+    }
+    return viewer;
+  }
+
+  /**
+   * @param {ReviewFile} file - The file being read.
+   * @param {boolean} canComment - Whether there is anywhere to keep a comment.
+   * @returns {HTMLElement} The head above its diff.
+   * @private
+   */
+  _buildHead(file, canComment) {
     const path = file.oldPath ? `${file.oldPath} → ${file.path}` : file.path;
+    const shown = file.repo ? `${file.repo}/${path}` : path;
     const head = el('div', 'review-panel__diff-head');
-    head.append(el('span', 'review-panel__diff-path', file.repo ? `${file.repo}/${path}` : path));
+    // One line, as the rail lays a path out: the directory gives up its width
+    // to an ellipsis before the name loses a character, and the whole path is
+    // the tooltip. Wrapped, it would break at whatever character the edge fell on.
+    const cut = shown.lastIndexOf('/') + 1;
+    const pathEl = el('span', 'review-panel__diff-path');
+    pathEl.title = shown;
+    if (cut) pathEl.append(el('span', 'review-panel__diff-dir text-truncate', shown.slice(0, cut)));
+    pathEl.append(el('span', 'review-panel__diff-name text-truncate', shown.slice(cut)));
+    head.append(pathEl);
     const actions = file.actions?.();
     if (actions) head.append(actions);
-    if (this._canComment()) {
-      const whole = el('button', 'review-panel__file-comment', t('Comment on this file'));
+    if (canComment) {
+      const whole = el('button', 'review-panel__file-comment btn btn-xs btn-neutral', t('Comment on this file'));
       /** @type {HTMLButtonElement} */ (whole).type = 'button';
       whole.addEventListener('click', () => this._openEditor({
         repo: file.repo,
@@ -604,14 +860,7 @@ class ReviewPanel {
       }));
       head.append(whole);
     }
-    if (!viewer) {
-      viewer = createDiffViewer({ readOnly: !this._canComment() });
-      this._diffEl.replaceChildren(head, viewer);
-    } else {
-      viewer.readOnly = !this._canComment();
-      this._diffEl.replaceChildren(head, viewer);
-    }
-    return viewer;
+    return head;
   }
 
   /**
@@ -621,8 +870,33 @@ class ReviewPanel {
    */
   _showPatch(file, patch) {
     const viewer = this._mountDiff(file);
-    viewer.setPatch(patch);
-    this._renderAnnotations();
+    // The patch and its comments in one render: a diff is drawn once per change.
+    viewer.setPatch(patch, this._annotationsFor(file));
+    this._placeEditor();
+    if (viewer.blameOn) this._blameActive();
+  }
+
+  /**
+   * Read the blame of the file shown and hand it to its viewer; an answer for a
+   * file the reader has left since is dropped, and a failure leaves the gutter
+   * blank.
+   * @private
+   */
+  _blameActive() {
+    this._blameRequest?.abort();
+    this._blameRequest = null;
+    const file = this._fileFor(this._activeKey);
+    const viewer = /** @type {any} */ (this._diffEl.querySelector('diff-viewer'));
+    if (!file || !viewer || !this._loadBlame) return;
+    const asked = ++this._blameAsks;
+    const key = this._activeKey;
+    const request = new AbortController();
+    this._blameRequest = request;
+    void Promise.resolve(this._loadBlame(file, { signal: request.signal })).then((blame) => {
+      if (asked === this._blameAsks && key === this._activeKey) viewer.setBlame(blame);
+    }, () => {
+      if (asked === this._blameAsks && key === this._activeKey) viewer.setBlame(null);
+    });
   }
 
   // --- the keyboard ---------------------------------------------------------
@@ -639,7 +913,7 @@ class ReviewPanel {
     if (!keys.includes(event.key)) return;
     const files = this._files();
     if (files.length === 0) return;
-    const at = files.findIndex((file) => fileKey(file.repo, file.path) === this._activeKey);
+    const at = this._activeKey === null ? -1 : this._index.byKey.get(this._activeKey)?.at ?? -1;
     let next = at;
     if (event.key === 'ArrowDown') next = Math.min(files.length - 1, at + 1);
     else if (event.key === 'ArrowUp') next = Math.max(0, at - 1);
@@ -662,7 +936,33 @@ class ReviewPanel {
    * @private
    */
   _comments() {
-    return this._review?.draft()?.comments || [];
+    return this._commentIndex().comments;
+  }
+
+  /**
+   * The draft's comments, and those written in this scope by file. Kept until
+   * the draft or the manifest changes — the host says when the draft does — so a
+   * rail of rows and a diff of annotations read it once, not once each.
+   * @returns {{comments: any[], byFile: Map<string, any[]>}} The index.
+   * @private
+   */
+  _commentIndex() {
+    if (this._commentCache) return this._commentCache;
+    /** @type {any[]} */
+    const comments = this._review?.draft()?.comments || [];
+    /** @type {Map<string, any[]>} */
+    const byFile = new Map();
+    for (const comment of comments) {
+      if (!this._inScope(comment)) continue;
+      const key = fileKey(comment.repo, comment.path);
+      const list = byFile.get(key);
+      if (list) list.push(comment);
+      else byFile.set(key, [comment]);
+    }
+    const index = { comments, byFile };
+    // A host that cannot say when its draft changes is read afresh every time.
+    if (typeof this._review?.onChange === 'function') this._commentCache = index;
+    return index;
   }
 
   /**
@@ -699,8 +999,7 @@ class ReviewPanel {
    * @private
    */
   _commentsFor(file) {
-    return this._comments().filter((comment) => this._inScope(comment)
-      && comment.repo === file.repo && comment.path === file.path);
+    return this._commentIndex().byFile.get(fileKey(file.repo, file.path)) || [];
   }
 
   /** @private */
@@ -709,7 +1008,17 @@ class ReviewPanel {
     const viewer = this._diffEl.querySelector('diff-viewer');
     const file = this._fileFor(this._activeKey);
     if (!viewer || !file) return;
-    viewer.setAnnotations(this._commentsFor(file).map((comment) => ({
+    viewer.setAnnotations(this._annotationsFor(file));
+    this._placeEditor();
+  }
+
+  /**
+   * @param {ReviewFile} file - The file.
+   * @returns {any[]} Its comments, as the viewer draws them.
+   * @private
+   */
+  _annotationsFor(file) {
+    return this._commentsFor(file).map((comment) => ({
       id: comment.id,
       side: comment.side,
       startLine: comment.startLine,
@@ -717,8 +1026,7 @@ class ReviewPanel {
       lineText: comment.lineText,
       body: comment.body,
       revision: comment.revision,
-    })));
-    this._placeEditor();
+    }));
   }
 
   /**
@@ -814,9 +1122,9 @@ class ReviewPanel {
     const actions = el('div', 'review-panel__editor-actions');
     // An edit replaces the comment it was opened on, so only a new one is
     // joining anything. Neither is sent: both end at the batch in the footer.
-    const save = el('button', 'review-panel__save', anchor.id ? t('Save changes') : t('Add to feedback'));
+    const save = el('button', 'review-panel__save btn btn-xs btn-primary', anchor.id ? t('Save changes') : t('Add to feedback'));
     /** @type {HTMLButtonElement} */ (save).type = 'button';
-    const cancel = el('button', 'review-panel__cancel', t('Cancel'));
+    const cancel = el('button', 'review-panel__cancel btn btn-xs btn-neutral', t('Cancel'));
     /** @type {HTMLButtonElement} */ (cancel).type = 'button';
     actions.append(save, cancel);
     box.append(label, textarea, error, actions);
@@ -835,10 +1143,11 @@ class ReviewPanel {
   }
 
   /**
-   * Put the editor back where it belongs. The renderer rebuilds itself whenever
-   * it is given anything, so the editor is a node this panel holds and re-hangs
-   * rather than markup inside the diff — which is also what keeps half-written
-   * words on screen when a save is refused.
+   * Put the editor where it belongs. The renderer rebuilds itself whenever it is
+   * given anything, and a long diff draws only the lines in view, so the editor
+   * is a node this panel holds and the viewer hangs (`setAttachment`) rather
+   * than markup inside the diff — which is also what keeps half-written words on
+   * screen when a save is refused, or the reader scrolls away and back.
    * @private
    */
   _placeEditor() {
@@ -851,19 +1160,9 @@ class ReviewPanel {
       return;
     }
     const anchor = editor.anchor;
-    if (anchor.side !== 'file') {
-      const attribute = anchor.side === 'old' ? 'data-old-line' : 'data-new-line';
-      const line = viewer.querySelector(`.diff-line[${attribute}="${anchor.endLine}"]`);
-      if (line) {
-        const comments = line.nextElementSibling?.classList?.contains('diff-comments')
-          ? line.nextElementSibling
-          : line;
-        comments.after(editor.box);
-        return;
-      }
-    }
-    (viewer.querySelector('diff-file-comments') || viewer.querySelector('diff-content') || viewer)
-      .append(editor.box);
+    viewer.setAttachment(editor.box, anchor.side === 'file'
+      ? { side: 'file' }
+      : { side: anchor.side, line: anchor.endLine });
   }
 
   /** @private */
@@ -879,8 +1178,10 @@ class ReviewPanel {
 
   /** @private */
   _closeEditor() {
-    this._editor?.box.remove();
+    if (!this._editor) return;
+    this._editor.box.remove();
     this._editor = null;
+    /** @type {any} */ (this._diffEl.querySelector('diff-viewer'))?.setAttachment(null);
   }
 
   /**
@@ -959,6 +1260,7 @@ class ReviewPanel {
 
   /** @private */
   _onDraftChange() {
+    this._commentCache = null;
     this._updateCounts();
     this._renderAnnotations();
     this._renderFooter();
@@ -989,10 +1291,10 @@ class ReviewPanel {
     this._footerEl.append(el('span', 'review-panel__draft-count',
       t('{count, plural, one {{count} draft comment} other {{count} draft comments}}'
         + '{elsewhere, plural, =0 {} other { ({elsewhere} in another scope)}}', { count: comments.length, elsewhere })));
-    const discard = el('button', 'review-panel__discard', t('Discard'));
+    const discard = el('button', 'review-panel__discard btn btn-xs btn-danger-quiet', t('Discard'));
     /** @type {HTMLButtonElement} */ (discard).type = 'button';
     discard.addEventListener('click', () => { void this._discard(); });
-    const compose = el('button', 'review-panel__compose', t('Paste feedback into prompt'));
+    const compose = el('button', 'review-panel__compose btn btn-xs btn-primary', t('Paste feedback into prompt'));
     /** @type {HTMLButtonElement} */ (compose).type = 'button';
     compose.addEventListener('click', () => { void this._compose(); });
     this._footerEl.append(discard, compose);
@@ -1040,6 +1342,8 @@ class ReviewPanel {
  * @param {(file: ReviewFile, options: {signal: AbortSignal}) => Promise<any>} options.loadPatch -
  *   One file's patch, on demand.
  * @param {any} options.review - Where the comments live, as `services.review`.
+ * @param {(file: ReviewFile, options: {signal: AbortSignal}) => Promise<any>} [options.loadBlame] - One file's
+ *   blame, on demand; given, the diff offers a blame gutter.
  * @returns {ReviewPanel} The panel. Append its `element`, feed it `setManifest`,
  *   and call `destroy` when the host goes away.
  */

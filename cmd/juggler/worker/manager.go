@@ -46,6 +46,7 @@ const (
 	mgrActiveIDs
 	mgrTryRetire
 	mgrSetAutoNamer
+	mgrSetTurnSnapshot
 	mgrSetSpendLimit
 	mgrSetRunBudget
 	mgrSetKeepRecent
@@ -109,6 +110,7 @@ type managerOp struct {
 	runBudget       RunBudgetFunc
 	keepRecent      KeepRecentFunc
 	autoNameFunc    AutoNameFunc
+	turnSnapshot    TurnSnapshotFunc
 	engineCallback  func(convID string, msg []byte)
 	pathProvider    PathProviderFunc
 	nameProvider    NameProviderFunc
@@ -200,6 +202,7 @@ func (m *Manager) run() {
 	var runBudget RunBudgetFunc
 	var keepRecent KeepRecentFunc
 	var autoNameFunc AutoNameFunc
+	var turnSnapshot TurnSnapshotFunc
 	var engineClientID string
 	var engineCallback func(convID string, msg []byte)
 	var pathProvider PathProviderFunc
@@ -260,6 +263,9 @@ func (m *Manager) run() {
 		}
 		if autoNameFunc != nil {
 			w.SetAutoNamer(autoNameFunc)
+		}
+		if turnSnapshot != nil {
+			w.SetTurnSnapshot(turnSnapshot)
 		}
 		if cancelLLMFn != nil {
 			w.SetCancelLLMSession(cancelLLMFn)
@@ -338,6 +344,12 @@ func (m *Manager) run() {
 			autoNameFunc = op.autoNameFunc
 			for _, w := range workers {
 				w.SetAutoNamer(autoNameFunc)
+			}
+
+		case mgrSetTurnSnapshot:
+			turnSnapshot = op.turnSnapshot
+			for _, w := range workers {
+				w.SetTurnSnapshot(turnSnapshot)
 			}
 
 		case mgrSetCancelLLMSession:
@@ -660,6 +672,12 @@ func (m *Manager) SetKeepRecent(fn KeepRecentFunc) {
 // existing worker and any worker created later. See AutoNameFunc.
 func (m *Manager) SetAutoNamer(fn AutoNameFunc) {
 	m.ops <- managerOp{kind: mgrSetAutoNamer, autoNameFunc: fn}
+}
+
+// SetTurnSnapshot sets the turn-start snapshot callback applied to every
+// existing worker and any worker created later. See TurnSnapshotFunc.
+func (m *Manager) SetTurnSnapshot(fn TurnSnapshotFunc) {
+	m.ops <- managerOp{kind: mgrSetTurnSnapshot, turnSnapshot: fn}
 }
 
 // SetEngineReadyFunc sets the engine-readiness gate used by all workers before

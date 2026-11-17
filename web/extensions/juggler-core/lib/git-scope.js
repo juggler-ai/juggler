@@ -20,6 +20,13 @@ const t = translator('@juggler/core');
 /** The scope a pin with none set reviews: the working tree against HEAD. */
 export const DEFAULT_SCOPE = '@uncommitted';
 
+/**
+ * The scope that compares the working tree against the start of a
+ * conversation's current turn. It is the one scope that needs a conversation as
+ * well as a tree.
+ */
+export const TURN_SCOPE = '@turn';
+
 /** How long a scope may be, matching the server's own ceiling. */
 const SCOPE_MAX_LENGTH = 256;
 
@@ -52,6 +59,11 @@ export const SCOPE_PRESETS = Object.freeze([
     id: '@last',
     label: markForTranslation('Last commit'),
     description: markForTranslation('Last commit against its parent'),
+  },
+  {
+    id: TURN_SCOPE,
+    label: markForTranslation("This turn's changes"),
+    description: markForTranslation('Working tree against the start of this turn'),
   },
 ]);
 
@@ -114,26 +126,72 @@ export function normalizeRecent(raw) {
 /**
  * A Git pin's parameters as they are stored: the scope, omitted when it is the
  * default so a pin that never chose one keeps the config it always had, and
- * the workspace whose tree it shows, omitted for one that follows the visible
- * conversation.
+ * the tree it shows. A pin that follows the visible conversation carries no
+ * tree. One the agent opened on a workspace carries `workspace`. One the user
+ * fixed to a tree by hand carries `workspace` with `follow: false`, and
+ * there `workspace: ''` is the project's tree — the one tree whose id is ''.
+ * An {@link TURN_SCOPE} pin carries `conv`, the conversation whose turn it
+ * compares: the one named, else the one that asked for the pin. Without either
+ * it compares the visible conversation's turn. No other scope carries one.
  * @param {Record<string, unknown>} parameters - What the agent or the user gave.
+ * @param {{conversationId?: string}} [origin] - Who asked: the conversation that
+ *   opened the pin, when an agent did.
  * @returns {Record<string, unknown>} The normalized parameters.
  */
-export function normalizeGitPinParameters(parameters) {
+export function normalizeGitPinParameters(parameters, origin) {
   const scope = normalizeScope(parameters?.scope);
   const workspace = pinnedWorkspace(parameters);
+  const byHand = parameters?.follow === false;
+  const conv = scope === TURN_SCOPE ? (turnConversation(parameters) || (origin?.conversationId || '').trim()) : '';
   return {
-    ...(workspace ? { workspace } : {}),
-    ...(scope === DEFAULT_SCOPE ? {} : { scope })
+    ...(byHand ? { workspace, follow: false } : workspace ? { workspace } : {}),
+    ...(scope === DEFAULT_SCOPE ? {} : { scope }),
+    ...(conv ? { conv } : {}),
   };
+}
+
+/**
+ * The conversation an {@link TURN_SCOPE} pin is fixed to.
+ * @param {Record<string, unknown>|null|undefined} parameters - Its config or parameters.
+ * @returns {string} The conversation id, '' for one that compares the visible
+ *   conversation's turn.
+ */
+export function turnConversation(parameters) {
+  const conv = parameters?.conv;
+  return typeof conv === 'string' ? conv.trim() : '';
+}
+
+/**
+ * Whether a Git pin is fixed to a tree rather than following the visible
+ * conversation: it names a workspace, or was fixed by hand (to the project's
+ * tree, perhaps, whose id is '').
+ * @param {Record<string, unknown>|null|undefined} parameters - Its config or parameters.
+ * @returns {boolean} True when it is fixed to a tree.
+ */
+export function isPinned(parameters) {
+  return parameters?.follow === false || pinnedWorkspace(parameters) !== '';
 }
 
 /**
  * The workspace a Git pin is fixed to.
  * @param {Record<string, unknown>|null|undefined} parameters - Its config or parameters.
- * @returns {string} The workspace id, or '' for a pin that follows the visible conversation.
+ * @returns {string} The workspace id, '' for the project's tree or for a pin
+ *   that follows the visible conversation ({@link isPinned} tells them apart).
  */
 export function pinnedWorkspace(parameters) {
   const workspace = parameters?.workspace;
   return typeof workspace === 'string' ? workspace.trim() : '';
+}
+
+/**
+ * Which tree a Git pin shows, as one comparable string: '' for following, the
+ * workspace id for one the agent named, and the id after '=' for one fixed by
+ * hand — so the project's tree fixed by hand is not following, and the strings
+ * of the first two are the ones pins have always been told apart by.
+ * @param {Record<string, unknown>|null|undefined} parameters - Its config or parameters.
+ * @returns {string} The key.
+ */
+export function treeKeyOf(parameters) {
+  if (parameters?.follow === false) return `=${pinnedWorkspace(parameters)}`;
+  return pinnedWorkspace(parameters);
 }

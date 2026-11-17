@@ -54,13 +54,14 @@ function stableStringify(parameters) {
  * pin mounts.
  * @param {import('juggler/pinboard-item-type').PinAgentDescriptor|null} descriptor - The type's descriptor, if it has one.
  * @param {unknown} parameters - Raw parameters from the model.
+ * @param {import('juggler/pinboard-item-type').PinRequestOrigin} origin - Who is asking.
  * @returns {Record<string, unknown>|null} Normalized parameters, or null.
  */
-function normalizeParameters(descriptor, parameters) {
+function normalizeParameters(descriptor, parameters, origin) {
   if (!parameters || typeof parameters !== 'object' || Array.isArray(parameters)) return null;
   // JSON from the model: a non-array object is a record of named values.
   const record = /** @type {Record<string, unknown>} */ (parameters);
-  return descriptor?.normalize ? descriptor.normalize(record) : record;
+  return descriptor?.normalize ? descriptor.normalize(record, origin) : record;
 }
 
 /**
@@ -237,7 +238,8 @@ class PinToPinboardContextItem extends ContextItem {
     if (!type) {
       return { valid: false, error: markUntranslated('Which pin type? Name one of the installed types.') };
     }
-    const parameters = normalizeParameters(catalog.get(type) || null, toolInput.parameters);
+    const parameters = normalizeParameters(catalog.get(type) || null, toolInput.parameters,
+      { conversationId: this.conversation?.id || '' });
     if (!parameters) {
       return { valid: false, error: markUntranslated(`${type} parameters are invalid`) };
     }
@@ -251,7 +253,8 @@ class PinToPinboardContextItem extends ContextItem {
    */
   async execute(params) {
     const descriptor = catalog.get(params.type) || null;
-    const parameters = normalizeParameters(descriptor, params.parameters);
+    const parameters = normalizeParameters(descriptor, params.parameters,
+      { conversationId: this.conversation?.id || '' });
     if (!parameters) throw new Error(markUntranslated(`${params.type} parameters are invalid`));
 
     const config = pinConfig(parameters);

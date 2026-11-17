@@ -60,6 +60,7 @@ const SETTINGS_TABS = [
 const DATA = '.project-path-display__path, .session-switcher-chip-tile, .user-message-text, .markdown, .model-name, .usage-card__sub, '
   + '#auto-name-instruction-input, .plugin-version, .plugin-author, .properties-panel-filepath, '
   + '.account-card .provider-name, .account-type-name, .account-type-detail, .account-chip:not(.account-chip-source), '
+  + '.git-pin__repo-name, .git-pin__branch-name, .git-pin__repo option, '
   + 'code, pre, option[lang]';
 
 /**
@@ -224,6 +225,8 @@ const appPseudoLocaleWalkTest = {
 
     /** @type {string[]} */
     const findings = [];
+    /** @type {string[]} */
+    const layout = [];
     // The shell renders chords for the platform it runs on, so the walk sees
     // one form or the other; each form is judged here on every platform.
     const chords = {
@@ -272,6 +275,9 @@ const appPseudoLocaleWalkTest = {
       }
     }
 
+    if (layout.length) {
+      throw new Error(`the real shell does not fit its window:\n  ${layout.join('\n  ')}`);
+    }
     if (findings.length) {
       throw new Error(`${findings.length} surface(s) show plain English under en-XA (conversation named ${JSON.stringify(nameAfterTurn)}):\n  ${findings.join('\n  ')}`);
     }
@@ -322,6 +328,32 @@ const appPseudoLocaleWalkTest = {
       check(doc.querySelector('.app-header'), 'header');
       check(doc.querySelector('conversation-bar'), 'conversation bar');
       check(tab, 'conversation (transcript, composer, footer)');
+
+      // The one place the real shell is laid out in a window of known size, so
+      // the one place a workspace that grows to its content instead of to the
+      // window can be seen: the transcript stops scrolling and the composer
+      // goes off the bottom. Layout, not paint, so an unpainted lane measures it.
+      // A spacer makes the transcript far taller than the window, or a short
+      // conversation would fit whether the layout holds or not.
+      const height = win.innerHeight;
+      const list = /** @type {HTMLElement|null} */ (tab.querySelector('#message-list'));
+      const spacer = doc.createElement('div');
+      spacer.style.cssText = `flex:none;height:${height * 4}px`;
+      list?.appendChild(spacer);
+      try {
+        if (!list) layout.push('no #message-list in the conversation tab');
+        const main = /** @type {HTMLElement|null} */ (doc.querySelector('.app-main'));
+        const mainBottom = main?.getBoundingClientRect().bottom ?? NaN;
+        if (!(mainBottom <= height + 1)) layout.push(`.app-main ends at ${mainBottom}px in a ${height}px window`);
+        const composer = /** @type {HTMLElement|null} */ (tab.querySelector('composer-box'));
+        const composerBottom = composer?.getBoundingClientRect().bottom ?? NaN;
+        if (!(composerBottom <= height + 1)) layout.push(`the composer ends at ${composerBottom}px in a ${height}px window`);
+        if (list && !(list.scrollHeight > list.clientHeight)) {
+          layout.push(`the transcript holds ${list.scrollHeight}px in ${list.clientHeight}px without scrolling`);
+        }
+      } finally {
+        spacer.remove();
+      }
 
       // Pinboard, empty and then with a pin.
       /** @type {HTMLElement} */ (doc.querySelector('#pinboard-header-button')).click();

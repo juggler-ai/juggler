@@ -51,6 +51,17 @@ type SessionAPI struct {
 	// boardLiveness reports who is connected, for a detached board's claim
 	// (SetBoardLiveness). Nil reads as nobody.
 	boardLiveness func() core.BoardLiveness
+
+	// bindAgentRun hands an ephemeral conversation to the agent run it was made
+	// for (SetAgentRunBinder). On an error the binder has already torn the
+	// conversation down. Nil refuses every ephemeral create.
+	bindAgentRun func(runID, convID string) error
+}
+
+// SetAgentRunBinder gives the ephemeral create the agent runs it serves: the
+// conversation is bound to its run, which owns its teardown from then on.
+func (api *SessionAPI) SetAgentRunBinder(bind func(runID, convID string) error) {
+	api.bindAgentRun = bind
 }
 
 // SetBoardLiveness gives the board restore a way to ask who is connected to the
@@ -585,8 +596,17 @@ func (api *SessionAPI) HandleCreateConversation(w http.ResponseWriter, r *http.R
 		// reads: behind that conversation, or at the head when it is empty.
 		Place string `json:"place"`
 		After string `json:"after"`
+		// Ephemeral makes the conversation an agent run's: never in the order,
+		// the names or the cap, never announced, and removed when the run named
+		// by AgentRun ends (createEphemeralConversation).
+		Ephemeral bool   `json:"ephemeral"`
+		AgentRun  string `json:"agentRun"`
 	}](w, r)
 	if !ok {
+		return
+	}
+	if req.Ephemeral {
+		api.createEphemeralConversation(w, r, req.Name, req.ID, req.AgentRun)
 		return
 	}
 
@@ -669,6 +689,54 @@ func (api *SessionAPI) HandleCreateConversation(w http.ResponseWriter, r *http.R
 			api.broadcaster.BroadcastConversationFocus(id, req.FocusFrom)
 		}
 	}
+}
+
+// createEphemeralConversation is the create for an agent run's conversation.
+// It is bound to its run before its worker is seeded, so from the moment it
+// exists the run owns its teardown; a run that has already ended refuses it
+// and removes it. Nothing is broadcast: no viewer ever hears of it.
+func (api *SessionAPI) createEphemeralConversation(w http.ResponseWriter, r *http.Request, name, requestedID, runID string) {
+	if api.bindAgentRun == nil || strings.TrimSpace(runID) == "" {
+		WriteMessageError(w, r, http.StatusBadRequest, msg.New("An ephemeral conversation must belong to an agent run."))
+		return
+	}
+	id, _, err := api.manager().CreateEphemeralConversation(name, requestedID)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, core.ErrInvalidConvID) {
+			status = http.StatusBadRequest
+		} else if errors.Is(err, core.ErrConvIDExists) {
+			status = http.StatusConflict
+		}
+		WriteErr(w, r, status, err)
+		return
+	}
+	if err := api.bindAgentRun(runID, id); err != nil {
+		WriteErr(w, r, http.StatusConflict, err)
+		return
+	}
+	finalName := core.SanitizeName(name)
+	if finalName == "" {
+		finalName = core.UntitledBase
+	}
+	jlog.Info("[session.Create] conv=%s name=%q ephemeral run=%s", id, finalName, runID)
+
+	created := nowRFC3339()
+	if api.workerManager != nil {
+		var model *core.ModelRef
+		if api.resolveDefaultModel != nil {
+			if ref, _ := api.resolveDefaultModel(r.Context()); ref.Provider != "" && ref.Model != "" {
+				model = &ref
+			}
+		}
+		if err := api.workerManager.SeedNewConversation(id, finalName, api.manager().GetProjectPath(), created, model); err != nil {
+			// Bound already: the run's end removes what was made.
+			jlog.Error("[session.Create] seed ephemeral conv=%s failed: %v", id, err)
+			WriteMessageError(w, r, http.StatusInternalServerError, msg.New("Couldn't initialize conversation: {detail}", "detail", err.Error()))
+			return
+		}
+	}
+	WriteJSON(w, r, http.StatusCreated, map[string]any{"id": id, "name": finalName, "created": created})
 }
 
 // duplicateConversationFiles clones a source conversation's persisted state

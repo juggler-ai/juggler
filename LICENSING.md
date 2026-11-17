@@ -46,12 +46,12 @@ in `tooling/sdk-boundary.json`. The lists below are rendered from that file.
   - `sdk/file-source.js` → `js/utils/api-url.js` — addresses the host's file-content, tree and asset endpoints under its base path
   - `sdk/lib/sandbox-runner.js` → `js/utils/api-url.js` — addresses the host's sandbox page under its base path
   - `sdk/model.js` → `js/utils/compaction-utils.js` — the compaction lifecycle is the host's
-  - `sdk/ops.js` → `js/services/fs.js`, `js/services/ops-api.js`, `js/services/shell-streaming.js` — the host operations themselves
+  - `sdk/ops.js` → `js/services/agent-runs.js`, `js/services/fs.js`, `js/services/git-attribution.js`, `js/services/ops-api.js`, `js/services/shell-streaming.js` — the host operations themselves, and agent runs carried out by the host
   - `sdk/pinboard.js` → `js/services/extensions.js`, `js/services/pinboard-operations-api.js`, `js/utils/asset-url.js` — pins go to the host's board; pin descriptors come from the loaded extensions
   - `sdk/registry.js` → `js/registries/context-item-registry.js`, `js/registries/file-viewer-registry.js`, `js/registries/strategy-registry.js` — the host's capability registries
   - `sdk/strategy-type.js` → `js/services/thread-orchestrator.js` — a strategy submits its turn through the host's orchestrator
   - `sdk/ui-worker.js` → `js/services/key-shortcut-manager.js`, `js/utils/asset-url.js`, `js/utils/format.js` — the DOM-free subset of the ui.js bindings, for the engine worker
-  - `sdk/ui.js` → `js/components/diff-viewer.js`, `js/components/project-picker.js`, `js/components/reveal-button.js`, `js/components/review-panel.js`, `js/services/key-shortcut-manager.js`, `js/services/nearest-context-item.js`, `js/utils/asset-url.js`, `js/utils/format.js`, `js/utils/image-lightbox.js`, `js/utils/menu-roles.js`, `js/utils/popup-surface.js`, `js/utils/properties-panel-helpers.js` — the host's own UI components and formatters, so an extension's UI matches the app's
+  - `sdk/ui.js` → `js/components/diff-viewer.js`, `js/components/modal-dialog.js`, `js/components/project-picker.js`, `js/components/reveal-button.js`, `js/components/review-panel.js`, `js/services/context-menu-service.js`, `js/services/key-shortcut-manager.js`, `js/services/nearest-context-item.js`, `js/utils/asset-url.js`, `js/utils/format.js`, `js/utils/image-lightbox.js`, `js/utils/menu-roles.js`, `js/utils/popup-surface.js`, `js/utils/properties-panel-helpers.js` — the host's own UI components and formatters, so an extension's UI matches the app's
 - **Bundled extensions that reach past the SDK**: every other module under
   `extensions/` reaches the host only through `juggler/*` specifiers, as a
   third-party extension must. These are the exceptions — mostly built-ins that

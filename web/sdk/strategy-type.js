@@ -214,6 +214,8 @@ export class AbortError extends Error {
  *   - **static GUIDANCE** is what the strategy tells the model on activation —
  *     declared, so the user can read it in Settings → Extensions.
  *   - `filterTools(tools)` — restrict which tools the model may call (per phase).
+ *   - `refuseToolCall(info)` — refuse a call by its input (a reason string), so
+ *     it is denied before any approval is asked.
  *   - `getApprovalPolicy(info)` — auto-approve or force-approve a tool call.
  *   - `onToolPending(info)` — react (async) once a tool has parked for approval;
  *     the seam for out-of-band auto-approval (classify, then `resolveApproval`).
@@ -280,6 +282,7 @@ export class AbortError extends Error {
  * | Hook | Description |
  * |------|-------------|
  * | filterTools(tools)         | Restrict the tools the model may call (each loop iteration) |
+ * | refuseToolCall(info)       | Refuse a call by its input: a non-empty reason denies it |
  * | getApprovalPolicy(info)    | Auto-approve / force-approve a tool call |
  * | onToolPending(info)        | React (async) after a tool parks for approval — classify + resolveApproval |
  * | onActivate(prevId)         | Injects static GUIDANCE when this strategy becomes active |
@@ -501,6 +504,32 @@ class StrategyType {
   getApprovalPolicy({ toolName, toolInput, category, defaultApproval, interactionKind, autoApprovable }) {
     void toolName; void toolInput; void category; void defaultApproval; void interactionKind; void autoApprovable;
     return APPROVAL_POLICY.DEFAULT;
+  }
+
+  /**
+   * Refuse a tool call outright, before any approval question is asked.
+   *
+   * Return a non-empty string to deny the call: it is not run, and the string
+   * is the tool's error result, so write it for the model — say what was
+   * refused and why, so it can find another way. Return `''` to let the call
+   * through to {@link getApprovalPolicy} and the rest of the approval decision.
+   *
+   * It is consulted for every call the engine evaluates, attended or not, after
+   * the beforeTool hooks (a hook's deny wins) and before the approval policy, so
+   * a refusal holds even under an approval policy that would approve the call.
+   * That makes it the way to constrain a call by its input — a strategy that
+   * exposes `bash` but only for a whitelist of read-only commands — where
+   * `filterTools` can only remove a tool whole. Synchronous, like
+   * `getApprovalPolicy`; a refuser that throws refuses.
+   * @param {{toolName: string, toolInput: Record<string, unknown>, category: string|undefined}} info
+   *   - toolName: Name of the tool being called
+   *   - toolInput: Input parameters for the tool (plain object)
+   *   - category: Tool category ('read', 'write', 'meta', or undefined)
+   * @returns {string} The refusal reason, or `''` to let the call through
+   */
+  refuseToolCall({ toolName, toolInput, category }) {
+    void toolName; void toolInput; void category;
+    return '';
   }
 
   /**

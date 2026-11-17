@@ -31,7 +31,6 @@ import {
   workspaceKind,
   workspaceKindNote,
   workspaceFinishOptions,
-  workspaceFinishWarning,
   workspaceFinishActor,
   finishWorkspace
 } from '../services/workspace-provisioning.js';
@@ -44,7 +43,7 @@ import { setupColumnResize, startingColumnWidth } from '../utils/column-resize.j
 import { presentPopup } from '../utils/popup-surface.js';
 import { applyMenuRoles, attachMenuKeyboard } from '../utils/menu-roles.js';
 import { showConfirm, showNotice } from './modal-dialog.js';
-import { openWorkspaceFinish } from './workspace-finish-dialog.js';
+import { carryOutWorkspaceFinish } from './workspace-finish-dialog.js';
 import { sameTree } from '../services/workspace-rebinding.js';
 import pinboardView from '../services/pinboard-view.js';
 
@@ -1254,11 +1253,7 @@ class WorkspacePanel extends JugglerElement {
   }
 
   /**
-   * The ending itself: ask, then do it.
-   *
-   * What is asked is the whole coordination story: nobody owns a workspace, so
-   * a turn in flight here is refused rather than confirmed — removing a tree
-   * under a running agent is the one thing here that loses work.
+   * The ending itself: ask, then do it (see carryOutWorkspaceFinish).
    * @param {any} option - The ending that was chosen.
    * @returns {Promise<void>} When it has run, or been called off.
    * @private
@@ -1267,49 +1262,14 @@ class WorkspacePanel extends JugglerElement {
     const workspace = this._workspace;
     const session = this._session;
     if (!workspace || !session) return;
-
-    const conversation = workspaceFinishActor(session, workspace);
-    const warning = workspaceFinishWarning(session, workspace, {
-      action: option,
-      status: this._status
+    const result = await carryOutWorkspaceFinish(session, workspace, option, {
+      status: this._status,
+      reread: async () => {
+        await this.reread();
+        return this._status;
+      }
     });
-    if (warning.refusal) {
-      showNotice(warning.refusal);
-      return;
-    }
-
-    /** @type {object} */
-    let input = {};
-    if (option.prompt) {
-      // Asked again first: this dialog refuses an ending that needs work when
-      // the tree read clean, and lists the files the commit is about to take,
-      // and a reading as old as the panel is what the tree used to hold.
-      await this.reread();
-      const answer = await openWorkspaceFinish(option, {
-        status: this._status,
-        warning: warning.warning,
-        conversation
-      });
-      if (answer === null) return;
-      input = answer;
-    } else {
-      // The provider's sentence, then what the host has to add about this
-      // tree, as separate paragraphs.
-      const agreed = await showConfirm(
-        [option.description, warning.warning].filter(Boolean).join('\n\n'),
-        option.label,
-        { confirmText: option.label, danger: option.danger === true });
-      if (!agreed) return;
-    }
-
-    const result = await finishWorkspace({
-      session,
-      workspace,
-      conversation,
-      actionId: option.id,
-      input
-    });
-    if (result?.message) showNotice(result.message);
+    if (result === null) return;
     this._settled();
   }
 }

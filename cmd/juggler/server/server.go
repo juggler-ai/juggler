@@ -307,6 +307,24 @@ type Server struct {
 	// engine, one result back. Idle in every other run (see one_shot.go).
 	oneShot oneShotRoundTrip
 
+	// agentRuns is the session's ephemeral agent runs in flight (agent_runs.go).
+	agentRuns agentRunHub
+	// agentRunModelResolver, when set, replaces resolveAgentRunModel's own
+	// resolution. Tests set it; production leaves it nil.
+	agentRunModelResolver func(context.Context, json.RawMessage) (core.ModelRef, error)
+
+	// gitWatches is the git watches viewers have asked for (see git_watch.go).
+	gitWatches gitWatchHub
+	// gitJobs is the git client's writes, running and lately ended (see
+	// git_jobs.go).
+	gitJobs gitJobHub
+	// gitAskpassExe is the program git runs to ask the user a question
+	// (git_askpass.go); "" is this server's own binary.
+	gitAskpassExe string
+	// gitWatchResolve resolves the workspaces a git watch or a git job names,
+	// in place of GitTrees().ResolveGit when set. Test-only seam.
+	gitWatchResolve workspace.ResolveFunc
+
 	// engineReadyGate, when set, is called at the start of every LLM turn (and
 	// before a worker-driven strategy hook) to guarantee the hidden engine
 	// WebView is connected before the turn can emit any tool request. Returns
@@ -383,6 +401,7 @@ func New(cfg Config) (*Server, error) {
 			cc.CloseConversation(convID)
 		}
 	}, s.resolveDefaultModel)
+	sessionAPI.SetAgentRunBinder(s.bindAgentRun)
 	sessionAPI.SetWorkspaceResolver(func(id string) (workspace.Workspace, error) { return s.Workspaces().Resolve(id) })
 	sessionAPI.SetBoardLiveness(func() core.BoardLiveness {
 		if s.hub == nil {
@@ -446,7 +465,7 @@ func New(cfg Config) (*Server, error) {
 		// project and session on each request.
 		opsAPI:            handlers.NewOpsAPI(s.Workspaces().Resolve),
 		completionsAPI:    handlers.NewCompletionsAPI(s.Workspaces().Resolve),
-		gitStatusAPI:      handlers.NewGitStatusAPI(s.Workspaces().Resolve),
+		gitStatusAPI:      handlers.NewGitStatusAPI(s.GitTrees().ResolveGit).WithWorktreeIDs(s.GitTrees().Annotate),
 		extensionsAPI:     extensionsAPI,
 		userCommandsAPI:   handlers.NewUserCommandsAPI(s.ProjectPath),
 		skillsAPI:         skillsAPI,

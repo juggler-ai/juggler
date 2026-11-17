@@ -12,21 +12,26 @@
  * and not the project. One answer, because the review service reads the same one
  * and the two sit on top of each other in the pin.
  *
- * Git status is pull-based: the file watcher never reports anything under `.git`
- * (it skips dot-directories before fsnotify ever sees them), so there is nothing
- * to subscribe to and this module polls. One cache means one poll: two surfaces
- * open at once run git no more often than one does, which matters because each
- * poll shells out once per repository under the project.
+ * Status is read when the server says the tree changed, not on a clock. While
+ * anything watches this cache it watches the tree on the server
+ * ({@link module:services/git-watch}), which pushes a change whenever the
+ * tree's index, refs, HEAD, working files or an operation in progress do; each
+ * change is one read. One cache means one watch and one read per change, however
+ * many surfaces are open, which matters because each read shells out once per
+ * repository under the tree.
  *
- * The poll runs only while something is watching and only while the window is
- * focused. A background `git status` fighting the user's own git client is worse
- * than a slightly stale number, and `--no-optional-locks` server-side reduces
- * that contention rather than removing the reason for it.
+ * A read also follows a new connection, since changes made while the window was
+ * cut off were never pushed to it, and the window gaining focus, which costs
+ * nothing while the user is elsewhere and catches anything the server could not
+ * see. Where the server cannot watch the whole tree it pushes on a clock of its
+ * own for that tree alone.
  */
 
 import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
 import api from './api.js';
+import { watchGit } from './git-watch.js';
 import { gitWorkspaceId, onGitWorkspaceChange } from './git-workspace.js';
+import wsService from './websocket.js';
 
 /**
  * @typedef {object} GitStatusSnapshot
@@ -36,22 +41,25 @@ import { gitWorkspaceId, onGitWorkspaceChange } from './git-workspace.js';
  * @property {import('./api.js').GitRepoStatus[]} repos - Every repo found under it.
  */
 
-/**
- * Re-poll this often (ms) while watched and focused. Deliberately lazy: this is
- * ambient information, not something anyone waits on.
- */
-const REFRESH_MS = 20000;
-
 /** @type {GitStatusSnapshot|null} Latest snapshot; null means nothing has been fetched yet. */
 let _snapshot = null;
 /** @type {string} Latest fetch error, retained beside the last good snapshot. */
 let _error = '';
 /** @type {Set<() => void>} Watchers, notified after every change. */
 const _listeners = new Set();
-/** @type {ReturnType<typeof setInterval>|null} */
-let _timer = null;
+/** @type {(() => void)|null} Ends the server-side watch of the tree, while there is one. */
+let _unwatch = null;
+/** The tree the server-side watch is of. */
+let _watchedId = '';
+/** @type {(() => void)|null} Ends the reconnect subscription, while there is one. */
+let _stopOnOpen = null;
 /** @type {Promise<GitStatusSnapshot|null>|null} In-flight fetch, shared by concurrent callers. */
 let _inFlight = null;
+/**
+ * Whether the tree changed while a read was out. That read may have looked
+ * before the change, so another follows it.
+ */
+let _dirty = false;
 /** Identifies the in-flight fetch, so a finished one only clears its own slot. */
 let _inFlightId = 0;
 /**
@@ -76,10 +84,10 @@ let _announced = '';
 /**
  * Tell every watcher, if there is anything to tell them.
  *
- * A working tree is usually the same working tree it was twenty seconds ago,
- * and the poll cannot know that until it has asked. Announcing every answer
- * meant every watching surface rebuilt itself three times a minute to draw
- * precisely what it was already drawing.
+ * A change the server pushes is often one the status does not show — a file
+ * saved with the bytes it had, a ref rewritten in place — and a read on focus
+ * usually finds what was already there. Announcing every answer would rebuild
+ * every watching surface to draw precisely what it was already drawing.
  */
 function notifyIfChanged() {
   const next = JSON.stringify({ snapshot: _snapshot, error: _error });
@@ -94,30 +102,50 @@ function notifyIfChanged() {
   }
 }
 
-/** @returns {boolean} Whether the window is focused, treating a non-DOM realm as focused. */
-function focused() {
-  return typeof document === 'undefined' || document.hasFocus();
-}
-
-/** Poll, unless the window is unfocused or a poll is already outstanding. */
-function poll() {
-  if (!focused()) return;
+/**
+ * Read the tree again: now, or once the read already out has answered, since
+ * that one may have looked before whatever prompted this.
+ */
+function readAgain() {
+  if (_inFlight) {
+    _dirty = true;
+    return;
+  }
   void gitStatusCache.refresh();
 }
 
-/** Run the interval and the focus listener exactly while something is watching. */
-function updatePolling() {
+/**
+ * Watch the tree being looked at, on the server and for reconnects and focus,
+ * exactly while something watches this cache.
+ */
+function updateWatching() {
   const wanted = _listeners.size > 0;
-  if (wanted === (_timer !== null)) return;
-
-  if (wanted) {
-    _timer = setInterval(poll, REFRESH_MS);
-    if (typeof window !== 'undefined') window.addEventListener('focus', poll);
+  if (!wanted) {
+    if (!_unwatch) return;
+    _unwatch();
+    _unwatch = null;
+    _stopOnOpen?.();
+    _stopOnOpen = null;
+    if (typeof window !== 'undefined') window.removeEventListener('focus', readAgain);
     return;
   }
-  if (_timer) clearInterval(_timer);
-  _timer = null;
-  if (typeof window !== 'undefined') window.removeEventListener('focus', poll);
+
+  const id = gitWorkspaceId();
+  if (_unwatch && id === _watchedId) return;
+  // The new tree is watched before the old one is let go, so a tree the two
+  // share is never dropped and taken up again on the server.
+  const previous = _unwatch;
+  _watchedId = id;
+  // Only a change is read: a job frame is a write's progress, and what the
+  // write does to the tree is pushed as a change of its own.
+  _unwatch = watchGit(id, (frame) => {
+    if (frame.type === 'git-change') readAgain();
+  });
+  previous?.();
+  if (!previous) {
+    _stopOnOpen = wsService.on('open', readAgain);
+    if (typeof window !== 'undefined') window.addEventListener('focus', readAgain);
+  }
 }
 
 const gitStatusCache = {
@@ -141,22 +169,22 @@ const gitStatusCache = {
   },
 
   /**
-   * Watch for changes. The first watcher starts the poll and the last one to
-   * leave stops it, so nothing runs git for a surface nobody has open. The
-   * listener is called after a snapshot or error changes, and carries nothing —
-   * call `get()`.
+   * Watch for changes. The first watcher has the server watch the tree and the
+   * last one to leave lets it go, so nothing watches or runs git for a surface
+   * nobody has open. The listener is called after a snapshot or error changes,
+   * and carries nothing — call `get()`.
    * @param {() => void} listener - Called when the snapshot may have changed.
    * @returns {() => void} Unsubscribe.
    */
   subscribe(listener) {
     _listeners.add(listener);
-    updatePolling();
+    updateWatching();
     let stopped = false;
     return () => {
       if (stopped) return;
       stopped = true;
       _listeners.delete(listener);
-      updatePolling();
+      updateWatching();
     };
   },
 
@@ -193,6 +221,12 @@ const gitStatusCache = {
         if (_inFlightId === id) _inFlight = null;
       }
       notifyIfChanged();
+      // The tree changed while this read was out, so it may describe the tree
+      // from before; one more read settles it, however many changes there were.
+      if (_dirty && _inFlightId === id && _listeners.size > 0) {
+        _dirty = false;
+        void gitStatusCache.refresh();
+      }
       return _snapshot;
     })();
     _inFlight = pending;
@@ -208,6 +242,7 @@ const gitStatusCache = {
     _snapshot = null;
     _error = '';
     _foreign = false;
+    _dirty = false;
     // Let go of any read still in flight. It is answering a question about the
     // tree we just stopped looking at, and leaving it here would make the next
     // `refresh()` adopt it instead of asking about the new one.
@@ -232,7 +267,9 @@ const gitStatusCache = {
 function follow() {
   _generation++;
   _inFlight = null;
+  _dirty = false;
   _foreign = _snapshot !== null || _error !== '';
+  updateWatching();
   if (_listeners.size > 0) void gitStatusCache.refresh();
 }
 

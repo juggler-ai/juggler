@@ -1290,6 +1290,16 @@ settings-panel .settings-connectivity-form .provider-field {
     margin-bottom: 0;
 }
 
+/* A group's heading: the column's gap is the space under it, so its own
+   margin adds only the extra above that sets one group off from the last. */
+settings-panel .settings-connectivity-form .settings-section-heading {
+    margin: var(--space-10) 0 0;
+}
+
+settings-panel .settings-connectivity-form .settings-section-heading:first-child {
+    margin-top: 0;
+}
+
 settings-panel .connectivity-section:not([hidden]) {
     display: contents;
 }

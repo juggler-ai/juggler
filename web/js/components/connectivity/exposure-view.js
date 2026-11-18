@@ -394,6 +394,57 @@ export class ExposureView {
   }
 
   /**
+   * Show a viewer off the server's machine the way in it came by, to read
+   * only: LAN access's addresses, or the tunnel it came through, each as the
+   * cards a viewer on the machine sees, with nothing to switch. Whichever it
+   * did not come by is hidden, as is a way in that has closed.
+   * @param {import('../../services/settings-api.js').WayIn} wayIn
+   */
+  showWayIn(wayIn) {
+    if (this._serverSection) this._serverSection.hidden = true;
+    const lan = wayIn.lan?.enabled ? wayIn.lan : null;
+    this._lanSection.hidden = !lan;
+    const drawnLAN = JSON.stringify(['read-only', lan]);
+    if (lan && drawnLAN !== this._lanDrawn) {
+      this._lanDrawn = drawnLAN;
+      const row = this._chrome.row(t('LAN access'),
+        t('This server’s addresses on its network. Open one on another device on the same network to join this session.'),
+        [],
+        t('There is no password: anyone on the network with the address can open, run and stop sessions.'));
+      const addresses = document.createElement('div');
+      addresses.className = 'connectivity-addresses';
+      for (const u of lan.urls) {
+        addresses.appendChild(addressCard(u, [u.session
+          ? t('Scan with a phone on the same network to open this session, or open either address on another device.')
+          : t('Scan with a phone on the same network, or open the address on another device.')], this._openAddress));
+      }
+      row.appendChild(addresses);
+      this._lanSection.replaceChildren(row);
+    }
+    const tunnel = wayIn.tunnel || null;
+    this._tunnelSection.hidden = !tunnel;
+    const drawnTunnel = JSON.stringify(['read-only', tunnel]);
+    if (tunnel && drawnTunnel !== this._tunnelDrawn) {
+      this._tunnelDrawn = drawnTunnel;
+      const { mode, running } = tunnel;
+      const row = this._chrome.row(modeText(mode, 'title') || mode.mode,
+        t('The link this window came in by. Open it on another device to join this session.'),
+        [],
+        t('There is no password: anyone with the link can open, run and stop sessions, from anywhere.'));
+      const addresses = document.createElement('div');
+      addresses.className = 'connectivity-addresses';
+      addresses.appendChild(addressCard(running, [
+        running.session
+          ? t('Scan with a phone to open this session, or open either link on any device.')
+          : t('Scan with a phone, or open the link on any device.'),
+        running.relay ? modeText(mode, 'relayNote') : '',
+      ], this._openAddress));
+      row.appendChild(addresses);
+      this._tunnelSection.replaceChildren(row);
+    }
+  }
+
+  /**
    * Fetch and show the machine server, LAN access, the tunnel and what opens
    * at start. A switch in flight owns the sections until it answers, a choice
    * made while the fetch was out stands over what it answers, and whatever

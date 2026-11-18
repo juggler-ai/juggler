@@ -322,6 +322,34 @@ export function getServer() {
 }
 
 /**
+ * The way in a viewer off the server's machine came by, as GET
+ * /api/connectivity/ways-in answers it: LAN access with its addresses for a
+ * LAN viewer, the running tunnel for one that came through it, else neither.
+ * @typedef {object} WayIn
+ * @property {{enabled: boolean, urls: ExposureURL[]}} [lan] - LAN access, cut to its addresses
+ * @property {{mode: TunnelMode, running: NonNullable<TunnelState['running']>}} [tunnel] - The tunnel this viewer came through
+ */
+
+/**
+ * GET /api/connectivity/ways-in: the way in this viewer came by, to bring
+ * another device into the session the same way.
+ * @returns {Promise<WayIn>} It.
+ */
+export function getWayIn() {
+  return fetchJson(apiUrl('/connectivity/ways-in'));
+}
+
+/**
+ * The name of the computer the server runs on, as GET /api/version reports
+ * it (the name LAN access announces it by); '' when it does not say.
+ * @returns {Promise<string>} The name.
+ */
+export async function getMachineName() {
+  const v = await fetchJson(apiUrl('/version'), { fallback: null });
+  return typeof v?.name === 'string' ? v.name.trim() : '';
+}
+
+/**
  * GET /api/connectivity/lan: this machine's LAN access (the machine server's).
  * @returns {Promise<LANState>} LAN access as it stands.
  */

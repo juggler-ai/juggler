@@ -305,9 +305,6 @@ class SettingsPanel extends JugglerElement {
                     </section>
 
                     <section class="settings-tab-content" id="tab-connectivity">
-                        <p class="settings-description">
-                            ${escapeHtml(t('How other devices reach Juggler on this machine, who else is connected to this session, and the proxy Juggler uses to reach the internet.'))}
-                        </p>
                         <div class="settings-form settings-connectivity-form" id="connectivity-form">
                         </div>
                         <div class="settings-section-heading caps-label-lg">${escapeHtml(t('Proxy Settings'))}</div>

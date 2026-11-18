@@ -22,6 +22,8 @@ the current release). The project follows semantic versioning.
 - Closing a tab no longer makes a later tab jump past a workspace box
 - Web search can use Tavily, Brave, SearXNG, DeepSeek, Bocha or Zhipu, in your order
 - Exa now answers WebSearch, replacing its separate exa_search tool; your key carries over
+- Settings → Connectivity says where the server is and places clients relative to it
+- Remote windows show the LAN address or tunnel link they came in by
 
 ## [0.8.1] - 2026-11-15
 

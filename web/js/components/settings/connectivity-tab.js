@@ -24,7 +24,7 @@ const CONNECTIVITY_POLL_MS = 2000;
  * and the clients-changed event. The `id` lets a client exclude itself.
  * @typedef {object} ClientDescriptor
  * @property {string} id - Server-assigned client id
- * @property {string} origin - "local" (same machine), "lan", or "remote"
+ * @property {string} origin - "local" (the server's own computer), "lan", or "remote"
  * @property {string} detail - LAN IP, or remote transport label; "" for local
  * @property {string} [name] - Who a remote client is, as its transport named it
  * @property {string} userAgent - Raw User-Agent, when the transport had one
@@ -32,16 +32,33 @@ const CONNECTIVITY_POLL_MS = 2000;
  */
 
 /**
- * Human label for a client's origin, e.g. "Same machine", "LAN · 192.168.1.4",
- * or the remote transport name ("Cloudflare Tunnel relay"), which the server
- * supplies and is shown as given — after the caller's name, when its
- * transport named it ("Alice · Direct P2P").
+ * Where this window is, relative to the server it views: what the server
+ * says of this window's own connection (`origin`, and `detail` for a remote
+ * one), and the name of the computer the server runs on, once read.
+ * @typedef {object} ViewerPlace
+ * @property {''|'local'|'lan'|'remote'} origin - This window's own origin; '' until known
+ * @property {string} transport - How a remote window comes in, as the server labels it
+ * @property {string} machine - The server's computer's name; '' when not known
+ */
+
+/**
+ * Human label for where a client is, relative to the server, which is not
+ * necessarily this window's computer: a client on the server's own computer
+ * is "This computer" only when this window is there too, else the server's
+ * computer, by name once known. Then "LAN · 192.168.1.4", or the remote
+ * transport name ("Cloudflare Tunnel relay"), which the server supplies and is
+ * shown as given — after the caller's name, when its transport named it
+ * ("Alice · Direct P2P").
  * @param {ClientDescriptor} c
+ * @param {ViewerPlace} place - Where this window is.
  * @returns {string} The origin label.
  */
-function clientOriginLabel(c) {
+function clientOriginLabel(c, place) {
   switch (c.origin) {
-    case 'local': return t('Same machine');
+    case 'local':
+      if (place.origin === 'local') return t('This computer');
+      return t('{named, select, yes {The server’s computer, {machine}} other {The server’s computer}}',
+        { named: place.machine ? 'yes' : 'no', machine: place.machine });
     case 'lan': return c.detail ? t('LAN · {address}', { address: c.detail }) : t('LAN');
     case 'remote': {
       const transport = c.detail || t('Remote');
@@ -73,6 +90,45 @@ function clientDeviceLabel(ua) {
   else if (/Firefox\//.test(ua)) br = 'Firefox';
   else if (/Safari\//.test(ua)) br = 'Safari';
   return [br, os].filter(Boolean).join(' · ');
+}
+
+/**
+ * What the status row says of the server, relative to this window: a
+ * headline naming the computer it runs on, and how this window reaches it —
+ * for a server on this computer, who started it, when the machine server says.
+ * @param {ViewerPlace} place - Where this window is.
+ * @param {import('../connectivity/exposure-view.js').ServerStatus|null} server - The machine server's status, for a window on its computer.
+ * @param {string} host - The address this window reaches the server at.
+ * @returns {{title: string, description: string}} The row's text.
+ */
+function serverPlaceText(place, server, host) {
+  const named = { named: place.machine ? 'yes' : 'no', machine: place.machine };
+  switch (place.origin) {
+    case 'local': {
+      const title = t('On this computer');
+      if (!server) return { title, description: t('This window and the Juggler server run on the same computer.') };
+      const params = { pid: server.pid, addr: server.addr };
+      return {
+        title,
+        description: server.appStarted
+          ? t('Started by the Juggler app, which restarts it if it stops. Process {pid} on {addr}.', params)
+          : t('Started from a terminal. If it stops, restart it there, or let the app start a new one. Process {pid} on {addr}.', params),
+      };
+    }
+    case 'lan':
+      return {
+        title: t('{named, select, yes {On another computer: {machine}} other {On another computer}}', named),
+        description: t('This window reaches it over the local network, at {host}. The agent’s files, commands and tools are on that computer, not this one.', { host }),
+      };
+    case 'remote':
+      return {
+        title: t('{named, select, yes {On another computer: {machine}} other {On another computer}}', named),
+        description: t('This window reaches it remotely ({transport}). The agent’s files, commands and tools are on that computer, not this one.',
+          { transport: place.transport || t('Remote') }),
+      };
+    default:
+      return { title: t('Juggler server'), description: '' };
+  }
 }
 
 /**
@@ -146,15 +202,22 @@ const sessionExposureApi = {
 };
 
 /**
- * Connectivity tab: how other devices reach this session, who is connected to
- * it, and the outbound proxy box.
+ * Connectivity tab: where the server is relative to this window, who else is
+ * connected to the session, how other devices reach it, and the outbound
+ * proxy box.
+ *
+ * Where the server is comes from this window's own entry in the clients
+ * list, whose origin the server judged from how this window reached it, so a
+ * window onto another computer's server is told so, by that computer's name,
+ * and the other clients are placed relative to the server, not to this window.
  *
  * LAN access and tunnels are the machine server's, machine-wide; a viewer on
  * this machine switches them here, through this session (`exposure` in the
  * connectivity state says it may), as on the sessions page — both draw them
  * with ExposureView — and chooses which opens whenever Juggler starts, which
  * the machine server saves. Each way in, once open, shows its addresses as cards to
- * scan, click or copy, each leading to this session. Seeded from the shared
+ * scan, click or copy, each leading to this session. A viewer off the machine
+ * is shown the cards of the way it came in by, and no wider one, to read only. Seeded from the shared
  * loadConfig() fetch, then kept current by its own 2 s poll while visible and
  * by the `clients-changed` ws event even between polls.
  */
@@ -190,6 +253,16 @@ export class ConnectivityTab {
      * @type {ExposureView|null} @private
      */
     this._exposure = null;
+    /**
+     * The machine server's status, as last read; only a window on its
+     * computer may read it, and null until it has.
+     * @type {import('../connectivity/exposure-view.js').ServerStatus|null} @private
+     */
+    this._server = null;
+    /** @type {string} @private - The server's computer's name, once read; '' until then or when it gives none. */
+    this._machine = '';
+    /** @type {boolean} @private - Whether the name has been asked for. It is asked once, by a window off that computer. */
+    this._machineAsked = false;
     this.connect();
   }
 
@@ -213,6 +286,7 @@ export class ConnectivityTab {
       this.connectivity.clients = data.clients || [];
       if (this._visible && this._loaded) {
         this._refreshClientsSection();
+        this._refreshStatusSection();
       }
     });
   }
@@ -311,18 +385,84 @@ export class ConnectivityTab {
       if (!next) return;
       this.connectivity = next;
       this._refreshClientsSection();
-      await this._refreshExposure();
+      await Promise.all([this._refreshPlace(), this._refreshExposure()]);
     } catch (e) {
       console.error('Failed to refresh connectivity:', e);
     }
   }
 
   /**
-   * Render the Connectivity tab content: the connected-clients box, a
-   * standard provider-field row that _refreshClientsSection fills, then the
-   * LAN and tunnel sections (shown once there is something this viewer may
-   * switch). The sections are layout-transparent wrappers, so every row in
-   * the form is spaced alike (settings.css).
+   * This window's own entry in the clients list, by id; undefined before the
+   * session id is known.
+   * @private
+   * @returns {ClientDescriptor|undefined} It.
+   */
+  _self() {
+    const selfId = wsService.clientId;
+    return selfId ? (this.connectivity.clients || []).find((c) => c.id === selfId) : undefined;
+  }
+
+  /**
+   * Where this window is, relative to the server: by its own entry's origin,
+   * or, before that is known, on the server's computer when it may switch
+   * the ways in there (only a window on that computer may).
+   * @private
+   * @returns {ViewerPlace} It.
+   */
+  _place() {
+    const self = this._self();
+    const exposure = !!(/** @type {any} */ (this.connectivity)).exposure;
+    const origin = /** @type {ViewerPlace['origin']} */ (self?.origin || (exposure ? 'local' : ''));
+    return { origin, transport: self?.origin === 'remote' ? self.detail : '', machine: this._machine };
+  }
+
+  /**
+   * Read what the status row says of the server — the machine server's
+   * status for a window on its computer, the computer's name for one off it —
+   * then redraw it and the clients, whose labels depend on it.
+   * @private
+   * @returns {Promise<void>} Resolves once shown.
+   */
+  async _refreshPlace() {
+    const place = this._place();
+    /** @type {Promise<unknown>[]} */
+    const reads = [];
+    if ((/** @type {any} */ (this.connectivity)).exposure) {
+      reads.push(settingsApi.getServer().then((s) => { this._server = s; }, () => {}));
+    }
+    if (place.origin && place.origin !== 'local' && !this._machineAsked) {
+      this._machineAsked = true;
+      reads.push(settingsApi.getMachineName().then((name) => { this._machine = name; }, () => {}));
+    }
+    await Promise.all(reads);
+    this._refreshStatusSection();
+    this._refreshClientsSection();
+  }
+
+  /**
+   * (Re)draw the status row: where the server is relative to this window.
+   * Safe to call before the row exists (no-op).
+   * @private
+   */
+  _refreshStatusSection() {
+    const section = /** @type {HTMLElement|null} */ (this.host.querySelector('#connectivity-server-section'));
+    if (!section) return;
+    const place = this._place();
+    const { title, description } = serverPlaceText(place, place.origin === 'local' ? this._server : null, window.location.host);
+    const row = fieldRow(title, description, []);
+    row.classList.add('connectivity-server');
+    section.replaceChildren(row);
+  }
+
+  /**
+   * Render the Connectivity tab content. Under "Server Status": where the
+   * server is relative to this window (_refreshStatusSection), then the
+   * connected-clients box, a standard provider-field row that
+   * _refreshClientsSection fills. Under "Other Devices", shown while either
+   * has something to show: the LAN and tunnel sections — switches for a
+   * window on the server's computer, the way it came in by, to read only, for
+   * one off it. The sections are layout-transparent wrappers, so every row in
+   * a group is spaced alike (settings.css).
    * @private
    */
   renderConnectivityFields() {
@@ -330,16 +470,27 @@ export class ConnectivityTab {
     if (!container) return;
     container.innerHTML = '';
 
+    const statusHeading = document.createElement('div');
+    statusHeading.className = 'settings-section-heading caps-label-lg';
+    statusHeading.textContent = t('Server Status');
+    container.appendChild(statusHeading);
+
+    const serverSection = document.createElement('div');
+    serverSection.id = 'connectivity-server-section';
+    serverSection.className = 'connectivity-section';
+    container.appendChild(serverSection);
+
     const clientsSection = document.createElement('div');
     clientsSection.id = 'connectivity-clients-section';
     clientsSection.className = 'settings-group provider-field connectivity-clients';
     container.appendChild(clientsSection);
 
-    const serverSection = document.createElement('div');
-    serverSection.id = 'connectivity-server-section';
-    serverSection.className = 'connectivity-section';
-    serverSection.hidden = true;
-    container.appendChild(serverSection);
+    const accessHeading = document.createElement('div');
+    accessHeading.id = 'connectivity-access-heading';
+    accessHeading.className = 'settings-section-heading caps-label-lg';
+    accessHeading.textContent = t('Other Devices');
+    accessHeading.hidden = true;
+    container.appendChild(accessHeading);
 
     const lanSection = document.createElement('div');
     lanSection.id = 'connectivity-lan-section';
@@ -353,7 +504,6 @@ export class ConnectivityTab {
     tunnelSection.hidden = true;
     container.appendChild(tunnelSection);
     this._exposure = new ExposureView({
-      serverSection,
       lanSection,
       tunnelSection,
       api: sessionExposureApi,
@@ -361,28 +511,51 @@ export class ConnectivityTab {
       launch: this._exposure?.launch,
     });
 
+    this._refreshStatusSection();
     this._refreshClientsSection();
     void this._refreshExposure();
   }
 
   /**
-   * Fetch and show LAN access and the tunnel, if this viewer may switch them;
-   * hide both if not. A switch in flight owns the sections until it answers.
+   * Fetch and show LAN access and the tunnel: to switch, if this viewer may;
+   * else, for a viewer off the server's computer, the way it came in by, to
+   * read only; else neither. A switch in flight owns the sections until it
+   * answers. The "Other Devices" heading shows while either section does.
    * @private
    * @returns {Promise<void>} Resolves once shown.
    */
   async _refreshExposure() {
-    if (!this._exposure) return;
-    if (!(/** @type {any} */ (this.connectivity)).exposure) {
-      this._exposure.hide();
-      return;
+    const view = this._exposure;
+    if (!view) return;
+    const origin = this._place().origin;
+    if ((/** @type {any} */ (this.connectivity)).exposure) {
+      await view.refresh();
+    } else if (origin === 'lan' || origin === 'remote') {
+      const wayIn = await settingsApi.getWayIn().catch(() => null);
+      if (wayIn) view.showWayIn(wayIn);
+    } else {
+      view.hide();
     }
-    await this._exposure.refresh();
+    this._refreshAccessHeading();
+  }
+
+  /**
+   * Show the "Other Devices" heading while the LAN or tunnel section shows.
+   * @private
+   */
+  _refreshAccessHeading() {
+    const heading = /** @type {HTMLElement|null} */ (this.host.querySelector('#connectivity-access-heading'));
+    if (!heading) return;
+    const shown = (/** @type {string} */ id) => {
+      const s = /** @type {HTMLElement|null} */ (this.host.querySelector(id));
+      return !!s && !s.hidden;
+    };
+    heading.hidden = !shown('#connectivity-lan-section') && !shown('#connectivity-tunnel-section');
   }
 
   /**
    * (Re)build the connected-clients box contents in place: a "Connected clients"
-   * label on the left, and on the right a list with one line per OTHER client
+   * label and what the list is on the left, and on the right a list with one line per OTHER client
    * (this window is filtered out by id) — its origin, device, and how long it's
    * been connected — or a muted "none" line. Safe to call before the box exists
    * (no-op) and cheap to call on every poll tick (it owns no inputs).
@@ -409,6 +582,11 @@ export class ConnectivityTab {
     name.className = 'provider-name';
     name.textContent = t('Connected clients');
     info.appendChild(name);
+    const desc = document.createElement('div');
+    desc.className = 'provider-description';
+    desc.textContent = t('Other windows, browsers and phones showing this session through the same server, and where each is.');
+    info.appendChild(desc);
+    const place = this._place();
 
     const ctrl = document.createElement('div');
     ctrl.className = 'provider-control';
@@ -431,7 +609,7 @@ export class ConnectivityTab {
 
         const originEl = document.createElement('span');
         originEl.className = 'connectivity-client-origin';
-        originEl.textContent = clientOriginLabel(c);
+        originEl.textContent = clientOriginLabel(c, place);
         li.appendChild(originEl);
 
         // Device + connected-since, muted. Either may be absent.

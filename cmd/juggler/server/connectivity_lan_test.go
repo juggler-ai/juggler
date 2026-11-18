@@ -5,6 +5,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"juggler/internal/basepath"
+	"juggler/internal/ingress"
 )
 
 // supervisorCall is one request a stand-in machine server received.
@@ -130,11 +132,84 @@ func TestSessionExposureIsTheMachineServers(t *testing.T) {
 	if got := exposure(alone, localRequest(http.MethodGet, "/api/connectivity", "")); got != false {
 		t.Errorf("a session with no machine server: exposure %v, want false", got)
 	}
-	for _, path := range []string{"/api/connectivity/lan", "/api/connectivity/launch"} {
+	for _, path := range []string{"/api/connectivity/lan", "/api/connectivity/launch", "/api/connectivity/ways-in"} {
 		rec := httptest.NewRecorder()
 		alone.router.ServeHTTP(rec, localRequest(http.MethodGet, path, ""))
 		if rec.Code != http.StatusNotFound {
 			t.Errorf("GET %s with no machine server: %d, want 404", path, rec.Code)
 		}
+	}
+}
+
+// TestWayInIsTheViewersOwn: a viewer off this machine reads the way in it came
+// by, to bring another device into the session the same way, and no wider
+// one. A LAN viewer gets LAN access's addresses, cut to them, and never the
+// running tunnel's link, which works from anywhere; a tunnel's viewer gets
+// that tunnel's link while it runs, and never the LAN addresses; anyone else
+// gets neither.
+func TestWayInIsTheViewersOwn(t *testing.T) {
+	const tunnelLink = "https://quiet-fox.example/"
+	running := testTunnelMode
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Juggler-Token") != "control-token" || r.URL.Query().Get("session") != "sess-1" {
+			http.Error(w, "unnamed", http.StatusForbidden)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/server/lan":
+			_, _ = io.WriteString(w, `{"enabled":true,"urls":[{"url":"http://192.168.1.4:3939/","session":{"url":"http://192.168.1.4:3939/p/k/"}}],"announced":true,"notAnnounced":{"reason":"failed"},"firewall":{"port":3939}}`)
+		case "/api/server/tunnel":
+			_, _ = io.WriteString(w, `{"modes":[{"mode":"`+testTunnelMode+`","title":"Test relay"},{"mode":"other"}],"running":{"mode":"`+running+`","url":"`+tunnelLink+`","relay":true}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	s := connectivityServer(t, strings.TrimPrefix(srv.URL, "http://"))
+
+	wayIn := func(r *http.Request) (map[string]json.RawMessage, string) {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		s.router.ServeHTTP(rec, r)
+		var got map[string]json.RawMessage
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); rec.Code != http.StatusOK || err != nil {
+			t.Fatalf("GET /api/connectivity/ways-in: %d %s", rec.Code, rec.Body)
+		}
+		return got, rec.Body.String()
+	}
+	lanViewer := remoteRequest(http.MethodGet, "/api/connectivity/ways-in", "")
+	lanViewer = lanViewer.WithContext(context.WithValue(lanViewer.Context(), supervisedLANCallerKey{}, "192.168.1.9"))
+
+	got, body := wayIn(lanViewer)
+	if _, ok := got["tunnel"]; ok || strings.Contains(body, tunnelLink) {
+		t.Errorf("a LAN viewer was told the tunnel's link: %s", body)
+	}
+	if !strings.Contains(string(got["lan"]), "/p/k/") || strings.Contains(body, "firewall") || strings.Contains(body, "notAnnounced") {
+		t.Errorf("a LAN viewer's way in: %s; want LAN access's addresses alone", body)
+	}
+
+	got, body = wayIn(MarkRemoteIngress(localRequest(http.MethodGet, "/api/connectivity/ways-in", ""), testTunnelMode))
+	if _, ok := got["lan"]; ok || strings.Contains(body, "192.168.1.4") {
+		t.Errorf("a tunnel's viewer was told the LAN addresses: %s", body)
+	}
+	if !strings.Contains(string(got["tunnel"]), tunnelLink) || strings.Contains(body, `"other"`) {
+		t.Errorf("a tunnel's viewer's way in: %s; want its tunnel alone", body)
+	}
+
+	for name, r := range map[string]*http.Request{
+		"a viewer on this machine":  localRequest(http.MethodGet, "/api/connectivity/ways-in", ""),
+		"a reverse proxy's viewer":  MarkRemoteIngress(localRequest(http.MethodGet, "/api/connectivity/ways-in", ""), ingress.KindProxy),
+		"a viewer of no known kind": remoteRequest(http.MethodGet, "/api/connectivity/ways-in", ""),
+	} {
+		if got, body := wayIn(r); len(got) != 0 {
+			t.Errorf("%s was told a way in: %s", name, body)
+		}
+	}
+
+	// A tunnel that is no longer the one its viewer came by is not its way in.
+	running = "other"
+	if got, body := wayIn(MarkRemoteIngress(localRequest(http.MethodGet, "/api/connectivity/ways-in", ""), testTunnelMode)); len(got) != 0 {
+		t.Errorf("a viewer of a closed tunnel was told another's link: %s", body)
 	}
 }

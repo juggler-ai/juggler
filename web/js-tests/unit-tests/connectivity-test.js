@@ -54,9 +54,10 @@ const lanURL = (root) => ({ url: root, interface: 'en0', qr: QR, session: { url:
 
 /**
  * A stand-in for the session's connectivity routes, recording each call.
- * @param {{exposure: boolean, lan?: any, tunnel?: any, launch?: any, holdLaunchRead?: Promise<void>, onLaunchRead?: (v?: any) => void, fail?: string}} state -
- *   What the routes answer; `fail` names a path whose PUT fails, `holdLaunchRead` holds each launch read's
- *   answer, and `onLaunchRead` is told when one is asked.
+ * @param {{exposure: boolean, clients?: any[], wayIn?: any, machine?: string, server?: any, lan?: any, tunnel?: any, launch?: any, holdLaunchRead?: Promise<void>, onLaunchRead?: (v?: any) => void, fail?: string}} state -
+ *   What the routes answer; `clients` is the viewer list, `wayIn` a remote viewer's own way in, `machine`
+ *   the server's computer's name, `fail` names a path whose PUT fails, `holdLaunchRead` holds each launch
+ *   read's answer, and `onLaunchRead` is told when one is asked.
  * @returns {{restore: () => void, calls: {method: string, url: string, body: any}[], state: any}} Handle.
  */
 function installConnectivityFetch(state) {
@@ -77,7 +78,14 @@ function installConnectivityFetch(state) {
       };
     }
     if (u === '/api/connectivity') {
-      return ok({ clientCount: 1, clients: [], exposure: state.exposure });
+      const clients = state.clients || [];
+      return ok({ clientCount: clients.length || 1, clients, exposure: state.exposure });
+    }
+    if (u === '/api/connectivity/ways-in') {
+      return ok(state.wayIn || {});
+    }
+    if (u === '/api/version') {
+      return ok({ version: 'v0.0.0', name: state.machine || '' });
     }
     if (u === '/api/connectivity/lan') {
       if (method === 'PUT') {
@@ -275,7 +283,8 @@ export async function runTests(_ctx) {
     await withRoutes({ exposure: false, server: terminal }, async (api) => {
       const { el } = await mountWith({ clientCount: 1, clients: [], exposure: false });
       try {
-        assert(!el.querySelector('.connectivity-server'), 'who started the server was shown to a viewer off this machine');
+        const said = el.querySelector('#connectivity-server-section .connectivity-server')?.textContent || '';
+        assert(!said.includes('terminal') && !said.includes('4242'), `who started the server was shown to a viewer off this machine: ${JSON.stringify(said)}`);
         assert(!api.calls.some((c) => c.url === '/api/connectivity/server'), 'the tab asked a viewer off this machine for the server');
       } finally {
         el.remove();
@@ -667,20 +676,26 @@ export async function runTests(_ctx) {
     });
   });
 
-  await run('who is connected comes first, and every row is the same distance from the next', async () => {
+  await run('the server comes first, then who is connected, and every row in a group is the same distance from the next', async () => {
     await withRoutes({ exposure: true, lan: { enabled: true, urls: [lanURL('http://192.168.1.4:3939/')] }, tunnel: tunnelModes() }, async () => {
       const { el } = await mountWith({ clientCount: 1, clients: [], exposure: true });
       try {
         el.classList.add('is-open');
         el.switchTab('connectivity');
         const rows = [...el.querySelectorAll('#connectivity-form .provider-field')];
-        assert(rows[0]?.id === 'connectivity-clients-section', `the first row is ${rows[0]?.id || rows[0]?.textContent}`);
-        assert(rows.length === 6, `${rows.length} rows, want clients, the server, LAN and 3 modes`);
-        assert(rows[1]?.classList.contains('connectivity-server'), `the second row is ${rows[1]?.textContent}, want the server`);
+        assert(rows.length === 6, `${rows.length} rows, want the server, clients, LAN and 3 modes`);
+        assert(rows[0]?.classList.contains('connectivity-server'), `the first row is ${rows[0]?.textContent}, want the server`);
+        assert(rows[1]?.id === 'connectivity-clients-section', `the second row is ${rows[1]?.id || rows[1]?.textContent}`);
+        const headings = [...el.querySelectorAll('#connectivity-form .settings-section-heading')]
+          .filter((h) => !(/** @type {HTMLElement} */ (h)).hidden).map((h) => h.textContent);
+        assert(JSON.stringify(headings) === JSON.stringify(['Server Status', 'Other Devices']), `headings ${JSON.stringify(headings)}`);
         const boxes = rows.map((r) => r.getBoundingClientRect());
         assert(boxes.every((b) => b.height > 0), 'the rows were never laid out');
         const gaps = boxes.slice(1).map((b, i) => Math.round(b.top - boxes[i].bottom));
-        assert(gaps.every((g) => g === gaps[0] && g > 0), `uneven gaps between rows: ${JSON.stringify(gaps)}`);
+        // The heading over the ways in sits between rows 1 and 2.
+        const inGroups = [gaps[0], ...gaps.slice(2)];
+        assert(inGroups.every((g) => g === inGroups[0] && g > 0), `uneven gaps between rows: ${JSON.stringify(gaps)}`);
+        assert(gaps[1] > inGroups[0], `the groups are not set apart: ${JSON.stringify(gaps)}`);
       } finally {
         el.remove();
       }
@@ -761,6 +776,138 @@ export async function runTests(_ctx) {
     });
   });
 
+  /**
+   * Run fn as the window whose socket id is 'self-client', so the tab finds
+   * its own entry in the clients list; the id is put back after.
+   * @param {() => Promise<void>} fn
+   */
+  const asSelf = async (fn) => {
+    const was = wsService.clientId;
+    wsService.clientId = 'self-client';
+    try {
+      await fn();
+    } finally {
+      wsService.clientId = was;
+    }
+  };
+
+  /**
+   * A client entry, connected a minute ago.
+   * @param {string} id
+   * @param {string} origin
+   * @param {string} [detail]
+   * @returns {any} The entry.
+   */
+  const client = (id, origin, detail = '') => ({ id, origin, detail, userAgent: '', connectedAt: now - 60_000 });
+
+  /**
+   * What the status row and each other client's row say.
+   * @param {any} el - The mounted panel.
+   * @returns {{status: string, rows: string[]}} Their text.
+   */
+  const placeText = (el) => ({
+    status: el.querySelector('#connectivity-server-section .connectivity-server')?.textContent || '',
+    rows: [...el.querySelectorAll('#connectivity-clients-section .connectivity-client-origin')].map((r) => r.textContent || ''),
+  });
+
+  await run('clients are placed relative to the server, which a window onto another computer is told it is on', async () => {
+    await asSelf(async () => {
+      await withRoutes({ exposure: true, clients: [client('self-client', 'local'), client('c-desk', 'local')], lan: { enabled: false, urls: [] }, tunnel: { modes: [], running: null } }, async () => {
+        const { el } = await mountWith({ clientCount: 1, clients: [], exposure: true });
+        try {
+          const { status, rows } = placeText(el);
+          assert(status.includes('On this computer'), `a window on the server's computer: ${JSON.stringify(status)}`);
+          assert(JSON.stringify(rows) === JSON.stringify(['This computer']), `another window there: ${JSON.stringify(rows)}`);
+        } finally {
+          el.remove();
+        }
+      });
+      await withRoutes({ exposure: false, machine: 'Studio', clients: [client('self-client', 'lan', '192.168.1.9'), client('c-desk', 'local')] }, async (api) => {
+        const { el } = await mountWith({ clientCount: 1, clients: [], exposure: false });
+        try {
+          const { status, rows } = placeText(el);
+          assert(status.includes('On another computer: Studio') && status.includes('local network') && status.includes(window.location.host),
+            `a LAN window: ${JSON.stringify(status)}`);
+          assert(JSON.stringify(rows) === JSON.stringify(['The server’s computer, Studio']), `a window on the server's computer, seen from the LAN: ${JSON.stringify(rows)}`);
+          assert(!api.calls.some((c) => c.url === '/api/connectivity/server'), 'a window off the server\'s computer asked who started it');
+        } finally {
+          el.remove();
+        }
+      });
+      await withRoutes({ exposure: false, clients: [client('self-client', 'remote', 'Direct P2P')] }, async () => {
+        const { el } = await mountWith({ clientCount: 1, clients: [], exposure: false });
+        try {
+          const { status } = placeText(el);
+          assert(status.includes('On another computer') && status.includes('Direct P2P'), `a tunnel's window: ${JSON.stringify(status)}`);
+        } finally {
+          el.remove();
+        }
+      });
+    });
+  });
+
+  await run('a LAN viewer sees the addresses it came in by, to read only, and never a tunnel', async () => {
+    await asSelf(async () => {
+      const wayIn = { lan: { enabled: true, urls: [lanURL('http://192.168.1.4:3939/')] } };
+      await withRoutes({ exposure: false, wayIn, clients: [client('self-client', 'lan', '192.168.1.9')] }, async (api) => {
+        const { el } = await mountWith({ clientCount: 1, clients: [], exposure: false });
+        try {
+          const lan = /** @type {HTMLElement|null} */ (el.querySelector('#connectivity-lan-section'));
+          const tunnel = /** @type {HTMLElement|null} */ (el.querySelector('#connectivity-tunnel-section'));
+          assert(!!lan && !lan.hidden, 'a LAN viewer is not shown LAN access');
+          assert(!tunnel || tunnel.hidden, 'a LAN viewer is shown a tunnel section');
+          const links = [...(lan?.querySelectorAll('.connectivity-address a') || [])].map((a) => a.getAttribute('href'));
+          assert(JSON.stringify(links) === JSON.stringify(['http://192.168.1.4:3939/s/abc123/', 'http://192.168.1.4:3939/']), `its links ${JSON.stringify(links)}`);
+          assert(!lan?.querySelector('button:not(.copy-button), input[type=checkbox]'), 'a LAN viewer was given something to switch');
+          const heading = /** @type {HTMLElement|null} */ (el.querySelector('#connectivity-access-heading'));
+          assert(!!heading && !heading.hidden, 'the Other Devices heading is hidden over the addresses');
+          const asked = api.calls.map((c) => c.url);
+          assert(asked.includes('/api/connectivity/ways-in'), 'the tab never asked for its way in');
+          assert(!asked.some((u) => /\/api\/connectivity\/(lan|tunnel|launch|server)$/.test(u)), `asked for what only the server's computer may read: ${JSON.stringify(asked)}`);
+        } finally {
+          el.remove();
+        }
+      });
+    });
+  });
+
+  await run('a tunnel viewer sees the link it came in by, to read only', async () => {
+    await asSelf(async () => {
+      const mode = tunnelModes().modes[1];
+      const running = { mode: mode.mode, url: 'https://quiet-fox.trycloudflare.com/', relay: true, qr: QR, session: { url: 'https://quiet-fox.trycloudflare.com/s/abc123/', qr: SESSION_QR } };
+      await withRoutes({ exposure: false, wayIn: { tunnel: { mode, running } }, clients: [client('self-client', 'remote', 'Cloudflare Tunnel relay')] }, async () => {
+        const { el } = await mountWith({ clientCount: 1, clients: [], exposure: false });
+        try {
+          const lan = /** @type {HTMLElement|null} */ (el.querySelector('#connectivity-lan-section'));
+          const tunnel = /** @type {HTMLElement|null} */ (el.querySelector('#connectivity-tunnel-section'));
+          assert(!lan || lan.hidden, 'a tunnel viewer is shown LAN access');
+          assert(!!tunnel && !tunnel.hidden && (tunnel.textContent || '').includes('Cloudflare Tunnel relay'), 'a tunnel viewer is not shown its tunnel');
+          const links = [...(tunnel?.querySelectorAll('.connectivity-address a') || [])].map((a) => a.getAttribute('href'));
+          assert(links[0] === running.session.url, `its first link ${links[0]}, want this session's`);
+          assert((tunnel?.textContent || '').includes('Traffic is relayed through Cloudflare.'), 'the relay note is missing');
+          assert(!tunnel?.querySelector('button:not(.copy-button), input[type=checkbox]'), 'a tunnel viewer was given something to switch');
+        } finally {
+          el.remove();
+        }
+      });
+    });
+  });
+
+  await run('a window on the server\'s computer that may not switch them asks for no way in', async () => {
+    await asSelf(async () => {
+      await withRoutes({ exposure: false, clients: [client('self-client', 'local')] }, async (api) => {
+        const { el } = await mountWith({ clientCount: 1, clients: [], exposure: false });
+        try {
+          assert(!api.calls.some((c) => c.url === '/api/connectivity/ways-in'), 'a local window asked for its way in');
+          const heading = /** @type {HTMLElement|null} */ (el.querySelector('#connectivity-access-heading'));
+          assert(!heading || heading.hidden, 'the Other Devices heading shows over nothing');
+        } finally {
+          el.remove();
+        }
+      });
+    });
+  });
+
   await run('the tab speaks the UI language', async () => {
     await underPseudoLocale('connectivity-test', async () => {
       await withRoutes({ exposure: true, lan: { enabled: true, urls: [] }, tunnel: { modes: [], running: null } }, async () => {
@@ -770,6 +917,7 @@ export async function runTests(_ctx) {
           const box = el.querySelector('#connectivity-clients-section');
           assert(!!box?.querySelector('.connectivity-clients-empty'), 'no "none connected" line');
           assertPseudoLocalized(/** @type {Element} */ (box), { atLeast: 2, where: 'the clients box' });
+          assertPseudoLocalized(/** @type {Element} */ (el.querySelector('#connectivity-server-section')), { atLeast: 2, where: 'the server status' });
         } finally {
           el.remove();
         }

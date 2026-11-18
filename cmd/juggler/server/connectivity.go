@@ -6,12 +6,14 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
 	"time"
 
 	"juggler/cmd/juggler/server/handlers"
+	"juggler/cmd/juggler/tunnel"
 	"juggler/internal/basepath"
 	"juggler/internal/jlog"
 
@@ -55,6 +57,7 @@ func (s *Server) setupConnectivityRoutes() {
 	api.Handle("/connectivity/tunnel", s.exposureRoute("/api/server/tunnel")).Methods("GET", "PUT")
 	api.Handle("/connectivity/launch", s.exposureRoute("/api/server/launch")).Methods("GET", "PUT")
 	api.Handle("/connectivity/server", s.exposureRoute("/api/server/status")).Methods("GET")
+	api.HandleFunc("/connectivity/ways-in", s.handleGetWayIn).Methods("GET")
 	// Before the events route: gorilla/mux answers a wrong method with 405
 	// only when no route with a method of its own follows the one whose path
 	// it matched.
@@ -227,6 +230,87 @@ func (s *Server) handleGetConnectivity(w http.ResponseWriter, r *http.Request) {
 		// choose which opens at start.
 		"exposure": s.supervisor.Addr != "" && isLocalDirect(r),
 	})
+}
+
+// handleGetWayIn serves a viewer off this machine the way in it came by, and
+// no other, so it can bring another device into this session the same way:
+// for a LAN viewer, LAN access with this session's link at each address; for
+// one that came through a tunnel, that tunnel's link, while it is the one
+// running. Anything wider stays this machine's to share (the machine server's
+// localOnly): a tunnel's link works from anywhere, so a LAN viewer who read it
+// would hold a grant wider than the one it came in by. A viewer on this
+// machine, or one that came another way (a reverse proxy), is answered with
+// neither. GET /api/connectivity/ways-in; a session with no machine server
+// has no such route.
+//
+// The answer carries nothing that switches anything: a LAN state is cut to
+// whether it is on and its addresses, a tunnel to its running link and its
+// mode's copy.
+func (s *Server) handleGetWayIn(w http.ResponseWriter, r *http.Request) {
+	if s.supervisor.Addr == "" {
+		http.NotFound(w, r)
+		return
+	}
+	out := map[string]any{}
+	_, lan := r.Context().Value(supervisedLANCallerKey{}).(string)
+	kind := RemoteIngressKind(r)
+	_, viaTunnel := tunnel.Find(tunnel.Mode(kind))
+	viaTunnel = viaTunnel && kind != ""
+	switch {
+	case lan:
+		var state struct {
+			Enabled bool              `json:"enabled"`
+			URLs    []json.RawMessage `json:"urls"`
+		}
+		if !s.readSupervisor(r.Context(), "/api/server/lan", &state) {
+			http.Error(w, "The machine server could not be reached.", http.StatusBadGateway)
+			return
+		}
+		if state.URLs == nil {
+			state.URLs = []json.RawMessage{}
+		}
+		out["lan"] = state
+	case viaTunnel:
+		var state struct {
+			Modes   []map[string]any `json:"modes"`
+			Running json.RawMessage  `json:"running"`
+		}
+		if !s.readSupervisor(r.Context(), "/api/server/tunnel", &state) {
+			http.Error(w, "The machine server could not be reached.", http.StatusBadGateway)
+			return
+		}
+		var running struct {
+			Mode string `json:"mode"`
+		}
+		if json.Unmarshal(state.Running, &running) != nil || running.Mode != kind {
+			break
+		}
+		for _, m := range state.Modes {
+			if m["mode"] == kind {
+				out["tunnel"] = map[string]any{"mode": m, "running": state.Running}
+			}
+		}
+	}
+	handlers.WriteJSON(w, r, 0, out)
+}
+
+// readSupervisor GETs the machine server's path, naming this session, and
+// decodes its answer into v; false when it could not be reached or refused.
+func (s *Server) readSupervisor(ctx context.Context, path string, v any) bool {
+	ctx, cancel := context.WithTimeout(ctx, supervisorCallTimeout)
+	defer cancel()
+	if s.supervisor.Session != "" {
+		path += "?session=" + url.QueryEscape(s.supervisor.Session)
+	}
+	resp, err := s.callSupervisor(ctx, http.MethodGet, path, http.NoBody, "")
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+	return json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(v) == nil
 }
 
 // exposureRoute passes a GET or PUT to the machine server's route at path,

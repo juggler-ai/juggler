@@ -8,7 +8,7 @@ import { createButton } from '../../sdk/lib/html.js';
 import { markPopupOpen } from '../utils/popup-manager.js';
 import { fadeOutScrims } from '../utils/modal-scrim.js';
 import { markDialog, trapFocus } from '../utils/dialog-a11y.js';
-import { startInstall, requestRestart } from '../services/updater-control.js';
+import { startInstall, requestRestart, cancelUpdate, getUpdaterState } from '../services/updater-control.js';
 import { showConfirm } from './modal-dialog.js';
 import { t, markForTranslation } from '../../sdk/lib/i18n.js';
 
@@ -52,6 +52,8 @@ import { t, markForTranslation } from '../../sdk/lib/i18n.js';
  *   build's updates, or empty when it updates itself. When set the dialog
  *   points there and offers nothing to download or install.
  * @property {boolean} [upToDate] - Menu "Check for Updates" found nothing new.
+ * @property {boolean} [cancelling] - A cancelled update is finishing a step that
+ *   can't be interrupted; what it staged is then discarded.
  */
 
 /** @type {number} */
@@ -198,6 +200,8 @@ class UpdateNotice extends JugglerElement {
     this._restarting = false;
     /** @type {boolean} @private — install requested; show in-flight shape optimistically until a real snapshot reacts */
     this._pendingInstall = false;
+    /** @type {boolean} @private — a cancel has been asked for and has not answered yet */
+    this._cancelling = false;
   }
 
   connectedCallback() {
@@ -313,6 +317,9 @@ class UpdateNotice extends JugglerElement {
       vm.upToDate ? 'uptodate' : '',
       vm.present ? 'present' : 'absent',
       vm.updaterState || '',
+      vm.cancelling || this._cancelling ? 'cancelling' : '',
+      // The optimistic in-flight shape offers no cancel; the real one does.
+      this._pendingInstall ? 'pending' : '',
       // The failure itself is part of the shape: the status region is built from
       // the stage and the message, so a change in either has to rebuild.
       vm.errorStage || '',
@@ -552,14 +559,28 @@ class UpdateNotice extends JugglerElement {
       return footer;
     }
 
+    if ((vm.cancelling || this._cancelling) && FLOW_STATES.has(vm.updaterState || '')) {
+      // The cancel is finishing a step that can't be interrupted.
+      const b = this._button(t('Cancelling…'), 'btn-primary', () => {});
+      b.disabled = true;
+      footer.appendChild(b);
+      return footer;
+    }
+
     switch (vm.updaterState) {
       case 'ready':
+        footer.appendChild(this._button(t('Discard update'), '', () => this._doCancel()));
         footer.appendChild(this._button(t('Update & restart'), 'btn-primary', () => this._doRestart()));
         break;
       case 'downloading':
       case 'verifying':
       case 'installing': {
-        // In-flight — show a disabled primary so the shape is stable.
+        // In-flight — show a disabled primary so the shape is stable, and the
+        // way to stop it beside it. The optimistic shape of a click that has
+        // not reached the app yet has nothing to cancel.
+        if (!this._pendingInstall) {
+          footer.appendChild(this._button(t('Cancel update'), '', () => this._doCancel()));
+        }
         const b = this._button(t('Updating…'), 'btn-primary', () => {});
         b.disabled = true;
         footer.appendChild(b);
@@ -619,6 +640,29 @@ class UpdateNotice extends JugglerElement {
   }
 
   /**
+   * Stop the update downloading, or discard the one waiting for a restart. The
+   * app answers once the cancel has taken effect, and the snapshot is then read
+   * back and handed round as a push would be: a push from the app doesn't reach
+   * a page on every platform, and the dialog must not sit on "Cancelling…".
+   * @private
+   */
+  async _doCancel() {
+    if (this._cancelling) return;
+    this._cancelling = true;
+    // An install still waiting for its first reaction is what is being
+    // cancelled: its in-flight mask must not outlive it, since the state a
+    // cancel leaves ('available') is not one that would lift it.
+    this._pendingInstall = false;
+    if (this._vm) this.render(this._effectiveVm(this._vm));
+    // Neither call rejects: a failure reads back as the state left unchanged.
+    await cancelUpdate();
+    const snap = await getUpdaterState();
+    this._cancelling = false;
+    if (snap.present) window.dispatchEvent(new CustomEvent('juggler:updater-status', { detail: snap }));
+    else if (this._vm) this.render(this._effectiveVm(this._vm));
+  }
+
+  /**
    * Request a restart, handling the busy-confirm round-trip.
    * @private
    */
@@ -661,6 +705,7 @@ class UpdateNotice extends JugglerElement {
     this._vm = null;
     this._renderKey = null;
     this._pendingInstall = false;
+    this._cancelling = false;
     fadeOutScrims(this);
     this.innerHTML = '';
     this._teardownDismissal();

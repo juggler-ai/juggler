@@ -74,6 +74,7 @@ const NOTICE_STATES = [
   { where: 'verifying', vm: vmOf({ present: true, updaterState: 'verifying' }) },
   { where: 'installing', vm: vmOf({ present: true, updaterState: 'installing' }) },
   { where: 'ready', vm: vmOf({ present: true, updaterState: 'ready', targetVersion: '9.8.7' }) },
+  { where: 'cancelling', vm: vmOf({ present: true, updaterState: 'verifying', cancelling: true }) },
   { where: 'idle updater', vm: vmOf({ present: true, updaterState: 'idle' }) },
   // The package manager's name is data, so digits stand in for it here.
   { where: 'managed install', vm: vmOf({ managedBy: '42', targetVersion: '9.8.7', notice: { id: '6', actions: [LINK] } }) },
@@ -169,7 +170,7 @@ export async function runTests() {
       notice.close();
       notice.open(vmOf({ present: true, updaterState: 'ready' }));
       const restart = [...notice.querySelectorAll('.update-notice__footer > .btn')].map((b) => b.textContent);
-      assert(JSON.stringify(restart) === JSON.stringify(['Later', 'Update & restart']), `ready buttons: ${JSON.stringify(restart)}`);
+      assert(JSON.stringify(restart) === JSON.stringify(['Later', 'Discard update', 'Update & restart']), `ready buttons: ${JSON.stringify(restart)}`);
       notice.close();
       notice.open(vmOf({ notice: { id: 'm', title: 'Juggler 2 is here', actions: [{ label: 'Get it', url: 'https://juggler.studio/' }] } }));
       assert(notice.querySelector('.update-notice__title').textContent === 'Juggler 2 is here', 'the manifest title is drawn as given');
@@ -229,6 +230,45 @@ export async function runTests() {
       notice.close();
       notice.remove();
       btn.remove();
+    }
+  });
+
+  // An update under way can be stopped, and one downloaded can be thrown away;
+  // a cancel finishing a step it can't interrupt says so, and once it has
+  // landed the release is simply on offer again.
+  await test('an update can be cancelled, and the dialog follows the cancel', async () => {
+    const notice = /** @type {any} */ (document.createElement('update-notice'));
+    document.body.appendChild(notice);
+    const labels = () => [...notice.querySelectorAll('.update-notice__footer > .btn')]
+      .map((b) => `${b.textContent}${/** @type {HTMLButtonElement} */ (b).disabled ? ' (disabled)' : ''}`);
+    try {
+      for (const updaterState of ['downloading', 'verifying', 'installing']) {
+        notice.open(vmOf({ present: true, updaterState }));
+        assert(JSON.stringify(labels()) === JSON.stringify(['Later', 'Cancel update', 'Updating… (disabled)']),
+          `${updaterState} buttons: ${JSON.stringify(labels())}`);
+        notice.close();
+      }
+
+      // A click that hasn't reached the app yet has nothing to cancel.
+      notice.open(vmOf({ present: true, updaterState: 'available' }));
+      notice._doInstall();
+      assert(!labels().includes('Cancel update'), `the optimistic in-flight shape offers a cancel: ${JSON.stringify(labels())}`);
+      notice.refresh(vmOf({ present: true, updaterState: 'downloading' }));
+      assert(labels().includes('Cancel update'), `the real download offers no cancel: ${JSON.stringify(labels())}`);
+
+      notice.refresh(vmOf({ present: true, updaterState: 'verifying', cancelling: true }));
+      assert(JSON.stringify(labels()) === JSON.stringify(['Later', 'Cancelling… (disabled)']),
+        `cancelling buttons: ${JSON.stringify(labels())}`);
+
+      // There is no native host here, so the cancel lands at once; the app's
+      // next snapshot offers the release again.
+      await notice._doCancel();
+      notice.refresh(vmOf({ present: true, updaterState: 'available' }));
+      assert(JSON.stringify(labels()) === JSON.stringify(['Later', 'Update now']),
+        `after the cancel: ${JSON.stringify(labels())}`);
+    } finally {
+      notice.close();
+      notice.remove();
     }
   });
 

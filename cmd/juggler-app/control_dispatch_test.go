@@ -225,6 +225,34 @@ func TestWindowControlUpdaterStateIsJSON(t *testing.T) {
 	}
 }
 
+// A cancel reaches the updater, and the one refusal it can meet — the restart
+// into the update has begun — is answered with the reason the page shows.
+func TestWindowControlUpdaterCancelReportsARefusal(t *testing.T) {
+	saved := updaterCancel
+	t.Cleanup(func() { updaterCancel = saved })
+
+	a := newTestAppState(t)
+	registerTestWindow(a, "w1")
+
+	calls := 0
+	updaterCancel = func() error { calls++; return nil }
+	if rec := controlRequest(a, http.MethodPost, "/win/w1/updater?op=cancel"); rec.Code != http.StatusNoContent || calls != 1 {
+		t.Fatalf("status = %d after %d cancel(s), want 204 after 1", rec.Code, calls)
+	}
+
+	updaterCancel = func() error { return errors.New("already being installed") }
+	rec := controlRequest(a, http.MethodPost, "/win/w1/updater?op=cancel")
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 from a refused cancel", rec.Code)
+	}
+	var body struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body.Error != "already being installed" {
+		t.Fatalf("the page needs the reason, got %q (%v)", rec.Body.String(), err)
+	}
+}
+
 func TestWindowControlUpdaterRestartFailureIsReportedAndRolledBack(t *testing.T) {
 	// Stubbed rather than trusted to be the default: a packaging build copies a
 	// real updater into this package, and this must never reach a real restart.

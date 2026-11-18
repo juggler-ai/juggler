@@ -163,6 +163,7 @@ class UpdateButton extends JugglerElement {
       currentVersion: s.currentVersion || '',
       targetVersion,
       downloadURL: (present && u.downloadURL) || null,
+      cancelling: present && !!u.cancelling,
       appVersion: u.appVersion || null,
       appManagedServer: this._appManagedServer,
       notice,

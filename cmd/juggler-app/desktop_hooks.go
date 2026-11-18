@@ -132,6 +132,9 @@ type UpdaterSnapshot struct {
 	// because the app has something to tell the user they did not ask about —
 	// such as an update that never finished installing.
 	OpenDialog bool `json:"openDialog,omitempty"`
+	// Cancelling is set while a cancelled update finishes a step that can't be
+	// interrupted, after which what it staged is discarded.
+	Cancelling bool `json:"cancelling,omitempty"`
 }
 
 // updaterSnapshot returns the current updater state. Default: not present, so a
@@ -151,6 +154,12 @@ var updaterInstall = func(_ bool) {}
 // (in notify/off mode) the macOS menu, where an explicit check must reveal
 // availability without triggering an auto-download. Default: no-op.
 var updaterCheck = func() {}
+
+// updaterCancel stops an update that is downloading, or discards one that is
+// downloaded and waiting for a restart, and the release is offered again. It
+// returns an error only when it is too late: the restart into the update has
+// begun. Default: nothing to cancel.
+var updaterCancel = func() error { return nil }
 
 // updaterRestart relaunches into the staged update. Synchronous; returns an
 // error when no update is staged or the swap helper failed to spawn (the

@@ -35,6 +35,8 @@
  *   hand, for when updating in place has failed.
  * @property {boolean} [openDialog] - The page should open the update dialog on
  *   this snapshot: the app's last update never finished installing.
+ * @property {boolean} [cancelling] - A cancelled update is finishing a step that
+ *   can't be interrupted; what it staged is then discarded.
  */
 
 import { windowControlURL } from '../../sdk/lib/window-control.js';
@@ -87,6 +89,21 @@ export async function startCheck() {
   const url = windowControlURL('updater', '?op=check');
   if (!url) return;
   // Transient failures are ignored — the next pushed snapshot reflects reality.
+  await fetchJson(url, { method: 'POST', fallback: null });
+}
+
+/**
+ * Stop the update that is downloading, or discard the one downloaded and
+ * waiting for a restart; the release is then offered again. Resolves once the
+ * app has carried it out, so a snapshot read afterwards is the outcome. A
+ * refusal — the restart into the update has already begun, and the app is
+ * about to quit — leaves the state as it was, which the next snapshot shows.
+ * No-op without a native host.
+ * @returns {Promise<void>}
+ */
+export async function cancelUpdate() {
+  const url = windowControlURL('updater', '?op=cancel');
+  if (!url) return;
   await fetchJson(url, { method: 'POST', fallback: null });
 }
 

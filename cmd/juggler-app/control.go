@@ -1161,10 +1161,11 @@ type updaterStateResponse struct {
 	AppManagedServer bool `json:"appManagedServer"`
 }
 
-// handleUpdaterControl serves /win/<id>/updater?op=state|install|check|restart.
+// handleUpdaterControl serves /win/<id>/updater?op=state|install|check|cancel|restart.
 // state reports the updater snapshot merged with this window's app-managed-server
 // flag; install kicks the download/stage flow; check runs a check-only probe
-// (reveal availability, never download); restart relaunches into a staged
+// (reveal availability, never download); cancel stops a download or discards a
+// staged update; restart relaunches into a staged
 // update, guarded by the same in-flight-turn check as Cmd+Q. All ops are POST.
 func (a *appState) handleUpdaterControl(w http.ResponseWriter, r *http.Request, e *winEntry) {
 	switch r.URL.Query().Get("op") {
@@ -1184,6 +1185,15 @@ func (a *appState) handleUpdaterControl(w http.ResponseWriter, r *http.Request, 
 		// Check-only probe: reveal availability without starting a download. The
 		// page learns the outcome from the pushed snapshot, not this response.
 		go updaterCheck()
+		w.WriteHeader(http.StatusNoContent)
+	case "cancel":
+		// Stop a download, or discard a staged update. The page learns the
+		// state that results from the pushed snapshot; only a refusal (the
+		// restart into the update has begun) is answered here.
+		if err := updaterCancel(); err != nil {
+			writeMessageErr(w, http.StatusConflict, err)
+			return
+		}
 		w.WriteHeader(http.StatusNoContent)
 	case "restart":
 		a.handleUpdaterRestart(w, r)
@@ -1230,16 +1240,20 @@ func (a *appState) handleUpdaterRestart(w http.ResponseWriter, r *http.Request) 
 		// the app stays runnable and hand the reason to the page.
 		a.reg(func(st *regState) { st.quitting = false })
 		logf("updater: restart: %v", err)
-		// The error envelope the page decodes (services/http.js): the English,
-		// and the message to show in the viewer's language when the error is
-		// one in its entirety.
-		body := map[string]any{"error": err.Error()}
-		var me *msg.Error
-		if errors.As(err, &me) && me.Error() == err.Error() {
-			body["message"] = me.Message
-		}
-		writeJSON(w, http.StatusInternalServerError, body)
+		writeMessageErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// writeMessageErr writes the error envelope the page decodes
+// (services/http.js): the English, and the message to show in the viewer's
+// language when the error is one in its entirety.
+func writeMessageErr(w http.ResponseWriter, status int, err error) {
+	body := map[string]any{"error": err.Error()}
+	var me *msg.Error
+	if errors.As(err, &me) && me.Error() == err.Error() {
+		body["message"] = me.Message
+	}
+	writeJSON(w, status, body)
 }

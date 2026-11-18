@@ -671,17 +671,14 @@ func (a *appState) onSecondInstance(data application.SecondInstanceData) {
 	// it only raises cannot.
 	opts := windowOpts{notice: a.handOffNotice(data)}
 
-	// A bare relaunch (no --url/--project — e.g. double-clicking the icon again)
-	// should surface the running app, not open a redundant window: focus an
-	// existing window if there is one, and only open a fresh one when none
-	// remain. This is the standard single-instance behaviour.
+	// A bare relaunch (no --url/--project — the exe or a shortcut opened again,
+	// or the Windows taskbar's New Window task) asks for another window, so it
+	// opens one, as Session ▸ New Window does, however many are already open.
+	// macOS never gets here for a Dock or Finder open: LaunchServices activates
+	// the running app instead of starting a second process.
 	if rawURL == "" && project == "" {
-		if a.focusAnyWindow() {
-			logf("second instance: raised existing window (bare relaunch)")
-			return
-		}
-		logf("second instance: no window open, opening a fresh one (bare relaunch)")
-		a.openWindow(windowSpec{}, opts)
+		logf("second instance: opening a new window (bare relaunch)")
+		openNewWindow(a, windowSpec{}, opts)
 		return
 	}
 
@@ -694,44 +691,28 @@ func (a *appState) onSecondInstance(data application.SecondInstanceData) {
 	// Raise an already-open window for this identity rather than duplicating it;
 	// a project window's identity is independent of which server hosts it, so we
 	// can match without resolving the server first.
-	if a.focusWindowBySpec(spec) {
+	if e := a.windowBySpec(spec); e != nil {
+		raiseWindow(e, "")
 		logf("second instance: raised existing window for %+v", spec.entry())
 		return
 	}
 	logf("second instance: opening new window for %+v", spec.entry())
-	a.openWindow(spec, opts)
-}
-
-// focusAnyWindow raises and focuses the most-recently-opened window, returning
-// true if any window is open. Used for a bare relaunch, where there is no
-// specific identity to match — the user just wants the app surfaced.
-func (a *appState) focusAnyWindow() bool {
-	var match *winEntry
-	a.reg(func(st *regState) {
-		best := -1
-		for _, w := range st.windows {
-			// A relaunch wants Juggler, not a board belonging to one of its
-			// windows.
-			if isBoardRole(w.role) {
-				continue
-			}
-			if n := winNum(w.id); n > best {
-				best, match = n, w
-			}
-		}
-	})
-	return focusEntry(match)
+	openNewWindow(a, spec, opts)
 }
 
 // focusWindowBySpec raises and focuses the open window viewing the given
-// identity, returning true if one was found. Used to dedupe second-instance
-// launches onto an already-open window.
+// identity, returning true if one was found.
 func (a *appState) focusWindowBySpec(spec windowSpec) bool {
+	return focusEntry(a.windowBySpec(spec))
+}
+
+// windowBySpec is the open main window viewing the given identity, or nil.
+func (a *appState) windowBySpec(spec windowSpec) *winEntry {
 	var match *winEntry
 	a.reg(func(st *regState) {
 		for _, w := range st.windows {
 			// A board shares its owner's identity but is not a window onto that
-			// project in the sense a second launch means.
+			// project in the sense a launch or a drop means.
 			if isBoardRole(w.role) {
 				continue
 			}
@@ -741,12 +722,11 @@ func (a *appState) focusWindowBySpec(spec windowSpec) bool {
 			}
 		}
 	})
-	return focusEntry(match)
+	return match
 }
 
 // focusEntry un-minimises, shows and focuses the given window entry, returning
-// true when e is non-nil. Shared raise/restore tail for the focus-any and
-// focus-by-spec helpers.
+// true when e is non-nil.
 func focusEntry(e *winEntry) bool {
 	if e == nil {
 		return false

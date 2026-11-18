@@ -147,10 +147,16 @@ type menuLabel struct {
 
 // relabelMenus re-renders every tracked menu label in the shell's language and
 // rebuilds the menu bar, which on macOS is what retitles a top-level menu: the
-// bar shows each submenu's NSMenu title, which only a rebuild sets. Before the
-// app has launched it does nothing; the launch relabels them instead.
+// bar shows each submenu's NSMenu title, which only a rebuild sets. It also
+// rewrites the Windows taskbar button's New Window task in that language.
+// Before the app has launched it does nothing; the launch relabels them
+// instead.
 func (a *appState) relabelMenus() {
-	if a.app == nil || a.menuBar == nil || !a.launched.Load() {
+	if a.app == nil || !a.launched.Load() {
+		return
+	}
+	setTaskbarTasks(a.tr(msg.New("New Window")))
+	if a.menuBar == nil {
 		return
 	}
 	application.InvokeAsync(func() {

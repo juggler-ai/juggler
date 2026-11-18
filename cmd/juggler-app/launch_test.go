@@ -8,13 +8,15 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 // A second launch hands the running app its whole argv, and only --url and
 // --project say which window it wants. Every other flag, known or not, must be
 // stepped over rather than end the parse: a server in dev mode opens its window
 // with `--dev --url …`, and a parse that stopped at --dev read that as a bare
-// relaunch and raised some other window.
+// relaunch and opened an empty window instead.
 func TestParseLaunchArgs(t *testing.T) {
 	cases := []struct {
 		name         string
@@ -39,6 +41,32 @@ func TestParseLaunchArgs(t *testing.T) {
 				t.Errorf("parseLaunchArgs(%q) = (%q, %q), want (%q, %q)", c.args, url, project, c.url, c.project)
 			}
 		})
+	}
+}
+
+// TestABareRelaunchOpensANewWindow: launching the app again — its exe, a
+// shortcut, the taskbar's New Window — opens another window, however many are
+// open; that is what the launch was for. A launch naming a project another
+// window shows raises that window instead of opening a second onto its session.
+func TestABareRelaunchOpensANewWindow(t *testing.T) {
+	var opened []windowSpec
+	saved := openNewWindow
+	openNewWindow = func(_ *appState, spec windowSpec, _ windowOpts) { opened = append(opened, spec) }
+	t.Cleanup(func() { openNewWindow = saved })
+	raised := recordRaises(t)
+
+	a := newTestAppState(t)
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: "/work/alpha"}}})
+
+	a.onSecondInstance(application.SecondInstanceData{Args: []string{"juggler-app.exe"}})
+	if len(opened) != 1 || opened[0] != (windowSpec{}) || len(*raised) != 0 {
+		t.Fatalf("a bare relaunch with a window open opened %+v and raised %+v; want one new empty window", opened, *raised)
+	}
+
+	opened = nil
+	a.onSecondInstance(application.SecondInstanceData{Args: []string{"juggler-app.exe", "--project", "/work/alpha"}})
+	if len(opened) != 0 || len(*raised) != 1 || (*raised)[0].id != "w1" {
+		t.Fatalf("a launch for an open project opened %+v and raised %+v; want w1 raised", opened, *raised)
 	}
 }
 

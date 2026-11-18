@@ -63,7 +63,7 @@ func main() {
 	// reaching for any server. If another juggler-app is already running, this
 	// call hands our argv (--url/--project) to it and os.Exit()s here, so a
 	// redundant launch never starts or attaches to anything; the running
-	// instance opens/raises the window (onSecondInstance).
+	// instance opens a window, or raises the one it names (onSecondInstance).
 	app.initApplication()
 	holdOffAppNap()
 

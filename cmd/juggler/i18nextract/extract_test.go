@@ -57,7 +57,7 @@ func TestCataloguesMatchScriptsI18n(t *testing.T) {
 	}
 	// Each of these has its own catalogue; finding fewer means the walk, not
 	// the extraction, went wrong and the loop above passed vacuously.
-	for _, name := range []string{"juggler-core", "juggler-mcp", "about-juggler", "exa", "hello-tool"} {
+	for _, name := range []string{"juggler-core", "juggler-mcp", "about-juggler", "search-backends", "hello-tool"} {
 		if !found[name] {
 			t.Errorf("no catalogue extracted for %s", name)
 		}

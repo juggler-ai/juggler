@@ -290,7 +290,7 @@ export async function runTests(_ctx) {
     const explore = strategyRegistry.createStrategy('subagent-explore', FAKE_MESSAGE_THREAD).filterTools(allTools).map(t => t.name);
     const research = strategyRegistry.createStrategy('subagent-research', FAKE_MESSAGE_THREAD).filterTools(allTools).map(t => t.name);
 
-    for (const name of ['WebSearch', 'WebFetch', 'exa_search']) {
+    for (const name of ['WebSearch', 'WebFetch']) {
       assert(!explore.includes(name), `Explore must withhold ${name} — the network is Research's job`);
     }
     assert(!research.includes('bash'), 'Research must withhold bash — it reads, it does not run things');

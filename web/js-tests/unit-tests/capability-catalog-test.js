@@ -24,7 +24,7 @@ import { PSEUDO_LOCALE } from '../../sdk/lib/i18n.js';
 
 /** The capability lists whose modules declare a `MANIFEST`. */
 const CAPABILITY_LISTS = [
-  'contextItems', 'strategies', 'commands', 'infoCards', 'fileViewers', 'pinboardItems', 'hooks', 'workspaceProviders',
+  'contextItems', 'strategies', 'commands', 'infoCards', 'fileViewers', 'pinboardItems', 'hooks', 'workspaceProviders', 'searchBackends',
 ];
 
 /**

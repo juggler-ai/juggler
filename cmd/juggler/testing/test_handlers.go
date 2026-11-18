@@ -112,8 +112,8 @@ func (api *TestAPI) HandleConversationOwners(w http.ResponseWriter, r *http.Requ
 }
 
 // extensionTest is one discovered extension-owned test suite: its addressable
-// name (e.g. "unit:exa-search") and the served, extension-root-relative path
-// of its module (e.g. "/extensions/exa/_tests/exa-search-test.js"). The browser
+// name (e.g. "unit:search-backends") and the served, extension-root-relative
+// path of its module (e.g. "/extensions/search-backends/_tests/search-backends-test.js"). The browser
 // harness prepends the version prefix and dynamic-imports the module, whose
 // runTests export it registers as a unit suite.
 type extensionTest struct {
@@ -188,10 +188,10 @@ func (api *TestAPI) HandleExtensionTests(w http.ResponseWriter, r *http.Request)
 }
 
 // extensionTestName derives the harness-addressable suite name from a test
-// module's root-relative path, e.g. "_tests/exa-search-test.js" →
-// "unit:exa-search". The "unit:" prefix and "-test" suffix stripping match the
-// naming the shared js-tests/ pool already uses, so an extension test keeps the
-// same name after being moved into its extension.
+// module's root-relative path, e.g. "_tests/search-backends-test.js" →
+// "unit:search-backends". The "unit:" prefix and "-test" suffix stripping
+// match the naming the shared js-tests/ pool already uses, so an extension
+// test keeps the same name after being moved into its extension.
 func extensionTestName(rel string) string {
 	base := filepath.Base(rel)
 	base = strings.TrimSuffix(base, ".js")

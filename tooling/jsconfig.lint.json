@@ -18,7 +18,6 @@
     "../web/js/vendor/**",
     "node_modules",
     "../web/extensions/about-juggler/_tests/juggler-source-test.js", // 8
-    "../web/extensions/exa/_tests/exa-search-test.js", // 16
     "../web/js-tests/integration-tests/attention-alert-tests.js", // 4
     "../web/js-tests/integration-tests/background-output-tests.js", // 1
     "../web/js-tests/integration-tests/bin-guard-tests.js", // 2

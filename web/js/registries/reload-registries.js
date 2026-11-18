@@ -10,6 +10,7 @@ import pinboardItemRegistry from './pinboard-item-registry.js';
 import fileViewerRegistry from './file-viewer-registry.js';
 import workspaceProviderRegistry from './workspace-provider-registry.js';
 import hookRegistry from './hook-registry.js';
+import searchBackendRegistry from './search-backend-registry.js';
 import { resetExtensionsCache } from '../services/extensions.js';
 import { resetUserCommandsCache } from '../services/user-commands.js';
 import { resetUserHooksCache } from '../services/user-hooks.js';
@@ -178,6 +179,9 @@ export async function initAllRegistries() {
       // Hooks are loaded in both realms too: the engine is where the hook
       // runtime calls them, and the viewer's catalog lists them.
       hookRegistry.init(),
+      // Search backends likewise: WebSearch calls them in the engine, and the
+      // viewer's Web search setting and catalog list them.
+      searchBackendRegistry.init(),
     ];
     // Info cards and pinboard items touch the DOM and only render in the viewer —
     // never init these registries (which would import DOM-touching modules) in the
@@ -290,6 +294,7 @@ export function collectFailedModules() {
     commandRegistry,
     fileViewerRegistry,
     hookRegistry,
+    searchBackendRegistry,
     infoCardRegistry,
     pinboardItemRegistry,
     workspaceProviderRegistry,
@@ -350,6 +355,7 @@ async function resetAndReinitRegistries() {
   commandRegistry.reset();
   fileViewerRegistry.reset();
   hookRegistry.reset();
+  searchBackendRegistry.reset();
   // Viewer-only registries; the engine worker never inits them, so only reset
   // them where a document exists (initAllRegistries applies the same realm gate).
   if (typeof document !== 'undefined') {

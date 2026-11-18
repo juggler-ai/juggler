@@ -185,6 +185,7 @@ func Run(cfg Config) int {
 	acp.RegisterOps()
 	customprovider.RegisterOps()
 	accounts.RegisterOps()
+	extconfig.UpgradeExaToWebSearch()
 	if err := extconfig.RegisterOps(); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to register extension config: %v\n", err)
 		return 1

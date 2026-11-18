@@ -30,6 +30,7 @@ import { McpTab, AcpTab } from './settings/subprocess-tabs.js';
 import { SkillsTab } from './settings/skills-tab.js';
 import { CommandsTab } from './settings/commands-tab.js';
 import { UpdatesTab } from './settings/updates-tab.js';
+import { WebSearchTab } from './settings/web-search-tab.js';
 import { ProjectFilesTab } from './settings/project-files-tab.js';
 import { escapeHtml } from '../../sdk/lib/html.js';
 import { t, markUntranslated, htmlSlots, withHtml } from '../../sdk/lib/i18n.js';
@@ -133,6 +134,7 @@ class SettingsPanel extends JugglerElement {
       providers: this._providersTab,
       defaults: this._defaultsTab,
       connectivity: this._connectivityTab,
+      'web-search': new WebSearchTab(this),
       mcp: new McpTab(this),
       acp: new AcpTab(this),
       commands: new CommandsTab(this),
@@ -208,6 +210,7 @@ class SettingsPanel extends JugglerElement {
                         <button class="settings-tab is-active" data-tab="providers">${escapeHtml(t('Providers'))}</button>
                         <button class="settings-tab" data-tab="defaults">${escapeHtml(t('Defaults'))}</button>
                         <button class="settings-tab" data-tab="connectivity">${escapeHtml(t('Connectivity'))}</button>
+                        <button class="settings-tab" data-tab="web-search">${escapeHtml(t('Web search'))}</button>
                         <button class="settings-tab" data-tab="extensions">${escapeHtml(t('Extensions'))}</button>
                         <button class="settings-tab" data-tab="commands">${escapeHtml(t('Slash commands'))}</button>
                         <button class="settings-tab" data-tab="skills">${escapeHtml(t('Skills'))}</button>
@@ -309,6 +312,13 @@ class SettingsPanel extends JugglerElement {
                         </div>
                         <div class="settings-section-heading caps-label-lg">${escapeHtml(t('Proxy Settings'))}</div>
                         <div class="settings-form" id="proxy-form"></div>
+                    </section>
+
+                    <section class="settings-tab-content" id="tab-web-search">
+                        <p class="settings-description">
+                            ${escapeHtml(t('The services the agent searches the web with. It tries the ones switched on, top first, and moves to the next when one is not set up or is refusing this connection. Keys are set on each service\'s page in Extensions.'))}
+                        </p>
+                        <div class="settings-form" id="web-search-form"></div>
                     </section>
 
                     <section class="settings-tab-content" id="tab-language">

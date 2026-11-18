@@ -612,3 +612,38 @@ func TestExtensionCatalogueLocalesMatchUILocales(t *testing.T) {
 		}
 	}
 }
+
+// TestIsValidWebSearchOrder pins what the Web search setting may store: the
+// engine looks each entry up as an extension id and a backend's MANIFEST id,
+// so anything that could never be one is refused at the door rather than kept
+// in the file. A bare backend id is refused: it would match whichever
+// extension happened to provide that id.
+func TestIsValidWebSearchOrder(t *testing.T) {
+	const ext = "@juggler/search-backends/"
+	for _, tc := range []struct {
+		order []string
+		want  bool
+	}{
+		{nil, true},
+		{[]string{}, true},
+		{[]string{"@juggler/core/duckduckgo"}, true},
+		{[]string{ext + "tavily", "@juggler/core/duckduckgo", "@me/searx/my-searx-2"}, true},
+		{[]string{"plain-ext/acme"}, true},
+		{[]string{"duckduckgo"}, false},
+		{[]string{"/duckduckgo"}, false},
+		{[]string{"@juggler/core/"}, false},
+		{[]string{""}, false},
+		{[]string{ext + "Tavily"}, false},
+		{[]string{ext + "-tavily"}, false},
+		{[]string{ext + "tavily-"}, false},
+		{[]string{ext + "a--b"}, false},
+		{[]string{"@my ext/x/acme"}, false},
+		{[]string{ext + "tavily", ext + "tavily"}, false},
+		{[]string{ext + strings.Repeat("a", 65)}, false},
+		{[]string{"@" + strings.Repeat("a", 128) + "/acme"}, false},
+	} {
+		if got := IsValidWebSearchOrder(tc.order); got != tc.want {
+			t.Errorf("IsValidWebSearchOrder(%q) = %v, want %v", tc.order, got, tc.want)
+		}
+	}
+}

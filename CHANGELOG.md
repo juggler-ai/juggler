@@ -18,6 +18,8 @@ the current release). The project follows semantic versioning.
 - About shows the desktop app's version beside the server's when they differ
 - Windows: Update & restart reopens Juggler; an update that fails offers the installer
 - Closing a tab no longer makes a later tab jump past a workspace box
+- Web search can use Tavily, Brave, SearXNG, DeepSeek, Bocha or Zhipu, in your order
+- Exa now answers WebSearch, replacing its separate exa_search tool; your key carries over
 
 ## [0.8.1] - 2026-11-15
 

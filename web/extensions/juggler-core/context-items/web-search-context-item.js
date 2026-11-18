@@ -4,9 +4,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import ContextItem from 'juggler/context-item';
-import { webSearch } from 'juggler/ops';
+import { resolveSearchBackends } from '../../../js/services/web-search-backends.js';
 import { translator, markUntranslated } from 'juggler/i18n';
-import { parseDuckDuckGoResponse, looksLikeNoResults, filterResults } from './web-search/ddg-parser.js';
+import { filterResults } from './web-search/ddg-parser.js';
 
 const t = translator('@juggler/core');
 
@@ -17,23 +17,31 @@ const t = translator('@juggler/core');
  * @property {string[]} [blocked_domains] - Exclude results from these domains
  */
 
-/** @typedef {import('./web-search/ddg-parser.js').WebSearchResultItem} WebSearchResultItem */
+/** @typedef {import('juggler/search-backend').SearchResultItem} WebSearchResultItem */
+/** @typedef {import('../../../js/services/web-search-backends.js').ResolvedSearchBackend} ResolvedSearchBackend */
 
 /**
  * @typedef {object} WebSearchResult
  * @property {string} query - The search query
  * @property {WebSearchResultItem[]} results - Search results
  * @property {number} count - Number of results
- * @property {string} provider - Provider used (e.g., "DuckDuckGo")
+ * @property {string} provider - Name of the backend that answered (e.g. "DuckDuckGo")
+ * @property {string[]} [failedFirst] - Why each backend tried before it failed,
+ *   when one did — a revoked key would otherwise go unnoticed behind the next
+ *   backend's answers. Unconfigured and resting backends are not listed.
  */
+
+/** Most results a search returns. */
+const MAX_RESULTS = 10;
 
 /**
  * WebSearchContextItem - Search the web
  *
- * Uses DuckDuckGo HTML endpoint. No API key required.
- * Backend acts as CORS proxy, all logic (parsing, filtering) in frontend — the
- * scraping and domain filtering themselves live in `web-search/ddg-parser.js`,
- * leaving this class the request, the retry ladder and the rendering.
+ * The one search tool the model sees. Which service answers is the user's Web
+ * search setting: an ordered list of search backends (`juggler/search-backend`,
+ * contributed by extensions; DuckDuckGo by default). This class asks them in
+ * that order and stops at the first that answers; it owns the schema, the
+ * domain filtering, the rest period after a block, and the rendering.
  * @class
  * @augments ContextItem
  */
@@ -46,29 +54,23 @@ class WebSearchContextItem extends ContextItem {
   static MANIFEST = {
     id: 'web-search',
     name: 'Web Search',
-    version: '2.0.0',
-    description: 'Search the web (no API key required)',
+    version: '3.0.0',
+    description: 'Search the web with the services chosen in Settings → Web search',
     author: 'Juggler Team',
     requiresApproval: false
   };
 
-  // DuckDuckGo HTML endpoint URL
-  static DDG_URL = 'https://html.duckduckgo.com/html/';
-
-  // Retry policy for DuckDuckGo rate-limit / captcha responses. DuckDuckGo
-  // throttles bursts of requests from one IP, and a block lasts seconds to
-  // minutes: a retry inside a second only re-hits it (and can prolong it). So
-  // the waits are 5–10s then 10–15s (base · 2^n plus up to one base of jitter),
-  // ~15–25s in all before the error is surfaced.
-  static MAX_RETRIES = 2;
-  static RETRY_BASE_MS = 5000;
-
-  // After a search exhausts its retries, every search in this realm fails at
-  // once, without contacting DuckDuckGo, until this long has passed — so a
-  // model that retries straight away, or a parallel conversation, does not keep
-  // the block alive. `blockedUntil` is the epoch ms that cooldown ends (0: none).
-  static COOLDOWN_MS = 60000;
-  static blockedUntil = 0;
+  // After a backend reports a block (SearchBlockedError), every search in this
+  // realm skips it, without contacting it, until this long has passed (or as
+  // long as it asked) — so a model that retries straight away, or a parallel
+  // conversation, does not keep the block alive. A wait the backend asks for is
+  // capped at MAX_REST_MS, so one bad Retry-After cannot switch it off for the
+  // day. Keyed by backend key (`<extension id>/<id>`); the value is the epoch
+  // ms the rest ends.
+  static REST_MS = 60000;
+  static MAX_REST_MS = 15 * 60000;
+  /** @type {Map<string, number>} */
+  static restingUntil = new Map();
 
   /**
    * Get tool definitions for WebSearch action
@@ -98,7 +100,9 @@ class WebSearchContextItem extends ContextItem {
       required: ['query']
     };
 
-    const description = markUntranslated('Searches the web using DuckDuckGo (no API key required). Returns up to 10 results with titles, URLs, and descriptions. Supports domain filtering.');
+    // Backend-neutral on purpose: the tool list is part of the cached prompt,
+    // and the result names the service that answered.
+    const description = markUntranslated('Searches the web. Returns up to 10 results with titles, URLs, and descriptions. Supports domain filtering.');
 
     return [
       {
@@ -111,119 +115,89 @@ class WebSearchContextItem extends ContextItem {
   }
 
   /**
-   * Build DuckDuckGo search params (POST)
-   * @param {string} query - Search query
-   * @returns {object} Params for backend CORS proxy
+   * The backends to ask, in the user's order. A seam for tests.
+   * @returns {Promise<ResolvedSearchBackend[]>} Possibly empty
    */
-  buildDuckDuckGoParams(query) {
-    return {
-      url: WebSearchContextItem.DDG_URL,
-      method: 'POST',
-      form_data: {
-        q: query,
-        b: '',  // offset
-        kl: ''  // region
-      }
-    };
+  resolveBackends() {
+    return resolveSearchBackends(this.signal);
   }
 
   /**
-   * Fetch one results page through the backend proxy — the one place a
-   * search touches the network.
-   * @param {object} params - Proxy params from {@link buildDuckDuckGoParams}
-   * @returns {Promise<import('../../../js/services/ops-api.js').WebSearchProxyResponse>} Proxy response
-   */
-  fetchSearchPage(params) {
-    return webSearch(
-      /** @type {import('../../../js/services/ops-api.js').WebSearchParams} */ (params),
-      this.signal
-    );
-  }
-
-  /**
-   * Abortable delay used for retry backoff. Rejects promptly if the search's
-   * abort signal fires while waiting, so a cancelled search does not sit out
-   * the backoff.
-   * @param {number} ms - Milliseconds to wait
-   * @returns {Promise<void>} Resolves after `ms`, rejects on abort
-   */
-  delay(ms) {
-    const signal = this.signal;
-    return new Promise((resolve, reject) => {
-      if (signal?.aborted) {
-        reject(signal.reason ?? new Error('Aborted'));
-        return;
-      }
-      const timer = setTimeout(resolve, ms);
-      signal?.addEventListener('abort', () => {
-        clearTimeout(timer);
-        reject(signal.reason ?? new Error('Aborted'));
-      }, { once: true });
-    });
-  }
-
-  /**
-   * Search using DuckDuckGo.
+   * Search with the first backend in the user's order that answers.
    *
-   * DuckDuckGo throttles bursts of requests from a single IP, answering with
-   * HTTP 202 and a challenge page instead of results (the proxy reports that,
-   * and 403/429, as `blocked`). A blocked response, or a 200 page with zero
-   * result blocks and no genuine "no results" marker, is retried with
-   * exponential backoff + jitter up to {@link WebSearchContextItem.MAX_RETRIES}
-   * times before the error is surfaced, which also starts the shared
-   * {@link WebSearchContextItem.COOLDOWN_MS} cooldown; a search during it
-   * fails without a request. A genuine empty result set (the `no-results`
-   * marker on an unblocked page) returns successfully with zero results.
+   * A backend that is resting after a block is skipped without a request; one
+   * that is not configured (no key) is skipped quietly; one that reports a
+   * block is rested for {@link WebSearchContextItem.REST_MS} (or what it asked
+   * for, up to {@link WebSearchContextItem.MAX_REST_MS}) and the next is tried;
+   * any other failure is noted — in the result, when a later backend answers —
+   * and the next is tried. Only when none answers does the search fail, with
+   * every backend's reason. Cancellation is never caught.
    * @param {string} query - Search query
    * @param {string[]} [allowedDomains] - Allowed domains
    * @param {string[]} [blockedDomains] - Blocked domains
    * @returns {Promise<WebSearchResult>} Search result
    */
   async search(query, allowedDomains, blockedDomains) {
-    const remainingMs = WebSearchContextItem.blockedUntil - Date.now();
-    if (remainingMs > 0) {
-      throw new Error(`DuckDuckGo is rate-limiting this connection, so searches are paused for another ${Math.ceil(remainingMs / 1000)}s. Retrying sooner would only extend the block; carry on without search, or try again after that.`);
+    const backends = await this.resolveBackends();
+    if (backends.length === 0) {
+      throw new Error('No web search service is available: none is chosen in Settings → Web search, or every one chosen is switched off or not installed. Carry on without search, or ask the user to choose one there.');
     }
 
-    const ddgParams = this.buildDuckDuckGoParams(query);
-    const maxAttempts = WebSearchContextItem.MAX_RETRIES + 1;
-    const startedAt = Date.now();
-
-    /** @type {WebSearchResultItem[]} */
-    let results = [];
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      const response = await this.fetchSearchPage(ddgParams);
-
-      const blocked = response.blocked === true;
-      results = blocked ? [] : parseDuckDuckGoResponse(response.content);
-      if (results.length > 0 || (!blocked && looksLikeNoResults(response.content))) {
-        break; // got hits, or a genuine empty result set — either way, done
+    /** @type {string[]} */
+    const failures = [];
+    /** @type {string[]} */
+    const errors = [];
+    /** @type {string[]} */
+    const unconfigured = [];
+    for (const { id, name, backend } of backends) {
+      const restingMs = (WebSearchContextItem.restingUntil.get(id) ?? 0) - Date.now();
+      if (restingMs > 0) {
+        failures.push(`${name} is rate-limiting this connection, so searches with it are paused for another ${Math.ceil(restingMs / 1000)}s. Retrying sooner would only extend the block.`);
+        continue;
       }
-
-      // Refused outright, or zero result blocks and no "no results" marker
-      // (almost certainly a captcha page). Retry with backoff unless attempts
-      // are spent.
-      if (attempt === maxAttempts) {
-        WebSearchContextItem.blockedUntil = Date.now() + WebSearchContextItem.COOLDOWN_MS;
-        const spanS = Math.round((Date.now() - startedAt) / 1000);
-        const cooldownS = Math.round(WebSearchContextItem.COOLDOWN_MS / 1000);
-        throw new Error(blocked
-          ? `DuckDuckGo refused the search (HTTP ${response.status}) on all ${maxAttempts} attempts over ${spanS}s: it is rate-limiting this connection. Searches are paused for ${cooldownS}s.`
-          : `No results found - may be blocked or need captcha. Searches are paused for ${cooldownS}s.`);
+      try {
+        const response = await backend.search({
+          query,
+          count: MAX_RESULTS,
+          allowedDomains,
+          blockedDomains,
+          signal: this.signal
+        });
+        const filtered = filterResults(Array.isArray(response?.results) ? response.results : [], allowedDomains, blockedDomains);
+        return {
+          query,
+          results: filtered.slice(0, MAX_RESULTS),
+          count: filtered.length,
+          provider: name,
+          ...(errors.length > 0 ? { failedFirst: errors } : {})
+        };
+      } catch (err) {
+        if (this.signal?.aborted) throw err;
+        const error = /** @type {Error & {retryAfterMs?: number}} */ (err);
+        // Matched by name, not instanceof: a user extension may reach the SDK
+        // through a different module instance than this one.
+        if (error?.name === 'SearchNotConfiguredError') {
+          unconfigured.push(`${name}: ${error.message}`);
+        } else if (error?.name === 'SearchBlockedError') {
+          const asked = Number(error.retryAfterMs);
+          const restMs = Number.isFinite(asked) && asked > 0
+            ? Math.min(asked, WebSearchContextItem.MAX_REST_MS)
+            : WebSearchContextItem.REST_MS;
+          WebSearchContextItem.restingUntil.set(id, Date.now() + restMs);
+          failures.push(`${error.message} Searches with ${name} are paused for ${Math.round(restMs / 1000)}s.`);
+        } else {
+          const reason = `${name} failed: ${error?.message || String(err)}`;
+          failures.push(reason);
+          errors.push(reason);
+        }
       }
-      const backoff = WebSearchContextItem.RETRY_BASE_MS * 2 ** (attempt - 1);
-      const jitter = Math.floor(Math.random() * WebSearchContextItem.RETRY_BASE_MS);
-      await this.delay(backoff + jitter);
     }
 
-    const filtered = filterResults(results, allowedDomains, blockedDomains);
-
-    return {
-      query,
-      results: filtered.slice(0, 10),
-      count: filtered.length,
-      provider: 'DuckDuckGo'
-    };
+    const lines = [...failures, ...unconfigured];
+    const reason = lines.length === 1 ? lines[0] : `No web search service could answer:\n${lines.map(l => `- ${l}`).join('\n')}`;
+    // Said once the user's whole list has failed: there is nothing else to try
+    // until they add or configure another service.
+    throw new Error(`${reason}\nCarry on without search, or ask the user to add or configure another service in Settings → Web search.`);
   }
 
   /**
@@ -279,13 +253,18 @@ class WebSearchContextItem extends ContextItem {
 
     const result = /** @type {WebSearchResult} */ (outcome.result);
     const results = result.results || [];
+    // Said so the model can tell the user: otherwise a broken first choice is
+    // invisible behind the next one's answers.
+    const failedFirst = result.failedFirst?.length
+      ? `\n(Answered by ${result.provider} because ${result.failedFirst.length === 1 ? 'an earlier service' : 'earlier services'} in Settings → Web search failed: ${result.failedFirst.join('; ')})`
+      : '';
 
     if (results.length === 0) {
-      return this.successSummary(markUntranslated(`No results found for "${query}"`), { icon: '○' });
+      return this.successSummary(markUntranslated(`No results found for "${query}"${failedFirst}`), { icon: '○' });
     }
 
     // Format results for LLM - include markdown links
-    const lines = [`Search results for "${query}" (via ${result.provider}):\n`];
+    const lines = [`Search results for "${query}" (via ${result.provider}):${failedFirst}\n`];
     for (const item of results) {
       lines.push(`- [${item.title}](${item.url})`);
       if (item.description) {
@@ -294,7 +273,7 @@ class WebSearchContextItem extends ContextItem {
       lines.push('');
     }
 
-    return this.successSummary(lines.join('\n'));
+    return this.successSummary(this.truncateForLLM(lines.join('\n'), { keywords: [query] }));
   }
 
   /**

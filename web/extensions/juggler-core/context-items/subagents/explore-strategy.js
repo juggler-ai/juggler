@@ -13,7 +13,7 @@ import { EXPLORE_GUIDANCE } from './explore-prompt.js';
  * toss between two similar-sounding tools.
  * @type {readonly string[]}
  */
-const NETWORK_TOOLS = Object.freeze(['WebSearch', 'WebFetch', 'exa_search']);
+const NETWORK_TOOLS = Object.freeze(['WebSearch', 'WebFetch']);
 
 /**
  * The strategy the `Explore` sub-agent runs under: this repository, no network.

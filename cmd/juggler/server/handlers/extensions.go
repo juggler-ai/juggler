@@ -47,6 +47,8 @@ type ExtensionCapabilities struct {
 	WorkspaceProviders []string `json:"workspaceProviders"`
 	// Hooks holds the served URLs of the extension's tool hooks.
 	Hooks []string `json:"hooks"`
+	// SearchBackends holds the served URLs of the extension's web-search backends.
+	SearchBackends []string `json:"searchBackends"`
 	// SystemPrompt is the single served URL of the extension's system-prompt
 	// contribution module (empty when the manifest declares none).
 	SystemPrompt string `json:"systemPrompt,omitempty"`
@@ -421,6 +423,10 @@ func expandCapabilities(root extensionRoot, p ExtensionProvides) (ExtensionCapab
 	if err != nil {
 		return ExtensionCapabilities{}, nil, err
 	}
+	searchBackends, err := expandGlobs(root, p.SearchBackends, files)
+	if err != nil {
+		return ExtensionCapabilities{}, nil, err
+	}
 	// systemPrompt is a single module path, not a glob list. Resolve it through
 	// the same expander (traversal guard + disk-path mapping) and take the one
 	// match, if any.
@@ -444,6 +450,7 @@ func expandCapabilities(root extensionRoot, p ExtensionProvides) (ExtensionCapab
 		PinboardItemMeta:   pinboardItemMeta,
 		WorkspaceProviders: workspaceProviders,
 		Hooks:              hooks,
+		SearchBackends:     searchBackends,
 		SystemPrompt:       systemPrompt,
 	}, files, nil
 }

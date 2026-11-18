@@ -26,7 +26,7 @@ import (
 
 // DefaultEngineAPIVersion is the fallback host SDK version used when it cannot be
 // read from web/sdk/version.js. Keep in lockstep with ENGINE_API_VERSION there.
-const DefaultEngineAPIVersion = "1.2.0"
+const DefaultEngineAPIVersion = "1.3.0"
 
 // ManifestFileName is the well-known manifest filename at an extension root.
 const ManifestFileName = "juggler.extension.json"
@@ -67,6 +67,13 @@ type Provides struct {
 	// note for the model, mark it failed). Loaded in both realms; only the
 	// engine, where tools run, ever calls one.
 	Hooks []string `json:"hooks,omitempty"`
+	// SearchBackends declares the web-search backends the extension contributes
+	// — the services the one WebSearch tool can search with (an API, a SearXNG
+	// server), each a request and a mapping to results. The user orders them in
+	// Settings → Web search; the tool falls through that order when one is
+	// unconfigured or blocked. Loaded in both realms: the settings list them in
+	// the viewer, and only the engine, where WebSearch runs, calls one.
+	SearchBackends []string `json:"searchBackends,omitempty"`
 	// SystemPrompt is a single module path (not a glob) whose default export
 	// `({enabledPluginIds}) => string` contributes terse, durable guidance to
 	// the system prompt — the extension's voice on how to use its tools. It is
@@ -175,6 +182,7 @@ func Validate(m Manifest, engineVersion string) error {
 		len(m.Provides.PinboardItems) == 0 &&
 		len(m.Provides.WorkspaceProviders) == 0 &&
 		len(m.Provides.Hooks) == 0 &&
+		len(m.Provides.SearchBackends) == 0 &&
 		strings.TrimSpace(m.Provides.SystemPrompt) == "" {
 		return fmt.Errorf("manifest %q provides no capabilities", m.ID)
 	}

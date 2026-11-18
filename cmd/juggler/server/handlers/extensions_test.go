@@ -138,6 +138,25 @@ func TestExtensionsHookOnly(t *testing.T) {
 		[]string{"/extensions/juggler-core/hooks/nono-denial-hook.js"})
 }
 
+// TestExtensionsSearchBackendOnly pins that a web-search backend is a
+// capability in its own right: an extension that ships nothing but a backend
+// must load, not be rejected as providing nothing, and its backends must be
+// served.
+func TestExtensionsSearchBackendOnly(t *testing.T) {
+	manifest := `{
+	  "id":"@you/acme","name":"acme","version":"1.0.0","engineApi":"^1.0.0",
+	  "provides":{"searchBackends":["search-backends/*-backend.js"]}
+	}`
+	fsys := coreFS(manifest, "1.0.0")
+	fsys["extensions/juggler-core/search-backends/acme-backend.js"] = &fstest.MapFile{Data: []byte("//")}
+	ext := loadOne(t, fsys)
+	if ext.Error != "" {
+		t.Fatalf("unexpected error: %s", ext.Error)
+	}
+	assertURLs(t, "searchBackends", ext.Capabilities.SearchBackends,
+		[]string{"/extensions/juggler-core/search-backends/acme-backend.js"})
+}
+
 // assertURLs compares two URL slices as sets (glob order is filesystem-dependent).
 func assertURLs(t *testing.T, label string, got, want []string) {
 	t.Helper()

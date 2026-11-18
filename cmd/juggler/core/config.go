@@ -87,7 +87,7 @@ type LoggingConfig struct {
 // what applies the build's defaults on top.
 type PluginsConfig struct {
 	// Disabled lists capability and extension ids this project switched off
-	// (e.g. ["exa-search", "@juggler/mcp"]). Both kinds share one flat list.
+	// (e.g. ["memory", "@juggler/mcp"]). Both kinds share one flat list.
 	Disabled []string `json:"disabled,omitempty"`
 
 	// Enabled countermands DefaultDisabledPlugins: it lists the ids this project
@@ -298,8 +298,9 @@ func (c *Config) GetTokenBudget() int {
 // property of the build, not of any project, so it is never written into a
 // user's config file — it is applied on top of one by
 // ResolvedDisabledPlugins. Switching such a plugin on is recorded as a
-// countermand in Plugins.Enabled.
-var defaultDisabledPlugins = []string{"@juggler/exa"}
+// countermand in Plugins.Enabled; a countermand for a plugin that does not
+// ship off is dropped at the next write.
+var defaultDisabledPlugins []string
 
 // ResolvedDisabledPlugins is the set of ids actually switched off for this
 // project: the build's defaults plus the project's own disabled entries, minus

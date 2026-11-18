@@ -101,6 +101,7 @@ func (s *settingsStore) set(next core.GlobalSettings, uiPrefs map[string]json.Ra
 			gs.Connectivity.AllowedHosts = next.Connectivity.AllowedHosts
 			gs.Network = next.Network
 			gs.Models = next.Models
+			gs.WebSearch = next.WebSearch
 			gs.UILocale = next.UILocale
 			return true
 		})
@@ -277,6 +278,11 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	// A slice has the same hazard: decoding an array into one with capacity
 	// reuses its backing array, which the stored settings share.
 	incoming.Connectivity.AllowedHosts = slices.Clone(incoming.Connectivity.AllowedHosts)
+	// A pointer to one is worse: the decode writes through it.
+	if order := incoming.WebSearch.Order; order != nil {
+		cloned := append([]string{}, (*order)...)
+		incoming.WebSearch.Order = &cloned
+	}
 	// The ui section is deliberately NOT seeded: emptied first, it decodes to
 	// exactly the keys this request sent, which is the patch the store merges
 	// against the document on disk. Seeding it would both have the decode write
@@ -308,6 +314,9 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 			Hidden map[string]json.RawMessage `json:"hidden"`
 			Limits map[string]json.RawMessage `json:"limits"`
 		} `json:"models"`
+		WebSearch struct {
+			Order *[]string `json:"order"`
+		} `json:"webSearch"`
 	}
 	_ = json.Unmarshal(body, &posted)
 	// A non-empty mode must be one we recognise; empty normalises to automatic.
@@ -332,6 +341,12 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	incoming.UILocale = core.NormalizeUILocale(incoming.UILocale)
+	// Only the order this request sends, as with the allowed hosts above. null
+	// restores the default; [] stores "no backend".
+	if order := posted.WebSearch.Order; order != nil && !core.IsValidWebSearchOrder(*order) {
+		handlers.WriteMessageError(w, r, http.StatusBadRequest, msg.New("invalid web search order"))
+		return
+	}
 	// A non-empty proxy mode must be recognised; manual mode needs a usable URL.
 	if incoming.Network.Proxy.Mode != "" && !core.IsKnownProxyMode(incoming.Network.Proxy.Mode) {
 		handlers.WriteMessageError(w, r, http.StatusBadRequest, msg.New("invalid proxy mode"))

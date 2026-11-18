@@ -165,65 +165,11 @@ func TestPluginAttributionIsPrunedWithTheList(t *testing.T) {
 	}
 }
 
-// TestPluginConfigKeepsEachIdInOneList pins the split between the two lists.
-// `enabled` exists only to countermand a default-off plugin, so switching such
-// a plugin on must MOVE its id, never leave it in both lists at once. The same
-// id appearing under `disabled` and `enabled` simultaneously used to be the
-// normal representation of "switched on", which is unreadable by hand and made
-// the resolved state impossible to reason about from the file.
-func TestPluginConfigKeepsEachIdInOneList(t *testing.T) {
-	api := newTestConfigAPI(t)
-
-	// @juggler/exa ships default-off. The user switches the extension ON and one
-	// capability inside it OFF: the resolved set is exactly {exa-search}.
-	putPluginConfig(t, api, []string{"exa-search"})
-
-	disabled, enabled := rawPluginLists(t, api)
-	if slices.Contains(disabled, "@juggler/exa") {
-		t.Errorf("a switched-on plugin is still listed disabled: disabled=%v enabled=%v", disabled, enabled)
-	}
-	if !slices.Contains(enabled, "@juggler/exa") {
-		t.Errorf("the countermand for a default-off plugin was not recorded: enabled=%v", enabled)
-	}
-	if !slices.Contains(disabled, "exa-search") {
-		t.Errorf("the switched-off capability was not recorded: disabled=%v", disabled)
-	}
-
-	if got := getPluginConfig(t, api); !slices.Equal(got, []string{"exa-search"}) {
-		t.Errorf("resolved disabled = %v, want [exa-search]", got)
-	}
-}
-
-// TestPluginConfigDefaultOffPluginNeedsNoUserEntry: a default-off plugin left
-// alone is reported off without the user's file mentioning it. The default
-// belongs to the code, so it must not be written into the user's data.
-func TestPluginConfigDefaultOffPluginNeedsNoUserEntry(t *testing.T) {
-	api := newTestConfigAPI(t)
-
-	if got := getPluginConfig(t, api); !slices.Contains(got, "@juggler/exa") {
-		t.Errorf("a default-off plugin is not reported off: %v", got)
-	}
-
-	// Switching something unrelated off must not drag the defaults into the
-	// file. The PUT carries every default-off plugin still off (@juggler/exa)
-	// plus the user's own entry, as the catalog sends it.
-	putPluginConfig(t, api, []string{"@juggler/exa", "memory"})
-	disabled, enabled := rawPluginLists(t, api)
-	if slices.Contains(disabled, "@juggler/exa") {
-		t.Errorf("the code-level default was written into the user's list: disabled=%v", disabled)
-	}
-	if len(enabled) != 0 {
-		t.Errorf("nothing was countermanded, so enabled should be empty: %v", enabled)
-	}
-	if got := getPluginConfig(t, api); !slices.Contains(got, "memory") || !slices.Contains(got, "@juggler/exa") {
-		t.Errorf("resolved disabled = %v, want both memory and @juggler/exa", got)
-	}
-}
-
 // TestPluginConfigReadsLegacyBothListsShape: files already on disk carry an id
-// in both lists (that was how "on" was stored). Such a file must resolve to the
-// same set as the clean shape, and the next write must clean it up — no
-// migration step, no user action.
+// in both lists (that was how "on" was stored), and may countermand an
+// extension that no longer ships off. Such a file must resolve to the same set
+// as the clean shape, and the next write must clean it up — no migration step,
+// no user action.
 func TestPluginConfigReadsLegacyBothListsShape(t *testing.T) {
 	api := newTestConfigAPI(t)
 	writeRawConfig(t, api, map[string]any{
@@ -245,7 +191,10 @@ func TestPluginConfigReadsLegacyBothListsShape(t *testing.T) {
 			t.Errorf("%q is still in both lists after a write: disabled=%v enabled=%v", id, disabled, enabled)
 		}
 	}
-	if !slices.Contains(enabled, "@juggler/exa") {
-		t.Errorf("the extension is still switched on after the rewrite: enabled=%v", enabled)
+	if slices.Contains(disabled, "@juggler/exa") {
+		t.Errorf("the extension is switched off after the rewrite: disabled=%v", disabled)
+	}
+	if got := getPluginConfig(t, api); slices.Contains(got, "@juggler/exa") {
+		t.Errorf("the extension resolves off after the rewrite: %v", got)
 	}
 }

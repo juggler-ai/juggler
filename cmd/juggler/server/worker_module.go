@@ -28,6 +28,7 @@ var workerSDKImports = map[string]string{
 	"juggler/file-viewer":            "/sdk/file-viewer.js",
 	"juggler/workspace-provider":     "/sdk/workspace-provider.js",
 	"juggler/hook-type":              "/sdk/hook-type.js",
+	"juggler/search-backend":         "/sdk/search-backend.js",
 	"juggler/file-source":            "/sdk/file-source.js",
 	"juggler/ops":                    "/sdk/ops.js",
 	"juggler/sandbox":                "/sdk/sandbox.js",

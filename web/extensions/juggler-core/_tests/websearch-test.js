@@ -4,15 +4,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Unit tests for WebSearch action plugin
- * Tests parsing, domain filtering, and URL building in isolation.
+ * Unit tests for the WebSearch tool and its DuckDuckGo backend.
  *
  * The scraper and the domain filters are pure functions in
- * `context-items/web-search/ddg-parser.js` and are exercised directly; only
- * the request-shaping test needs an item instance.
+ * `context-items/web-search/ddg-parser.js` and are exercised directly; the
+ * DuckDuckGo backend's retry ladder runs against scripted pages; the tool's
+ * fallback across backends runs against stand-in backends.
  */
 
 import WebSearchContextItem from '../context-items/web-search-context-item.js';
+import DuckDuckGoSearchBackend from '../search-backends/duckduckgo-backend.js';
+import { SearchBlockedError, SearchNotConfiguredError } from 'juggler/search-backend';
+import { effectiveSearchOrder, resolveSearchBackends } from '../../../js/services/web-search-backends.js';
+import searchBackendRegistry from '../../../js/registries/search-backend-registry.js';
 import {
   parseDuckDuckGoResponse,
   looksLikeNoResults,
@@ -207,31 +211,32 @@ function testDomainFilteringBlocked() {
 }
 
 /**
+ * @param {any} session
+ * @param {any} conversation
+ * @returns {WebSearchContextItem} A fresh WebSearch item
+ */
+function newItem(session, conversation) {
+  return new WebSearchContextItem({ id: 'web-search', session, conversation, messageThread: conversation.rootMessageThread });
+}
+
+/**
  * Test DuckDuckGo params building
  * @returns {{passed: boolean, error?: string}} Test result
  */
-/**
- * @param {any} session
- * @param {any} conversation
- * @returns {{passed: boolean, error?: string}} Test result
- */
-function testDuckDuckGoParamsBuilding(session, conversation) {
-  const action = new WebSearchContextItem({ id: "web-search", session, conversation, messageThread: conversation.rootMessageThread });
-
+function testDuckDuckGoParamsBuilding() {
   try {
-    const params = action.buildDuckDuckGoParams('test query');
     /** @type {any} */
-    const anyParams = params;
+    const params = new DuckDuckGoSearchBackend().buildDuckDuckGoParams('test query');
 
-    if (anyParams.url !== 'https://html.duckduckgo.com/html/') {
-      throw new Error(`Expected DDG URL, got ${anyParams.url}`);
+    if (params.url !== 'https://html.duckduckgo.com/html/') {
+      throw new Error(`Expected DDG URL, got ${params.url}`);
     }
 
-    if (anyParams.method !== 'POST') {
-      throw new Error(`Expected POST method, got ${anyParams.method}`);
+    if (params.method !== 'POST') {
+      throw new Error(`Expected POST method, got ${params.method}`);
     }
 
-    if (!anyParams.form_data || anyParams.form_data.q !== 'test query') {
+    if (!params.form_data || params.form_data.q !== 'test query') {
       throw new Error('form_data should contain query');
     }
 
@@ -248,7 +253,7 @@ function testDuckDuckGoParamsBuilding(session, conversation) {
  * `parseDuckDuckGoResponse` does not throw on an empty parse — it returns an
  * empty array — and `looksLikeNoResults` distinguishes DuckDuckGo's genuine
  * "no results" page (retained as an empty success) from a rate-limit/captcha
- * page (retried, then surfaced as an error by `search`).
+ * page (retried, then reported as a block by the backend).
  * @returns {{passed: boolean, error?: string}} Test result
  */
 function testEmptyResultsHandling() {
@@ -277,48 +282,43 @@ function testEmptyResultsHandling() {
 }
 
 /**
- * Build a WebSearch item whose page fetches are answered from `pages` in
+ * Build a DuckDuckGo backend whose page fetches are answered from `pages` in
  * order, with no real backoff wait, recording each request it makes and each
- * wait it asked for. Clears any rate-limit cooldown a previous test left.
- * @param {any} session
- * @param {any} conversation
+ * wait it asked for.
  * @param {Array<{content: string, status: number, blocked?: boolean}>} pages
- * @returns {{action: WebSearchContextItem, calls: unknown[], waits: number[]}} Item, its request log and its backoff waits
+ * @returns {{backend: DuckDuckGoSearchBackend, calls: unknown[], waits: number[]}} Backend, its request log and its backoff waits
  */
-function scriptedSearch(session, conversation, pages) {
-  WebSearchContextItem.blockedUntil = 0;
-  const action = new WebSearchContextItem({ id: 'web-search', session, conversation, messageThread: conversation.rootMessageThread });
+function scriptedDuckDuckGo(pages) {
+  const backend = new DuckDuckGoSearchBackend();
   /** @type {unknown[]} */
   const calls = [];
   /** @type {number[]} */
   const waits = [];
   const queue = [...pages];
-  /** @type {any} */ (action).fetchSearchPage = async (/** @type {unknown} */ params) => {
+  /** @type {any} */ (backend).fetchSearchPage = async (/** @type {unknown} */ params) => {
     calls.push(params);
     const page = queue.shift();
     if (!page) {
       throw new Error('search fetched more pages than the test scripted');
     }
-    return { url: WebSearchContextItem.DDG_URL, truncated: false, ...page };
+    return { url: DuckDuckGoSearchBackend.DDG_URL, truncated: false, ...page };
   };
-  /** @type {any} */ (action).delay = async (/** @type {number} */ ms) => { waits.push(ms); };
-  return { action, calls, waits };
+  /** @type {any} */ (backend).delay = async (/** @type {number} */ ms) => { waits.push(ms); };
+  return { backend, calls, waits };
 }
 
 /**
  * A blocked proxy response (DuckDuckGo's HTTP 202 rate-limit answer) is
  * retried like a captcha page, and a later real page is returned as results.
- * @param {any} session
- * @param {any} conversation
  * @returns {Promise<{passed: boolean, error?: string}>} Test result
  */
-async function testBlockedStatusIsRetried(session, conversation) {
+async function testBlockedStatusIsRetried() {
   try {
-    const { action, calls } = scriptedSearch(session, conversation, [
+    const { backend, calls } = scriptedDuckDuckGo([
       { content: '', status: 202, blocked: true },
       { content: DUCKDUCKGO_HTML_RESPONSE, status: 200 }
     ]);
-    const result = await action.search('test query');
+    const result = await backend.search({ query: 'test query', count: 10 });
     if (calls.length !== 2) {
       throw new Error(`Expected 2 fetches (blocked, then retried), got ${calls.length}`);
     }
@@ -333,35 +333,36 @@ async function testBlockedStatusIsRetried(session, conversation) {
 }
 
 /**
- * When every attempt is blocked, the error names the status and says the
- * search was rate-limited, rather than a bare HTTP code.
- * @param {any} session
- * @param {any} conversation
+ * When every attempt is blocked, the backend reports a block — the kind of
+ * failure the WebSearch tool rests a backend for — naming the status and
+ * saying the search was rate-limited, rather than a bare HTTP code.
  * @returns {Promise<{passed: boolean, error?: string}>} Test result
  */
-async function testBlockedEveryAttemptExplains(session, conversation) {
+async function testBlockedEveryAttemptExplains() {
   try {
-    const attempts = WebSearchContextItem.MAX_RETRIES + 1;
+    const attempts = DuckDuckGoSearchBackend.MAX_RETRIES + 1;
     const pages = Array.from({ length: attempts }, () => ({ content: '', status: 202, blocked: true }));
-    const { action, calls } = scriptedSearch(session, conversation, pages);
-    let message = '';
+    const { backend, calls } = scriptedDuckDuckGo(pages);
+    /** @type {any} */
+    let thrown = null;
     try {
-      await action.search('test query');
+      await backend.search({ query: 'test query', count: 10 });
     } catch (e) {
-      message = /** @type {Error} */ (e).message;
+      thrown = e;
     }
     if (calls.length !== attempts) {
       throw new Error(`Expected ${attempts} fetches, got ${calls.length}`);
     }
-    if (!message.includes('HTTP 202') || !message.includes('rate-limiting')) {
-      throw new Error(`Expected a rate-limit error naming HTTP 202, got "${message}"`);
+    if (!(thrown instanceof SearchBlockedError)) {
+      throw new Error(`Expected a SearchBlockedError, got ${thrown?.name}: ${thrown?.message}`);
+    }
+    if (!thrown.message.includes('HTTP 202') || !thrown.message.includes('rate-limiting')) {
+      throw new Error(`Expected a rate-limit error naming HTTP 202, got "${thrown.message}"`);
     }
     return { passed: true };
   } catch (e) {
     const error = /** @type {Error} */ (e);
     return { passed: false, error: error.message };
-  } finally {
-    WebSearchContextItem.blockedUntil = 0;
   }
 }
 
@@ -370,16 +371,14 @@ async function testBlockedEveryAttemptExplains(session, conversation) {
  * limit a chance to lift: every wait is at least a few seconds, and each is
  * longer than the one before. A sub-second ladder only re-hits a block that
  * is still in force.
- * @param {any} session
- * @param {any} conversation
  * @returns {Promise<{passed: boolean, error?: string}>} Test result
  */
-async function testBlockedRetriesAreSpaced(session, conversation) {
+async function testBlockedRetriesAreSpaced() {
   try {
-    const attempts = WebSearchContextItem.MAX_RETRIES + 1;
+    const attempts = DuckDuckGoSearchBackend.MAX_RETRIES + 1;
     const pages = Array.from({ length: attempts }, () => ({ content: '', status: 202, blocked: true }));
-    const { action, waits } = scriptedSearch(session, conversation, pages);
-    await action.search('test query').catch(() => {});
+    const { backend, waits } = scriptedDuckDuckGo(pages);
+    await backend.search({ query: 'test query', count: 10 }).catch(() => {});
     if (waits.length !== attempts - 1) {
       throw new Error(`Expected ${attempts - 1} backoff waits, got ${waits.length}`);
     }
@@ -396,59 +395,309 @@ async function testBlockedRetriesAreSpaced(session, conversation) {
   } catch (e) {
     const error = /** @type {Error} */ (e);
     return { passed: false, error: error.message };
-  } finally {
-    WebSearchContextItem.blockedUntil = 0;
   }
 }
 
 /**
- * Once a search has exhausted its retries against a rate-limit, the next
- * search — from any item — fails at once without contacting DuckDuckGo
- * until the cooldown has passed, and says how long is left.
+ * A stand-in backend for the dispatcher tests: answers each search with the
+ * next of `answers` — results to return, or an error to throw — and counts
+ * the searches it was asked for.
+ * @param {string} id - Backend id
+ * @param {Array<Array<{title: string, url: string, description?: string}>|Error>} answers
+ * @returns {{entry: {id: string, name: string, backend: any}, asked: () => number}} The resolved entry, and how many searches reached it
+ */
+function fakeBackend(id, answers) {
+  let asked = 0;
+  const queue = [...answers];
+  const backend = {
+    async search() {
+      asked++;
+      const next = queue.shift();
+      if (!next) throw new Error(`${id} was asked more often than the test scripted`);
+      if (next instanceof Error) throw next;
+      return { results: next };
+    }
+  };
+  return { entry: { id, name: id.toUpperCase(), backend }, asked: () => asked };
+}
+
+/**
+ * A WebSearch item that searches with `entries` instead of the user's setting.
+ * Clears any rest a previous test left.
+ * @param {any} session
+ * @param {any} conversation
+ * @param {Array<{id: string, name: string, backend: any}>} entries
+ * @returns {WebSearchContextItem} The item
+ */
+function itemWith(session, conversation, entries) {
+  WebSearchContextItem.restingUntil.clear();
+  const item = newItem(session, conversation);
+  /** @type {any} */ (item).resolveBackends = async () => entries;
+  return item;
+}
+
+const HITS = [
+  { title: 'A', url: 'https://example.com/a', description: 'a' },
+  { title: 'B', url: 'https://test.org/b', description: 'b' }
+];
+
+/**
+ * A blocked backend falls through to the next in the user's order, and the
+ * result names the one that answered.
  * @param {any} session
  * @param {any} conversation
  * @returns {Promise<{passed: boolean, error?: string}>} Test result
  */
-async function testRateLimitCooldownSkipsNetwork(session, conversation) {
+async function testBlockedFallsThrough(session, conversation) {
   try {
-    const attempts = WebSearchContextItem.MAX_RETRIES + 1;
-    const pages = Array.from({ length: attempts }, () => ({ content: '', status: 202, blocked: true }));
-    const first = scriptedSearch(session, conversation, pages);
-    await first.action.search('test query').catch(() => {});
+    const first = fakeBackend('first', [new SearchBlockedError('First is rate-limiting this connection.')]);
+    const second = fakeBackend('second', [HITS]);
+    const item = itemWith(session, conversation, [first.entry, second.entry]);
+    const result = await item.search('test query');
+    if (result.provider !== 'SECOND' || result.results.length !== 2) {
+      throw new Error(`Expected SECOND's 2 results, got ${result.provider} with ${result.results.length}`);
+    }
+    if (first.asked() !== 1 || second.asked() !== 1) {
+      throw new Error(`Expected each backend asked once, got ${first.asked()} and ${second.asked()}`);
+    }
+    return { passed: true };
+  } catch (e) {
+    return { passed: false, error: /** @type {Error} */ (e).message };
+  } finally {
+    WebSearchContextItem.restingUntil.clear();
+  }
+}
 
-    // A fresh item, so the cooldown must be shared, not per-instance.
-    const second = new WebSearchContextItem({ id: 'web-search', session, conversation, messageThread: conversation.rootMessageThread });
-    let fetched = 0;
-    /** @type {any} */ (second).fetchSearchPage = async () => {
-      fetched++;
-      return { url: WebSearchContextItem.DDG_URL, truncated: false, content: DUCKDUCKGO_HTML_RESPONSE, status: 200 };
-    };
+/**
+ * An unconfigured backend is skipped quietly when another answers, and named
+ * — with the setting to fix it — when none does. A backend's other failures
+ * also fall through, and all the reasons reach the model.
+ * @param {any} session
+ * @param {any} conversation
+ * @returns {Promise<{passed: boolean, error?: string}>} Test result
+ */
+async function testUnconfiguredAndFailedFallThrough(session, conversation) {
+  try {
+    const keyless = fakeBackend('keyless', [new SearchNotConfiguredError('API key is not set.'), new SearchNotConfiguredError('API key is not set.')]);
+    const broken = fakeBackend('broken', [new Error('HTTP 500'), new Error('HTTP 500')]);
+    const good = fakeBackend('good', [HITS]);
+    const ok = await itemWith(session, conversation, [keyless.entry, broken.entry, good.entry]).search('test query');
+    if (ok.provider !== 'GOOD') {
+      throw new Error(`Expected GOOD to answer past an unconfigured and a failing backend, got ${ok.provider}`);
+    }
+    // The failure is kept with the answer, so a broken first choice is not
+    // hidden behind the next one; the merely unconfigured one is not.
+    if (JSON.stringify(ok.failedFirst) !== JSON.stringify(['BROKEN failed: HTTP 500'])) {
+      throw new Error(`Expected the answer to carry BROKEN's failure alone, got ${JSON.stringify(ok.failedFirst)}`);
+    }
+    const summary = String(newItem(session, conversation).getSummary(/** @type {any} */ ({
+      success: true, prepared: { params: { query: 'test query' } }, result: ok
+    })).summary ?? '');
+    if (!summary.includes('BROKEN failed: HTTP 500')) {
+      throw new Error(`Expected the model to be told BROKEN failed, got "${summary}"`);
+    }
+
+    let message = '';
+    try {
+      await itemWith(session, conversation, [keyless.entry, broken.entry]).search('test query');
+    } catch (e) {
+      message = /** @type {Error} */ (e).message;
+    }
+    for (const part of ['KEYLESS: API key is not set.', 'BROKEN failed: HTTP 500', 'Settings → Web search']) {
+      if (!message.includes(part)) {
+        throw new Error(`Expected the error to include "${part}", got "${message}"`);
+      }
+    }
+    return { passed: true };
+  } catch (e) {
+    return { passed: false, error: /** @type {Error} */ (e).message };
+  }
+}
+
+/**
+ * The domain filters apply to whatever backend answered, whether or not it
+ * honoured them itself.
+ * @param {any} session
+ * @param {any} conversation
+ * @returns {Promise<{passed: boolean, error?: string}>} Test result
+ */
+async function testDomainFiltersApplyToEveryBackend(session, conversation) {
+  try {
+    const only = fakeBackend('only', [HITS]);
+    const result = await itemWith(session, conversation, [only.entry]).search('test query', ['example.com']);
+    if (result.results.length !== 1 || result.results[0]?.url !== 'https://example.com/a') {
+      throw new Error(`Expected only the example.com hit, got ${JSON.stringify(result.results)}`);
+    }
+    return { passed: true };
+  } catch (e) {
+    return { passed: false, error: /** @type {Error} */ (e).message };
+  }
+}
+
+/**
+ * Once a backend has reported a block, the next search — from any item —
+ * skips it without a request until its rest has passed, and says how long is
+ * left; a backend that named its own wait is rested that long.
+ * @param {any} session
+ * @param {any} conversation
+ * @returns {Promise<{passed: boolean, error?: string}>} Test result
+ */
+async function testBlockedBackendRestsAcrossItems(session, conversation) {
+  try {
+    const blocked = fakeBackend('ddg', [new SearchBlockedError('DuckDuckGo refused the search (HTTP 202): it is rate-limiting this connection.', { retryAfterMs: 120000 })]);
+    await itemWith(session, conversation, [blocked.entry]).search('test query').catch(() => {});
+    const restEnds = WebSearchContextItem.restingUntil.get('ddg') ?? 0;
+    if (restEnds - Date.now() < 100000) {
+      throw new Error(`Expected the backend's own 120s wait to be honoured, rest ends in ${restEnds - Date.now()}ms`);
+    }
+
+    // A fresh item and a fresh instance of the same backend: the rest is per
+    // backend id and shared across the realm, not per item or per instance.
+    const again = fakeBackend('ddg', [HITS]);
+    const second = newItem(session, conversation);
+    /** @type {any} */ (second).resolveBackends = async () => [again.entry];
     let message = '';
     try {
       await second.search('another query');
     } catch (e) {
       message = /** @type {Error} */ (e).message;
     }
-    if (fetched !== 0) {
-      throw new Error(`Expected no fetch during the cooldown, got ${fetched}`);
+    if (again.asked() !== 0) {
+      throw new Error(`Expected no request during the rest, got ${again.asked()}`);
     }
     if (!/\d+s/.test(message)) {
-      throw new Error(`Expected the cooldown error to say how long is left, got "${message}"`);
+      throw new Error(`Expected the error to say how long is left, got "${message}"`);
     }
 
-    // Once the cooldown has lapsed, searches reach the network again.
-    WebSearchContextItem.blockedUntil = Date.now() - 1;
+    // Once the rest has lapsed, searches reach the backend again.
+    WebSearchContextItem.restingUntil.set('ddg', Date.now() - 1);
     const result = await second.search('another query');
-    // The stub counts as the search runs, which the check above cannot see.
-    if (/** @type {number} */ (fetched) !== 1 || result.results.length !== 3) {
-      throw new Error(`Expected one fetch with 3 results after the cooldown, got ${fetched} fetch(es), ${result.results.length} results`);
+    if (again.asked() !== 1 || result.results.length !== 2) {
+      throw new Error(`Expected one request with 2 results after the rest, got ${again.asked()} request(s), ${result.results.length} results`);
+    }
+
+    // A wait asked for beyond the cap is cut to it: one bad Retry-After must
+    // not switch a backend off for the day.
+    const greedy = fakeBackend('greedy', [new SearchBlockedError('Greedy is rate-limiting.', { retryAfterMs: 24 * 3600 * 1000 })]);
+    await itemWith(session, conversation, [greedy.entry]).search('test query').catch(() => {});
+    const greedyRest = (WebSearchContextItem.restingUntil.get('greedy') ?? 0) - Date.now();
+    if (greedyRest > WebSearchContextItem.MAX_REST_MS || greedyRest < WebSearchContextItem.MAX_REST_MS - 60000) {
+      throw new Error(`Expected a day's wait to be capped at ${WebSearchContextItem.MAX_REST_MS}ms, rest ends in ${greedyRest}ms`);
     }
     return { passed: true };
   } catch (e) {
-    const error = /** @type {Error} */ (e);
-    return { passed: false, error: error.message };
+    return { passed: false, error: /** @type {Error} */ (e).message };
   } finally {
-    WebSearchContextItem.blockedUntil = 0;
+    WebSearchContextItem.restingUntil.clear();
+  }
+}
+
+/**
+ * The order comes from settings.json's `webSearch.order`, with DuckDuckGo
+ * alone while nothing is stored — and nothing at all for a stored empty list,
+ * which is the user switching every backend off.
+ * @returns {{passed: boolean, error?: string}} Test result
+ */
+function testEffectiveOrder() {
+  try {
+    const ddg = '@juggler/core/duckduckgo';
+    const tavily = '@juggler/search-backends/tavily';
+    const cases = /** @type {Array<[unknown, string[]]>} */ ([
+      [undefined, [ddg]],
+      [null, [ddg]],
+      [[], []],
+      [[tavily, ddg], [tavily, ddg]]
+    ]);
+    for (const [stored, want] of cases) {
+      const got = effectiveSearchOrder(stored);
+      if (JSON.stringify(got) !== JSON.stringify(want)) {
+        throw new Error(`effectiveSearchOrder(${JSON.stringify(stored)}) = ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
+      }
+    }
+    return { passed: true };
+  } catch (e) {
+    return { passed: false, error: /** @type {Error} */ (e).message };
+  }
+}
+
+/**
+ * Every built-in backend reaches the registry the app reads — the Web search
+ * settings and the catalog list what is there, and WebSearch can only use what
+ * is there — with none failing to load.
+ * @returns {Promise<{passed: boolean, error?: string}>} Test result
+ */
+async function testRegistryLoadsEveryBackend() {
+  try {
+    // The app's initAllRegistries() loads it; this harness loads it here.
+    if (!searchBackendRegistry.isInitialized()) await searchBackendRegistry.init();
+    const failures = searchBackendRegistry.getFailedModules();
+    if (failures.length > 0) {
+      throw new Error(`backend modules failed to load: ${JSON.stringify(failures)}`);
+    }
+    const ids = new Set(searchBackendRegistry.getCatalogManifests().map((m) => m.id));
+    for (const id of ['duckduckgo', 'tavily', 'brave', 'searxng', 'deepseek', 'bocha', 'zhipu', 'exa']) {
+      if (!ids.has(id)) throw new Error(`backend "${id}" is not in the registry (has: ${[...ids].join(', ') || 'nothing'})`);
+    }
+    return { passed: true };
+  } catch (e) {
+    return { passed: false, error: /** @type {Error} */ (e).message };
+  }
+}
+
+/**
+ * Answer GET /api/settings with `answer` (a settings document, or a status to
+ * fail with) for the length of `fn`; everything else goes to the server.
+ * @template T
+ * @param {object|number} answer - The document, or an HTTP status
+ * @param {() => Promise<T>} fn - What to run meanwhile
+ * @returns {Promise<T>} What `fn` returned
+ */
+async function withSettingsAnswer(answer, fn) {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = /** @type {typeof fetch} */ (async (url, init) => {
+    if (String(url).endsWith('/api/settings') && (!init?.method || init.method === 'GET')) {
+      return typeof answer === 'number'
+        ? new globalThis.Response('settings unavailable', { status: answer })
+        : new globalThis.Response(JSON.stringify(answer), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    return originalFetch.call(globalThis, url, init);
+  });
+  try {
+    return await fn();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+/**
+ * A stored key names a backend only as the extension that provides it: a key
+ * naming another extension is skipped, not matched by its bare id. And a
+ * setting that cannot be read fails the search rather than falling back to
+ * the default, which would send the query to a service the user did not choose.
+ * @returns {Promise<{passed: boolean, error?: string}>} Test result
+ */
+async function testResolveByKey() {
+  try {
+    if (!searchBackendRegistry.isInitialized()) await searchBackendRegistry.init();
+    const order = ['@someone-else/search/tavily', '@juggler/search-backends/tavily', 'duckduckgo'];
+    const resolved = await withSettingsAnswer({ webSearch: { order } }, () => resolveSearchBackends());
+    const ids = resolved.map((r) => r.id);
+    if (JSON.stringify(ids) !== JSON.stringify(['@juggler/search-backends/tavily'])) {
+      throw new Error(`Expected only the key naming tavily's own extension, got ${JSON.stringify(ids)}`);
+    }
+
+    let message = '';
+    try {
+      await withSettingsAnswer(500, () => resolveSearchBackends());
+    } catch (e) {
+      message = /** @type {Error} */ (e).message;
+    }
+    if (!message.includes("Couldn't read the Web search setting")) {
+      throw new Error(`Expected an unreadable setting to fail the search, got ${message ? `"${message}"` : 'backends'}`);
+    }
+    return { passed: true };
+  } catch (e) {
+    return { passed: false, error: /** @type {Error} */ (e).message };
   }
 }
 
@@ -480,12 +729,18 @@ export async function runTests(_ctx) {
     { name: 'Domain matching logic', fn: () => testDomainMatching() },
     { name: 'Domain filtering (allowed)', fn: () => testDomainFilteringAllowed() },
     { name: 'Domain filtering (blocked)', fn: () => testDomainFilteringBlocked() },
-    { name: 'DuckDuckGo params building', fn: () => testDuckDuckGoParamsBuilding(session, conversation) },
+    { name: 'DuckDuckGo params building', fn: () => testDuckDuckGoParamsBuilding() },
     { name: 'Empty and blocked results handling', fn: () => testEmptyResultsHandling() },
-    { name: 'Blocked status is retried', fn: () => testBlockedStatusIsRetried(session, conversation) },
-    { name: 'Blocked on every attempt explains', fn: () => testBlockedEveryAttemptExplains(session, conversation) },
-    { name: 'Blocked retries are spaced', fn: () => testBlockedRetriesAreSpaced(session, conversation) },
-    { name: 'Rate-limit cooldown skips the network', fn: () => testRateLimitCooldownSkipsNetwork(session, conversation) }
+    { name: 'Blocked status is retried', fn: () => testBlockedStatusIsRetried() },
+    { name: 'Blocked on every attempt explains', fn: () => testBlockedEveryAttemptExplains() },
+    { name: 'Blocked retries are spaced', fn: () => testBlockedRetriesAreSpaced() },
+    { name: 'Blocked backend falls through', fn: () => testBlockedFallsThrough(session, conversation) },
+    { name: 'Unconfigured and failed backends fall through', fn: () => testUnconfiguredAndFailedFallThrough(session, conversation) },
+    { name: 'Domain filters apply to every backend', fn: () => testDomainFiltersApplyToEveryBackend(session, conversation) },
+    { name: 'Blocked backend rests across items', fn: () => testBlockedBackendRestsAcrossItems(session, conversation) },
+    { name: 'Effective backend order', fn: () => testEffectiveOrder() },
+    { name: 'Registry loads every backend', fn: () => testRegistryLoadsEveryBackend() },
+    { name: 'Order keys name the providing extension', fn: () => testResolveByKey() }
   ];
 
   let passed = 0;

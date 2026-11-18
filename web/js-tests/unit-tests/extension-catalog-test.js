@@ -1137,9 +1137,9 @@ export async function runTests(_ctx) {
   // capability's own row in place, reading `off`, with a badge that switches it
   // back on. The row is the only control bound to the id; if it goes, the id is
   // reachable only from the Not-installed group, which is the recovery path, not
-  // the everyday one. Modelled on `@juggler/exa`, the one extension the build
-  // ships switched off — so it is on only by countermand, and that is the
-  // combination in doubt: extension on, one capability inside it off. Driven
+  // the everyday one. Modelled on an extension the build ships switched off
+  // — so it is on only by countermand, and that is the combination in doubt:
+  // extension on, one capability inside it off. Driven
   // through the registry rather than the live config endpoint, because the
   // iframe pool shares one project config.json and a real toggle write pollutes
   // sibling lanes' registry re-inits (see the module comment).

@@ -4,11 +4,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * DuckDuckGo HTML scraping and domain filtering for the WebSearch item.
+ * DuckDuckGo HTML scraping, and the domain filtering the WebSearch item
+ * applies to every search backend's results.
  *
  * Every function here is pure: HTML in, results out. That is the point of the
- * split — the item owns the request, the retry ladder and the rendering, and
- * none of those are needed to test the scraper. This is a RELATIVE import
+ * split — the DuckDuckGo backend owns the request and the retry ladder, the
+ * item the fallback and the rendering, and none of those are needed to test
+ * the scraper. This is a RELATIVE import
  * inside the extension — never a `juggler/*` SDK bare specifier — so it works
  * in the engine worker without touching the SDK import-map seams.
  * @module juggler-core/context-items/web-search/ddg-parser
@@ -174,10 +176,11 @@ export function matchesDomain(host, pattern) {
 /**
  * Apply domain filters to results. A result whose URL does not parse is
  * dropped, since neither filter can be answered for it.
- * @param {WebSearchResultItem[]} results - Search results
+ * @template {{url: string}} T
+ * @param {T[]} results - Search results
  * @param {string[]} [allowedDomains] - Allowed domains
  * @param {string[]} [blockedDomains] - Blocked domains
- * @returns {WebSearchResultItem[]} Filtered results
+ * @returns {T[]} Filtered results
  */
 export function filterResults(results, allowedDomains, blockedDomains) {
   return results.filter(result => {

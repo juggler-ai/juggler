@@ -19,7 +19,6 @@ import { RESEARCH_GUIDANCE } from './research-prompt.js';
 const RESEARCH_TOOLS = Object.freeze([
   'WebSearch',
   'WebFetch',
-  'exa_search',
   'read',
   'grep',
   'glob'

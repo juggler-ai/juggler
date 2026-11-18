@@ -120,7 +120,10 @@ may withhold some. Juggler Core provides:
   denial ends it. Its description names the tools a program cannot call.
 - **WebFetch** — a URL as markdown (15-minute cache), or an image as an image;
   given a prompt, a sub-agent reads the page and returns only the answer.
-- **WebSearch** — web search returning titles, URLs and descriptions.
+- **WebSearch** — web search returning titles, URLs and descriptions, using the
+  services switched on in Settings → Web search, in order (DuckDuckGo by default;
+  Tavily, Brave, SearXNG, DeepSeek, Bocha, Zhipu and Exa once given a key or URL).
+  A service that is rate-limiting is rested and the next is tried.
 - **Explore** / **Research** — sub-agents that investigate the codebase
   (read-only) or the web and return only their findings.
 - **create_thread** — a self-contained sub-task in an isolated thread, which
@@ -137,8 +140,7 @@ may withhold some. Juggler Core provides:
 Other built-in extensions add **AboutJuggler** (this manual),
 **ReadJugglerSource** (the app's SDK and example-extension source), MCP server
 tools plus **McpRestartServer** (restart one MCP server, offered once a server is
-configured), and **exa_search** (Exa web search; needs an Exa API key in its
-settings).
+configured).
 
 ## Strategies
 
@@ -338,10 +340,11 @@ An edited server from a project's file waits to be trusted again.
 ## Extensions
 
 Built in: Juggler Core (@juggler/core — tools, strategies, commands, pins,
-viewers, workspace providers), Juggler MCP (@juggler/mcp), Exa Search
-(@juggler/exa) and About Juggler (@juggler/about — this manual; turning it off
-removes this tool). User extensions go in ~/.juggler/extensions/. The Extensions
-view toggles each extension and capability and edits their settings.
+viewers, workspace providers), Juggler MCP (@juggler/mcp), Web Search Services
+(@juggler/search-backends — keys for the WebSearch services) and About Juggler
+(@juggler/about — this manual; turning it off removes this tool). User
+extensions go in ~/.juggler/extensions/. The Extensions view toggles each
+extension and capability and edits their settings.
 
 ### Writing an extension
 
@@ -368,6 +371,8 @@ files named with a type suffix, which the manifest's globs match:
 - workspaces/*-workspace-provider.js — places to work
   ("juggler/workspace-provider")
 - hooks/*-hook.js — tool hooks ("juggler/hook-type")
+- search-backends/*-backend.js — services WebSearch can search with
+  ("juggler/search-backend")
 
 Each capability is a default-exported class extending its SDK base class, with a
 static MANIFEST. An extension may also contribute one system-prompt module and

@@ -428,6 +428,7 @@ import { runTests as runFormatTimeAgoTests } from '../unit-tests/format-time-ago
 import { runTests as runFormatUnitsTests } from '../unit-tests/format-units-test.js';
 import { runTests as runAppearanceTabTests } from '../unit-tests/appearance-tab-test.js';
 import { runTests as runLanguageTabTests } from '../unit-tests/language-tab-test.js';
+import { runTests as runWebSearchTabTests } from '../unit-tests/web-search-tab-test.js';
 import { runTests as runUILocaleReloaderTests } from '../unit-tests/ui-locale-reloader-test.js';
 import { runTests as runNotificationsTabTests } from '../unit-tests/notifications-tab-test.js';
 import { runTests as runSettingsPanelTests } from '../unit-tests/settings-panel-test.js';
@@ -1054,6 +1055,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:format-units', run: runFormatUnitsTests },
   { name: 'unit:appearance-tab', run: runAppearanceTabTests },
   { name: 'unit:language-tab', run: runLanguageTabTests },
+  { name: 'unit:web-search-tab', run: runWebSearchTabTests },
   { name: 'unit:ui-locale-reloader', run: runUILocaleReloaderTests },
   { name: 'unit:notifications-tab', run: runNotificationsTabTests },
   { name: 'unit:settings-panel', run: runSettingsPanelTests },
@@ -1177,7 +1179,7 @@ function allIntegrationTests() {
 /**
  * Discover and register extension-owned test suites, once. Fetches the
  * manifest-driven list from the test harness, dynamic-imports each module
- * (whose runTests export becomes a unit suite named e.g. "unit:exa-search"),
+ * (whose runTests export becomes a unit suite named e.g. "unit:search-backends"),
  * and memoizes the result so repeated calls are cheap. Idempotent and safe to
  * await from listTests()'s callers, runTests(), and runTestByName().
  * @returns {Promise<void>}

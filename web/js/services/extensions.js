@@ -56,6 +56,7 @@ import { loadExtensionCatalogs } from './extension-catalogs.js';
  * @property {string[]} pinboardItemMeta - Served URLs of pinboard-item agent descriptors
  * @property {string[]} workspaceProviders - Served URLs of workspace-provider modules
  * @property {string[]} hooks - Served URLs of tool-hook modules
+ * @property {string[]} searchBackends - Served URLs of web-search backend modules
  * @property {string} [systemPrompt] - Served URL of the extension's system-prompt contribution module (omitted when none declared)
  */
 
@@ -162,6 +163,7 @@ const TYPE_TO_KEY = /** @type {const} */ ({
   'pinboard-item-meta': 'pinboardItemMeta',
   'workspace-provider': 'workspaceProviders',
   hook: 'hooks',
+  'search-backend': 'searchBackends',
 });
 
 /**

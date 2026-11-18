@@ -14,7 +14,7 @@ high-level so it doesn't drift from the code.
 
 ## Capabilities
 
-An extension bundles any mix of eight capability types — each a class you
+An extension bundles any mix of nine capability types — each a class you
 `export default`, extending an SDK base class and declaring a `static MANIFEST`:
 
 | Capability | What it does | Base class (SDK module) | Built-in examples |
@@ -27,6 +27,7 @@ An extension bundles any mix of eight capability types — each a class you
 | **File Viewer** | How a file type is shown to you and extracted for the model | `juggler/file-viewer` | `text`, `pdf`, `image` |
 | **Workspace Provider** | Makes and looks after a place a conversation works in | `juggler/workspace-provider` | — |
 | **Hook** | Policy and notes around every tool call, whatever the strategy — deny, ask, allow, or tell the model something | `juggler/hook-type` | — |
+| **Search Backend** | A service the `WebSearch` tool can search with — an API, a self-hosted server | `juggler/search-backend` | `duckduckgo`, `tavily`, `searxng` |
 
 An extension may **also** contribute a **system-prompt contribution** — not a
 class but a single module whose default export adds terse, durable guidance to
@@ -136,6 +137,7 @@ core extension does (`context-items/edit/`, `context-items/execute/`).
     "fileViewers":  ["viewers/*-file-viewer.js"],
     "workspaceProviders": ["workspaces/*-workspace-provider.js"],
     "hooks":        ["hooks/*-hook.js"],
+    "searchBackends": ["search-backends/*-backend.js"],
     "systemPrompt": "system-prompt-contribution.js",  // optional; single module path
     "i18n":         "i18n",                           // optional; directory of <locale>.json translations
     "tests":        ["_tests/*-test.js"],             // optional; test-only, never served
@@ -148,7 +150,7 @@ core extension does (`context-items/edit/`, `context-items/execute/`).
 |-------|----------|-------|
 | `id` | Yes | Scoped, e.g. `@you/name`. The unit of enable/disable. |
 | `name`, `version` | Yes | Display name and semver. |
-| `provides` | Yes | At least one capability. `contextItems`/`strategies`/`commands`/`infoCards`/`pinboardItems`/`fileViewers`/`workspaceProviders`/`hooks` are root-relative globs; `systemPrompt` is a single module path (see [System-prompt contribution](#system-prompt-contribution)); `i18n` is a directory of translation catalogues (see [Translating your extension](#translating-your-extension); needs `engineApi` `^1.1.0`); `tests` and `integrationTests` are test-only (see [Testing your extension](#testing-your-extension)). `i18n`, `tests` and `integrationTests` do not count as capabilities. None may escape the extension root. |
+| `provides` | Yes | At least one capability. `contextItems`/`strategies`/`commands`/`infoCards`/`pinboardItems`/`fileViewers`/`workspaceProviders`/`hooks`/`searchBackends` are root-relative globs; `systemPrompt` is a single module path (see [System-prompt contribution](#system-prompt-contribution)); `i18n` is a directory of translation catalogues (see [Translating your extension](#translating-your-extension); needs `engineApi` `^1.1.0`); `tests` and `integrationTests` are test-only (see [Testing your extension](#testing-your-extension)). `i18n`, `tests` and `integrationTests` do not count as capabilities. None may escape the extension root. |
 | `engineApi` | Recommended | Semver range (`^1.0.0`, `1.2.3`, or `*`). Omitting it disables the compat check and earns a validation warning. The host SDK version lives in `web/sdk/version.js`. |
 | `permissions` | As needed | **Declares** the host access this extension's code uses. Surfaced to the user in the catalog and the install prompt — a disclosure, not a sandbox (see [Trust model](#trust-model)). See the vocabulary below. |
 | `settings` | As needed | User-configurable values, rendered in the extensions catalog. See [Settings and secrets](#settings-and-secrets). |
@@ -253,6 +255,7 @@ The full set of specifiers, and what each is for:
 | `juggler/file-viewer` | `FileViewer` |
 | `juggler/workspace-provider` | `WorkspaceProvider` — the workspace lifecycle base class |
 | `juggler/hook-type` | `HookType` — the tool-hook base class, and `validateHookManifest` |
+| `juggler/search-backend` | `SearchBackend` — the web-search backend base class; `SearchBlockedError`, `SearchNotConfiguredError` |
 | `juggler/file-source` | `FileSource`/`FileAccess` types, `toDescriptor`, `fetchFileBytes` — what a file viewer is handed |
 | `juggler/ops` | The privileged host operations (below) |
 | `juggler/ui` | Render/format helpers — `createElement`, `smartTruncate`, markdown, syntax highlighting, `FormattingHelpers` |
@@ -1184,6 +1187,85 @@ Full reference: **`web/sdk/hook-type.js`**. Example:
 `examples/extensions/nono-denials`. For the no-code version (a markdown file in
 `~/.juggler/hooks/`), see [Tool hooks](hooks.md).
 
+### Search Backend — a service WebSearch can search with
+
+The model always has one search tool, `WebSearch`. Which service answers it is
+the user's choice, made in **Settings → Web search**: an ordered list of
+backends, each switched on or off. `WebSearch` asks them in that order and
+stops at the first that answers. A backend is just a request and a mapping;
+the tool owns the schema, the domain filtering, the fallback, and the
+rendering.
+
+```javascript
+// search-backends/acme-backend.js
+import SearchBackend, { SearchBlockedError, SearchNotConfiguredError } from 'juggler/search-backend';
+import { extensionConfigResolve, httpRequest } from 'juggler/ops';
+
+export default class AcmeSearchBackend extends SearchBackend {
+  static MANIFEST = {
+    id: 'acme',
+    name: 'Acme Search',
+    version: '1.0.0',
+    description: 'Searches with the Acme API (needs an API key)',
+    requiredSettings: ['api_key']
+  };
+
+  async search({ query, count, signal }) {
+    const { api_key: key } = await extensionConfigResolve({ extId: '@you/acme' }, signal);
+    if (!key) throw new SearchNotConfiguredError('Acme API key is not set (Settings → Extensions → Acme Search)');
+    const res = await httpRequest({
+      method: 'GET',
+      url: `https://api.acme.example/search?q=${encodeURIComponent(query)}&n=${count}`,
+      headers: { authorization: `Bearer ${key}` }
+    }, signal);
+    if (res.status === 429) throw new SearchBlockedError('Acme is rate-limiting this key');
+    if (res.status !== 200) throw new Error(`Acme search failed (HTTP ${res.status})`);
+    const hits = JSON.parse(res.body).hits;
+    return { results: hits.map(h => ({ title: h.title, url: h.link, description: h.text })) };
+  }
+}
+```
+
+**What you throw decides what happens next:**
+
+- **`SearchNotConfiguredError`** — no key, no URL. The backend is skipped
+  without a word unless no backend answers, and then the message is shown, so
+  say where to set it.
+- **`SearchBlockedError`** — rate-limited, a captcha, quota spent. The
+  backend is rested for a minute (or `retryAfterMs`, when the service said,
+  up to 15 minutes) and the next is tried.
+- **Anything else** — the next backend is tried, and your message is shown:
+  with the next backend's answer, or with the others' if none answers.
+
+The tool tells the two error types apart by `name`, so a subclass of either
+must keep the name its base class sets.
+- **An empty `results`** means a genuine "nothing found". Don't return one for a
+  failure.
+
+Declare a key as a `secret` setting with `"capability": "search-backend:<id>"`
+so it shows on the backend's page in Extensions, and name it in the backend's
+`MANIFEST.requiredSettings`. That list is how **Settings → Web search** knows
+the backend is set up: until every setting in it has a value, the backend gets
+a link to its page instead of a switch. List only what the backend truly cannot
+search without — an optional setting there (a region, a safe-search level)
+strands it behind that link.
+
+The user's order stores each backend as `<extension id>/<id>`
+(`@you/acme/acme`), so renaming either drops it from their order, and another
+extension's backend with the same `id` never inherits it. A backend `id` must
+still be unique among enabled extensions: the second to load is refused.
+
+`allowedDomains` and `blockedDomains` are hints: `WebSearch` filters every
+backend's results afterwards, so a service that cannot filter by domain may
+ignore them. `count` is the most results the tool will show — a ceiling, so
+return fewer when the service caps its page size. Ignore any request field you
+don't know: later versions may add optional ones. `provides.searchBackends`
+needs `engineApi` `^1.3.0`.
+
+Full reference: **`web/sdk/search-backend.js`**. Examples:
+`web/extensions/search-backends/` (Tavily, Brave, SearXNG, DeepSeek, Bocha,
+Zhipu, Exa) and `web/extensions/juggler-core/search-backends/duckduckgo-backend.js`.
+
 ### System-prompt contribution
 
 Add durable guidance to the prompt. Not a class: a **single module** named by the manifest's `provides.systemPrompt`
@@ -1477,8 +1559,8 @@ declared default.
 that says where to fix it — `'Set it in Settings → Extensions'` — because that
 message is what the model relays to the user.
 
-Worked example: `web/extensions/exa/` (a `secret` API key, declared with the
-scoped permission `network.http:api.exa.ai`).
+Worked example: `web/extensions/search-backends/` (a `secret` API key per
+search service, each shown on its own backend's page with `capability`).
 
 ## Translating your extension
 
@@ -1651,7 +1733,7 @@ id disables everything it bundles:
   reference.
 - **API source of truth** — `web/sdk/`: `context-item.js`, `strategy-type.js`,
   `command-type.js`, `info-card-type.js`, `pinboard-item-type.js`,
-  `file-viewer.js`, `hook-type.js`, `ops.js`, `ui.js`, `version.js`. Read the JSDoc headers.
+  `file-viewer.js`, `hook-type.js`, `search-backend.js`, `ops.js`, `ui.js`, `version.js`. Read the JSDoc headers.
 - **Conversation API** — `web/js/model/message-thread.js` (grep `@plugin-api`).
 - **Worked examples** — `examples/extensions/` (small extensions covering every
   capability type) and `web/extensions/juggler-core/` (the built-in extension —

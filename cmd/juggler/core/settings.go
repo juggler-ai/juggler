@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/gofrs/flock"
 
@@ -34,6 +35,7 @@ type GlobalSettings struct {
 	Network      NetworkSettings      `json:"network"`
 	Models       ModelSettings        `json:"models"`
 	Projects     ProjectSettings      `json:"projects"`
+	WebSearch    WebSearchSettings    `json:"webSearch"`
 
 	// UILocale is the language the UI is shown in, as a BCP 47 tag ("fr",
 	// "zh-Hant-TW", or the pseudo-locale "en-XA"), or "" for the default,
@@ -261,6 +263,77 @@ type ProjectSettings struct {
 	// change applies the next time a project is opened. Under --test it is not
 	// read; projectpaths.StateDirEnv drives it there.
 	StateOutside bool `json:"stateOutside,omitempty"`
+}
+
+// WebSearchSettings holds how the WebSearch tool searches. The server never
+// reads it; the engine does, at each search. Additive; like GlobalSettings,
+// unknown keys are tolerated on read.
+type WebSearchSettings struct {
+	// Order lists the search backends WebSearch may use, in the order it tries
+	// them: it stops at the first that answers, and skips one that is
+	// unconfigured, switched off, or resting after a block. Each entry is a
+	// WebSearchBackendKey, "<extension id>/<backend MANIFEST id>", so a backend
+	// is only ever the one its extension provides.
+	//
+	// nil (absent) means the built-in default, DuckDuckGo alone; an empty list
+	// means no backend at all, and WebSearch fails until one is added. An entry
+	// no installed extension provides is kept, not dropped, so a backend whose
+	// extension is off for a while comes back in its place.
+	Order *[]string `json:"order,omitempty"`
+}
+
+// DefaultWebSearchOrder is the order WebSearch uses while none is stored.
+var DefaultWebSearchOrder = []string{"@juggler/core/duckduckgo"}
+
+// IsValidWebSearchOrder reports whether order could have come from the Web
+// search setting: at most 64 distinct WebSearchBackendKeys.
+func IsValidWebSearchOrder(order []string) bool {
+	if len(order) > 64 {
+		return false
+	}
+	seen := make(map[string]bool, len(order))
+	for _, key := range order {
+		if seen[key] || !IsWebSearchBackendKey(key) {
+			return false
+		}
+		seen[key] = true
+	}
+	return true
+}
+
+// IsWebSearchBackendKey reports whether key names a backend as the Web search
+// setting stores it: an extension id and the backend's MANIFEST id, joined by
+// the last "/" ("@juggler/search-backends/tavily"). The extension id is at
+// most 128 bytes with no whitespace or control characters; the backend id is
+// kebab-case, as a MANIFEST id must be.
+func IsWebSearchBackendKey(key string) bool {
+	slash := strings.LastIndexByte(key, '/')
+	if slash <= 0 {
+		return false
+	}
+	extID, backendID := key[:slash], key[slash+1:]
+	if len(extID) > 128 || strings.IndexFunc(extID, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
+		return false
+	}
+	return isKebabID(backendID)
+}
+
+// isKebabID reports whether id is lower-case letters and digits in runs joined
+// by single hyphens, at most 64 bytes.
+func isKebabID(id string) bool {
+	if id == "" || len(id) > 64 || id[0] == '-' || id[len(id)-1] == '-' {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= '0' && c <= '9':
+		case c == '-' && id[i-1] != '-':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // WantsProjectStateOutside reports whether a session starting now should keep

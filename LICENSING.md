@@ -40,7 +40,7 @@ The SDK/app dependency boundary is enforced by lint: a relative import from
 in `tooling/sdk-boundary.json`. The lists below are rendered from that file.
 
 <!-- sdk-boundary:begin — rendered from tooling/sdk-boundary.json by TestLicensingBoundaryAudit (web/sdk_boundary_test.go); UPDATE=1 rewrites it -->
-- **Self-contained**: these SDK entry modules import no app code: `sdk/coerce-schema-types.js`, `sdk/command-type.js`, `sdk/context-item-types.js`, `sdk/context-item.js`, `sdk/file-viewer.js`, `sdk/hook-type.js`, `sdk/i18n-worker.js`, `sdk/i18n.js`, `sdk/info-card-type.js`, `sdk/item-utils-worker.js`, `sdk/item-utils.js`, `sdk/pinboard-item-type.js`, `sdk/sandbox.js`, `sdk/version.js`, `sdk/workspace-provider.js`. Nothing under `sdk/lib/` imports app code either, except where listed next.
+- **Self-contained**: these SDK entry modules import no app code: `sdk/coerce-schema-types.js`, `sdk/command-type.js`, `sdk/context-item-types.js`, `sdk/context-item.js`, `sdk/file-viewer.js`, `sdk/hook-type.js`, `sdk/i18n-worker.js`, `sdk/i18n.js`, `sdk/info-card-type.js`, `sdk/item-utils-worker.js`, `sdk/item-utils.js`, `sdk/pinboard-item-type.js`, `sdk/sandbox.js`, `sdk/search-backend.js`, `sdk/version.js`, `sdk/workspace-provider.js`. Nothing under `sdk/lib/` imports app code either, except where listed next.
 - **Declared host bindings**: the SDK is the *interface* to a running Juggler
   host, and these modules bind it to the host's AGPL implementation:
   - `sdk/file-source.js` → `js/utils/api-url.js` — addresses the host's file-content, tree and asset endpoints under its base path
@@ -63,6 +63,7 @@ in `tooling/sdk-boundary.json`. The lists below are rendered from that file.
   - `extensions/juggler-core/context-items/skill-context-item.js` → `js/components/settings/skill-preview.js`, `js/services/skills.js` — reads the host's skill store and opens its settings preview
   - `extensions/juggler-core/context-items/system-prompt-context-item.js` → `js/services/extensions.js`, `js/services/mcp-availability.js`, `js/services/thread-tool-inventory.js`, `js/services/worker-manager.js`, `js/utils/transaction-anchor.js`, `sdk/lib/system-prompt-registry.js` — assembles the host's own system prompt: preset registry, extension contributions, tool inventory, MCP state and the transcript of the last turn sent
   - `extensions/juggler-core/context-items/system-prompt/preset-browser.js` → `js/services/system-prompt-presets.js`, `sdk/lib/system-prompt-registry.js` — edits the host's system-prompt presets
+  - `extensions/juggler-core/context-items/web-search-context-item.js` → `js/services/web-search-backends.js` — searches with the backends the user's Web search setting names, from the host's search-backend registry; a backend never needs either
   - `extensions/juggler-core/strategies/auto-approve-strategy-type.js` → `js/services/file-editing-permission.js` — reads the host's file-editing permission toggle
   - `extensions/juggler-core/viewers/pdf-file-viewer.js` → `js/vendor/pdf.min.mjs` — loads the vendored PDF.js (Apache-2.0, web/js/vendor/README.md) on demand; not app code
   - `extensions/juggler-core/workspaces/git-worktree-workspace-provider.js` → `js/services/api.js` — asks the host's git-status endpoint; the SDK has no git API

@@ -22,9 +22,8 @@ func TestConfig_Default(t *testing.T) {
 	// applied when the set is resolved.
 	helpers.AssertTrue(t, len(cfg.Plugins.Disabled) == 0 && len(cfg.Plugins.Enabled) == 0,
 		"a default config should record no plugin switches of its own")
-	resolved := cfg.ResolvedDisabledPlugins()
-	helpers.AssertTrue(t, len(resolved) == 1 && resolved[0] == "@juggler/exa",
-		"only Exa should be disabled by default")
+	helpers.AssertTrue(t, len(cfg.ResolvedDisabledPlugins()) == 0,
+		"no plugin should be disabled by default")
 }
 
 func TestConfig_LoadNonExistent(t *testing.T) {

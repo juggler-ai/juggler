@@ -1,0 +1,72 @@
+{
+  "id": "@juggler/search-backends",
+  "name": "Web Search Services",
+  "version": "1.0.0",
+  "author": "Juggler Team",
+  "homepage": "https://juggler.studio",
+  "license": "Apache-2.0",
+  "engineApi": "^1.3.0",
+  "permissions": [
+    "web.fetch"
+  ],
+  "settings": [
+    {
+      "key": "tavily_api_key",
+      "type": "secret",
+      "label": "Tavily API key",
+      "help": "Create one at https://app.tavily.com. The free tier covers 1,000 searches a month.",
+      "capability": "search-backend:tavily"
+    },
+    {
+      "key": "brave_api_key",
+      "type": "secret",
+      "label": "Brave Search API key",
+      "help": "Create one at https://api-dashboard.search.brave.com.",
+      "capability": "search-backend:brave"
+    },
+    {
+      "key": "searxng_url",
+      "type": "url",
+      "label": "SearXNG server URL",
+      "help": "The address of your SearXNG server, e.g. http://localhost:8888. Its settings.yml must list json under search.formats.",
+      "capability": "search-backend:searxng"
+    },
+    {
+      "key": "deepseek_api_key",
+      "type": "secret",
+      "label": "DeepSeek API key for search",
+      "help": "Create one at https://platform.deepseek.com. It can be the same key as your DeepSeek provider.",
+      "capability": "search-backend:deepseek"
+    },
+    {
+      "key": "bocha_api_key",
+      "type": "secret",
+      "label": "Bocha API key",
+      "help": "Create one at https://open.bochaai.com.",
+      "capability": "search-backend:bocha"
+    },
+    {
+      "key": "zhipu_api_key",
+      "type": "secret",
+      "label": "Zhipu API key for search",
+      "help": "Create one at https://open.bigmodel.cn. It can be the same key as your GLM provider.",
+      "capability": "search-backend:zhipu"
+    },
+    {
+      "key": "exa_api_key",
+      "type": "secret",
+      "label": "Exa API key",
+      "help": "Create an API key at https://dashboard.exa.ai/api-keys",
+      "capability": "search-backend:exa"
+    }
+  ],
+  "provides": {
+    "i18n": "i18n",
+    "searchBackends": [
+      "search-backends/*-backend.js"
+    ],
+    "tests": [
+      "_tests/*-test.js"
+    ]
+  }
+}

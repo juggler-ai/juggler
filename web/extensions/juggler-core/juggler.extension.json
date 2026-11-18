@@ -5,7 +5,7 @@
   "author": "Juggler Team",
   "homepage": "https://juggler.studio",
   "license": "Apache-2.0",
-  "engineApi": "^1.2.0",
+  "engineApi": "^1.3.0",
   "permissions": [
     "filesystem.read",
     "filesystem.write",
@@ -40,6 +40,7 @@
     "pinboardItemMeta": ["pins/*-pin.meta.js"],
     "fileViewers": ["viewers/*-file-viewer.js"],
     "workspaceProviders": ["workspaces/*-workspace-provider.js"],
+    "searchBackends": ["search-backends/*-backend.js"],
     "systemPrompt": "system-prompt-contribution.js",
     "tests": ["_tests/*-test.js"],
     "integrationTests": ["_tests/integration/*-tests.js"]

@@ -225,7 +225,7 @@ func TestUICatalogRoute(t *testing.T) {
 // generated en-XA of each reaches a client by its extension id.
 func TestBuiltinExtensionsServeTheirCatalogues(t *testing.T) {
 	got := handlers.NewExtensionsAPI(web.Files, "", "").Catalogs("en-XA")
-	for _, id := range []string{"@juggler/core", "@juggler/mcp", "@juggler/about", "@juggler/exa"} {
+	for _, id := range []string{"@juggler/core", "@juggler/mcp", "@juggler/about", "@juggler/search-backends"} {
 		if len(got[id]) == 0 {
 			t.Errorf("%s: no en-XA catalogue served (got ids %v)", id, keys(got))
 		}

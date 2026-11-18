@@ -87,6 +87,10 @@
       "why": "edits the host's system-prompt presets",
       "imports": ["web/js/services/system-prompt-presets.js", "web/sdk/lib/system-prompt-registry.js"]
     },
+    "web/extensions/juggler-core/context-items/web-search-context-item.js": {
+      "why": "searches with the backends the user's Web search setting names, from the host's search-backend registry; a backend never needs either",
+      "imports": ["web/js/services/web-search-backends.js"]
+    },
     "web/extensions/juggler-core/strategies/auto-approve-strategy-type.js": {
       "why": "reads the host's file-editing permission toggle",
       "imports": ["web/js/services/file-editing-permission.js"]

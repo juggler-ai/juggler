@@ -1881,4 +1881,72 @@ settings-panel .updates-check-row .provider-control {
     flex: 0 0 auto;
     align-items: flex-end;
 }
+
+/* Settings → Web search. A row's control is its switch, or a link to the
+   backend's page in Extensions, with a link to its settings beside the switch
+   when it has any: one line, at the right, rather than the stacked column a
+   provider row gives its controls. */
+settings-panel .web-search-row .provider-control {
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-10);
+}
+
+/* The rows in use are dragged to reorder them — the gesture of the sidebar and
+   the pinboard (utils/reorder-drag.js), by the shared grip
+   (patterns/drag-grip.css). The grip sits in the row's left padding, out of the
+   grid, so it neither takes a column nor moves the text when it is revealed. */
+settings-panel .web-search-row.is-ordered {
+    position: relative;
+}
+
+settings-panel .web-search-row.is-ordered > .drag-grip {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: var(--space-2);
+    width: 1rem;
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+}
+
+@media (pointer: coarse) {
+    settings-panel .web-search-row.is-ordered {
+        padding-left: var(--space-32);
+    }
+
+    settings-panel .web-search-row.is-ordered > .drag-grip {
+        width: 1.75rem;
+        font-size: var(--font-size-xl);
+    }
+}
+
+/* The floating copy follows the pointer, parked beside the list rather than in
+   it so it is not one of the rows measured around it; opaque and
+   untransformed, as the pinboard's is, so WebKit paints it crisply. */
+settings-panel .web-search-row.drag-ghost {
+    position: fixed;
+    z-index: var(--z-dropdown);
+    margin: 0;
+    box-shadow: 0 0.25rem 1rem var(--overlay-dark-25);
+    pointer-events: none;
+}
+
+settings-panel .web-search-row.drag-ghost > .drag-grip {
+    opacity: 1;
+}
+
+settings-panel .web-search-row.drag-source {
+    visibility: hidden;
+}
+
+/* Only while a drag is live, so a change made elsewhere does not animate. */
+settings-panel .web-search-order.is-dragging .web-search-row:not(.drag-source) {
+    transition: transform var(--transition-base);
+}
+
+settings-panel .web-search-order {
+    margin-bottom: var(--space-10);
+}
 }

@@ -11,10 +11,12 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"testing"
 
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/extmanifest"
+	"juggler/internal/userpaths/userpathstest"
 )
 
 func testOperations(t *testing.T) (*operations, extmanifest.Manifest) {
@@ -168,5 +170,68 @@ func assertOwnerOnly(t *testing.T, filename string) {
 	}
 	if mode := info.Mode().Perm(); mode != 0o600 {
 		t.Fatalf("%s mode = %o, want 600", filepath.Base(filename), mode)
+	}
+}
+
+// A user who had Exa set up keeps searching with it: the key saved under
+// @juggler/exa is found under @juggler/search-backends and gone from the old
+// name, and Exa is put first in the Web search order while that is still the
+// default. An order the user chose is left alone, and a key already set in
+// the new place wins over the old one.
+func TestUpgradeExaToWebSearch(t *testing.T) {
+	userpathstest.Isolate(t)
+	credentials, err := core.NewCredentialsStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	storedOrder := func() *[]string {
+		t.Helper()
+		gs, err := core.LoadGlobalSettings()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return gs.WebSearch.Order
+	}
+
+	// Nothing to move: nothing changes, the order included.
+	upgradeExaToWebSearch(credentials)
+	if got := storedOrder(); got != nil {
+		t.Fatalf("an upgrade with no Exa key wrote an order: %q", *got)
+	}
+
+	if err := credentials.SetRawKey(exaKeyBefore, "exa-secret"); err != nil {
+		t.Fatal(err)
+	}
+	upgradeExaToWebSearch(credentials)
+	if got := credentials.GetRawKey(exaKeyAfter); got != "exa-secret" {
+		t.Fatalf("moved key = %q, want exa-secret", got)
+	}
+	if got := credentials.GetRawKey(exaKeyBefore); got != "" {
+		t.Fatalf("old key left behind: %q", got)
+	}
+	if got := storedOrder(); got == nil || !slices.Equal(*got, exaWebSearchOrder) {
+		t.Fatalf("order after the move = %v, want %q", got, exaWebSearchOrder)
+	}
+
+	// A chosen order, and a key set since in the new place, both win.
+	chosen := []string{"@juggler/core/duckduckgo"}
+	if _, err := core.UpdateGlobalSettings(func(gs *core.GlobalSettings) bool {
+		gs.WebSearch.Order = &chosen
+		return true
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := credentials.SetRawKey(exaKeyBefore, "stale"); err != nil {
+		t.Fatal(err)
+	}
+	upgradeExaToWebSearch(credentials)
+	if got := credentials.GetRawKey(exaKeyAfter); got != "exa-secret" {
+		t.Fatalf("an old key overwrote the one set since: %q", got)
+	}
+	if got := credentials.GetRawKey(exaKeyBefore); got != "" {
+		t.Fatalf("old key left behind beside a newer one: %q", got)
+	}
+	if got := storedOrder(); got == nil || !slices.Equal(*got, chosen) {
+		t.Fatalf("the upgrade replaced a chosen order with %v", got)
 	}
 }

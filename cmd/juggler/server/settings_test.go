@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -657,5 +658,57 @@ func TestHandleManualUpdateCheckBypassesOff(t *testing.T) {
 	}
 	if !st.UpdateAvailable {
 		t.Fatalf("manual check should surface the available update, got %+v", st)
+	}
+}
+
+// The Web search order is stored by the settings API like any other section:
+// a posted order is kept and read back from disk, an unrelated PUT leaves it
+// alone, a malformed one is refused, an empty one is kept as "no backend" —
+// distinct from null, which restores the default.
+func TestPutSettingsWebSearchOrder(t *testing.T) {
+	userpathstest.Isolate(t)
+	s := &Server{settings: newSettingsStore()}
+
+	// order reads the stored order from memory and from disk, which must agree;
+	// nil is "none stored".
+	order := func() *[]string {
+		t.Helper()
+		inMemory := s.settings.get().WebSearch.Order
+		onDisk, err := core.LoadGlobalSettings()
+		if err != nil {
+			t.Fatalf("LoadGlobalSettings: %v", err)
+		}
+		if (inMemory == nil) != (onDisk.WebSearch.Order == nil) ||
+			(inMemory != nil && !slices.Equal(*inMemory, *onDisk.WebSearch.Order)) {
+			t.Fatalf("order in memory %v differs from the one on disk %v", inMemory, onDisk.WebSearch.Order)
+		}
+		return inMemory
+	}
+
+	if got := order(); got != nil {
+		t.Fatalf("a fresh settings file has an order: %q", *got)
+	}
+	putSettings(t, s, `{"webSearch":{"order":["@juggler/search-backends/tavily","@juggler/core/duckduckgo"]}}`, http.StatusOK)
+	want := []string{"@juggler/search-backends/tavily", "@juggler/core/duckduckgo"}
+	if got := order(); got == nil || !slices.Equal(*got, want) {
+		t.Fatalf("stored order = %v, want %q", got, want)
+	}
+	putSettings(t, s, `{"updates":{"mode":"notify"}}`, http.StatusOK)
+	if got := order(); got == nil || !slices.Equal(*got, want) {
+		t.Fatalf("an unrelated PUT changed the order to %v", got)
+	}
+	for _, bad := range []string{`["Not An Id"]`, `["duckduckgo"]`} {
+		putSettings(t, s, `{"webSearch":{"order":`+bad+`}}`, http.StatusBadRequest)
+		if got := order(); got == nil || !slices.Equal(*got, want) {
+			t.Fatalf("a refused PUT of %s changed the order to %v", bad, got)
+		}
+	}
+	putSettings(t, s, `{"webSearch":{"order":[]}}`, http.StatusOK)
+	if got := order(); got == nil || len(*got) != 0 {
+		t.Fatalf("an empty order was not kept as empty: %v", got)
+	}
+	putSettings(t, s, `{"webSearch":{"order":null}}`, http.StatusOK)
+	if got := order(); got != nil {
+		t.Fatalf("null did not restore the default: %q", *got)
 	}
 }

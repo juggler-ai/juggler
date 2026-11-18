@@ -183,6 +183,10 @@ func (s *Server) servePage(w http.ResponseWriter, r *http.Request, status int, c
 		// system's; Theme, a colour for a page with no mode, is never set.
 		ThemeMode string
 		Theme     string
+		// OwnsTheme is set for the page with a header bar, whose theme and zoom
+		// buttons keep the page's own (web/shell/window-shell.html). Framed
+		// (Embed), it wears the theme and zoom of the page framing it.
+		OwnsTheme bool
 		CSPNonce  string
 		HTMLLang  string
 		UILocale  string
@@ -194,6 +198,7 @@ func (s *Server) servePage(w http.ResponseWriter, r *http.Request, status int, c
 		WailsBase: base,
 		Embed:     embed,
 		ThemeMode: s.pageThemeMode(),
+		OwnsTheme: !embed,
 		CSPNonce:  nonce,
 		HTMLLang:  lang,
 		UILocale:  locale,

@@ -17,6 +17,11 @@
       .WailsBase     what the Wails runtime's /wails/runtime.js is served under
                      ("" for the server root), loaded only when .IsWindow
       .IsWindow      whether a desktop window shows the page (?window=1)
+      .OwnsTheme     whether the page keeps a theme and zoom of its own, which
+                     utils/theme-manager.js and utils/zoom-manager.js change
+                     (the sessions page): the stored ones are then where it
+                     starts, and window-shell-theme.js is not loaded
+                     (window-shell-head only)
 */}}
 
 {{define "window-shell-boot"}}
@@ -62,16 +67,31 @@
          system, the colour it shows now (?theme=), as it hands a session's
          page them (cmd/juggler-app, windowPageURL) — the viewer's, which win
          over the server's .ThemeMode and .Theme, the fallback for a page opened
-         with neither. What is left follows the system. The mode, when known, is
-         what utils/window-shell-theme.js reports to the window, and
-         data-theme-system marks a paint that follows the system's changes. -->
+         with neither. What is left follows the system. A page that owns its
+         theme (.OwnsTheme) starts from the mode and zoom it stored, ahead of
+         those. The mode, when known, is what utils/window-shell-theme.js (or,
+         for a page that owns its theme, theme-manager.js) reports to the
+         window, and data-theme-system marks a paint that follows the system's
+         changes. -->
     <script nonce="{{.CSPNonce}}">
         (function () {
             var root = document.documentElement;
             var query = new URLSearchParams(window.location.search);
             var isMode = function (m) { return m === 'system' || m === 'light' || m === 'dark'; };
             var isColour = function (c) { return c === 'light' || c === 'dark'; };
-            var mode = isMode(query.get('mode')) ? query.get('mode')
+            // What a page that owns its theme stored, as services/prefs.js
+            // writes a device preference: JSON under the bare name, which
+            // theme-manager.js (SESSIONS_PAGE_THEME_PREF) and zoom-manager.js
+            // (SESSIONS_PAGE_ZOOM_PREF) give it.
+            var stored = function (name) {
+                {{if .OwnsTheme}}try {
+                    return JSON.parse(localStorage.getItem(name));
+                } catch (e) {}{{end}}
+                return null;
+            };
+            var storedMode = stored('juggler-sessions-page-theme');
+            var mode = isMode(storedMode) ? storedMode
+                : isMode(query.get('mode')) ? query.get('mode')
                 : isMode("{{.ThemeMode}}") ? "{{.ThemeMode}}" : '';
             var seed = query.get('theme');
             var theme = isColour(mode) ? mode
@@ -85,12 +105,14 @@
             // over as the theme is, applied before the first paint within the
             // range a session's page allows (utils/zoom-manager.js). A page
             // handed none stays at the browser's own size.
-            var zoom = parseInt(query.get('zoom'), 10);
+            var storedZoom = stored('juggler-sessions-page-zoom');
+            var zoom = typeof storedZoom === 'number' && storedZoom > 0 ? storedZoom
+                : parseInt(query.get('zoom'), 10);
             if (zoom > 0) root.style.fontSize = Math.max(60, Math.min(160, zoom)) + '%';
         })();
     </script>
     {{template "window-shell-boot" .}}
-    <script type="module" src="{{.AssetBase}}/js/utils/window-shell-theme.js"></script>
+    {{if not .OwnsTheme}}<script type="module" src="{{.AssetBase}}/js/utils/window-shell-theme.js"></script>{{end}}
 
     <!-- A subset of a session's page's sheets, in its order (css/manifest.json);
          TestWindowShellSheetsFollowTheSessionPage holds the two together. -->

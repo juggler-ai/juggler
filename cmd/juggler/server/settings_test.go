@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -235,6 +236,27 @@ func TestHandlePutSettingsAllowedHosts(t *testing.T) {
 	putSettings(t, s, `{"connectivity":{"allowedHosts":["*.ts.net"]}}`, http.StatusBadRequest)
 	if got := s.settings.get().Connectivity.AllowedHosts; len(got) != 1 || got[0] != "box.tailnet.ts.net" {
 		t.Fatalf("rejected PUT changed allowedHosts to %q, want unchanged", got)
+	}
+}
+
+// TestHandlePutSettingsProjectStateOutside: Settings → Project files saves its
+// switch with {"projects":{"stateOutside":…}}, and the answer it reads back —
+// and the file every session starts from — carries it, both ways.
+func TestHandlePutSettingsProjectStateOutside(t *testing.T) {
+	userpathstest.Isolate(t)
+	s := &Server{settings: newSettingsStore()}
+	for _, on := range []bool{true, false} {
+		rec := httptest.NewRecorder()
+		s.handlePutSettings(rec, httptest.NewRequest("PUT", "/api/settings",
+			strings.NewReader(`{"projects":{"stateOutside":`+strconv.FormatBool(on)+`}}`)))
+		var answer core.GlobalSettings
+		if err := json.Unmarshal(rec.Body.Bytes(), &answer); rec.Code != http.StatusOK || err != nil ||
+			answer.Projects.StateOutside != on {
+			t.Fatalf("PUT stateOutside=%v answered %d %s (%v)", on, rec.Code, rec.Body.String(), err)
+		}
+		if gs, _ := core.LoadGlobalSettings(); gs.Projects.StateOutside != on {
+			t.Fatalf("PUT stateOutside=%v: on disk %v", on, gs.Projects.StateOutside)
+		}
 	}
 }
 

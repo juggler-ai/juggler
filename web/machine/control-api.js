@@ -71,6 +71,16 @@ export function readPageConfig(doc = document) {
   };
 }
 
+/**
+ * Where the control API is: /api/server, below the path the server is mounted
+ * under (PageConfig.base).
+ * @param {string} [base] - The mount path; '' at the root.
+ * @returns {string} The control API's root, with no trailing slash.
+ */
+export function controlApiRoot(base = '') {
+  return `${base}/api/server`;
+}
+
 /** A control-API call the server refused or could not answer. */
 export class ControlApiError extends Error {
   /**
@@ -124,7 +134,7 @@ export function createControlApi({ token, base = '', fetchImpl = (input, init) =
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     let resp;
     try {
-      resp = await fetchImpl(`${base}/api/server${path}`, {
+      resp = await fetchImpl(`${controlApiRoot(base)}${path}`, {
         method,
         headers,
         body: body === undefined ? undefined : JSON.stringify(body),

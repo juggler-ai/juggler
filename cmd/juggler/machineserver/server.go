@@ -222,6 +222,11 @@ func (s *Server) routes() http.Handler {
 	api.HandleFunc("/tunnel", s.localOnly(s.handleSetTunnel)).Methods("PUT")
 	api.HandleFunc("/launch", s.localOnly(s.handleGetLaunch)).Methods("GET")
 	api.HandleFunc("/launch", s.localOnly(s.handleSetLaunch)).Methods("PUT")
+	// The settings document is this computer's, as what opens at start is
+	// (settings.go).
+	api.HandleFunc("/settings", s.localOnly(s.handleGetSettings)).Methods("GET")
+	api.HandleFunc("/settings", s.localOnly(s.handlePutSettings)).Methods("PUT")
+	api.HandleFunc("/i18n/locales", s.handleLocales).Methods("GET")
 	api.HandleFunc("/attach", s.handleAttach).Methods("POST")
 	api.HandleFunc("/attach/{id}/beat", s.handleBeat).Methods("POST")
 	r.HandleFunc("/api/version", s.handleVersion).Methods("GET")

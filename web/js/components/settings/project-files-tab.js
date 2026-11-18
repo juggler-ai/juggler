@@ -19,15 +19,20 @@ import { buildToggleRow } from './notifications-tab.js';
  * conversations, session, bash output, memory, sandboxes — outside the
  * project (`projects.stateOutside` in settings.json), and a line saying where
  * this project's state is. Placement only changes when a project's session
- * starts, so the line also says when the setting is waiting on a reopen.
+ * starts, so the line also says when the setting is waiting on a reopen. The
+ * sessions page's Settings, which has no project, has the switch alone
+ * (`project` false).
  */
 export class ProjectFilesTab {
   /**
    * @param {HTMLElement} host - The settings-panel element (DOM query scope).
+   * @param {{project?: boolean}} [options] - Whether there is a project to say where its state is.
    */
-  constructor(host) {
+  constructor(host, { project = true } = {}) {
     /** @type {HTMLElement} @private */
     this.host = host;
+    /** @type {boolean} @private */
+    this._project = project;
     /** @type {boolean} @private — the setting as last stored. */
     this._wanted = false;
     /** @type {HTMLInputElement|null} @private */
@@ -64,7 +69,7 @@ export class ProjectFilesTab {
 
   /** Tab became visible: fetch where this project's state is. */
   show() {
-    void this._loadState();
+    if (this._project) void this._loadState();
   }
 
   /** Nothing to release: its listener is on DOM that goes with the panel. */

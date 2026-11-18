@@ -29,6 +29,16 @@
     <link rel="stylesheet" href="{{.AssetBase}}/css/patterns/popup-surface.css">
     <link rel="stylesheet" href="{{.AssetBase}}/css/patterns/overlay-chrome.css">
     <link rel="stylesheet" href="{{.AssetBase}}/css/components/about-modal.css">
+    <!-- This computer's Settings, which the header's Settings button opens
+         (header-buttons.js): a session's settings panel, with the tabs that
+         need no session — its icons (the Language tab's, the close button's),
+         the dialogs it raises, the right-click menu its fields get, and the
+         visually-hidden inputs under its switches. -->
+    <link rel="stylesheet" href="{{.AssetBase}}/css/patterns/icons.css">
+    <link rel="stylesheet" href="{{.AssetBase}}/css/patterns/modal-dialog.css">
+    <link rel="stylesheet" href="{{.AssetBase}}/css/components/settings.css">
+    <link rel="stylesheet" href="{{.AssetBase}}/css/components/context-menu.css">
+    <link rel="stylesheet" href="{{.AssetBase}}/css/utilities/utilities.css">
     <!-- The server chooser the header's Change server opens, presented as the
          app's dropdowns are (sessions-view.js): their container, and the
          bottom sheet it is on a narrow window. -->
@@ -47,13 +57,15 @@
 
     <app-container>
         {{if not .Embed}}
-        <!-- The header bar a desktop window is dragged by: the wordmark, and
-             which server this is (sessions-view.js, serverTitle). Framed under
-             another computer's window (?embed=1), the page has none: that
-             window's own header names this server. -->
+        <!-- The header bar a desktop window is dragged by: the wordmark, which
+             server this is (sessions-view.js, serverTitle), and zoom, the
+             theme and Settings (header-buttons.js). Framed under another
+             computer's window (?embed=1), the page has none: that window's own
+             header names this server. -->
         <header class="app-header">
             <app-wordmark class="logo"></app-wordmark>
             <div id="sessions-title" class="ms-header-slot"></div>
+            <header-actions id="sessions-actions"></header-actions>
             <window-caption-controls></window-caption-controls>
         </header>
         {{end}}

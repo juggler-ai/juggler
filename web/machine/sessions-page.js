@@ -9,10 +9,15 @@
  * @module machine/sessions-page
  */
 
+// First: the page's settings go to the machine server before any module below
+// reads one as it loads (settings-route.js).
+import './settings-route.js';
 import { hasNativeHost, reportFolderDropped } from '../sdk/lib/window-control.js';
 import { createControlApi, readPageConfig } from './control-api.js';
 import { desktopHost, olderAppNotice } from './native-host.js';
 import { mountSessionsPage, pageTitle, paintedTheme, relayFramerEvents } from './sessions-view.js';
+import { APPEARANCE_EVENT, followFramerAppearance, mountHeaderButtons } from './header-buttons.js';
+import { noteFramedServer } from '../js/services/settings-endpoint.js';
 
 /**
  * Take over the hooks the native side calls with the paths of a folder dropped
@@ -41,8 +46,8 @@ function installFolderDrop() {
  * The other computer's server a desktop window shows framed in this page, as
  * the app names it: ?server=, an http(s) address, ?frameCtl=, the control
  * address for the page framed, and ?serverName=, the name the server gave its
- * machine, if any; with the theme this page painted, which the framed page
- * wears.
+ * machine, if any; with the theme and zoom this page painted, which the framed
+ * page wears.
  * @param {URLSearchParams} query - The page's query.
  * @returns {import('./sessions-view.js').FramedServer|null} The server, or
  *   null for a page framing none.
@@ -58,7 +63,11 @@ function readFramed(query) {
     return null;
   }
   const name = (query.get('serverName') || '').trim();
-  return { server, frameCtl, ...(name ? { name } : {}), ...paintedTheme(document.documentElement.dataset) };
+  const zoom = parseFloat(document.documentElement.style.fontSize) || 0;
+  return {
+    server, frameCtl, ...(name ? { name } : {}), ...paintedTheme(document.documentElement.dataset),
+    ...(zoom > 0 ? { zoom } : {}),
+  };
 }
 
 /** Title the page and its header bar, and mount it. */
@@ -76,8 +85,24 @@ function start() {
   // Only the app frames a server here, and only in a window it may switch.
   const framed = host?.switchServer ? readFramed(query) : null;
   if (host?.takesDroppedFolders && !framed) installFolderDrop();
-  if (embedded && window.parent !== window) relayFramerEvents(window, window.parent);
+  if (embedded && window.parent !== window) {
+    relayFramerEvents(window, window.parent);
+    followFramerAppearance(window);
+  }
+  if (framed) noteFramedServer(framed.name || new URL(framed.server).host);
   document.title = pageTitle(config, framed);
+  // The header's zoom, theme and — for a viewer on this machine, whose
+  // computer's settings they are — Settings. A page framing a server hands it
+  // each change of theme and zoom, which sessions-view passes on.
+  const actions = document.getElementById('sessions-actions');
+  if (actions) {
+    mountHeaderButtons(actions, {
+      settings: config.local,
+      onAppearance: (appearance) => {
+        if (framed) window.dispatchEvent(new CustomEvent(APPEARANCE_EVENT, { detail: appearance }));
+      },
+    });
+  }
   const root = document.getElementById('sessions-root');
   if (root) {
     mountSessionsPage(root, {

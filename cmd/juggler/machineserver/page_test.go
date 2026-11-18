@@ -181,14 +181,22 @@ func TestSessionsPageWearsTheAppsWindowChrome(t *testing.T) {
 			`<header class="app-header">`, `class="window-resize-strip"`,
 			"<window-caption-controls>", "/js/components/window-caption-controls.js",
 			"/js/utils/window-fullscreen.js", "/js/utils/window-edge-resize.js",
-			"/js/utils/window-history-buttons.js", "/js/utils/window-resize-cursor.js", "/js/utils/window-shell-theme.js",
+			"/js/utils/window-history-buttons.js", "/js/utils/window-resize-cursor.js",
 			"dataset.windowMode", "dataset.windowPlatform", "dataset.os",
 			// A window onto another computer's server (native-host.js).
 			"dataset.externalServer",
+			// Its own theme and zoom, which its header's buttons keep
+			// (header-buttons.js) and its pre-paint starts from.
+			`id="sessions-actions"`, "juggler-sessions-page-theme", "juggler-sessions-page-zoom",
 		} {
 			if !strings.Contains(body, want) {
 				t.Errorf("%s: the page has no %s", name, want)
 			}
+		}
+		// theme-manager.js reports and follows the theme, which the shell's
+		// stand-in reporter would fight over.
+		if strings.Contains(body, "/js/utils/window-shell-theme.js") {
+			t.Errorf("%s: the page loads window-shell-theme.js beside its own theme", name)
 		}
 	}
 	if !strings.Contains(win, `src="/wails/runtime.js"`) {
@@ -341,12 +349,18 @@ func TestSessionsPageFramesOnlyTheServerItIsAskedFor(t *testing.T) {
 // import() types in JSDoc comments are not taken for one.
 var moduleImportPattern = regexp.MustCompile(`(?m)^\s*(?:(?:import|export)\b[^;'"]*?\bfrom\s*|import\s*)['"]([^'"]+)['"]`)
 
+// dynamicImportPattern finds a module's import() of a string literal in code,
+// a module loaded on first use (Settings, header-buttons.js): a JSDoc type is
+// an import() too, but on a comment line, which this skips.
+var dynamicImportPattern = regexp.MustCompile(`(?m)^[^*/\n]*\bimport\(\s*['"]([^'"]+)['"]\s*\)`)
+
 // TestSessionsPageModulesResolveWithoutAnImportMap: the page has no import
 // map, as a session's page does, so a bare specifier anywhere in the static
 // import graph of a module it loads (a `juggler/*` SDK name, say) fails the
 // whole module, and the page goes on without it, silently — the About box
-// the wordmark opens once did. Every module the page loads is walked, over
-// this server, and each import must be a path.
+// the wordmark opens once did, and Settings, loaded on first use, once did.
+// Every module the page loads is walked, over this server, its import()s of a
+// literal included, and each import must be a path.
 func TestSessionsPageModulesResolveWithoutAnImportMap(t *testing.T) {
 	s := &Server{reg: newRegistry(), assets: web.Files, token: testToken, uiLocale: func() string { return "" }}
 	front := httptest.NewServer(s.routes())
@@ -374,7 +388,9 @@ func TestSessionsPageModulesResolveWithoutAnImportMap(t *testing.T) {
 			continue
 		}
 		from, _ := url.Parse(u)
-		for _, m := range moduleImportPattern.FindAllStringSubmatch(src, -1) {
+		imports := moduleImportPattern.FindAllStringSubmatch(src, -1)
+		imports = append(imports, dynamicImportPattern.FindAllStringSubmatch(src, -1)...)
+		for _, m := range imports {
 			spec := m[1]
 			if !strings.HasPrefix(spec, ".") && !strings.HasPrefix(spec, "/") {
 				t.Errorf("%s imports %q, which this page cannot resolve without an import map", from.Path, spec)

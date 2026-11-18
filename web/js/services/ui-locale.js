@@ -26,6 +26,7 @@
 import { fetchJson } from './http.js';
 import wsService from './websocket.js';
 import { apiUrl } from '../utils/api-url.js';
+import { localesUrl, settingsUrl, settingsHeaders } from './settings-endpoint.js';
 import { applyCatalogBody } from './extension-catalogs.js';
 import { setLocale, markForTranslation, PSEUDO_LOCALE } from '../../sdk/lib/i18n.js';
 import { isDesktopWindow, postWindowControl } from '../../sdk/lib/window-control.js';
@@ -108,7 +109,7 @@ export function uiLocaleMenuValue(current) {
  * @returns {Promise<string[]>} BCP 47 tags, in the server's order.
  */
 export async function fetchUILocales() {
-  const body = await fetchJson(apiUrl('/i18n/locales'), { fallback: null });
+  const body = await fetchJson(localesUrl(), { headers: settingsHeaders(), fallback: null });
   const locales = /** @type {any} */ (body)?.locales;
   return Array.isArray(locales) ? locales.filter((l) => typeof l === 'string') : [];
 }
@@ -155,7 +156,7 @@ let choosing = false;
 export async function chooseUILocale(locale, reload = () => window.location.reload()) {
   choosing = true;
   try {
-    await fetchJson(apiUrl('/settings'), { method: 'PUT', body: { uiLocale: locale } });
+    await fetchJson(settingsUrl(), { method: 'PUT', body: { uiLocale: locale }, headers: settingsHeaders() });
   } catch (err) {
     choosing = false;
     throw err;

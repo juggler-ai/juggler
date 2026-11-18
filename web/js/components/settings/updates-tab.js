@@ -43,14 +43,21 @@ const MODES = [
  * manual "Check for updates" button (POST /api/update-status/check, plus the
  * in-app updater's check-only op when present). It fetches its own data in
  * show(); it does not use the shell's shared loadConfig payload.
+ *
+ * The sessions page's Settings has no session's update checker to ask: it is
+ * handed the machine server's version (`machineVersion`), shows that, and
+ * offers the mode alone, without a check.
  */
 export class UpdatesTab {
   /**
    * @param {HTMLElement} host - The settings-panel element (DOM query scope).
+   * @param {{machineVersion?: string|null}} [options] - On the sessions page, the machine server's version.
    */
-  constructor(host) {
+  constructor(host, { machineVersion = null } = {}) {
     /** @type {HTMLElement} @private */
     this.host = host;
+    /** @type {string|null} @private — the machine server's version, on the sessions page; null on a session's. */
+    this._machineVersion = machineVersion;
     /** @type {string} @private — the mode last persisted/loaded, for revert on error. */
     this._mode = 'automatic';
     /** @type {boolean} @private — whether an in-app updater is present. */
@@ -152,7 +159,7 @@ export class UpdatesTab {
 
     actions.appendChild(actionInfo);
     actions.appendChild(actionCtrl);
-    container.appendChild(actions);
+    if (this._machineVersion === null) container.appendChild(actions);
   }
 
   /**
@@ -181,7 +188,9 @@ export class UpdatesTab {
   async _loadVersion() {
     // Offline — show what little we have.
     /** @type {any} */
-    const status = await settingsApi.getUpdateStatus({ fallback: {} });
+    const status = this._machineVersion === null
+      ? await settingsApi.getUpdateStatus({ fallback: {} })
+      : { currentVersion: this._machineVersion };
     const updater = await getUpdaterState();
     this._updaterPresent = !!updater.present;
     this._applyManaged(status);

@@ -24,6 +24,8 @@ the current release). The project follows semantic versioning.
 - Exa now answers WebSearch, replacing its separate exa_search tool; your key carries over
 - Settings → Connectivity says where the server is and places clients relative to it
 - Remote windows show the LAN address or tunnel link they came in by
+- The sessions page header has zoom, theme, and Settings for this computer
+- Settings → Project files: "Keep project state outside the project" saves again
 
 ## [0.8.1] - 2026-11-15
 

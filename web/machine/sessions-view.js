@@ -131,13 +131,14 @@ import { isMac } from '../js/services/key-shortcut-manager.js';
  *   What the app has found on the network: the servers, and firewall when the
  *   app has heard no computer but this one on a system (Linux) whose host
  *   firewall may be dropping the others' answers unseen.
- * @typedef {{server: string, frameCtl: string, name?: string, theme?: string, mode?: string}} FramedServer
+ * @typedef {{server: string, frameCtl: string, name?: string, theme?: string, mode?: string, zoom?: number}} FramedServer
  *   Another computer's server, which a desktop window on it shows framed in
  *   this machine's page: its address (an http(s) origin), the control address
  *   the app made for the page framed (frameCtl, which reaches only what a
  *   window on a server by URL may ask), the name the server gave its machine
- *   when the app asked it, which the page shows it by, and the theme and mode
- *   this page was opened with, which the framed page is handed too.
+ *   when the app asked it, which the page shows it by, and the theme, mode
+ *   and zoom (a root font-size percentage) this page was opened with, which the
+ *   framed page is handed too.
  */
 
 /**
@@ -351,21 +352,23 @@ export function paintedTheme(dataset) {
  * @param {FramedServer} framed - The server framed.
  * @returns {string} Its address.
  */
-function framedPageURL({ server, frameCtl, theme = '', mode = '' }) {
+function framedPageURL({ server, frameCtl, theme = '', mode = '', zoom = 0 }) {
   let url = `${new URL(server).origin}/?embed=1&external=1&nativeCtl=${encodeURIComponent(frameCtl)}`;
   if (hostWindowProtocol()) url += `&ctlProtocol=${hostWindowProtocol()}`;
   if (hostAppVersion()) url += `&appVersion=${encodeURIComponent(hostAppVersion())}`;
   if (theme) url += `&theme=${encodeURIComponent(theme)}`;
   if (mode) url += `&mode=${encodeURIComponent(mode)}`;
+  if (zoom > 0) url += `&zoom=${Math.round(zoom)}`;
   return url;
 }
 
 /**
- * The app's menu commands the sessions page acts on, which a framed window
- * passes on to the page it frames: Open, which runs the switcher's Open
- * folder….
+ * What a framed window passes on to the page it frames: the app's menu
+ * commands the sessions page acts on — Open, which runs the switcher's Open
+ * folder… — and the window's theme and zoom whenever its header changes them
+ * (header-buttons.js, APPEARANCE_EVENT), which the framed page wears.
  */
-const PAGE_COMMANDS = ['juggler:open-project'];
+const PAGE_COMMANDS = ['juggler:open-project', 'juggler:appearance'];
 
 /**
  * Take the app's menu commands that the page framing this one passes on
@@ -1329,7 +1332,8 @@ export function mountSessionsPage(root, {
   // The app's menu commands the page acts on (PAGE_COMMANDS): Open is the
   // switcher's Open folder… — the folder chooser in a desktop window, its path
   // field in a browser — or the framed page's, in a page framing one, which is
-  // handed the command at its server's origin alone.
+  // handed the command at its server's origin alone. A page framing one hands
+  // it the header's theme and zoom the same way (juggler:appearance).
   const onPageCommand = (/** @type {Event} */ e) => {
     if (framed) {
       try {

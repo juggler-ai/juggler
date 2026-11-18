@@ -36,14 +36,22 @@
  * it painted into every window's URL so the first frame of a 'system' window
  * matches, and taken as a mode it would pin a window that follows the OS to
  * whichever colour the OS happened to be showing.
+ *
+ * The machine server's sessions page has no session, and so no window realm
+ * (services/settings-endpoint.js says which page this is). Its mode is a device
+ * preference of its own, SESSIONS_PAGE_THEME_PREF — under a name no session's
+ * page reads, so a project window never adopts it as an older build's value.
+ * Its pre-paint block (web/shell/window-shell.html) resolves where it starts,
+ * and this module takes the mode that block painted.
  */
 
 import { windowControlURL } from '../../sdk/lib/window-control.js';
 import { onDocumentReady } from './document-ready.js';
 import { fetchJson } from '../services/http.js';
 import {
-  isRemoteViewer, startingWindowPref, cachedWindowPref, setWindowPref, reconcilePref,
+  isRemoteViewer, startingWindowPref, cachedWindowPref, setWindowPref, reconcilePref, setDevicePref,
 } from '../services/prefs.js';
+import { settingsAreMachines } from '../services/settings-endpoint.js';
 
 /**
  * The mode's name in the window realm. Not 'juggler-theme', which is what an
@@ -51,6 +59,12 @@ import {
  * read, as a starting point for a window with none (serveIndex injects it).
  */
 const THEME_PREF = 'juggler-window-theme';
+
+/**
+ * The sessions page's mode, in the device realm. web/shell/window-shell.html's
+ * pre-paint block reads it under this name; the two must agree.
+ */
+export const SESSIONS_PAGE_THEME_PREF = 'juggler-sessions-page-theme';
 
 /** Announces that this window's stored mode was learned late (see prefs.reconcilePref). */
 const THEME_PREF_EVENT = 'juggler-window-theme-pref-changed';
@@ -233,7 +247,8 @@ function knownSystemTheme() {
 export function setMode(mode) {
   if (!isMode(mode)) return;
   current = mode;
-  void setWindowPref(THEME_PREF, mode);
+  if (settingsAreMachines()) setDevicePref(SESSIONS_PAGE_THEME_PREF, mode);
+  else void setWindowPref(THEME_PREF, mode);
   applyTheme(mode === MODES.SYSTEM ? systemTheme() : mode, mode);
 }
 
@@ -351,6 +366,10 @@ function followStoredMode() {
  * Initialize theme on page load
  */
 function initTheme() {
+  if (settingsAreMachines()) {
+    initSessionsPageTheme();
+    return;
+  }
   // Where this page starts — the rule index.html's pre-paint block has already
   // painted from (see the module comment and prefs.startingWindowPref). What an
   // older build kept for the machine or the project is offered only on this
@@ -372,6 +391,27 @@ function initTheme() {
 
   window.addEventListener(THEME_PREF_EVENT, followStoredMode);
   void reconcilePref('window', THEME_PREF, THEME_PREF_EVENT);
+  followSystemTheme();
+}
+
+/**
+ * Start the sessions page from the mode its pre-paint block resolved (its own
+ * stored mode, else the one its window was handed, else the machine's): what
+ * is on screen is already right, and the window is told of it.
+ * @private
+ */
+function initSessionsPageTheme() {
+  const painted = document.documentElement.dataset.themeMode;
+  current = isMode(painted) ? painted : MODES.SYSTEM;
+  applyTheme(current === MODES.SYSTEM ? systemTheme() : current, current);
+  followSystemTheme();
+}
+
+/**
+ * Follow the OS's light/dark setting while the mode is 'system'.
+ * @private
+ */
+function followSystemTheme() {
 
   // In 'system' mode, follow OS light/dark changes live. An explicit
   // light/dark mode pins the theme and ignores the OS.

@@ -23,13 +23,21 @@
  * One limitation, in the transport rather than here: a Cloudflare quick tunnel
  * hands out a fresh hostname every session, so a viewer reaching a project that
  * way gets an empty localStorage each time and opens at the host's zoom again.
+ *
+ * The machine server's sessions page has no session, and so no window realm
+ * (services/settings-endpoint.js says which page this is). Its zoom is a device
+ * preference of its own, SESSIONS_PAGE_ZOOM_PREF, under a name no session's
+ * page reads. Its pre-paint block (web/shell/window-shell.html) applies where
+ * it starts, and this module takes the level that block applied — the page's
+ * own size, 100%, when it was handed none.
  */
 
 import { onDocumentReady } from './document-ready.js';
 import { postWindowControl } from '../../sdk/lib/window-control.js';
 import {
-  isRemoteViewer, startingWindowPref, cachedWindowPref, setWindowPref, reconcilePref,
+  isRemoteViewer, startingWindowPref, cachedWindowPref, setWindowPref, reconcilePref, setDevicePref,
 } from '../services/prefs.js';
+import { settingsAreMachines } from '../services/settings-endpoint.js';
 
 /**
  * The zoom's name in the window realm. Not 'juggler-zoom', which is what an
@@ -37,6 +45,13 @@ import {
  * read, as a starting point for a window with none (serveIndex injects it).
  */
 const ZOOM_PREF = 'juggler-window-zoom';
+/**
+ * The sessions page's zoom, in the device realm. web/shell/window-shell.html's
+ * pre-paint block reads it under this name; the two must agree.
+ */
+export const SESSIONS_PAGE_ZOOM_PREF = 'juggler-sessions-page-zoom';
+/** The sessions page's size when nothing says otherwise: the browser's own. */
+const SESSIONS_PAGE_ZOOM_DEFAULT = 100;
 /** Announces that this window's stored zoom was learned late (see prefs.reconcilePref). */
 const ZOOM_PREF_EVENT = 'juggler-window-zoom-pref-changed';
 const ZOOM_STEP = 10;
@@ -125,8 +140,18 @@ export function getCurrentZoom() {
 function setZoom(level) {
   current = clamp(level);
   applyZoom(current);
-  void setWindowPref(ZOOM_PREF, current);
+  if (settingsAreMachines()) setDevicePref(SESSIONS_PAGE_ZOOM_PREF, current);
+  else void setWindowPref(ZOOM_PREF, current);
   reportToHost(current);
+}
+
+/**
+ * Set this window's zoom to a level — what a page framing this one hands it, so
+ * the two are drawn at one size (web/machine/header-buttons.js).
+ * @param {number} level - Zoom percentage (clamped to min/max).
+ */
+export function setZoomLevel(level) {
+  setZoom(level);
 }
 
 /**
@@ -166,6 +191,15 @@ function followStoredZoom() {
  * @private
  */
 function initZoom() {
+  if (settingsAreMachines()) {
+    // What the sessions page's pre-paint block applied: a root font-size
+    // percentage, or none for the page's own size. Only a level it was given is
+    // reported: the page's own size is no choice the next window should inherit.
+    const applied = parseLevel(parseFloat(document.documentElement.style.fontSize));
+    current = applied ?? SESSIONS_PAGE_ZOOM_DEFAULT;
+    if (applied !== null) reportToHost(current);
+    return;
+  }
   const local = !isRemoteViewer();
   const injected = parseLevel(window.__windowZoom);
   const machine = parseLevel(window.__machineZoom);

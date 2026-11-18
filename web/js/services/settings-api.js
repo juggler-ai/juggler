@@ -17,6 +17,7 @@
 
 import { fetchJson } from './http.js';
 import { apiUrl } from '../utils/api-url.js';
+import { settingsUrl, settingsHeaders } from './settings-endpoint.js';
 
 /**
  * How a call reports a failure — the failure-policy half of fetchJson's options.
@@ -122,7 +123,7 @@ export function setProviderEnabled(provider, enabled, policy = {}) {
  * @returns {Promise<any>} The settings document after the write.
  */
 export function updateSettings(patch, policy = {}) {
-  return fetchJson(apiUrl('/settings'), { method: 'PUT', body: patch, ...policy });
+  return fetchJson(settingsUrl(), { method: 'PUT', body: patch, headers: settingsHeaders(), ...policy });
 }
 
 /**

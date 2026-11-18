@@ -349,6 +349,7 @@ import { runTests as runGuidanceSurfacesTests } from '../unit-tests/guidance-sur
 import { runTests as runNoConversationsOnboardingTests } from '../unit-tests/no-conversations-onboarding-test.js';
 import { runTests as runProjectFixedTests } from '../unit-tests/project-fixed-test.js';
 import { runTests as runMachineSessionsPageTests } from '../unit-tests/machine-sessions-page-test.js';
+import { runTests as runMachineSettingsTests } from '../unit-tests/machine-settings-test.js';
 import { runTests as runMachineFeedTests } from '../unit-tests/machine-feed-test.js';
 import { runTests as runProjectNavigationTests } from '../unit-tests/project-navigation-test.js';
 import { runTests as runJumpToAttentionAnywhereTests } from '../unit-tests/jump-to-attention-anywhere-test.js';
@@ -992,6 +993,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:no-conversations-onboarding', run: runNoConversationsOnboardingTests },
   { name: 'unit:project-fixed', run: runProjectFixedTests },
   { name: 'unit:machine-sessions-page', run: runMachineSessionsPageTests },
+  { name: 'unit:machine-settings', run: runMachineSettingsTests },
   { name: 'unit:machine-feed', run: runMachineFeedTests },
   { name: 'unit:project-navigation', run: runProjectNavigationTests },
   { name: 'unit:jump-to-attention-anywhere', run: runJumpToAttentionAnywhereTests },

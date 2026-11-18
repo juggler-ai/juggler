@@ -83,6 +83,7 @@ import wsService from './websocket.js';
 import { windowRole, WINDOW_ROLE_MAIN } from '../utils/view-mode.js';
 import { isDesktopWindow } from '../../sdk/lib/window-control.js';
 import { apiUrl } from '../utils/api-url.js';
+import { settingsUrl, settingsHeaders, settingsAreMachines } from './settings-endpoint.js';
 
 /**
  * How long a write waits for its neighbours before going to the server.
@@ -118,14 +119,26 @@ const REALMS = {
     key: (name) => (projectKey() ? `${name}:${projectKey()}` : name),
   },
   user: {
-    url: () => apiUrl('/settings'),
+    url: () => settingsUrl(),
     key: (name) => name,
   },
   machine: {
-    url: () => apiUrl('/settings'),
+    url: () => settingsUrl(),
     key: (name) => (ownsServerPrefs() ? name : `${name}@viewer`),
   },
 };
+
+/**
+ * The headers a realm's requests carry: the settings document's
+ * (services/settings-endpoint.js) for the user and machine realms, which live in
+ * it, and none for the session's.
+ * @param {ServerRealm} realm
+ * @returns {Record<string, string>} Headers to add.
+ * @private
+ */
+function realmHeaders(realm) {
+  return home(realm) === 'user' ? settingsHeaders() : {};
+}
 
 /**
  * Whether this page is the server's own desktop window: a native window on the
@@ -178,7 +191,18 @@ export function isRemoteViewer() {
 function keepsOwnCopy(realm) {
   if (realm === 'machine') return !ownsServerPrefs();
   if (realm === 'user') return false;
-  return isRemoteViewer();
+  return isRemoteViewer() || !sessionRealmsServed();
+}
+
+/**
+ * Whether this page's server keeps the session realms (window and project).
+ * The machine server's sessions page has no session: there, those realms are
+ * never asked for, and their values stay on this device.
+ * @returns {boolean} False on the sessions page.
+ * @private
+ */
+function sessionRealmsServed() {
+  return !settingsAreMachines();
 }
 
 /**
@@ -446,8 +470,12 @@ function writeMirror(realm, name, value) {
  */
 function readRealm(realm) {
   let pending = reads.get(realm);
+  if (!pending && home(realm) !== 'user' && !sessionRealmsServed()) {
+    pending = Promise.resolve({ ...(documents.get(realm) || {}) });
+    reads.set(realm, pending);
+  }
   if (!pending) {
-    pending = fetchJson(REALMS[realm].url(), { fallback: null }).then((doc) => {
+    pending = fetchJson(REALMS[realm].url(), { headers: realmHeaders(realm), fallback: null }).then((doc) => {
       reachable.set(realm, !!doc);
       // The user realm reads the settings document, and this module owns only its
       // `ui` section; the rest is kept for whoever asks via getGlobalSettings.
@@ -580,7 +608,9 @@ async function flushRealm(realm) {
   if (batch.timer) clearTimeout(batch.timer);
   // A refusal (a remote viewer's 403) and a failure are the same thing here:
   // this device keeps its own copy in the mirror either way.
-  await fetchJson(REALMS[realm].url(), { method: 'PUT', body: { ui: batch.patch }, fallback: null });
+  await fetchJson(REALMS[realm].url(), {
+    method: 'PUT', body: { ui: batch.patch }, headers: realmHeaders(realm), fallback: null,
+  });
   batch.resolve();
 }
 
@@ -841,7 +871,7 @@ export function adoptGlobalSettings(doc) {
  */
 export async function resyncGlobalSettings() {
   reads.delete('user');
-  const doc = await fetchJson(REALMS.user.url(), { fallback: null });
+  const doc = await fetchJson(REALMS.user.url(), { headers: realmHeaders('user'), fallback: null });
   if (!doc) return; // unreachable — keep what we have
   reachable.set('user', true);
   reads.set('user', Promise.resolve(documents.get('user') || {}));

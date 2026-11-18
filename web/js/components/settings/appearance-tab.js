@@ -98,14 +98,20 @@ export function buildSelectRow({ id, name, description, options, value }) {
  * in future rather than what it should look like right now. Reads straight from
  * the theme-manager (no server fetch) and stays in sync with the header button
  * via THEME_MODE_EVENT.
+ *
+ * The sessions page's Settings has no tips switch: tips and hints are a
+ * session's (`tips` false).
  */
 export class AppearanceTab {
   /**
    * @param {HTMLElement} host - The settings-panel element (DOM query scope).
+   * @param {{tips?: boolean}} [options] - Whether to offer the tips switch.
    */
-  constructor(host) {
+  constructor(host, { tips = true } = {}) {
     /** @type {HTMLElement} @private */
     this.host = host;
+    /** @type {boolean} @private */
+    this._tips = tips;
     /** @type {((e: Event) => void)|null} @private - Re-syncs the menu when the theme changes elsewhere (the header button, the OS). */
     this._onThemeMode = null;
     /** @type {(() => void)|null} @private - Detaches `_onThemeMode`; null while it is not listening. */
@@ -145,7 +151,7 @@ export class AppearanceTab {
 
     const themeRow = this._buildThemeRow(getMode());
     container.appendChild(themeRow.row);
-    container.appendChild(buildToggleRow(
+    if (this._tips) container.appendChild(buildToggleRow(
       t('Show tips and hints'),
       t('Tips about features you might not have found yet, and an occasional hint '
       + 'when one would help. Off, a suggestion about the conversation you’re in '

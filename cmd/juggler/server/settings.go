@@ -11,9 +11,7 @@ import (
 	"io"
 	"maps"
 	"net/http"
-	"net/url"
 	"slices"
-	"strings"
 	"time"
 
 	"juggler/cmd/juggler/core"
@@ -101,6 +99,7 @@ func (s *settingsStore) set(next core.GlobalSettings, uiPrefs map[string]json.Ra
 			gs.Connectivity.AllowedHosts = next.Connectivity.AllowedHosts
 			gs.Network = next.Network
 			gs.Models = next.Models
+			gs.Projects = next.Projects
 			gs.WebSearch = next.WebSearch
 			gs.UILocale = next.UILocale
 			return true
@@ -174,18 +173,6 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	gs.Updates.Mode = core.NormalizeUpdateMode(gs.Updates.Mode)
 	gs.Network.Proxy.Mode = core.NormalizeProxyMode(gs.Network.Proxy.Mode)
 	handlers.WriteJSON(w, r, 0, gs)
-}
-
-// validProxyURL reports whether raw is a usable proxy URL (non-empty, parseable,
-// with a host). Mirrors the manual-mode acceptance in internal/httpx so the API
-// rejects a URL the resolver would silently drop to direct.
-func validProxyURL(raw string) bool {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return false
-	}
-	u, err := url.Parse(raw)
-	return err == nil && u.Host != ""
 }
 
 // cloneHiddenModels deep-copies a hidden-model map, so the copy can be mutated
@@ -352,7 +339,7 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		handlers.WriteMessageError(w, r, http.StatusBadRequest, msg.New("invalid proxy mode"))
 		return
 	}
-	if incoming.Network.Proxy.Mode == core.ProxyModeManual && !validProxyURL(incoming.Network.Proxy.URL) {
+	if incoming.Network.Proxy.Mode == core.ProxyModeManual && !core.ValidProxyURL(incoming.Network.Proxy.URL) {
 		handlers.WriteMessageError(w, r, http.StatusBadRequest, msg.New("invalid proxy URL"))
 		return
 	}

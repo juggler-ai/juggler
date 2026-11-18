@@ -466,6 +466,8 @@ type standInPageData struct {
 	// does not know.
 	ThemeMode string
 	IsWindow  bool
+	// OwnsTheme is always false: a stand-in keeps no theme or zoom of its own.
+	OwnsTheme bool
 }
 
 // standInPageButton is one of the page's buttons: a form posting to Action,

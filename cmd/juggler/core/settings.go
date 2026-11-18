@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -400,6 +401,18 @@ func NormalizeProxyMode(mode string) string {
 // string is NOT known (callers that accept "as default" check for "" first).
 func IsKnownProxyMode(mode string) bool {
 	return mode == ProxyModeSystem || mode == ProxyModeNone || mode == ProxyModeManual
+}
+
+// ValidProxyURL reports whether raw is a usable proxy URL (non-empty, parseable,
+// with a host). Mirrors the manual-mode acceptance in internal/httpx so a
+// settings API rejects a URL the resolver would silently drop to direct.
+func ValidProxyURL(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return false
+	}
+	u, err := url.Parse(raw)
+	return err == nil && u.Host != ""
 }
 
 // NormalizeUpdateMode maps any value to a known mode, defaulting anything

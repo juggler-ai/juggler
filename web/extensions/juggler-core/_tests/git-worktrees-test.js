@@ -94,7 +94,8 @@ export async function runTests(_ctx) {
     const m = await mounted();
     const switcher = await openSwitcher(m);
     const mainText = entry(switcher, '/tmp/proj').textContent || '';
-    assert(mainText.includes('proj') && mainText.includes('develop') && mainText.includes('✓'), `main: ${mainText}`);
+    assert(mainText.includes('proj') && mainText.includes('develop'), `main: ${mainText}`);
+    assert(entry(switcher, '/tmp/proj').querySelector('.git-switcher__mark')?.textContent === '', 'a clean tree carries no mark');
     assert(entry(switcher, '/tmp/proj').getAttribute('aria-current') === 'true', 'the viewed tree is marked');
     const plainText = entry(switcher, '/tmp/wt-plain').textContent || '';
     assert(plainText.includes('wt-plain') && plainText.includes('abcdef0 detached') && plainText.includes('●3'), `plain: ${plainText}`);

@@ -37,11 +37,12 @@ const t = translator('@juggler/core');
 
 /**
  * @param {TreeView} v - A tree.
- * @returns {string} Its changes in a glyph: ●N, ✓ when clean, ? when unknown.
+ * @returns {string} Its changes in a glyph: ●N, ? when unknown, nothing when
+ *   clean — a mark only on a tree that wants attention, as the head's count is.
  */
 function changesMark(v) {
   if (v.tree.dirty === null) return '?';
-  return v.tree.dirty ? `●${v.tree.dirty}` : '✓';
+  return v.tree.dirty ? `●${v.tree.dirty}` : '';
 }
 
 /**

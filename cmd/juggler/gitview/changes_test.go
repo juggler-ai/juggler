@@ -84,6 +84,13 @@ func TestChangesSidesAndKinds(t *testing.T) {
 	if s := fileNamed(t, c, "sub"); !s.Submodule {
 		t.Errorf("sub = %+v, want a submodule", s)
 	}
+	// Edited inside after its commit was staged: changed on both sides, but
+	// the worktree side is content inside it, not a commit to stage.
+	sub.write("s.txt", "S\n")
+	if s := fileNamed(t, p.changes(), "sub"); s.Index != "A" || s.Worktree != "M" ||
+		!s.SubmoduleModified || s.SubmoduleCommit || s.SubmoduleUntracked {
+		t.Errorf("sub edited inside = %+v, want staged with modified content and no new commit", s)
+	}
 	if c.Branch == "" || c.Detached || c.Operation != "" {
 		t.Errorf("branch %q detached %v operation %q", c.Branch, c.Detached, c.Operation)
 	}

@@ -173,6 +173,39 @@ func TestGitStatusUntrackedIsChangedNotStaged(t *testing.T) {
 	}
 }
 
+// A submodule's worktree letter is "M" for new commits, for edits inside it and
+// for untracked files inside it alike; only the first can be staged from the
+// superproject, so which of the three it is has to survive the parse.
+func TestGitStatusReadsSubmoduleState(t *testing.T) {
+	sub := func(xy, state, path string) string {
+		return "1 " + xy + " " + state + " 160000 160000 160000 0000000000000000000000000000000000000000 0000000000000000000000000000000000000000 " + path
+	}
+	out := strings.Join([]string{
+		sub(".M", "SC..", "moved"),
+		sub("MM", "S.M.", "dirty"),
+		sub(".M", "S..U", "untracked"),
+		sub(".M", "SCMU", "all"),
+		sub("MD", "S...", "gone"),
+	}, "\n")
+
+	got := parseGitStatusV2([]byte(out))
+	want := []gitFileStatus{
+		{Path: "moved", Index: ".", Worktree: "M", Submodule: true, SubmoduleCommit: true},
+		{Path: "dirty", Index: "M", Worktree: "M", Submodule: true, SubmoduleModified: true},
+		{Path: "untracked", Index: ".", Worktree: "M", Submodule: true, SubmoduleUntracked: true},
+		{Path: "all", Index: ".", Worktree: "M", Submodule: true, SubmoduleCommit: true, SubmoduleModified: true, SubmoduleUntracked: true},
+		{Path: "gone", Index: "M", Worktree: "D", Submodule: true},
+	}
+	if len(got.Files) != len(want) {
+		t.Fatalf("Files = %d entries, want %d", len(got.Files), len(want))
+	}
+	for i := range want {
+		if got.Files[i] != want[i] {
+			t.Errorf("Files[%d] = %+v, want %+v", i, got.Files[i], want[i])
+		}
+	}
+}
+
 func TestGitStatusReadsFileDetail(t *testing.T) {
 	out := strings.Join([]string{
 		"# branch.head main",

@@ -43,15 +43,23 @@ const (
 // gitFileStatus is one file in a repository's working tree. Index and Worktree
 // are porcelain status letters — "M", "A", "D", "?" and so on — where "." means
 // that side is unmodified.
+//
+// A submodule's worktree "M" is any of three things, said by the Submodule*
+// flags: its checkout is at another commit than the index records (the one
+// change the superproject can stage), or it holds edits or untracked files of
+// its own, which only a commit inside it can take.
 type gitFileStatus struct {
-	Path       string `json:"path"`
-	OldPath    string `json:"oldPath,omitempty"`
-	Index      string `json:"index"`
-	Worktree   string `json:"worktree"`
-	Conflicted bool   `json:"conflicted,omitempty"`
-	Submodule  bool   `json:"submodule,omitempty"`
-	Added      *int   `json:"added,omitempty"`
-	Removed    *int   `json:"removed,omitempty"`
+	Path               string `json:"path"`
+	OldPath            string `json:"oldPath,omitempty"`
+	Index              string `json:"index"`
+	Worktree           string `json:"worktree"`
+	Conflicted         bool   `json:"conflicted,omitempty"`
+	Submodule          bool   `json:"submodule,omitempty"`
+	SubmoduleCommit    bool   `json:"submoduleCommit,omitempty"`
+	SubmoduleModified  bool   `json:"submoduleModified,omitempty"`
+	SubmoduleUntracked bool   `json:"submoduleUntracked,omitempty"`
+	Added              *int   `json:"added,omitempty"`
+	Removed            *int   `json:"removed,omitempty"`
 }
 
 // gitDiffstat is the numeric part of one `git diff --numstat` record. Binary
@@ -374,8 +382,7 @@ func parseGitStatusV2(out []byte) RepoStatus {
 			continue
 		}
 
-		var index, worktree, path, oldPath string
-		submodule := false
+		var index, worktree, path, oldPath, sub string
 		switch kind {
 		case "?":
 			// Untracked. v1 wrote "??": unmodified in the index, present in the
@@ -389,8 +396,11 @@ func parseGitStatusV2(out []byte) RepoStatus {
 			index, worktree = string(xy[0]), string(xy[1])
 			path, oldPath = gitEntryPaths(kind, tail)
 			// The first field is the submodule state: "N..." for an ordinary
-			// file, "S<c><m><u>" for a submodule.
-			submodule = strings.HasPrefix(tail, "S")
+			// file, "S<c><m><u>" for a submodule — "C" its commit changed,
+			// "M" it holds modified tracked files, "U" untracked ones, "." not.
+			if state, _, _ := strings.Cut(tail, " "); len(state) == 4 && state[0] == 'S' {
+				sub = state
+			}
 		default:
 			continue
 		}
@@ -409,12 +419,15 @@ func parseGitStatusV2(out []byte) RepoStatus {
 			status.Changed++
 		}
 		status.Files = append(status.Files, gitFileStatus{
-			Path:       unquoteGitPath(path),
-			OldPath:    unquoteGitPath(oldPath),
-			Index:      index,
-			Worktree:   worktree,
-			Conflicted: kind == "u",
-			Submodule:  submodule,
+			Path:               unquoteGitPath(path),
+			OldPath:            unquoteGitPath(oldPath),
+			Index:              index,
+			Worktree:           worktree,
+			Conflicted:         kind == "u",
+			Submodule:          sub != "",
+			SubmoduleCommit:    sub != "" && sub[1] == 'C',
+			SubmoduleModified:  sub != "" && sub[2] == 'M',
+			SubmoduleUntracked: sub != "" && sub[3] == 'U',
 		})
 	}
 

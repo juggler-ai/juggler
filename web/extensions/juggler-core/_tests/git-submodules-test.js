@@ -79,6 +79,13 @@ export async function runTests(_ctx) {
    * @returns {HTMLButtonElement|null} The toast's Undo, while it is up.
    */
   const undoButton = (m) => m.body.querySelector('.git-pin__toast:not([hidden]) .git-pin__toast-undo:not([hidden])');
+  /**
+   * @param {any} m - The mounted pin.
+   * @param {string} key - The key pressed.
+   */
+  const press = (m, key) => {
+    m.body.querySelector('.git-pin').dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+  };
 
   await test('Refs lists the submodules, and Update checks one out at its recorded commit, with Undo', async () => {
     const m = mountPin(pin, { place: 'refs', submodules: SUBMODULES });
@@ -109,7 +116,7 @@ export async function runTests(_ctx) {
   });
 
   await test('a submodule changed in Changes offers Update, in its menu and its detail', async () => {
-    const lib = { path: 'lib', index: '.', worktree: 'M', submodule: true };
+    const lib = { path: 'lib', index: '.', worktree: 'M', submodule: true, submoduleCommit: true };
     const m = mountPin(pin, { place: 'changes', changes: changesOf([lib]) });
     try {
       const row = /** @type {HTMLElement} */ (await waitFor(() => m.body.querySelector('.git-changes__row[data-key="changes:lib"]'), 'the row'));
@@ -123,6 +130,44 @@ export async function runTests(_ctx) {
       update.click();
       const op = m.runs()[0]?.op;
       assert(op?.kind === 'submodule-update' && op.path === 'lib', `Update's write: ${JSON.stringify(op)}`);
+    } finally {
+      m.teardown();
+    }
+  });
+
+  await test('a submodule whose commit is staged and which has edits inside offers no second Stage', async () => {
+    // `git add` of a submodule records only its checked-out commit, so edits
+    // inside it are listed, as git status lists them, but nothing here stages them.
+    const lib = { path: 'lib', index: 'M', worktree: 'M', submodule: true, submoduleModified: true, submoduleUntracked: true };
+    const m = mountPin(pin, { place: 'changes', changes: changesOf([lib]) });
+    try {
+      const row = /** @type {HTMLElement} */ (await waitFor(() => m.body.querySelector('.git-changes__row[data-key="changes:lib"]'), 'its Changes row'));
+      assert(Boolean(m.body.querySelector('.git-changes__row[data-key="staged:lib"]')), 'its commit is listed as staged');
+      const text = row.textContent || '';
+      assert(/modified content/.test(text) && /untracked content/.test(text), `the row says what changed inside: ${text}`);
+      assert(!row.querySelector('.git-changes__part'), 'it is not drawn as partly staged');
+
+      m.holdRuns(true);
+      /** @type {HTMLElement} */ (row.querySelector('.git-changes__st')).click();
+      /** @type {HTMLElement} */ (row.querySelector('.git-changes__path')).dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+      /** @type {HTMLElement|null} */ (m.body.querySelector('.git-changes__group-act[data-group="changes"]'))?.click();
+      assert(m.runs().length === 0, `nothing was run: ${JSON.stringify(m.runs().map((/** @type {any} */ r) => r.op))}`);
+      assert(Boolean(m.body.querySelector('.git-changes__row[data-key="changes:lib"]')), 'and the row stays in Changes');
+
+      row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }));
+      const labels = [...document.querySelectorAll('.juggler-context-menu .menu-item')].map((el) => el.textContent);
+      for (const label of ['Stage', 'Update submodule', 'Discard changes (undoable)']) {
+        assert(!labels.includes(label), `its menu offers no ${label}: ${JSON.stringify(labels)}`);
+      }
+      for (const el of document.querySelectorAll('.juggler-context-menu')) el.remove();
+
+      /** @type {HTMLElement} */ (row.querySelector('.git-changes__path')).click();
+      await waitFor(() => m.body.querySelector('.git-changes__crumb-title'), 'its detail');
+      for (const cls of ['stage', 'update', 'discard']) {
+        assert(!m.body.querySelector(`.git-changes__crumb-${cls}`), `its detail offers no ${cls}`);
+      }
+      press(m, ' ');
+      assert(m.runs().length === 0, `space runs nothing: ${JSON.stringify(m.runs().map((/** @type {any} */ r) => r.op))}`);
     } finally {
       m.teardown();
     }

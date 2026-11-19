@@ -35,6 +35,31 @@ function isConflicted(file) {
 const changedSide = (letter) => letter !== '.' && letter !== '?' && letter !== '';
 
 /**
+ * Whether a file's unstaged side is something staging can take. A submodule
+ * modified without a new commit holds edits or untracked files of its own:
+ * `git add` records only the commit it has checked out, which the index
+ * already has, so only a commit inside the submodule takes them. It is listed,
+ * as `git status` lists it, but there is nothing here to stage.
+ * @param {ChangedFile} file - The file.
+ * @returns {boolean} Whether its unstaged side can be staged.
+ */
+function worktreeStageable(file) {
+  return !(file.submodule && file.worktree === 'M' && !file.submoduleCommit);
+}
+
+/**
+ * Whether a file's row in a group can be staged or unstaged — what its letter,
+ * a double-click, space and its menu do. A conflict is resolved instead.
+ * @param {ChangedFile} file - The file.
+ * @param {GroupId} group - Its group.
+ * @returns {boolean} Whether the row toggles.
+ */
+export function isToggleable(file, group) {
+  if (group === 'conflicts') return false;
+  return group !== 'changes' || worktreeStageable(file);
+}
+
+/**
  * Which groups a file is drawn in. A file staged and changed again is in both
  * Staged and Changes: those are two different diffs, staged and unstaged apart.
  * @param {ChangedFile} file - The file.
@@ -68,7 +93,7 @@ export function groupsOf(files) {
  * @returns {boolean} True when it has both sides.
  */
 export function isPartlyStaged(file) {
-  return !isConflicted(file) && changedSide(file.index) && changedSide(file.worktree);
+  return !isConflicted(file) && changedSide(file.index) && changedSide(file.worktree) && worktreeStageable(file);
 }
 
 /**
@@ -126,7 +151,7 @@ function staged(file) {
   if (file.worktree === '?') {
     return { ...file, index: 'A', worktree: '.', staged: sum(file.staged, file.unstaged), unstaged: undefined, pending: true };
   }
-  if (!changedSide(file.worktree)) return file;
+  if (!changedSide(file.worktree) || !worktreeStageable(file)) return file;
   const index = changedSide(file.index) ? file.index : file.worktree;
   return { ...file, index, worktree: '.', staged: sum(file.staged, file.unstaged), unstaged: undefined, pending: true };
 }
@@ -209,5 +234,6 @@ export function applyOp(files, op) {
  */
 export function signatureOf(file) {
   return JSON.stringify([file.path, file.oldPath, file.index, file.worktree, file.conflicted, file.submodule,
+    file.submoduleCommit, file.submoduleModified, file.submoduleUntracked,
     file.binary, file.lfs, file.staged, file.unstaged, file.pending]);
 }

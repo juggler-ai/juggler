@@ -57,6 +57,7 @@ import {
   applyOp,
   groupsOf,
   isPartlyStaged,
+  isToggleable,
   letterOf,
   signatureOf,
   statOf,
@@ -446,7 +447,7 @@ export function createChangesPlace(host) {
    */
   const toggle = (key) => {
     const hit = lookup(key);
-    if (!hit || hit.group === 'conflicts') return;
+    if (!hit || !isToggleable(hit.file, hit.group)) return;
     const kind = hit.group === 'staged' ? 'unstage' : 'stage';
     // The selection follows the file to the group it is moving to.
     if (selected === key) selected = `${kind === 'stage' ? 'staged' : (hit.file.index === 'A' ? 'untracked' : 'changes')}:${hit.file.path}`;
@@ -462,7 +463,8 @@ export function createChangesPlace(host) {
     if (group === 'staged') {
       void runOp({ kind: 'unstage-all', repo }, { optimistic: true });
     } else if (group === 'changes') {
-      const paths = groupFiles.map((f) => f.path);
+      const paths = groupFiles.filter((f) => isToggleable(f, 'changes')).map((f) => f.path);
+      if (!paths.length) return;
       void runOp({ kind: 'stage-all', repo }, { optimistic: true }).then((job) => {
         if (job) host.toast.show(t('Staged {count, plural, one {# file} other {# files}}', { count: paths.length }), () => {
           void runOp({ kind: 'unstage', repo, paths }, { optimistic: true });
@@ -655,8 +657,11 @@ export function createChangesPlace(host) {
     const tone = toneOf(letter);
     st.dataset.tone = tone;
     const words = letterWords(letter);
+    const toggles = isToggleable(file, group);
     st.title = group === 'conflicts' ? words
-      : group === 'staged' ? t('{status}: unstage (space)', { status: words }) : t('{status}: stage (space)', { status: words });
+      : !toggles ? t('Changed inside the submodule: commit it there')
+        : group === 'staged' ? t('{status}: unstage (space)', { status: words }) : t('{status}: stage (space)', { status: words });
+    st.disabled = group !== 'conflicts' && !toggles;
     st.setAttribute('aria-label', st.title);
     st.append(createElement('span', file.pending ? 'git-pin__spin' : '', file.pending ? '◌' : letter));
     const pathEl = createElement('span', 'git-changes__path');
@@ -672,6 +677,12 @@ export function createChangesPlace(host) {
     if (file.binary) badges.push(t('binary'));
     if (file.lfs) badges.push(t('LFS'));
     if (file.submodule) badges.push(t('submodule'));
+    // What changed in it, in git status's words: only new commits can be staged.
+    if (file.submodule && group === 'changes') {
+      if (file.submoduleCommit) badges.push(t('new commits'));
+      if (file.submoduleModified) badges.push(t('modified content'));
+      if (file.submoduleUntracked) badges.push(t('untracked content'));
+    }
     for (const badge of badges) row.append(createElement('span', 'git-changes__badge', badge));
     if (isPartlyStaged(file)) {
       const part = createElement('span', 'git-changes__part', '◐');
@@ -705,7 +716,7 @@ export function createChangesPlace(host) {
 
   const renderList = () => {
     const groups = groupsOf(files());
-    /** @type {{id: GroupId, total: number, shown: ChangedFile[]}[]} */
+    /** @type {{id: GroupId, total: number, shown: ChangedFile[], toggles: boolean}[]} */
     const sections = [];
     const seen = new Set();
     let shownCount = 0;
@@ -713,16 +724,17 @@ export function createChangesPlace(host) {
       for (const file of group.files) seen.add(`${group.id}:${file.path}`);
       const shown = group.files.filter((file) => filter.matches(file.path, file.oldPath));
       if (!shown.length) continue;
-      sections.push({ id: group.id, total: group.files.length, shown });
+      sections.push({ id: group.id, total: group.files.length, shown, toggles: group.files.some((file) => isToggleable(file, group.id)) });
       shownCount += shown.length;
     }
     for (const key of [...rowCache.keys()]) if (!seen.has(key)) rowCache.delete(key);
     /**
      * @param {GroupId} id - The group.
      * @param {number} total - Its files, shown or not.
+     * @param {boolean} toggles - Whether any of them can be staged or unstaged.
      * @returns {HTMLElement} Its section header.
      */
-    const buildSect = (id, total) => {
+    const buildSect = (id, total, toggles) => {
       const sect = createElement('div', 'git-changes__sect');
       sect.dataset.group = id;
       sect.append(createElement('span', 'git-changes__title caps-label', t(GROUP_TITLES[id])),
@@ -732,6 +744,7 @@ export function createChangesPlace(host) {
           id === 'staged' ? t('Unstage all') : t('Stage all')));
         act.type = 'button';
         act.dataset.group = id;
+        act.disabled = !toggles;
         sect.append(act);
       }
       return sect;
@@ -770,8 +783,8 @@ export function createChangesPlace(host) {
       /** @type {import('juggler/utils/virtual-list').SectionItem[]} */
       const items = [];
       itemIndex = new Map();
-      for (const { id, total, shown } of sections) {
-        items.push({ key: `sect:${id}:${total}`, header: true, build: () => buildSect(id, total) });
+      for (const { id, total, shown, toggles } of sections) {
+        items.push({ key: `sect:${id}:${total}:${toggles}`, header: true, build: () => buildSect(id, total, toggles) });
         for (const file of shown) {
           const { key, sig } = rowSig(file, id);
           itemIndex.set(key, items.length);
@@ -785,8 +798,8 @@ export function createChangesPlace(host) {
     } else {
       itemIndex = new Map();
       windowed.clear();
-      for (const { id, total, shown } of sections) {
-        children.push(buildSect(id, total));
+      for (const { id, total, shown, toggles } of sections) {
+        children.push(buildSect(id, total, toggles));
         for (const file of shown) {
           const { key, sig } = rowSig(file, id);
           const row = rowFor(file, id, key, sig);
@@ -967,7 +980,7 @@ export function createChangesPlace(host) {
     const title = createElement('span', 'git-changes__crumb-title text-truncate');
     title.append(createElement('span', 'git-changes__name', name), createElement('span', 'git-changes__dir', dir));
     const acts = createElement('span', 'git-changes__crumb-acts');
-    if (group !== 'conflicts') {
+    if (isToggleable(file, group)) {
       const stage = /** @type {HTMLButtonElement} */ (createElement('button', 'git-changes__crumb-stage btn btn-xs btn-neutral',
         group === 'staged' ? t('Unstage') : t('Stage')));
       stage.type = 'button';
@@ -987,14 +1000,14 @@ export function createChangesPlace(host) {
         acts.append(b);
       }
     }
-    if (file.submodule && group === 'changes') {
+    if (file.submodule && file.submoduleCommit && group === 'changes') {
       const update = /** @type {HTMLButtonElement} */ (createElement('button', 'git-changes__crumb-update btn btn-xs btn-neutral', t('Update')));
       update.type = 'button';
       update.title = t('Check the submodule out at the commit recorded for it');
       acts.append(update);
     }
     if (group === 'changes') acts.append(discardLinesButton);
-    if (group === 'changes' || group === 'untracked') {
+    if ((group === 'changes' && isToggleable(file, group)) || group === 'untracked') {
       const discardButton = /** @type {HTMLButtonElement} */ (createElement('button', 'git-changes__crumb-discard btn btn-xs btn-danger-quiet', t('Discard')));
       discardButton.type = 'button';
       discardButton.title = t('Discard the changes to this file (undoable)');
@@ -1019,7 +1032,8 @@ export function createChangesPlace(host) {
 
     /** @type {string} */
     let why = '';
-    if (file.submodule) why = t('A submodule: its change is the commit it points at, so there are no lines to stage.');
+    if (file.submodule && !isToggleable(file, group)) why = t('Changed inside the submodule: commit there, then stage its new commit here.');
+    else if (file.submodule) why = t('A submodule: its change is the commit it points at, so there are no lines to stage.');
     else if (file.lfs) why = t('Stored in Git LFS: the diff is of its pointer, so stage it whole.');
     else if (file.binary) why = t('A binary file: stage it whole.');
     // A conflict's diff is there to be read, markers and all: it is resolved
@@ -1098,13 +1112,13 @@ export function createChangesPlace(host) {
       items.push({ label: t('Mark resolved'), onClick: () => resolveConflict(key, 'resolved', row) });
       items.push({ separator: true });
       items.push({ label: t('Open in editor'), onClick: () => { void openPath({ path: absolute }).catch((/** @type {any} */ e) => host.toast.error(errorText(e))); } });
-    } else {
+    } else if (isToggleable(file, group)) {
       items.push({ label: group === 'staged' ? t('Unstage') : t('Stage'), onClick: () => toggle(key) });
     }
-    if (file.submodule && group === 'changes') {
+    if (file.submodule && file.submoduleCommit && group === 'changes') {
       items.push({ label: t('Update submodule'), onClick: () => updateSub(file.path) });
     }
-    if (group === 'changes' || group === 'untracked') {
+    if ((group === 'changes' && isToggleable(file, group)) || group === 'untracked') {
       items.push({ label: t('Discard changes (undoable)'), danger: true, onClick: () => discard(key) });
     }
     if (group === 'untracked') {
@@ -1113,7 +1127,7 @@ export function createChangesPlace(host) {
       if (ext) items.push({ label: t('Ignore all *.{ext}', { ext }), onClick: () => ignore(file.path, 'extension') });
       if (dir) items.push({ label: t('Ignore {folder}/', { folder: dir }), onClick: () => ignore(file.path, 'folder') });
     }
-    if (group !== 'conflicts') items.push({ separator: true });
+    if (group !== 'conflicts' && items.length) items.push({ separator: true });
     // A conflict's menu is its ways out; an untracked file has no history yet.
     if (group !== 'untracked' && group !== 'conflicts') items.push({ label: t('File history'), onClick: () => host.showFileHistory(file.path) });
     const gone = file.worktree === 'D' || file.index === 'D';

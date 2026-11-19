@@ -585,6 +585,12 @@ import { validateManifest } from './lib/manifest.js';
  * @property {string} worktree - The unstaged side's letter
  * @property {boolean} [conflicted] - Whether it is an unresolved merge
  * @property {boolean} [submodule] - Whether the path is a submodule
+ * @property {boolean} [submoduleCommit] - A submodule checked out at another
+ *   commit than the index records: the one part of its `worktree` change that
+ *   staging takes
+ * @property {boolean} [submoduleModified] - A submodule holding modified tracked
+ *   files, which only a commit inside it takes
+ * @property {boolean} [submoduleUntracked] - A submodule holding untracked files, likewise
  * @property {boolean} [binary] - Whether git judged it binary
  * @property {boolean} [lfs] - Whether it is stored in Git LFS
  * @property {PinGitChangeStat} [staged] - The index against HEAD; absent when

@@ -57,18 +57,22 @@ type Stat struct {
 // ChangedFile is one changed file. Index and Worktree are porcelain letters
 // ("." for an unchanged side, "?" for untracked). Staged is the index against
 // HEAD and Unstaged the working tree against the index, each absent when that
-// side has no change with lines in it — a binary file never has one.
+// side has no change with lines in it — a binary file never has one. The
+// Submodule* flags are gitFileStatus's.
 type ChangedFile struct {
-	Path       string `json:"path"`
-	OldPath    string `json:"oldPath,omitempty"`
-	Index      string `json:"index"`
-	Worktree   string `json:"worktree"`
-	Conflicted bool   `json:"conflicted,omitempty"`
-	Submodule  bool   `json:"submodule,omitempty"`
-	Binary     bool   `json:"binary,omitempty"`
-	LFS        bool   `json:"lfs,omitempty"`
-	Staged     *Stat  `json:"staged,omitempty"`
-	Unstaged   *Stat  `json:"unstaged,omitempty"`
+	Path               string `json:"path"`
+	OldPath            string `json:"oldPath,omitempty"`
+	Index              string `json:"index"`
+	Worktree           string `json:"worktree"`
+	Conflicted         bool   `json:"conflicted,omitempty"`
+	Submodule          bool   `json:"submodule,omitempty"`
+	SubmoduleCommit    bool   `json:"submoduleCommit,omitempty"`
+	SubmoduleModified  bool   `json:"submoduleModified,omitempty"`
+	SubmoduleUntracked bool   `json:"submoduleUntracked,omitempty"`
+	Binary             bool   `json:"binary,omitempty"`
+	LFS                bool   `json:"lfs,omitempty"`
+	Staged             *Stat  `json:"staged,omitempty"`
+	Unstaged           *Stat  `json:"unstaged,omitempty"`
 }
 
 // wrapColumn is where a commit body is wrapped, and wrapEvidence how long a
@@ -101,7 +105,8 @@ func ReadChanges(ctx context.Context, root, repo string) (Changes, error) {
 	for _, f := range status.Files {
 		c.Files = append(c.Files, ChangedFile{
 			Path: f.Path, OldPath: f.OldPath, Index: f.Index, Worktree: f.Worktree,
-			Conflicted: f.Conflicted, Submodule: f.Submodule,
+			Conflicted: f.Conflicted, Submodule: f.Submodule, SubmoduleCommit: f.SubmoduleCommit,
+			SubmoduleModified: f.SubmoduleModified, SubmoduleUntracked: f.SubmoduleUntracked,
 		})
 	}
 

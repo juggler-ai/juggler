@@ -271,63 +271,6 @@ func TestMachineServerServesTheUIUnderItsPrefix(t *testing.T) {
 	}
 }
 
-// TestMachineServerDrivesASessionInABrowser is the UI-under-the-proxy exit
-// test: a real browser test runs in a page the child's test window loads
-// through the machine server at its project's link, so every request it makes — the
-// test runner's own, the app's /api calls, its WebSocket — has to find the
-// session through the prefix. The machine server's own root serves none of
-// them, so a URL that misses the prefix fails the test rather than reaching
-// the child another way.
-func TestMachineServerDrivesASessionInABrowser(t *testing.T) {
-	ms, stop := startMachineServer(t, "--test")
-	defer stop()
-
-	root, err := srcroot.Find(".")
-	if err != nil {
-		t.Fatalf("find project root: %v", err)
-	}
-	fixture := newProjectDir(t)
-	if err := helpers.CopyDir(filepath.Join(root, "tests", "benchmarks", "fixtures", "unit-test-fixture"), fixture); err != nil {
-		t.Fatalf("copy fixture: %v", err)
-	}
-	sess := ms.openSession(fixture, http.StatusCreated)
-	ms.holdSession(sess.ID)
-
-	// The child's own test API, reached the way the page reaches it.
-	prefix := strings.TrimSuffix(sess.Link, "/")
-	const name = "integration:read-file-single"
-	if err := helpers.PostJSON(ms.Addr, prefix+"/api/test/run", map[string]any{
-		"name":        name,
-		"projectPath": fixture,
-	}, nil); err != nil {
-		t.Fatalf("POST %s/api/test/run: %v", prefix, err)
-	}
-	var result struct {
-		Passed      bool     `json:"passed"`
-		Details     string   `json:"details"`
-		Errors      []string `json:"errors"`
-		PostedUnder string   `json:"postedUnder"`
-	}
-	if err := ms.pollLaneResult(prefix, name, &result); err != nil {
-		t.Fatalf("waiting for %s through the proxy: %v\n%s", name, err, ms.whereTheLaneStopped(prefix, name))
-	}
-	// The test queue is the child's own, so a lane that loaded the child
-	// directly would run the test too. Only a lane served through the proxy
-	// posts its result under the session's prefix.
-	if result.PostedUnder != prefix {
-		t.Fatalf("the lane posted its result under %q, want %q: it was not served through the proxy",
-			result.PostedUnder, prefix)
-	}
-	if !result.Passed {
-		for _, e := range result.Errors {
-			t.Error(e)
-		}
-		if len(result.Errors) == 0 {
-			t.Error(result.Details)
-		}
-	}
-}
-
 // TestMachineServerCLI drives a real machine server from the command line, the
 // suite's binary run as `juggler open` and `juggler server …` under the same
 // HOME, so it finds the server through server.json as a user's shell would.
@@ -440,7 +383,11 @@ var machineConfigPattern = regexp.MustCompile(`(?s)<script type="application/jso
 // token comes from the page itself. With that token, and the Origin a browser on
 // the page sends, two projects are opened and offered back as recents. Then a
 // real browser test runs in each session at once, in one browser origin through
-// the proxy, and each must report under its own session's prefix.
+// the proxy, and each must report under its own session's prefix. Every request
+// those pages make — the test runner's own, the app's /api calls, its WebSocket
+// — has to find its session through the prefix: the machine server's own root
+// serves none of them, so a URL that misses it fails the test rather than
+// reaching the child another way.
 func TestMachineServerLaunchesTwoSessionsFromThePage(t *testing.T) {
 	ms, stop := startMachineServer(t, "--test")
 	defer stop()
@@ -500,6 +447,9 @@ func TestMachineServerLaunchesTwoSessionsFromThePage(t *testing.T) {
 			t.Fatalf("open %s from the page: status %d", fixtures[i], code)
 		}
 		ms.noteChild(sessions[i])
+		// Held, as a viewer would hold it, so the unviewed grace cannot retire
+		// a session whose test window is still loading on a busy machine.
+		ms.holdSession(sessions[i].ID)
 	}
 	var recents struct {
 		Paths []string `json:"paths"`

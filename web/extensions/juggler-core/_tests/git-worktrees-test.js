@@ -13,6 +13,7 @@
  */
 
 import GitPin from '../pins/git-pin.js';
+import { isolateFocus } from '../../../js-tests/utilities/isolate-focus.js';
 import { assert, nextTask } from '../../../js-tests/utilities/test-helpers.js';
 import { mountPin, treeOf } from './git-pin-helpers.js';
 
@@ -106,22 +107,33 @@ export async function runTests(_ctx) {
   });
 
   await test('a redraw of the open switcher keeps focus on the row it was on', async () => {
-    const m = await mounted();
-    const switcher = await openSwitcher(m);
-    // Placed, as the frame lanes do not deliver would place it: until then it is
-    // hidden, and nothing hidden takes focus.
-    /** @type {HTMLElement} */ (switcher).style.removeProperty('visibility');
-    entry(switcher, '/tmp/wt-plain').focus();
-    m.emitWorkspaces();
-    await nextTask();
-    const onTree = /** @type {HTMLElement|null} */ (document.activeElement);
-    assert(onTree?.dataset.path === '/tmp/wt-plain' && switcher.contains(onTree), `after a redraw on a tree: ${onTree?.outerHTML.slice(0, 80)}`);
-    /** @type {HTMLElement} */ (switcher.querySelector('[data-act="new"]')).focus();
-    m.emitWorkspaces();
-    await nextTask();
-    const onAct = /** @type {HTMLElement|null} */ (document.activeElement);
-    assert(onAct?.dataset.act === 'new' && switcher.contains(onAct), `after a redraw on an action: ${onAct?.outerHTML.slice(0, 80)}`);
-    m.teardown();
+    const focus = isolateFocus();
+    try {
+      const m = await mounted();
+      const switcher = await openSwitcher(m);
+      /**
+       * Redraw with `from` focused, and return what the redraw asked to focus.
+       * @param {Element|null} from - The row focused before the redraw.
+       * @returns {HTMLElement|undefined} The element focus was asked for, if any.
+       */
+      const redrawFrom = (from) => {
+        focus.set(from);
+        const before = focus.requests.length;
+        m.emitWorkspaces();
+        focus.steal();
+        return focus.requests.slice(before).at(-1)?.element;
+      };
+      const oldTree = entry(switcher, '/tmp/wt-plain');
+      const onTree = redrawFrom(oldTree);
+      assert(onTree?.dataset.path === '/tmp/wt-plain' && switcher.contains(onTree) && onTree !== oldTree,
+        `a redraw on a tree refocuses its new row: ${onTree?.outerHTML.slice(0, 80)}`);
+      const onAct = redrawFrom(switcher.querySelector('[data-act="new"]'));
+      assert(onAct?.dataset.act === 'new' && switcher.contains(onAct), `a redraw on an action refocuses it: ${onAct?.outerHTML.slice(0, 80)}`);
+      assert(redrawFrom(null) === undefined, 'a redraw with nothing in the switcher focused asks for no focus');
+      m.teardown();
+    } finally {
+      focus.restore();
+    }
   });
 
   await test('picking a plain tree pins its wt: id, and the reads follow it', async () => {

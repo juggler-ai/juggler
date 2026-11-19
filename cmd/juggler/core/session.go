@@ -822,8 +822,10 @@ func stripConvTxnInputs(convDir string) {
 // It reads the bin from disk rather than the in-memory binIndex and mutates no
 // shared state, so it is safe to run off the actor goroutine; stripConvTxnInputs
 // is idempotent, so repeating it costs a read per blob and nothing else. A
-// missing or unreadable bin is not an error.
-func (fs *FileSessionStore) sweepBinTxnInputs() {
+// missing or unreadable bin is not an error. guard is held across each
+// conversation's strip in turn, not the whole sweep, so a long first sweep
+// holds up an empty or a restore by one conversation at most.
+func (fs *FileSessionStore) sweepBinTxnInputs(guard func() (release func())) {
 	binDir := fs.binDir()
 	entries, err := os.ReadDir(binDir)
 	if err != nil {
@@ -833,7 +835,9 @@ func (fs *FileSessionStore) sweepBinTxnInputs() {
 		if !e.IsDir() {
 			continue
 		}
+		release := guard()
 		stripConvTxnInputs(filepath.Join(binDir, e.Name()))
+		release()
 	}
 }
 

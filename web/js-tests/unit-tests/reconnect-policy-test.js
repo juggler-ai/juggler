@@ -695,6 +695,7 @@ export async function runTests(_ctx) {
     // connect-stall check is what bounds that.
     svc._connecting = true;
     svc._connectStartedAt = Date.now() - 600000;
+    svc._connectProgressAt = Date.now() - 600000;
     svc._checkLink();
     svc._intentionalDisconnect = true;
     assert(transport.closed === true, 'the stuck park is closed rather than waited on');
@@ -703,6 +704,27 @@ export async function runTests(_ctx) {
     assert(attempts === 1, `the backoff loop is re-armed instead; got ${attempts} attempts`);
     assert(svc._reconnectAttempts === 4, `and it escalates from where it was; got ${svc._reconnectAttempts}`);
     assert(svc._reconnectPending === false, 'the park is over either way');
+  });
+
+  await run('a slow handshake that has just opened is not condemned for how long it took', async () => {
+    const { svc, transport, reloads } = reconnecting('boot-1');
+    svc._reestablish = () => {};
+    // The attempt took longer than the stall limit to open — a bad link, or a
+    // busy machine — but it did open just now, and the session message is the
+    // next thing the server sends. That is progress, not a hang.
+    svc._connecting = true;
+    svc._connectStartedAt = Date.now() - 600000;
+    svc._checkLink();
+    assert(transport.closed === false, 'a park that began a moment ago is left to finish');
+
+    // Anything arriving before the session message also counts (the first frame
+    // of one the server had to split, say): the link is carrying traffic.
+    svc._connectProgressAt = Date.now() - 600000;
+    svc._handleMessageData('\n');
+    svc._checkLink();
+    svc._intentionalDisconnect = true;
+    assert(transport.closed === false, 'bytes arriving during the park keep it alive');
+    assert(reloads() === 0, 'and nothing reloaded');
   });
 
   await run('a death the far end caused during the same park still reloads', async () => {
@@ -723,6 +745,7 @@ export async function runTests(_ctx) {
     svc._reestablish = () => {};
     svc._connecting = true;
     svc._connectStartedAt = Date.now() - 600000;
+    svc._connectProgressAt = Date.now() - 600000;
     svc._checkLink();
     assert(reloads() === 0, 'the drop we inflicted did not reload');
 

@@ -256,6 +256,14 @@ class WebSocketService {
     /** @type {number} @private - When the current connection attempt started, as epoch ms. */
     this._connectStartedAt = 0;
     /**
+     * When the outstanding attempt last showed progress — its transport opening,
+     * or anything arriving on it before it settled — as epoch ms. The
+     * connect-stall check measures from the later of this and the attempt's
+     * start, so it bounds an attempt's silence rather than its length.
+     * @type {number} @private
+     */
+    this._connectProgressAt = 0;
+    /**
      * Set while a connection attempt is outstanding — from the moment the
      * transport primitive runs until the transport opens or dies. It is what
      * stops a burst of wake signals turning into a burst of parallel sockets.
@@ -477,7 +485,10 @@ class WebSocketService {
         this._heldOpenEvent = event;
         // The attempt stays outstanding while the park lasts, so the watchdog's
         // connect-stall check bounds it: a socket that opens and then never
-        // hears a session message is as stuck as one that never opened.
+        // hears a session message is as stuck as one that never opened. The
+        // opening is progress, so that bound runs from here, not from when a
+        // slow handshake began.
+        this._connectProgressAt = Date.now();
         return;
       }
       this._settleOpen(event);
@@ -847,6 +858,7 @@ class WebSocketService {
     // A chunk frame counts too, even though the message it belongs to may not
     // be complete for several more frames.
     this._lastInboundAt = Date.now();
+    if (this._connecting) this._connectProgressAt = this._lastInboundAt;
 
     // Binary is a Yjs sync frame, or a frame of a message the server had to
     // split, held until its last frame arrives.
@@ -1486,9 +1498,12 @@ class WebSocketService {
 
     if (!this.connected) {
       // Nothing to measure unless an attempt is outstanding: while the backoff
-      // timer is counting down there is no link to have an opinion about.
-      if (this._connecting && now - this._connectStartedAt > CONNECT_STALL_MS) {
-        this._dropLink(`the connection attempt went unanswered for ${Math.round((now - this._connectStartedAt) / 1000)}s`);
+      // timer is counting down there is no link to have an opinion about. The
+      // bound is on silence: an attempt that opened or heard something lately
+      // is slow, not stuck.
+      const silent = now - Math.max(this._connectStartedAt, this._connectProgressAt);
+      if (this._connecting && silent > CONNECT_STALL_MS) {
+        this._dropLink(`the connection attempt went unanswered for ${Math.round(silent / 1000)}s`);
       }
       return;
     }

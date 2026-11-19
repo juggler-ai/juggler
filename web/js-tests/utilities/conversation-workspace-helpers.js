@@ -265,6 +265,16 @@ export class FixtureProvider extends WorkspaceProvider {
     // recorded the undo is never reached.
     const linger = dirStallMs ? `; sleep ${dirStallMs / 1000}` : '';
     await ctx.ops.shell({ command: `mkdir -p "${here}"${linger}` }, ctx.signal);
+    // `holdAfterDir` parks between the two steps until the provision is
+    // aborted, so a case that interrupts it there gets exactly that boundary
+    // however long it takes to notice the directory.
+    if (values.holdAfterDir) {
+      await new Promise((resolve) => {
+        if (ctx.signal.aborted) resolve(undefined);
+        else ctx.signal.addEventListener('abort', resolve, { once: true });
+      });
+      ctx.signal.throwIfAborted();
+    }
 
     if (stallMs) {
       // The slow step every real provider has — a dependency install, a clone —

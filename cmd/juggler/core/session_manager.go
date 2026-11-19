@@ -54,6 +54,15 @@ type SessionManager struct {
 	// binSizeKick nudges the background bin-size monitor to recompute now
 	// (buffered/size-1: sends are non-blocking and coalesce).
 	binSizeKick chan struct{}
+	// binFiles, a one-slot semaphore (holdBinFiles), is held by this process's own work that opens files under
+	// trash/ off the actor — a bin's strip, the startup sweep, the size walk —
+	// and by a caller about to rename folders out of trash/, around the whole
+	// actor task that renames them. Windows refuses to rename a folder while
+	// anything under it is open, so the rename waits for that work to finish
+	// rather than meeting a handle of our own. Never taken on the actor: the
+	// renaming caller takes it before posting its task, so the actor is never
+	// held up by a strip.
+	binFiles chan struct{}
 }
 
 // sessionState is the mutable cell owned by the actor goroutine. Closures
@@ -102,6 +111,7 @@ func startManager(store *FileSessionStore, projectPath string) *SessionManager {
 		shutdownChan: make(chan struct{}),
 		projectPath:  projectPath,
 		binSizeKick:  make(chan struct{}, 1),
+		binFiles:     make(chan struct{}, 1),
 	}
 	// Read the orphan list HERE, on the constructing goroutine, rather than on
 	// the sweeper. An orphan is by definition a staging directory left behind by
@@ -174,7 +184,11 @@ func (m *SessionManager) runBinSizeMonitor(store *FileSessionStore) {
 	defer ticker.Stop()
 
 	recompute := func() {
+		// Released before the result is posted, so a renaming caller holding
+		// binFiles while it waits on the actor can never wait on this too.
+		release := m.holdBinFiles()
 		size := store.BinSizeBytes()
+		release()
 		select {
 		case m.writeChan <- func(s *sessionState) { s.binSizeBytes = size }:
 		case <-m.shutdownChan:
@@ -186,7 +200,7 @@ func (m *SessionManager) runBinSizeMonitor(store *FileSessionStore) {
 	// the first pass over a long-accumulated bin reads every blob in it, which is
 	// gigabytes on a project that has been in use for a while, and this goroutine
 	// is already where the bin's slow filesystem work happens.
-	store.sweepBinTxnInputs()
+	store.sweepBinTxnInputs(m.holdBinFiles)
 
 	recompute() // seed the cache promptly after startup
 	for {
@@ -199,6 +213,12 @@ func (m *SessionManager) runBinSizeMonitor(store *FileSessionStore) {
 			return
 		}
 	}
+}
+
+// holdBinFiles waits for binFiles and takes it, returning its release.
+func (m *SessionManager) holdBinFiles() (release func()) {
+	m.binFiles <- struct{}{}
+	return func() { <-m.binFiles }
 }
 
 // kickBinSizeRecompute nudges the background monitor to recompute the bin
@@ -797,7 +817,9 @@ func (m *SessionManager) BinConversation(convID string) error {
 		// long one carries hundreds of megabytes of replayed history. The kick
 		// below then recomputes the bin size over what is left.
 		go func() {
+			release := m.holdBinFiles()
 			stripConvTxnInputs(binnedDir)
+			release()
 			m.kickBinSizeRecompute()
 		}()
 	}
@@ -809,6 +831,7 @@ func (m *SessionManager) BinConversation(convID string) error {
 // CreateConversation: a restore is a deliberate act on one conversation, so it
 // belongs at the head of the bar rather than the tail of a long tab list.
 func (m *SessionManager) RestoreConversation(convID string) error {
+	defer m.holdBinFiles()()
 	_, err := runWrite(m, func(s *sessionState) (struct{}, error) {
 		if err := s.store.RestoreConversation(convID); err != nil {
 			return struct{}{}, err
@@ -886,13 +909,16 @@ func (m *SessionManager) EmptyBin() ([]string, error) {
 // trashAside then OS-trashes off it. The record of which files each wrote goes
 // with it. Returns the ids moved aside.
 func (m *SessionManager) emptyBinSelection(moveAside func(*FileSessionStore) (ids []string, trashPath string, err error)) ([]string, error) {
-	ids, err := runWrite(m, func(s *sessionState) ([]string, error) {
-		ids, trashPath, e := moveAside(s.store)
-		if e == nil && trashPath != "" {
-			m.trashAside(trashPath)
-		}
-		return ids, e
-	})
+	ids, err := func() ([]string, error) {
+		defer m.holdBinFiles()()
+		return runWrite(m, func(s *sessionState) ([]string, error) {
+			ids, trashPath, e := moveAside(s.store)
+			if e == nil && trashPath != "" {
+				m.trashAside(trashPath)
+			}
+			return ids, e
+		})
+	}()
 	if err != nil {
 		return nil, err
 	}

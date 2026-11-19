@@ -4,9 +4,10 @@
 
 /**
  * Agent run tests for what a run reports and where it stops: one progress line
- * per tool call, saying what it does; `maxTurns`; the cap on runs going at
- * once; and a strategy's refusals, which go back to the model rather than
- * ending the run. The rest of `runAgent` is `run-agent-test`'s.
+ * per tool call, saying what it does; `maxTurns`; and a strategy's refusals,
+ * which go back to the model rather than ending the run. The rest of
+ * `runAgent` is `run-agent-test`'s; the cap on runs going at once is
+ * `TestAgentRunCapIsEnforced`'s (agent_runs_test.go).
  * @module unit-tests/run-agent-limits-test
  */
 
@@ -55,22 +56,6 @@ export function runTests(_ctx) {
       assert(result.status === 'failed', `status was ${result.status}`);
       assert(result.errorKind === 'max-turns', `errorKind was ${JSON.stringify(result.errorKind)} (${result.errorText})`);
       assert(result.text !== 'too late', 'the run carried on past its limit');
-    });
-
-    await test('a fifth run while four are going is refused as busy', async () => {
-      const held = [0, 1, 2, 3].map((i) => uniqueName(`held ${i}`));
-      for (const name of held) await script(name, [textReply('held', { pause: true })]);
-      const controllers = held.map(() => new AbortController());
-      const running = held.map((name, i) => run({ prompt: 'hold', model: MODEL, name }, controllers[i]?.signal));
-      try {
-        const fifth = await run({ prompt: 'one too many', model: MODEL, name: uniqueName('fifth') });
-        assert(fifth.status === 'failed', `the fifth run's status was ${fifth.status}`);
-        assert(fifth.errorKind === 'busy', `the fifth run's errorKind was ${JSON.stringify(fifth.errorKind)} (${fifth.errorText})`);
-      } finally {
-        for (const c of controllers) c.abort();
-      }
-      const ended = await Promise.all(running);
-      assert(ended.every((r) => r.status === 'cancelled'), `the held runs ended ${JSON.stringify(ended.map((r) => `${r.status} ${r.errorText}`))}`);
     });
 
     await test('the commit-message strategy refuses git push and the run still completes', async () => {

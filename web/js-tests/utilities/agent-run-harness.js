@@ -150,6 +150,9 @@ export async function runAgentRunSuite(label, body) {
   await initializeRegistries();
   const session = await createTestSession();
   const carrier = await createTestConversation(session);
+  // Setup is not a case that can loop, so the runner's runaway guard bounds
+  // the gap from here, not a cold pool's setup and the first case together.
+  noteCaseFinished();
 
   /**
    * @param {string} name - The run's conversation name

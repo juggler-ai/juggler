@@ -317,9 +317,11 @@ export async function runTests() {
       // Boundary one: the directory is made, the marker is not.
       const firstName = `fixture-restart-a-${Math.random().toString(36).slice(2, 8)}`;
       const firstDir = `${projectPath}/${firstName}`;
-      const first = await abandonProvision(session, { dir: firstDir, dirStallMs: 2000 },
-        () => fileTurnsUp(projectOps, firstName, 5000).then(() => {}));
+      let madeDir = false;
+      const first = await abandonProvision(session, { dir: firstDir, holdAfterDir: true },
+        async () => { madeDir = await fileTurnsUp(projectOps, firstName, 5000); });
       try {
+        assert(madeDir, 'the first step never made its directory, so there is no boundary to stop at');
         assert(first?.meta?.dir === firstDir && first?.meta?.marked === undefined,
           `the row records the step it reached and no further, got ${JSON.stringify(first?.meta)}`);
         assert((await projectOps.stat({ path: firstName })).exists,

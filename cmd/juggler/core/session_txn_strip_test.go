@@ -12,6 +12,9 @@ import (
 	"testing"
 )
 
+// unguarded is a sweep guard with nothing to wait for.
+func unguarded() (release func()) { return func() {} }
+
 // A transaction blob as written by the worker: the round-trip's input (system
 // prompt, the whole message history replayed that turn, and the tool schemas)
 // plus the far smaller record of what came back and what it cost.
@@ -249,7 +252,7 @@ func TestSweepBinTxnInputsStripsAlreadyBinnedConversations(t *testing.T) {
 		t.Fatal("precondition: the deferred bin should leave the input in place")
 	}
 
-	store.sweepBinTxnInputs()
+	store.sweepBinTxnInputs(unguarded)
 
 	if _, present := readBlob(t, blobPath)["input"]; present {
 		t.Fatal("expected the sweep to strip a conversation already in the bin")
@@ -262,7 +265,7 @@ func TestSweepBinTxnInputsStripsAlreadyBinnedConversations(t *testing.T) {
 // An empty or absent bin is the common case and must not be an error.
 func TestSweepBinTxnInputsToleratesNoBin(t *testing.T) {
 	store, _ := newStoreForTest(t)
-	store.sweepBinTxnInputs() // must not panic
+	store.sweepBinTxnInputs(unguarded) // must not panic
 }
 
 // The transcript is untouched by the strip, and a restored conversation comes

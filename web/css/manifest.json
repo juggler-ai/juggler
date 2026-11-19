@@ -570,7 +570,8 @@
 			"file": "components/context-menu.css",
 			"layer": "components",
 			"owns": [
-				"juggler-context-menu"
+				"juggler-context-menu",
+				"juggler-context-menu__check"
 			]
 		},
 		{

@@ -49,6 +49,9 @@
  * @property {boolean} [separator] - When true, render a divider (ignores other fields).
  * @property {boolean} [disabled] - When true, the row is shown greyed and not clickable.
  * @property {boolean} [danger] - When true, style as a destructive action.
+ * @property {boolean} [checked] - Set (true or false) to make the row a checkbox:
+ *   ticked when true. A menu holding any checkbox row reserves the tick's
+ *   gutter on every row, so the labels stay in line.
  * @property {() => void} [onClick] - Invoked when the row is chosen.
  */
 
@@ -66,6 +69,7 @@ import { markPopupOpen, pressesAnchor } from '../utils/popup-manager.js';
 import { attachMenuKeyboard } from '../utils/menu-roles.js';
 import { resolveCodeSelection, proseReference } from '../utils/code-selection.js';
 import { t, markForTranslation } from '../../sdk/lib/i18n.js';
+import { CHECK_SVG } from '../utils/icons.js';
 
 /**
  * The row that puts a reference to the selected file content into the prompt.
@@ -566,6 +570,7 @@ function showMenu(items, x, y, anchor) {
   list.setAttribute('role', 'menu');
   list.setAttribute('aria-label', t('Context menu'));
   menu.appendChild(list);
+  const hasChecks = items.some((item) => !item.separator && typeof item.checked === 'boolean');
 
   for (const item of items) {
     if (item.separator) {
@@ -579,7 +584,20 @@ function showMenu(items, x, y, anchor) {
     row.className = 'menu-item';
     if (item.danger) row.classList.add('menu-item-danger');
     row.setAttribute('role', 'menuitem');
-    row.textContent = item.label || '';
+    if (hasChecks) {
+      // The shared check glyph, leading the label as the model picker's does.
+      const check = document.createElement('span');
+      check.className = 'juggler-context-menu__check';
+      check.setAttribute('aria-hidden', 'true');
+      if (typeof item.checked === 'boolean') {
+        row.setAttribute('role', 'menuitemcheckbox');
+        row.setAttribute('aria-checked', String(item.checked));
+        if (item.checked) check.innerHTML = CHECK_SVG;
+      }
+      row.append(check, document.createTextNode(item.label || ''));
+    } else {
+      row.textContent = item.label || '';
+    }
     if (item.disabled) {
       row.classList.add('menu-item-unavailable');
       row.setAttribute('aria-disabled', 'true');

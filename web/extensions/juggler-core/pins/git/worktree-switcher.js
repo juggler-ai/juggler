@@ -79,12 +79,6 @@ export function openWorktreeSwitcher(anchor, fallback, host) {
       const line = createElement('span', 'git-switcher__line');
       line.append(icon(v.tree.main ? 'repo' : 'wt'), createElement('span', 'git-switcher__name text-truncate', v.name),
         createElement('span', 'git-switcher__mark', changesMark(v)));
-      if (v.tree.current) {
-        const eye = createElement('span', 'git-switcher__viewing');
-        eye.title = t('Viewing');
-        eye.append(icon('eye'));
-        line.append(eye);
-      }
       const sub = createElement('span', 'git-switcher__sub text-truncate');
       sub.append(createElement('span', 'git-switcher__head',
         v.tree.branch && !v.tree.detached ? v.tree.branch : t('{sha} detached', { sha: v.tree.head.slice(0, 7) })));
@@ -117,8 +111,11 @@ export function openWorktreeSwitcher(anchor, fallback, host) {
     const follow = button('git-switcher__act', 'follow');
     follow.setAttribute('role', 'menuitemcheckbox');
     follow.setAttribute('aria-checked', String(host.following()));
-    follow.append(createElement('span', '', t('Follow the conversation’s workspace')),
-      createElement('span', 'git-switcher__check', host.following() ? '✓' : ''));
+    // The tick stands where the other actions' icons stand; a fixed-width
+    // gutter keeps the label in line with theirs while it is off.
+    const check = createElement('span', 'git-switcher__check');
+    if (host.following()) check.append(icon('check'));
+    follow.append(check, document.createTextNode(t('Follow the conversation’s workspace')));
     follow.addEventListener('click', () => {
       closePopover();
       host.toggleFollow();

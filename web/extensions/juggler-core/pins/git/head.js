@@ -12,7 +12,8 @@
  * its upstream — with a struck-through cloud when the fetch made unasked
  * failed — how many files are changed, and Refresh; then, at the right, the
  * commands a wide pin has room for (Fetch, Pull, Push, Stash, Branch), the
- * primary action and the ⋯ menu. A running write spins in the button that
+ * primary action — ahead of the commands when it is Fetch, so Fetch always
+ * stands before Pull — and the ⋯ menu. A running write spins in the button that
  * started it, which stays where it is. Refresh is the line's one spinner
  * besides: it turns for its own read, for the unasked fetch and for a running
  * write — which its tooltip describes, and a click on it then stops — so the
@@ -347,6 +348,16 @@ export function createHead() {
       primary.classList.toggle('btn-primary', action.tone === 'primary');
       primary.classList.toggle('btn-ghost', action.tone !== 'primary');
       primary.classList.toggle('git-pin__primary--spin', Boolean(action.spin));
+      // Fetch as the primary is the idle line's offer, not a call to act: it
+      // stands first, where the Fetch command stands, ahead of Pull and Push.
+      // Focus is carried across the move, which would otherwise drop it.
+      const leads = action.kind === 'fetch';
+      if (leads !== (primary.nextElementSibling === commands)) {
+        const focused = document.activeElement === primary;
+        if (leads) commands.before(primary);
+        else commands.after(primary);
+        if (focused) primary.focus();
+      }
       primary.disabled = action.disabled;
       primary.dataset.kind = action.kind;
       primary.title = action.title || '';

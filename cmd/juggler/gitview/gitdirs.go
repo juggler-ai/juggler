@@ -51,6 +51,27 @@ func gitDirsOf(ctx context.Context, dir string) (gitDir, commonDir string, err e
 	return GitDirs(ctx, dir)
 }
 
+// mainTreePath names the main working tree that git listed at path, in the
+// repository whose common git directory is common. git lists a main tree that
+// core.worktree places — every submodule's — by its git directory, in
+// `worktree list` and in for-each-ref's worktreepath alike; that is resolved to
+// the tree core.worktree names. Any other path, and a bare repository's, is
+// returned as it is.
+func mainTreePath(ctx context.Context, common, path string) string {
+	if path != common {
+		return path
+	}
+	out, err := gitRead(ctx, common, clocks.Status.PerCmd, 64*1024, "--git-dir", common, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return path
+	}
+	top := strings.TrimSpace(string(out.Kept))
+	if top == "" {
+		return path
+	}
+	return resolvedPath(top)
+}
+
 // resolveGitDir makes one directory rev-parse printed absolute and real. git
 // prints it relative to the directory it ran in, or absolute.
 func resolveGitDir(dir, printed string) (string, error) {

@@ -129,7 +129,7 @@ func ReadRefs(ctx context.Context, root, repo string) (Refs, error) {
 		}
 		b.Ahead, b.Behind, b.Gone = parseTrack(l.track)
 		if l.worktree != "" {
-			b.Worktree = resolvedPath(l.worktree)
+			b.Worktree = mainTreePath(ctx, common, resolvedPath(l.worktree))
 		}
 		r.Branches = append(r.Branches, b)
 	}

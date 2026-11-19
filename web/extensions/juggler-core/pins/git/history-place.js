@@ -70,7 +70,7 @@
 import { formatDate, markForTranslation, translator } from 'juggler/i18n';
 import { contextMenuFor, copyToClipboard, createElement, createReviewPanel, errorText, openMenuAt } from 'juggler/ui';
 import { createActions, menuRows } from './actions.js';
-import { graphCell } from './graph-cell.js';
+import { graphCell, wipCell } from './graph-cell.js';
 import { createHistoryList, ROW_PX } from './history-list.js';
 import { createMenuSelect } from './menu-select.js';
 import { chipIndex, detailActions, menuFor, scopeGroups, scopeQuery } from './history-model.js';
@@ -214,6 +214,8 @@ export function createHistoryPlace(host) {
   let chips = new Map();
   /** The viewed tree's HEAD, drawn as a ring. */
   let headSha = '';
+  /** Whether the working tree's changes are shown above the list, joined to HEAD's row when it is the first. */
+  let wipShown = false;
   /** @type {import('./history-model.js').ScopeKey} */
   let scope = DEFAULT_SCOPE;
   let listError = '';
@@ -342,16 +344,17 @@ export function createHistoryPlace(host) {
 
   /**
    * @param {PinGitLogRow} row - The commit.
-   * @param {number} _index - Its position.
+   * @param {number} index - Its position.
    * @param {{entering: number[], columns: number, cap: number}} graph - Its lanes.
    * @returns {HTMLElement} Its row.
    */
-  const buildRow = (row, _index, graph) => {
+  const buildRow = (row, index, graph) => {
     const el = createElement('div', 'git-history__row');
     el.setAttribute('role', 'option');
     if (row.sha === marked) el.classList.add('git-history__row--marked');
     if (list.state().graphed) {
-      el.append(graphCell(graph.entering, row, { cap: graph.cap, columns: graph.columns, height: ROW_PX, head: row.sha === headSha }));
+      const head = row.sha === headSha;
+      el.append(graphCell(graph.entering, row, { cap: graph.cap, columns: graph.columns, height: ROW_PX, head, wip: head && index === 0 && wipShown }));
     }
     const subject = createElement('span', 'git-history__subject text-truncate');
     // The commit checked out here: its branch's chip is the filled one, and
@@ -387,6 +390,7 @@ export function createHistoryPlace(host) {
     onPage: () => {
       listError = '';
       renderNote();
+      renderWip();
     },
   });
   list.element.setAttribute('aria-label', t('History'));
@@ -395,16 +399,32 @@ export function createHistoryPlace(host) {
 
   // The working tree's changes, as the row above the list: shown while it is
   // every ref or what HEAD reaches, unfiltered — the lists the checked-out
-  // commit is in, near the top.
+  // commit is in, near the top. Its ring sits on the graph's grid in HEAD's
+  // lane, and while HEAD is the first row a stem joins the two, as the next
+  // commit in line; the stem goes once the list scrolls from under it.
   const wip = /** @type {HTMLButtonElement} */ (createElement('button', 'git-history__wip'));
   wip.type = 'button';
   wip.hidden = true;
   wip.addEventListener('click', () => host.showChanges());
+  list.element.addEventListener('scroll', () => {
+    wip.classList.toggle('git-history__wip--scrolled', list.element.scrollTop > 0);
+  }, { passive: true });
   const renderWip = () => {
     const count = host.dirtyCount() || 0;
-    wip.hidden = !count || (scope !== 'head' && scope !== 'all') || Boolean(applied.text);
-    if (wip.hidden) return;
-    wip.replaceChildren(createElement('span', 'git-history__wip-dot'),
+    const shown = Boolean(count) && (scope === 'head' || scope === 'all') && !applied.text;
+    wip.hidden = !shown;
+    if (shown !== wipShown) {
+      wipShown = shown;
+      if (headSha && list.state().loaded) list.redraw([headSha]);
+    }
+    if (!shown) return;
+    const s = list.state();
+    const top = list.rowAt(0);
+    const joined = s.graphed && top?.sha === headSha;
+    const cell = wipCell({
+      lane: joined && top ? top.lane : 0, cap: s.cap || cap(), columns: s.graphed ? s.columns : 1, height: ROW_PX - 1, joined,
+    });
+    wip.replaceChildren(cell,
       createElement('span', 'git-history__wip-text', t('Uncommitted changes')),
       createElement('span', 'git-history__wip-count', t('{count, plural, one {# file} other {# files}}', { count })),
       createElement('span', 'git-history__wip-go', t('Show in Changes')));
@@ -546,6 +566,7 @@ export function createHistoryPlace(host) {
     headSha = nextHead;
     renderScopes();
     if (changed.size) list.redraw(changed);
+    renderWip();
     renderDetail();
   };
   // A reader is still busy while it hands over its answer: the check waits until it is not.

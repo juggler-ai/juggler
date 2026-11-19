@@ -1634,13 +1634,13 @@ export function injectGitClientStyles() {
   overflow: auto;
 }
 
-/* The working tree's changes, as the row above HEAD: a hollow ring in the
-   graph's first lane, where the next commit will go. */
+/* The working tree's changes, as the row above HEAD: a hollow ring on the
+   graph's grid in HEAD's lane, where the next commit will go. Its padding and
+   its text's match a commit row's, so ring and text line up with theirs. */
 .git-history__wip {
   flex: none;
   display: flex;
   align-items: center;
-  gap: var(--space-6);
   min-width: 0;
   height: 1.625rem;
   padding: 0 var(--space-6) 0 var(--space-2);
@@ -1661,21 +1661,33 @@ export function injectGitClientStyles() {
   background: color-mix(in srgb, var(--accent-yellow) 18%, transparent);
 }
 
-.git-history__wip-dot {
-  flex: none;
-  box-sizing: border-box;
-  width: 0.625rem;
-  height: 0.625rem;
-  margin: 0 var(--space-6);
-  border: var(--space-2) solid var(--accent-yellow);
-  border-radius: 50%;
+.git-history__wip .git-graph {
+  overflow: visible;
+}
+
+.git-graph__dot--wip {
+  fill: var(--bg-secondary);
+  stroke: var(--accent-yellow);
+  stroke-width: 2.2;
+}
+
+/* Dashed: a commit still to come. */
+.git-graph__wip-stem,
+.git-graph__in--wip {
+  stroke-dasharray: 2.5 2;
+}
+
+.git-history__wip--scrolled .git-graph__wip-stem {
+  visibility: hidden;
 }
 
 .git-history__wip-text {
+  padding-inline-start: var(--space-4);
   font-style: italic;
 }
 
 .git-history__wip-count {
+  margin-inline-start: var(--space-6);
   font-size: var(--font-size-xs);
   color: var(--text-secondary);
 }
@@ -2156,8 +2168,8 @@ export function injectGitClientStyles() {
   color: var(--text-primary);
   background: none;
   border: 0;
-  border-radius: var(--radius-md);
-  padding: var(--space-4) var(--space-6);
+  border-radius: var(--radius-menu-item);
+  padding: var(--menu-item-padding-block) var(--menu-item-padding-inline);
   cursor: pointer;
 }
 
@@ -2178,8 +2190,21 @@ export function injectGitClientStyles() {
   background: var(--wash-1);
 }
 
+/* The tree in view, filled as every picker's chosen row is (patterns/menus.css
+   .menu-item-selected); its muted greys and yellow would be unreadable on the
+   accent, so they take the accent's own text colour. */
 .git-switcher__tree[aria-current="true"] {
-  background: var(--selection-bg);
+  color: var(--text-on-accent);
+  background: var(--accent-blue);
+}
+
+.git-switcher__tree[aria-current="true"]:hover {
+  background: var(--accent-blue-strong);
+}
+
+.git-switcher__tree[aria-current="true"] .git-switcher__mark,
+.git-switcher__tree[aria-current="true"] .git-switcher__sub {
+  color: color-mix(in srgb, var(--text-on-accent) 75%, transparent);
 }
 
 .git-switcher__line {
@@ -2200,11 +2225,6 @@ export function injectGitClientStyles() {
   color: var(--accent-yellow);
 }
 
-.git-switcher__viewing {
-  display: inline-flex;
-  color: var(--accent-blue);
-}
-
 .git-switcher__sub {
   display: flex;
   gap: var(--space-6);
@@ -2223,9 +2243,13 @@ export function injectGitClientStyles() {
   gap: var(--space-2);
 }
 
+/* A checkbox row's leading tick, in a gutter as wide as the other rows' icons
+   so the labels line up whether it is on or off. It is drawn in the row's own
+   colour, as the model picker's tick is. */
 .git-switcher__check {
-  margin-left: auto;
-  color: var(--accent-blue);
+  display: inline-flex;
+  flex: none;
+  width: 1em;
 }
 
 .git-switcher__sep {

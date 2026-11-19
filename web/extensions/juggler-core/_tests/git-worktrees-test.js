@@ -102,7 +102,8 @@ export async function runTests(_ctx) {
     assert(wsText.includes('feat') && wsText.includes('?') && wsText.includes('Tunnels'), `workspace tree: ${wsText}`);
     const acts = [...switcher.querySelectorAll('.git-switcher__act')].map((a) => a.getAttribute('data-act'));
     assert(JSON.stringify(acts) === '["branch","new","follow"]', `actions: ${JSON.stringify(acts)}`);
-    assert((switcher.querySelector('[data-act="follow"]')?.textContent || '').includes('✓'), 'following is ticked');
+    const ticked = switcher.querySelector('[data-act="follow"]');
+    assert(ticked?.getAttribute('aria-checked') === 'true' && Boolean(ticked.querySelector('.git-switcher__check svg')), 'following is ticked');
     m.teardown();
   });
 
@@ -206,7 +207,7 @@ export async function runTests(_ctx) {
     const m = await mounted({ config: { workspace: 'wt:plain', follow: false } });
     let switcher = await openSwitcher(m);
     const follow = /** @type {HTMLElement} */ (switcher.querySelector('[data-act="follow"]'));
-    assert(!(follow.textContent || '').includes('✓'), `not ticked while pinned: ${follow.textContent}`);
+    assert(follow.getAttribute('aria-checked') === 'false' && !follow.querySelector('.git-switcher__check svg'), `not ticked while pinned: ${follow.outerHTML}`);
     follow.click();
     for (let i = 0; i < 6; i++) await nextTask();
     const following = m.configs().at(-1);

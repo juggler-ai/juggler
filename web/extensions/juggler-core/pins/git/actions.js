@@ -71,11 +71,11 @@ export function menuRows(items, choose) {
     if (item.header) return { label: item.label, disabled: true };
     let label = item.label || '';
     if (item.disabled && item.hint) label = t('{label} — {hint}', { label, hint: item.hint });
-    if (item.checked) label = t('{label} ✓', { label });
     return {
       label,
       disabled: item.disabled,
       danger: item.danger,
+      checked: item.checked,
       onClick: () => { if (item.action) choose(item.action); },
     };
   });

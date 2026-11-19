@@ -92,15 +92,48 @@ function stroke(cls, d, lane) {
 }
 
 /**
+ * The working tree's changes, as a cell on the graph's grid: a ring in HEAD's
+ * lane, and, when `joined`, a stem from it to the cell's bottom, which HEAD's
+ * row carries on (`graphCell`'s `wip`) — the changes as the next commit in line.
+ * @param {{lane: number, cap: number, columns: number, height: number, joined: boolean}} options -
+ *   HEAD's lane, the most lanes drawn, the cell's columns, its height in px,
+ *   and whether the stem is drawn.
+ * @returns {SVGSVGElement} The cell.
+ */
+export function wipCell({ lane, cap, columns, height, joined }) {
+  const svg = /** @type {SVGSVGElement} */ (document.createElementNS(SVG, 'svg'));
+  svg.setAttribute('class', 'git-graph git-graph--wip');
+  const last = Math.max(0, Math.min(cap, columns) - 1);
+  const at = Math.min(lane, last);
+  svg.setAttribute('width', String(Math.max(columns, at + 1) * LANE_PX));
+  svg.setAttribute('height', String(height));
+  svg.setAttribute('aria-hidden', 'true');
+  const xc = LANE_PX / 2 + at * LANE_PX;
+  const mid = height / 2;
+  if (joined && lane <= last) {
+    // On past the bottom: the row's border lies between this cell and HEAD's.
+    svg.append(stroke('git-graph__wip-stem', `M${xc},${mid} V${height + 2}`, lane));
+  }
+  const ring = /** @type {SVGCircleElement} */ (document.createElementNS(SVG, 'circle'));
+  ring.setAttribute('class', 'git-graph__dot git-graph__dot--wip');
+  ring.setAttribute('cx', String(xc));
+  ring.setAttribute('cy', String(mid));
+  ring.setAttribute('r', '4');
+  svg.append(ring);
+  return svg;
+}
+
+/**
  * One row's cell.
  * @param {number[]} entering - The lanes entering the row.
  * @param {{lane: number, out: number[]}} row - The row.
- * @param {{cap: number, columns: number, height: number, head: boolean}} options -
- *   The most lanes drawn, the cell's columns, its height in px, and whether
- *   the row is the viewed tree's HEAD (a ring rather than a dot).
+ * @param {{cap: number, columns: number, height: number, head: boolean, wip?: boolean}} options -
+ *   The most lanes drawn, the cell's columns, its height in px, whether
+ *   the row is the viewed tree's HEAD (a ring rather than a dot), and whether
+ *   the working tree's changes sit right above it (a stem in from the top).
  * @returns {SVGSVGElement} The cell.
  */
-export function graphCell(entering, row, { cap, columns, height, head }) {
+export function graphCell(entering, row, { cap, columns, height, head, wip = false }) {
   const svg = /** @type {SVGSVGElement} */ (document.createElementNS(SVG, 'svg'));
   svg.setAttribute('class', 'git-graph');
   svg.setAttribute('width', String(columns * LANE_PX));
@@ -124,6 +157,8 @@ export function graphCell(entering, row, { cap, columns, height, head }) {
   }
   if (entering.includes(row.lane) && !over) {
     svg.append(stroke('git-graph__in', `M${xc},0 V${mid}`, row.lane));
+  } else if (wip && !over) {
+    svg.append(stroke('git-graph__in git-graph__in--wip', `M${xc},0 V${mid}`, row.lane));
   }
   for (const j of row.out) {
     if (over && j > last) continue;

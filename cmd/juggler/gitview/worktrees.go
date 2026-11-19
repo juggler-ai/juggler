@@ -92,6 +92,11 @@ func ListWorktrees(ctx context.Context, root, repo string) (Worktrees, error) {
 		return Worktrees{}, err
 	}
 	w := Worktrees{Repo: RepoPath(root, dir), Trees: parseWorktreeList(string(out.Kept))}
+	if len(w.Trees) > 0 && w.Trees[0].Main {
+		if _, common, err := gitDirsOf(ctx, dir); err == nil {
+			w.Trees[0].Path = mainTreePath(ctx, common, w.Trees[0].Path)
+		}
+	}
 	here := resolvedPath(dir)
 	for i := range w.Trees {
 		w.Trees[i].Current = w.Trees[i].Path == here

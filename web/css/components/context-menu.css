@@ -15,4 +15,26 @@
 .juggler-context-menu {
     z-index: var(--z-toast);
 }
+
+/* A checkbox row's leading tick, in a fixed-width gutter every row of the menu
+   carries, ticked or not, so the labels line up. The tick alone says the row
+   is on: a ticked row keeps the plain row colour, as the model picker's does,
+   rather than the accent patterns/menus.css gives [aria-checked] rows. */
+.juggler-context-menu .menu-item[aria-checked="true"] {
+    color: var(--text-primary);
+}
+
+.juggler-context-menu__check {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 0.875rem;
+}
+
+.juggler-context-menu__check svg {
+    width: 0.875rem;
+    height: 0.875rem;
+    fill: currentcolor;
+}
 }

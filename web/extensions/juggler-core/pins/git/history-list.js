@@ -82,7 +82,8 @@ const OVERSCAN = 15;
  * @property {() => {index: number, row: PinGitLogRow|null}} selected - The selection.
  * @property {(index: number) => PinGitLogRow|null} rowAt - A held row.
  * @property {(sha: string) => number} indexOf - Where a held commit is, or -1.
- * @property {() => {total: number, loaded: boolean, graphed: boolean}} state - What is known of the list.
+ * @property {() => {total: number, loaded: boolean, graphed: boolean, columns: number, cap: number}} state -
+ *   What is known of the list, and the graph's columns and width as its rows are drawn.
  * @property {(shas?: Iterable<string>) => void} redraw - Build rows in view again (what decorates
  *   them changed): those of these commits, or every one.
  */
@@ -429,7 +430,7 @@ export function createHistoryList(options) {
     selected: () => ({ index: selectedIndex, row: selectedIndex >= 0 ? rowAt(selectedIndex) : null }),
     rowAt,
     indexOf,
-    state: () => ({ total: known(), loaded, graphed }),
+    state: () => ({ total: known(), loaded, graphed, columns, cap }),
     redraw: (shas) => {
       if (shas) for (const sha of shas) versions.set(sha, (versions.get(sha) || 0) + 1);
       else clearDrawn();

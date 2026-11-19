@@ -68,6 +68,37 @@ func TestReadSubmodules(t *testing.T) {
 	}
 }
 
+// A submodule's git directory lives in its superproject's, and git lists the
+// submodule's main tree — in `worktree list` and for-each-ref's worktreepath —
+// by that directory. Both reads name the checkout instead, so the tree read
+// from is the current one and its branch is checked out there.
+func TestSubmoduleWorktreeIsItsCheckout(t *testing.T) {
+	t.Parallel()
+	p := newGitProject(t)
+	p.write("a.txt", "a\n")
+	p.commit("init")
+	_, tip, branch := addSubmodule(t, p, "deps/lib", "lib")
+	checkout := canonical(t, p.root+"/deps/lib")
+
+	w, err := ListWorktrees(t.Context(), p.root, "deps/lib")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(w.Trees) != 1 || w.Trees[0].Path != checkout || !w.Trees[0].Current || w.Trees[0].Head != tip {
+		t.Errorf("trees = %+v, want the one at %s, current, at %s", w.Trees, checkout, tip)
+	}
+
+	r, err := ReadRefs(t.Context(), p.root, "deps/lib")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range r.Branches {
+		if b.Name == branch && b.Worktree != checkout {
+			t.Errorf("branch %s is checked out at %q, want %s", branch, b.Worktree, checkout)
+		}
+	}
+}
+
 func TestReadSubmodulesOfARepositoryWithNone(t *testing.T) {
 	t.Parallel()
 	p := newGitProject(t)

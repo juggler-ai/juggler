@@ -447,13 +447,16 @@ export function injectGitClientStyles() {
 /* The toast has one home: the right end of the switcher's row, over the
    row's empty end and never over a place's actions, so it is always where
    it was last time and never in front of the button the user wants next.
-   It floats there, so showing it moves nothing. */
+   It floats there, so showing it moves nothing. It stands above everything
+   else in the pin — the places' sticky crumbs and split handles are raised
+   too, and come later — so a failure hanging down over a place is not drawn
+   behind it. */
 .git-pin__toast {
   position: absolute;
   right: var(--pane-inset);
   top: 50%;
   transform: translateY(-50%);
-  z-index: var(--z-raised);
+  z-index: var(--z-controls);
   display: flex;
   align-items: center;
   gap: var(--space-10);
@@ -591,12 +594,16 @@ export function injectGitClientStyles() {
   overflow: auto;
 }
 
+/* A file's diff, and an untracked file's whole content, are inset from the
+   detail's edges: a diff viewer has its own border and shadow, and a file
+   viewer may draw its content right up to its edge. */
 .git-changes__viewer,
 .git-changes__file {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   min-height: 0;
+  padding: var(--space-8);
 }
 
 .git-changes__viewer diff-viewer {
@@ -717,8 +724,13 @@ export function injectGitClientStyles() {
 }
 
 /* Full: beside Changes and History, the Refs list as a sidebar — its detail is
-   what the place it is beside shows. Its tab gives way to it there. */
+   what the place it is beside shows. Refs is never a place of its own there
+   (git-pin's placeFor), so it has no tab beside any place. */
 @container git-pin (width > 60rem) {
+  .git-pin__place-btn[data-place="refs"] {
+    display: none;
+  }
+
   .git-pin[data-place="changes"] .git-refs,
   .git-pin[data-place="history"] .git-refs {
     position: relative;
@@ -744,9 +756,7 @@ export function injectGitClientStyles() {
   .git-pin[data-place="changes"] .git-refs__detail,
   .git-pin[data-place="history"] .git-refs__detail,
   .git-pin[data-place="changes"] .git-refs__chip--conv,
-  .git-pin[data-place="history"] .git-refs__chip--conv,
-  .git-pin[data-place="changes"] .git-pin__place-btn[data-place="refs"],
-  .git-pin[data-place="history"] .git-pin__place-btn[data-place="refs"] {
+  .git-pin[data-place="history"] .git-refs__chip--conv {
     display: none;
   }
 }

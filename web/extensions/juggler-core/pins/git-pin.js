@@ -666,7 +666,6 @@ class GitPin extends PinboardItemType {
     /** @type {import('juggler/pinboard-item-type').PinGitReview|null} The pinned tree's last repository list. */
     let pinnedReview = null;
     const toast = createToast();
-    const log = createCommandLog();
     /** @returns {import('juggler/pinboard-item-type').PinGitStatus|null} The visible tree's status. */
     const status = () => {
       try {
@@ -677,6 +676,7 @@ class GitPin extends PinboardItemType {
     };
     const treeRoot = () => (isPinned(config) ? (pinnedReview?.root || review?.root) : status()?.root)
       || context.active?.project?.path || '';
+    const log = createCommandLog({ repoName: (repo) => repoLabel(treeRoot(), repo) });
     /** @returns {string} The tree's identity: the pinned workspace, or the one in view. */
     const treeKey = () => (isPinned(config) ? pinnedWorkspace(config) : status()?.workspace || '');
     const head = createHead();
@@ -1394,6 +1394,18 @@ class GitPin extends PinboardItemType {
     let sidebarWasShown = false;
     /** @returns {boolean} Whether the Refs list is on screen as the sidebar: a full pin, beside Changes or History. */
     const sidebarShown = () => measureMode(root) === 'full' && BESIDE_SIDEBAR.has(place);
+    /**
+     * The place shown for the one chosen. A full pin shows Refs only as the
+     * sidebar, so Refs chosen there is the place beside it — the one shown, if
+     * it has the sidebar, else History — while the config keeps Refs, which a
+     * narrower pin shows again.
+     * @param {PlaceId} chosen - The place asked for.
+     * @returns {PlaceId} The place to show.
+     */
+    const placeFor = (chosen) => {
+      if (chosen !== 'refs' || measureMode(root) !== 'full') return chosen;
+      return BESIDE_SIDEBAR.has(place) ? place : 'history';
+    };
     const syncMode = () => {
       const mode = measureMode(root);
       if (root.dataset.mode !== mode) root.dataset.mode = mode;
@@ -1407,7 +1419,13 @@ class GitPin extends PinboardItemType {
       sidebarWasShown = sidebar;
     };
     const resizes = new ResizeObserver(() => {
-      if (live) syncMode();
+      if (!live) return;
+      // Refs, chosen, becomes the sidebar's neighbour as the pin widens to
+      // full, and Refs again as it narrows.
+      const chosen = placeOf(config);
+      const shown = chosen === 'refs' ? placeFor('refs') : place;
+      if (shown !== place) showPlace(shown);
+      else syncMode();
     });
     resizes.observe(root);
 
@@ -1425,10 +1443,12 @@ class GitPin extends PinboardItemType {
     absence.set('window', document.hidden);
 
     /**
-     * @param {PlaceId} next - The place to show.
+     * @param {PlaceId} chosen - The place to show; a full pin shows another for
+     *   Refs (placeFor).
      * @param {boolean} [save] - Whether the user chose it, so it is remembered.
      */
-    const showPlace = (next, save = false) => {
+    const showPlace = (chosen, save = false) => {
+      const next = placeFor(chosen);
       place = next;
       root.dataset.place = next;
       const table = /** @type {Record<PlaceId, PinPlace>} */ (places);
@@ -1441,7 +1461,7 @@ class GitPin extends PinboardItemType {
       syncLevel();
       syncMode();
       table[next].shown();
-      if (save && config.place !== next) writeInPlace({ ...config, place: next }, 'place');
+      if (save && config.place !== chosen) writeInPlace({ ...config, place: chosen }, 'place');
     };
 
     root.addEventListener('keydown', (event) => {
@@ -1489,7 +1509,7 @@ class GitPin extends PinboardItemType {
           else if (reviewRead) void refresh();
           if (rescoped) return;
         }
-        if (isPlace(config.place) && config.place !== place) showPlace(config.place);
+        if (isPlace(config.place) && placeFor(config.place) !== place) showPlace(config.place);
         syncControls();
         render();
       },

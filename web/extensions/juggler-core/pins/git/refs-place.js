@@ -32,11 +32,11 @@
  *
  * **Layout** is the Changes place's: list and detail side by side from 34rem,
  * one at a time below it, the place's `data-level` saying which. A full-width
- * pin also shows the list alone beside Changes and History, as a sidebar,
- * where a row's click goes to what it names rather than to its detail: a
- * worktree is viewed, a branch, remote branch or tag shown in History, and
- * anything else opened here. Double-clicking a branch, in either, checks it
- * out.
+ * pin never shows this place: it shows the list alone beside Changes and
+ * History, as a sidebar, where a row's click goes to what it names rather than
+ * to its detail: a worktree is viewed, a branch, remote branch or tag shown in
+ * History, a stash's changes reviewed, and a submodule opened as the
+ * repository. Double-clicking a branch, in either, checks it out.
  *
  * **The filter** (`/`, pins/git/list-filter) narrows the list to the rows
  * whose name holds its text (refs-model's `rowName`); a section with none left
@@ -87,7 +87,8 @@ const t = translator('@juggler/core');
  * @property {(target: {sha: string, stash?: string}) => void} showHistory - Select a
  *   commit in History; a stash (named by its message) as a history of its own.
  * @property {() => void} showChanges - Bring Changes forward.
- * @property {() => void} showRefs - Bring this place forward.
+ * @property {() => void} showRefs - Bring this place forward; in a full pin,
+ *   the place the list is a sidebar beside.
  * @property {() => void} levelChanged - The place's `data-level` changed.
  * @property {(e: any) => boolean} treeGone - A read failed: true when it was the
  *   pinned tree going away, which the pin has handled.
@@ -968,10 +969,13 @@ export function createRefsPlace(host) {
   };
 
   /**
-   * A sidebar row was clicked: go to what it names.
+   * A sidebar row was clicked: go to what it names. A stash's changes are
+   * reviewed and a submodule is opened as the repository, so nothing in the
+   * sidebar leads to the Refs place, which a full pin never shows.
    * @param {string} key - The row.
+   * @param {Element} anchor - The row's element.
    */
-  const pick = (key) => {
+  const pick = (key, anchor) => {
     const row = rowOf(state(), key);
     if (!row) return;
     switch (row.ctx) {
@@ -981,9 +985,8 @@ export function createRefsPlace(host) {
       case 'branch': host.showHistory({ sha: row.entity.sha }); break;
       case 'remote': host.showHistory({ sha: row.entity.branch.sha }); break;
       case 'tag': host.showHistory({ sha: row.entity.target }); break;
-      default:
-        host.showRefs();
-        select(key, true);
+      case 'stash': act({ type: 'view-stash', stash: row.entity.sha }, anchor); break;
+      case 'submodule': act({ type: 'open-repo', path: row.entity.path }, anchor); break;
     }
   };
 
@@ -1014,7 +1017,7 @@ export function createRefsPlace(host) {
       // The row is marked as the one last acted on, as a right-click marks it,
       // so the mark follows the pointer rather than staying where a menu left it.
       select(key);
-      pick(key);
+      pick(key, row);
     } else {
       select(key, true);
     }

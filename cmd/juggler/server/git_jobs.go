@@ -489,7 +489,7 @@ func (h *gitJobHub) finish(s *Server, run *gitJobRun, res gitops.Result, err err
 // describeGitJobError says why a job failed, and which of gitops's refusals
 // it was, if any.
 func describeGitJobError(j *gitJob, err error) {
-	j.Error = err.Error()
+	j.Error = gitops.FailureText(err)
 	j.ErrorMessage = handlers.ErrorMessage(err)
 	var refused *gitops.RefusedError
 	var stale *gitops.StaleError

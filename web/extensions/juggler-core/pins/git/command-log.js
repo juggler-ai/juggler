@@ -8,6 +8,8 @@
  * what a failed one printed. Closed it is one line — the last command — and a
  * click opens it; it starts from the tree's `jobs()` and is kept current by the
  * `git-job` events the pin hears. A network write shows its meter's last phase.
+ * The jobs are the whole tree's, whichever repository the pin is showing, so
+ * each command is prompted with the name of the repository it ran in.
  * @module pins/git/command-log
  */
 
@@ -22,6 +24,9 @@ const KEEP = 100;
 
 /**
  * @typedef {import('juggler/pinboard-item-type').PinGitJob} PinGitJob
+ * @typedef {object} CommandLogOptions
+ * @property {(repo: string) => string} repoName - A repository's name, by its
+ *   path in the tree ('' for its root).
  * @typedef {object} CommandLog
  * @property {HTMLElement} element - The strip, to be placed in the pin.
  * @property {(jobs: PinGitJob[]) => void} setJobs - Start from these, newest first.
@@ -40,9 +45,10 @@ function stateWord(state) {
 }
 
 /**
+ * @param {CommandLogOptions} options - How to name a job's repository.
  * @returns {CommandLog} A closed, empty log.
  */
-export function createCommandLog() {
+export function createCommandLog({ repoName }) {
   const element = createElement('div', 'git-pin__log');
   const toggleButton = /** @type {HTMLButtonElement} */ (createElement('button', 'git-pin__log-toggle text-truncate'));
   toggleButton.type = 'button';
@@ -56,15 +62,19 @@ export function createCommandLog() {
 
   /**
    * @param {PinGitJob} job - A job.
-   * @returns {string[]} Its commands as typed.
+   * @returns {string[]} Its commands as typed, each at its repository's prompt.
    */
-  const commandLines = (job) => (job.commands || []).map((argv) => `$ git ${argv.join(' ')}`);
+  const commandLines = (job) => {
+    const prompt = `${repoName(job.repo || '')} $`;
+    const commands = (job.commands || []).map((argv) => `${prompt} git ${argv.join(' ')}`);
+    return commands.length ? commands : [`${prompt} ${job.kind}`];
+  };
 
   const render = () => {
     const open = toggleButton.getAttribute('aria-expanded') === 'true';
     const last = jobs.at(-1);
     toggleButton.textContent = last
-      ? (commandLines(last).at(-1) || `$ ${last.kind}`)
+      ? commandLines(last).at(-1) || ''
       : t('The git commands this pin runs appear here');
     toggleButton.title = open ? t('Hide the command log') : t('Show every git command this pin ran');
     list.hidden = !open;
@@ -72,8 +82,7 @@ export function createCommandLog() {
     list.replaceChildren(...jobs.map((job) => {
       const entry = createElement('div', 'git-pin__log-entry');
       entry.dataset.state = job.state;
-      const commands = commandLines(job);
-      entry.append(createElement('div', 'git-pin__log-cmd', commands.length ? commands.join('\n') : `$ ${job.kind}`));
+      entry.append(createElement('div', 'git-pin__log-cmd', commandLines(job).join('\n')));
       entry.append(createElement('div', 'git-pin__log-state', stateWord(job.state)));
       const progress = progressText(job.progress);
       if (progress) entry.append(createElement('div', 'git-pin__log-progress', progress));

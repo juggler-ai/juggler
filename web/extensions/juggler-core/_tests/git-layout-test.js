@@ -79,6 +79,25 @@ export async function runTests(_ctx) {
     }
   });
 
+  await test('a full pin never shows Refs as a place or a tab: Refs chosen is History with the sidebar', async () => {
+    for (const place of ['refs', 'review']) {
+      const m = mountPin(pin, { place, changes: changesOf([staged]), width: '70rem' });
+      try {
+        const tab = /** @type {HTMLElement} */ (m.body.querySelector('.git-pin__place-btn[data-place="refs"]'));
+        assert(getComputedStyle(tab).display === 'none', `${place}: no Refs tab`);
+        const shown = rootOf(m).dataset.place;
+        assert(shown === (place === 'refs' ? 'history' : 'review'), `${place} shows ${shown}`);
+        if (place === 'refs') {
+          assert(getComputedStyle(refsPlace(m)).display !== 'none', 'with the Refs sidebar beside it');
+          // Chosen, not shown: a narrower pin goes back to the Refs place.
+          assert(m.configWrites().every((/** @type {any} */ w) => w.config.place !== 'history'), 'and Refs stays the place chosen');
+        }
+      } finally {
+        m.teardown();
+      }
+    }
+  });
+
   await test('a full pin reads the Refs sidebar beside Changes; a split one leaves Refs unread', async () => {
     const wide = mountPin(pin, { place: 'changes', changes: changesOf([staged]), width: '70rem' });
     const narrow = mountPin(pin, { place: 'changes', changes: changesOf([staged]), width: '48rem' });
@@ -95,7 +114,7 @@ export async function runTests(_ctx) {
     }
   });
 
-  await test('a click in the sidebar shows a branch in History, views a worktree, and opens a stash in Refs', async () => {
+  await test('a click in the sidebar shows a branch in History, views a worktree, and reviews a stash', async () => {
     const tip = shaOf(7);
     const stash = shaOf(8);
     const m = mountPin(pin, {
@@ -124,8 +143,9 @@ export async function runTests(_ctx) {
       // The tree it now views is read afresh, sidebar and all.
       await waitFor(() => row(`st:${stash}`), 'the new tree\'s sidebar');
       click(`st:${stash}`);
-      assert(rootOf(m).dataset.place === 'refs', `a stash opens Refs: ${rootOf(m).dataset.place}`);
-      assert(row(`st:${stash}`)?.getAttribute('aria-selected') === 'true', 'with it selected');
+      assert(rootOf(m).dataset.place === 'review', `a stash opens Review: ${rootOf(m).dataset.place}`);
+      const scoped = m.configWrites().map((/** @type {any} */ w) => w.config.scope).filter(Boolean);
+      assert(scoped.includes(`${stash}^1..${stash}`), `on the stash's changes: ${JSON.stringify(scoped)}`);
     } finally {
       m.teardown();
     }

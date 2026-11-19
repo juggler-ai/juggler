@@ -5,10 +5,62 @@
 package gitops
 
 import (
+	"errors"
+	"strings"
 	"time"
 
+	"juggler/cmd/juggler/gitcmd"
 	"juggler/cmd/juggler/msg"
 )
+
+// failureLines is how many of git's last lines FailureText keeps: a pre-push
+// hook that runs a test suite can print thousands, and its verdict is last.
+const failureLines = 40
+
+// FailureText is err's text for the user, with git's own complaint whole where
+// err carries one. A gitcmd.Error says only its first line, and git wraps a
+// reason over several (a push refused for unpushed submodule commits, a hook's
+// reasons), so that line stops mid-sentence. The meter a network write prints
+// is left out, as a terminal would have redrawn over it.
+func FailureText(err error) string {
+	text := err.Error()
+	var failed *gitcmd.Error
+	if !errors.As(err, &failed) || failed.Cancelled {
+		return text
+	}
+	first, whole := failed.Error(), complaint(failed)
+	if whole == "" || !strings.Contains(text, first) {
+		return text
+	}
+	return strings.Replace(text, first, whole, 1)
+}
+
+// complaint is what a failed git said, as a terminal would show it once the
+// meter is gone: its last failureLines lines.
+func complaint(failed *gitcmd.Error) string {
+	for _, out := range []string{failed.Stderr, failed.Output} {
+		var lines []string
+		for line := range strings.Lines(out) {
+			line = strings.TrimRight(line, "\r\n")
+			if frame := strings.LastIndexByte(line, '\r'); frame >= 0 {
+				line = line[frame+1:]
+			}
+			line = strings.TrimRight(strings.ReplaceAll(line, "\x1b[K", ""), " \t")
+			if _, meter := ParseProgress(line); !meter {
+				lines = append(lines, line)
+			}
+		}
+		text := strings.Trim(strings.Join(lines, "\n"), "\n")
+		if text == "" {
+			continue
+		}
+		if kept := strings.Split(text, "\n"); len(kept) > failureLines {
+			text = "…\n" + strings.Join(kept[len(kept)-failureLines:], "\n")
+		}
+		return text
+	}
+	return ""
+}
 
 // The three ways a write is turned down before git has failed at it, told
 // apart by type because each asks something different of the client. Each

@@ -42,10 +42,12 @@ type laneTraceState struct {
 	lanes    map[string]*laneMarks
 	// waiters are waitPolling calls still waiting for their count of lanes.
 	waiters []laneWaiter
-	// gaveUp is when a waitPolling last gave up, after which its caller loads
-	// the pool window again; zero while none has. A lane whose page has not
-	// been served since belongs to the load being replaced (pending).
-	gaveUp time.Time
+	// load counts the waitPolling calls that have given up, after each of which
+	// its caller loads the pool window again. A lane whose page was last served
+	// in an earlier load belongs to the load being replaced (pending). It is a
+	// count, not a time: a coarse clock (Windows') stamps a give-up and the page
+	// served straight after it with the same instant.
+	load int
 }
 
 // laneWaiter is a wait for n distinct lanes to have polled, released by
@@ -102,6 +104,8 @@ func (m *traceMark) hit(now time.Time) {
 // still booting, then its polls.
 type laneMarks struct {
 	page, boot, poll traceMark
+	// load is the state's load its page was last served in.
+	load int
 	// refused counts the polls answered with no work because the lane belongs
 	// to a load being replaced.
 	refused int
@@ -132,7 +136,11 @@ func (lt *laneTrace) servedPool() {
 }
 
 func (lt *laneTrace) servedLanePage(id string) {
-	lt.with(func(s *laneTraceState) { s.lane(id).page.hit(lt.now()) })
+	lt.with(func(s *laneTraceState) {
+		m := s.lane(id)
+		m.page.hit(lt.now())
+		m.load = s.load
+	})
 }
 
 // booting notes a lane's page asking /api/test/booting: its script is running
@@ -158,7 +166,7 @@ func (lt *laneTrace) pending(h http.HandlerFunc) http.HandlerFunc {
 			if m.poll.count == 1 {
 				s.release()
 			}
-			if fenced = !s.gaveUp.IsZero() && !m.page.last.After(s.gaveUp); fenced {
+			if fenced = m.load < s.load; fenced {
 				m.refused++
 				first = m.refused == 1
 			}
@@ -219,7 +227,7 @@ func (lt *laneTrace) waitPolling(n int, quiet time.Duration) bool {
 				released = true // closed between the timer and this
 				return
 			}
-			s.gaveUp = lt.now()
+			s.load++
 		})
 		if left <= 0 {
 			return released

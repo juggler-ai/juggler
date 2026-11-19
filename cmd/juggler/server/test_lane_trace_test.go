@@ -169,6 +169,41 @@ func TestAGivenUpPoolHandsNoWorkToTheLanesBeingReloaded(t *testing.T) {
 	}
 }
 
+// TestALanePageServedOnTheGiveUpsClockTickIsOfTheNewLoad: which load a lane
+// belongs to is decided by order, not by the clock. A clock as coarse as
+// Windows' stamps the give-up and the page served straight after it with the
+// same instant; that page is still of the new load, and its lane is handed work.
+func TestALanePageServedOnTheGiveUpsClockTickIsOfTheNewLoad(t *testing.T) {
+	lt := newLaneTrace()
+	now := time.Unix(1000, 0)
+	lt.now = func() time.Time { return now }
+	lt.after = func(d time.Duration) <-chan time.Time {
+		now = now.Add(d)
+		c := make(chan time.Time, 1)
+		c <- now
+		return c
+	}
+	handed := 0
+	pending := lt.pending(func(http.ResponseWriter, *http.Request) { handed++ })
+	poll := func() {
+		pending(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/test/pending?lane=0", nil))
+	}
+
+	lt.servedLanePage("0")
+	if lt.waitPolling(2, time.Second) {
+		t.Fatal("the wait returned true with one lane polling")
+	}
+	poll()
+	if handed != 0 {
+		t.Fatal("a lane of the given-up load was handed work")
+	}
+	lt.servedLanePage("0") // the clock has not moved since the give-up
+	poll()
+	if handed != 1 {
+		t.Fatal("the lane whose page was served after the give-up was not handed work")
+	}
+}
+
 // TestLaneTraceReportsHowFarEachLaneGot: the pool page, each lane's page and
 // each lane's polls are counted as a test server serves them, and
 // GET /api/test/lanes reports them per lane — with a lane whose page was

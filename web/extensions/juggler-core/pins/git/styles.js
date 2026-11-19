@@ -1693,8 +1693,10 @@ export function injectGitClientStyles() {
   outline: none;
 }
 
+/* The shared ring, inside the row: the scroller clips what is drawn outside it. */
 .git-history__scroll:focus .git-history__row[aria-selected="true"] {
-  box-shadow: inset 0.15rem 0 0 var(--accent-blue);
+  outline: var(--focus-ring);
+  outline-offset: calc(-1 * var(--focus-ring-width));
 }
 
 .git-history__spacer {

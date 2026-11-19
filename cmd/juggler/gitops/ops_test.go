@@ -278,16 +278,22 @@ func TestDiscardsChain(t *testing.T) {
 func TestIgnore(t *testing.T) {
 	t.Parallel()
 	r := committed(t)
-	r.write("logs/a [1]*.log", "x\n")
+	// Every glob character a name may hold must be escaped; Windows forbids `*`
+	// in a file name, leaving it the brackets.
+	name, escaped := "logs/a [1]*.log", "/logs/a \\[1\\]\\*.log"
+	if runtime.GOOS == "windows" {
+		name, escaped = "logs/a [1].log", "/logs/a \\[1\\].log"
+	}
+	r.write(name, "x\n")
 	r.write("#notes.txt", "x\n")
 
-	mustOp(t, r.dir, Op{Kind: OpIgnore, Paths: []string{"logs/a [1]*.log"}, Pattern: IgnoreFile})
+	mustOp(t, r.dir, Op{Kind: OpIgnore, Paths: []string{name}, Pattern: IgnoreFile})
 	mustOp(t, r.dir, Op{Kind: OpIgnore, Paths: []string{"#notes.txt"}, Pattern: IgnoreExtension})
-	mustOp(t, r.dir, Op{Kind: OpIgnore, Paths: []string{"logs/a [1]*.log"}, Pattern: IgnoreFolder})
-	if got := r.read(".gitignore"); got != "/logs/a \\[1\\]\\*.log\n*.txt\n/logs/\n" {
+	mustOp(t, r.dir, Op{Kind: OpIgnore, Paths: []string{name}, Pattern: IgnoreFolder})
+	if got := r.read(".gitignore"); got != escaped+"\n*.txt\n/logs/\n" {
 		t.Errorf(".gitignore = %q", got)
 	}
-	r.git("check-ignore", "-q", "logs/a [1]*.log")
+	r.git("check-ignore", "-q", name)
 
 	var refused *RefusedError
 	if _, err := op(t, r.dir, Op{Kind: OpIgnore, Paths: []string{"a.txt"}, Pattern: IgnoreFile}); !errors.As(err, &refused) {

@@ -104,6 +104,12 @@ type FileWatcher struct {
 
 	// capped records whether the last walk met maxWatchedDirs.
 	capped atomic.Bool
+
+	// events is fsnotify's event stream after pumpEvents has queued it; watchLoop
+	// reads this, never watcher.Events. started records that watchLoop runs, so
+	// Stop knows whether closing the watcher is left to it.
+	events  chan fsnotify.Event
+	started atomic.Bool
 }
 
 // FileWatcherOptions are what a watcher is for beyond the viewers' stream.
@@ -141,7 +147,11 @@ func NewFileWatcherWith(projectPath string, opts FileWatcherOptions) (*FileWatch
 		changeChan: make(chan ChangeNotification, 100),
 		stopChan:   make(chan struct{}),
 		rebuildC:   make(chan struct{}, 1),
+		events:     make(chan fsnotify.Event),
 	}
+	// Before the walk: its Adds are answered only while fsnotify's events are
+	// being taken (see pumpEvents).
+	go w.pumpEvents()
 	if opts.GitFeed {
 		// Its reader only folds paths into a pending set, so it keeps up with a
 		// checkout far better than a viewer acking a frame; this absorbs the gap.
@@ -464,7 +474,53 @@ func (w *FileWatcher) indexSubtree(absRoot, relRoot string, hiddenRoot bool) {
 
 // Start begins watching for file changes
 func (w *FileWatcher) Start() {
+	w.started.Store(true)
 	go w.watchLoop()
+}
+
+// pumpEvents takes every event and error fsnotify delivers the moment it is
+// delivered, and queues the events for watchLoop. On Windows one goroutine
+// inside fsnotify both delivers events, on an unbuffered channel, and answers
+// Add — so an Add made while nothing takes events waits forever on a reader
+// that waits forever to hand over the event before it. Every Add here is made
+// while nothing takes them: the constructor's walk before watchLoop exists,
+// and watchLoop's own rebuilds and new-directory watches. A walk over directories
+// it has just watched is itself heard (Windows reports a modify on a directory
+// the walk only read), so an event during an Add is the normal case, not a race.
+//
+// The queue is unbounded because it holds only events the kernel already
+// produced and watchLoop is already behind on. It runs until fsnotify closes
+// its channels, which Close does, and drops what is queued once the watcher stops.
+func (w *FileWatcher) pumpEvents() {
+	defer close(w.events)
+	var queue []fsnotify.Event
+	in, errs, stop := w.watcher.Events, w.watcher.Errors, w.stopChan
+	for in != nil || errs != nil {
+		var out chan fsnotify.Event
+		var next fsnotify.Event
+		if len(queue) > 0 {
+			out, next = w.events, queue[0]
+		}
+		select {
+		case event, ok := <-in:
+			if !ok {
+				in = nil
+			} else if stop != nil {
+				queue = append(queue, event)
+			}
+		case err, ok := <-errs:
+			if !ok {
+				errs = nil
+			} else {
+				jlog.Error("[FileWatcher] Error: %v", err)
+			}
+		case out <- next:
+			queue[0] = fsnotify.Event{}
+			queue = queue[1:]
+		case <-stop:
+			stop, queue = nil, nil
+		}
+	}
 }
 
 // watchLoop processes file system events.
@@ -484,17 +540,11 @@ func (w *FileWatcher) watchLoop() {
 
 	for {
 		select {
-		case event, ok := <-w.watcher.Events:
+		case event, ok := <-w.events:
 			if !ok {
 				return
 			}
 			w.handleEvent(event)
-
-		case err, ok := <-w.watcher.Errors:
-			if !ok {
-				return
-			}
-			jlog.Error("[FileWatcher] Error: %v", err)
 
 		case <-w.rebuildC:
 			w.rebuild()
@@ -725,6 +775,12 @@ func (w *FileWatcher) Stop() {
 		// the two paths can't double-close.
 		if w.index != nil {
 			w.index.stopSignal()
+		}
+		// watchLoop closes the watcher once it is done with it; without one,
+		// nothing else would, and fsnotify's goroutines and pumpEvents would
+		// outlive the watcher.
+		if !w.started.Load() {
+			_ = w.watcher.Close()
 		}
 	})
 }

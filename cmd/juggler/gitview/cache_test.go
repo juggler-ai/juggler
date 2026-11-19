@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"testing"
 
@@ -379,6 +380,12 @@ func TestParseGitRawNumstat(t *testing.T) {
 // pass and the numstat pass did apart.
 func TestMergedDiffTreeMatchesSeparatePasses(t *testing.T) {
 	t.Parallel()
+	// A name git would quote without -z; a newline is the one that breaks a
+	// line-based parse, but Windows holds no control character in a name.
+	renamed := "new\nname.txt"
+	if runtime.GOOS == "windows" {
+		renamed = "new caf\u00e9.txt"
+	}
 	p := newGitProject(t)
 	p.write("keep.txt", "one\ntwo\n")
 	p.write("old name.txt", "a long enough file\nto be found renamed\nwhen it moves\n")
@@ -386,7 +393,7 @@ func TestMergedDiffTreeMatchesSeparatePasses(t *testing.T) {
 	p.write("gone.txt", "bye\n")
 	base := commitAt(t, p, "root", 1_700_000_000)
 	p.write("keep.txt", "one\n2\nthree\n")
-	p.git("mv", "old name.txt", "new\nname.txt")
+	p.git("mv", "old name.txt", renamed)
 	p.write("bin.dat", "\x00\x01\x02\x03")
 	p.git("rm", "-q", "gone.txt")
 	p.write("with space.txt", "x\ny\n")
@@ -406,7 +413,7 @@ func TestMergedDiffTreeMatchesSeparatePasses(t *testing.T) {
 	if !reflect.DeepEqual(meta, wantMeta) || !reflect.DeepEqual(stats, wantStats) {
 		t.Errorf("merged = %v %v\napart  = %v %v", meta, stats, wantMeta, wantStats)
 	}
-	if _, renamed := meta["new\nname.txt"]; len(meta) != 5 || !renamed {
+	if _, found := meta[renamed]; len(meta) != 5 || !found {
 		t.Errorf("the fixture read as %v", meta)
 	}
 }

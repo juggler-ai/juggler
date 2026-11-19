@@ -372,6 +372,13 @@ jobs:
             case " ${seen} " in *" ${dir} "*) continue ;; esac
             seen="${seen} ${dir}"
             logs+=("${dir}"/juggler-test-logs/*.log)
+            # A worker that "said nothing" for an ack: the pool's kept
+            # server.log names what held its inbox, and only these lines of it
+            # are wanted here.
+            for kept in "${dir}"/juggler-test-logs-*/; do
+              echo "===== [loop] lines under ${kept} ====="
+              grep -rn --include=server.log '\[loop\]' "${kept}" || echo "(none)"
+            done
           done
           if [ ${#logs[@]} -eq 0 ]; then
             echo "no subprocess stderr logs found under /tmp, \$TMPDIR, \$TEMP or \$RUNNER_TEMP"

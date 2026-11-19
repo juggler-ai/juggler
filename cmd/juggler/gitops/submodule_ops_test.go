@@ -26,6 +26,11 @@ func withSubmodule(t *testing.T) (super *repo, first, second string) {
 	second = strings.TrimSpace(lib.git("rev-parse", "HEAD"))
 	super = committed(t)
 	super.git("-c", "protocol.file.allow=always", "submodule", "add", "-q", lib.dir, "lib")
+	// The clone has a config of its own, without the identity initRepo gives a
+	// repository; macOS makes one up from the host name, Linux and Windows refuse.
+	sub := &repo{t: t, dir: filepath.Join(super.dir, "lib")}
+	sub.git("config", "user.email", "test@example.com")
+	sub.git("config", "user.name", "Juggler Test")
 	super.commit("add lib")
 	return super, first, second
 }

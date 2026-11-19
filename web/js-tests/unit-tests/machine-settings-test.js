@@ -200,8 +200,23 @@ export async function runTests() {
       /** @type {Array<{url: string, method: string, token: string|null, body: any}>} */
       const requests = [];
       await withMachineServer(requests, async () => {
+        // A session's tab, connected even for a moment, starts its session reads
+        // (the Extensions tab's catalog reads /api/config/plugins); whether they
+        // land before the page is gone is a race, so the start is what is
+        // counted. The define captured connectedCallback itself, so it is the
+        // `_init` it calls that is stood in for.
+        const Catalog = /** @type {any} */ (customElements.get('plugin-catalog'));
+        assert(!!Catalog, 'this page defines <plugin-catalog>, so a connected one would run');
+        const init = Catalog.prototype._init;
+        let catalogs = 0;
+        Catalog.prototype._init = async function () { catalogs++; };
         try {
           document.body.appendChild(el);
+        } finally {
+          Catalog.prototype._init = init;
+        }
+        try {
+          assert(catalogs === 0, `the Extensions tab's catalog was connected ${catalogs} time(s)`);
           const tabs = [...el.querySelectorAll('.settings-tab')].map((b) => /** @type {HTMLElement} */ (b).dataset.tab);
           assert(JSON.stringify(tabs) === '["language","connectivity","appearance","shortcuts","project-files","updates"]',
             `tabs ${JSON.stringify(tabs)}`);

@@ -193,7 +193,11 @@ class SettingsPanel extends JugglerElement {
   render() {
     const isMac = !!navigator.platform && /mac|iphone|ipad/i.test(navigator.platform);
     const credentials = { path: '<code id="credentials-path">~/.juggler/credentials.json</code>' };
-    this.innerHTML = `
+    // Parsed into an inert template and pruned there before it goes in: a
+    // custom element in a session's tab (the Extensions tab's <plugin-catalog>)
+    // that is connected even for a moment starts that session's reads.
+    const shell = document.createElement('template');
+    shell.innerHTML = `
             <modal-backdrop class="settings-backdrop" id="settings-backdrop"></modal-backdrop>
             <modal-panel class="settings-container" role="dialog" aria-modal="true" aria-label="${escapeHtml(t('Settings'))}">
                 <button class="btn btn-icon btn-icon-lg btn-ghost settings-close" id="settings-close" title="${escapeHtml(t('Close'))}" aria-label="${escapeHtml(t('Close'))}"><span class="icon-close"></span></button>
@@ -364,7 +368,8 @@ class SettingsPanel extends JugglerElement {
                 </main>
             </modal-panel>
         `;
-    if (this._machine) this._pruneToMachineTabs();
+    if (this._machine) this._pruneToMachineTabs(shell.content);
+    this.replaceChildren(shell.content);
     // Let each tab build its static DOM / wire its persistent listeners. The
     // eager tabs (Appearance, Notifications, Shortcuts, Info cards) render here
     // with no server fetch (per-window prefs / the shortcut manager); the Logs
@@ -380,10 +385,11 @@ class SettingsPanel extends JugglerElement {
    * button and section go, the first tab shown is `currentTab`, and a line
    * above the tabs says whose settings these are — this computer's, which
    * matters most when the page shows another computer's server framed.
+   * @param {DocumentFragment} shell - The shell as parsed, not yet in the panel.
    * @private
    */
-  _pruneToMachineTabs() {
-    for (const el of this.querySelectorAll('.settings-tab, .settings-tab-content')) {
+  _pruneToMachineTabs(shell) {
+    for (const el of shell.querySelectorAll('.settings-tab, .settings-tab-content')) {
       const node = /** @type {HTMLElement} */ (el);
       const tab = node.dataset.tab || node.id.replace(/^tab-/, '');
       if (!MACHINE_TABS.includes(tab)) {
@@ -399,7 +405,7 @@ class SettingsPanel extends JugglerElement {
     note.textContent = framed
       ? t('These are this computer’s settings, not {host}’s. Providers, models and the rest are in a project’s Settings.', { host: framed })
       : t('These are this computer’s settings. Providers, models and the rest are in a project’s Settings.');
-    this.querySelector('.settings-content')?.prepend(note);
+    shell.querySelector('.settings-content')?.prepend(note);
   }
 
   /**

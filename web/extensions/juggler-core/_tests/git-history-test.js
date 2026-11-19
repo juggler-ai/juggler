@@ -134,7 +134,8 @@ export async function runTests(_ctx) {
     assert((reads[0].offset || 0) === 0, `from the top: ${JSON.stringify(reads[0])}`);
     assert(rows(m).length > 5 && rows(m).length < 80, `a window of rows: ${rows(m).length}`);
     const spacer = /** @type {HTMLElement} */ (m.body.querySelector('.git-history__spacer'));
-    assert(spacer.style.height === `${100_000 * ROW}px`, `the spacer is the whole history: ${spacer.style.height}`);
+    // Compared as a number: WebView2 serialises this height as `2.6e+06px`.
+    assert(parseFloat(spacer.style.height) === 100_000 * ROW, `the spacer is the whole history: ${spacer.style.height}`);
     m.teardown();
   });
 
@@ -303,16 +304,17 @@ export async function runTests(_ctx) {
     await waitFor(() => !picker.hidden && pickerChoices(picker).some((c) => c.value === 'sub'), 'the repository picker');
     pick(picker, 'sub');
     /**
+     * @param {any} on - The mounted pin.
      * @param {string} place - A place's id.
      */
-    const tab = (place) => {
-      /** @type {HTMLElement} */ (m.body.querySelector(`.git-pin__place-btn[data-place="${place}"]`)).click();
+    const tab = (on, place) => {
+      /** @type {HTMLElement} */ (on.body.querySelector(`.git-pin__place-btn[data-place="${place}"]`)).click();
     };
-    tab('history');
+    tab(m, 'history');
     await waitFor(() => logReads(m).length > 0, 'History to read its log');
     const log = m.reads().find((/** @type {any} */ r) => r.kind === 'log');
     assert(log.options.repo === 'sub', `History reads the repository picked: ${JSON.stringify(log.options)}`);
-    tab('changes');
+    tab(m, 'changes');
     // A write the board takes for a change made elsewhere mounts the pin afresh,
     // at the root repository: each one here records what the pin already shows.
     const writes = m.configWrites();
@@ -324,13 +326,20 @@ export async function runTests(_ctx) {
     m.teardown();
 
     // Mounted again from what was written — the board rebuilt, the app
-    // reloaded — it opens where it was left, not at the root repository.
-    const again = mount({ place: 'history', config: saved, status: { root: '/tmp/proj', repos: [{ path: '' }, { path: 'sub' }] } });
-    await waitFor(() => logReads(again).length > 0, 'History to read its log');
+    // reloaded — it opens where it was left, in Changes on sub, not at the root
+    // repository; History, opened there, reads sub too. History is opened by
+    // its tab: the hidden list's only other read is a ResizeObserver delivery,
+    // which a lane may never make.
+    const again = mount({ config: saved, status: { root: '/tmp/proj', repos: [{ path: '' }, { path: 'sub' }] } });
+    const shown = /** @type {HTMLElement} */ (again.body.querySelector('.git-pin__repo'));
+    await waitFor(() => pickerValue(shown) === 'sub', 'the remounted picker to name sub');
+    assert(saved.place === 'changes' && !again.body.querySelector('.git-pin__place--changes')?.hidden,
+      `it opens in Changes, where it was left: ${JSON.stringify(saved)}`);
+    tab(again, 'history');
+    const reopened = logReads(again);
+    assert(reopened.length > 0, 'History, opened, reads its log');
     const first = again.reads().find((/** @type {any} */ r) => r.kind === 'log');
     assert(first.options.repo === 'sub', `it reads the repository it was left on: ${JSON.stringify(first.options)}`);
-    const shown = /** @type {HTMLElement} */ (again.body.querySelector('.git-pin__repo'));
-    await waitFor(() => pickerValue(shown) === 'sub', 'the picker to name sub');
     again.teardown();
   });
 

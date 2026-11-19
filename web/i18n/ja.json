@@ -1426,7 +1426,6 @@
   "Skip": "スキップ",
   "Slash commands": "スラッシュコマンド",
   "Some files still have conflicts. Resolve them, then continue.": "まだ競合が残っているファイルがあります。解決してから続行してください。",
-  "Something is already staged. Commit that, or unstage it first.": "すでにステージされているものがあります。それをコミットするか、先にステージを解除してください。",
   "Sound": "サウンド",
   "Source File": "ソースファイル",
   "Sparkle": "スパークル",

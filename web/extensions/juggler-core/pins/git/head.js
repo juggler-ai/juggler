@@ -4,9 +4,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The Git pin's head line, above every place: the repository picker when the
- * tree holds more than one, the branch button (`repo / branch ▾`, or the sha
- * and "detached") that opens the worktree switcher, how far the branch is from
+ * The Git pin's head line, above every place: `repo / branch`, two buttons
+ * read as one name — the repository, which opens the menu of the tree's
+ * repositories when it holds more than one and is plain text otherwise, and the
+ * branch (or the sha and "detached"), which opens the worktree switcher; then
+ * how far the branch is from
  * its upstream — with a struck-through cloud when the fetch made unasked
  * failed — how many files are changed, and Refresh; then, at the right, the
  * commands a wide pin has room for (Fetch, Pull, Push, Stash, Branch), the
@@ -70,7 +72,7 @@ const SPIN_TURN_MS = 1200;
  * @property {HTMLButtonElement} moreButton - What the ⋯ menu hangs off.
  * @property {HTMLButtonElement} primaryButton - What the primary's popovers hang off.
  * @property {HeadHandlers} handlers - What the buttons do; set by the pin and the places.
- * @property {(repos: {value: string, label: string}[], value: string) => void} setRepos - The picker's choices.
+ * @property {(repos: {value: string, label: string}[], value: string) => void} setRepos - The repository menu's choices, and which is shown.
  * @property {(state: HeadState) => void} update - Draw this.
  */
 
@@ -96,17 +98,42 @@ export function createHead() {
   const handlers = {
     branch: () => {}, more: () => {}, primary: () => {}, cancel: () => {}, repo: () => {}, action: () => {}, refresh: () => {},
   };
+  // `repo / branch`: each half is its own button, opening its own chooser. The
+  // repository half is disabled — text, without a chevron — while the tree
+  // holds one repository, and the branch half is absent until the first read.
+  const ref = createElement('span', 'git-pin__ref');
   const repoPicker = createMenuSelect({
-    className: 'git-pin__repo',
+    className: 'git-pin__seg git-pin__repo',
     label: t('Repository'),
     onChoose: (value) => handlers.repo(value),
+    bare: true,
   });
-  repoPicker.element.hidden = true;
-  const branchButton = /** @type {HTMLButtonElement} */ (createElement('button', 'git-pin__branch'));
+  repoPicker.element.disabled = true;
+  const slash = createElement('span', 'git-pin__slash', '/');
+  slash.setAttribute('aria-hidden', 'true');
+  const branchButton = /** @type {HTMLButtonElement} */ (createElement('button', 'git-pin__seg git-pin__branch'));
   branchButton.type = 'button';
   branchButton.setAttribute('aria-haspopup', 'true');
   const branchText = createElement('span', 'git-pin__branch-text text-truncate');
   branchButton.append(branchText, icon('chev'));
+  branchButton.hidden = true;
+  slash.hidden = true;
+  ref.append(repoPicker.element, slash, branchButton);
+  /** @type {{value: string, label: string}[]} */
+  let repoChoices = [];
+  let repoName = '';
+  /**
+   * Name the repository shown: from the menu's choices once they include it,
+   * from the head's own state until then.
+   * @param {string} value - Its path.
+   */
+  const drawRepo = (value) => {
+    const listed = repoChoices.some((c) => c.value === value);
+    repoPicker.set(listed ? repoChoices : [{ value, label: repoName }], value);
+    // A squeezed pin drops the name when it is not a chooser and the branch
+    // is there to stand for it (`data-repo-optional`, pins/git/styles).
+    ref.toggleAttribute('data-repo-optional', repoPicker.element.disabled && !branchButton.hidden);
+  };
   const sync = createElement('span', 'git-pin__sync');
   const dirtyCount = createElement('span', 'git-pin__stat git-pin__dirty');
   const spacer = createElement('span', 'git-pin__spacer');
@@ -137,7 +164,7 @@ export function createHead() {
   moreButton.type = 'button';
   moreButton.title = t('More');
   moreButton.setAttribute('aria-label', t('More'));
-  element.append(repoPicker.element, branchButton, sync, dirtyCount, refreshButton, spacer, commands, primary, moreButton);
+  element.append(ref, sync, dirtyCount, refreshButton, spacer, commands, primary, moreButton);
 
   branchButton.addEventListener('click', () => handlers.branch(branchButton));
   moreButton.addEventListener('click', () => handlers.more(moreButton));
@@ -226,17 +253,19 @@ export function createHead() {
     primaryButton: primary,
     handlers,
     setRepos: (repos, value) => {
-      repoPicker.element.hidden = repos.length < 2;
-      repoPicker.set(repos, value);
+      repoPicker.element.disabled = repos.length < 2;
+      repoChoices = repos;
+      drawRepo(value);
     },
-    update: ({ repoName, read, changed, primary: action, fetching, offline }) => {
+    update: ({ repoName: name, read, changed, primary: action, fetching, offline }) => {
       if (read?.operation) element.dataset.operation = read.operation;
       else delete element.dataset.operation;
+      repoName = name;
+      slash.hidden = !read;
+      branchButton.hidden = !read;
+      drawRepo(repoPicker.value());
       branchText.replaceChildren();
-      if (!read) {
-        branchText.append(createElement('span', 'git-pin__repo-name', repoName));
-      } else {
-        branchText.append(createElement('span', 'git-pin__repo-name', `${repoName} / `));
+      if (read) {
         if (read.detached || !read.branch) {
           branchText.append(createElement('span', 'git-pin__branch-name', (read.head?.sha || '').slice(0, 7)),
             createElement('span', 'git-pin__detached', ` ${t('detached')}`));

@@ -196,7 +196,6 @@ import { t } from '../../sdk/lib/i18n.js';
  * @property {'file'|'extension'|'folder'} [pattern] - What an ignore covers.
  * @property {string} [message] - A commit's message.
  * @property {boolean} [amend] - Whether a commit amends HEAD.
- * @property {boolean} [all] - Whether a commit takes everything rather than what is staged.
  * @property {string} [expectHead] - The HEAD an undo-commit undoes, or a reset moves from.
  * @property {string} [discard] - The discard an undo-discard restores, or the save a hard reset back writes back.
  */

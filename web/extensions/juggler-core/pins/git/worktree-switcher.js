@@ -131,8 +131,20 @@ export function openWorktreeSwitcher(anchor, fallback, host) {
   openPopover(anchor, fallback, surface);
   /** @type {HTMLElement|null} */ (surface.querySelector('[aria-current="true"]') || surface.querySelector('button'))?.focus();
   return {
+    // A redraw replaces every row, so focus is carried over to the row that
+    // stands where the focused one stood: the same tree, or the same action.
     update: () => {
-      if (surface.isConnected) draw();
+      if (!surface.isConnected) return;
+      const active = document.activeElement;
+      const focused = active instanceof HTMLElement && surface.contains(active) ? active : null;
+      const path = focused?.dataset.path;
+      const act = focused?.dataset.act;
+      draw();
+      if (!focused) return;
+      const again = path !== undefined
+        ? [...surface.querySelectorAll('.git-switcher__tree')].find((b) => /** @type {HTMLElement} */ (b).dataset.path === path)
+        : act ? surface.querySelector(`[data-act="${act}"]`) : null;
+      /** @type {HTMLElement|null} */ (again || surface.querySelector('[aria-current="true"]') || surface.querySelector('button'))?.focus();
     },
   };
 }

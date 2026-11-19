@@ -32,7 +32,7 @@ const (
 	OpDiscardLines OpKind = "discard-lines" // Lines of Path's unstaged diff, recoverably
 	OpUndoDiscard  OpKind = "undo-discard"  // the discard named by Discard
 	OpIgnore       OpKind = "ignore"        // Paths[0], by Pattern, into .gitignore
-	OpCommit       OpKind = "commit"        // what is staged, or everything with All
+	OpCommit       OpKind = "commit"        // what is staged
 	OpUndoCommit   OpKind = "undo-commit"   // HEAD, which must be ExpectHead
 )
 
@@ -161,7 +161,6 @@ type Op struct {
 	Pattern    string    `json:"pattern,omitempty"`
 	Message    string    `json:"message,omitempty"`
 	Amend      bool      `json:"amend,omitempty"`
-	All        bool      `json:"all,omitempty"`
 	ExpectHead string    `json:"expectHead,omitempty"`
 	Discard    string    `json:"discard,omitempty"`
 

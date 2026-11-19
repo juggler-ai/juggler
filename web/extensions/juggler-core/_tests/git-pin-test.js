@@ -12,7 +12,8 @@
  */
 
 import GitPin from '../pins/git-pin.js';
-import { assert, nextTask } from '../../../js-tests/utilities/test-helpers.js';
+import { STALE_AFTER_MS, __setAbsenceClockForTests, createAbsence } from '../pins/git/absence.js';
+import { assert, nextTask, waitFor } from '../../../js-tests/utilities/test-helpers.js';
 import { isolateFocus } from '../../../js-tests/utilities/isolate-focus.js';
 import { repo, manifestOf, patchOf, mountPin, mountedPin, refreshPin } from './git-pin-helpers.js';
 
@@ -305,6 +306,64 @@ export async function runTests(_ctx) {
     const last = m.diffs()[m.diffs().length - 1];
     assert(last.path === 'b.js', `and the patch is re-read, not reused: ${JSON.stringify(m.diffs())}`);
     m.teardown();
+  });
+
+  await test('an absence counts from the first reason to hide until the last one ends', () => {
+    let clock = 0;
+    let returns = 0;
+    const absence = createAbsence({ onReturn: () => { returns++; }, now: () => clock });
+    absence.set('tab', true);
+    clock = STALE_AFTER_MS;
+    absence.set('tab', false);
+    assert(returns === 0, 'exactly the threshold is not past it');
+
+    absence.set('tab', true);
+    clock += 10_000;
+    absence.set('window', true);
+    clock += STALE_AFTER_MS;
+    absence.set('tab', false);
+    assert(returns === 0 && absence.isAway(), 'still hidden while any reason holds');
+    absence.set('window', false);
+    assert(returns === 1, `back after the last reason ended, counted from the first: ${returns}`);
+
+    absence.set('board', false);
+    assert(returns === 1, 'a reason ending that never began is no return');
+  });
+
+  await test('shown again after a while out of sight, the pin reads everything again', async () => {
+    // A test's pin is mounted off the screen, in a lane's window that reports
+    // itself hidden, which the pin would rightly call out of sight for the
+    // whole case: this one is on screen until a tab switch says otherwise.
+    const RealObserver = window.IntersectionObserver;
+    window.IntersectionObserver = /** @type {any} */ (class {
+      observe() {}
+      disconnect() {}
+    });
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+    let clock = 1_000_000;
+    __setAbsenceClockForTests(() => clock);
+    /** @type {any} */
+    let m = null;
+    try {
+      m = await mounted({ manifest: manifestOf([{ path: 'a.js', index: 'M', worktree: '.' }]) });
+      await refreshPin(m);
+      const before = m.reviews();
+      m.controller.hide();
+      clock += 5_000;
+      m.controller.show();
+      await nextTask();
+      assert(m.reviews() === before, `a glance at another tab reads nothing: ${m.reviews()} after ${before}`);
+
+      m.controller.hide();
+      clock += STALE_AFTER_MS + 1;
+      m.controller.show();
+      await waitFor(() => m.reviews() > before, 'a read after a long absence');
+    } finally {
+      window.IntersectionObserver = RealObserver;
+      delete (/** @type {any} */ (document)).hidden;
+      __setAbsenceClockForTests(null);
+      m?.teardown();
+    }
   });
 
   await test('a file that went away takes the selection with it', async () => {

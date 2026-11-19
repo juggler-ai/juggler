@@ -1426,7 +1426,6 @@
   "Skip": "건너뛰기",
   "Slash commands": "슬래시 명령",
   "Some files still have conflicts. Resolve them, then continue.": "아직 충돌이 남은 파일이 있습니다. 해결한 다음 계속하세요.",
-  "Something is already staged. Commit that, or unstage it first.": "이미 스테이징된 항목이 있습니다. 그것을 커밋하거나 먼저 스테이징을 취소하세요.",
   "Sound": "소리",
   "Source File": "소스 파일",
   "Sparkle": "반짝반짝",

@@ -7,6 +7,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -217,6 +218,52 @@ func TestGitWatchFrame_UnknownWorkspaceIsSkipped(t *testing.T) {
 	if n := watchersOf(s, "ws_gone"); n != 0 {
 		t.Errorf("an unresolvable workspace has %d watchers", n)
 	}
+}
+
+// lateTree is a workspace whose git watch cannot start until ready is closed,
+// as the project's cannot until the server's git watcher exists.
+type lateTree struct {
+	*watchedTree
+	ready chan struct{}
+}
+
+func (w *lateTree) GitWatch(ctx context.Context) (<-chan []gitops.Change, error) {
+	select {
+	case <-w.ready:
+		return w.watchedTree.GitWatch(ctx)
+	default:
+		return nil, errors.New("this server watches no git state")
+	}
+}
+
+// A viewer that asks before the git watcher exists — a window reconnecting to
+// a server that has just started — is watching once it does, without asking
+// again: it sends git-watch only when what it shows changes.
+func TestGitWatchFrame_WatchRefusedBeforeTheWatcherStartsOnceItExists(t *testing.T) {
+	tree := &lateTree{watchedTree: newWatchedTree(), ready: make(chan struct{})}
+	s, ts := newViewerSocketServer(t)
+	s.gitWatchResolve = resolveOnly("ws_tree", tree)
+	conn, _ := dialViewerAs(t, ts, "")
+
+	askToWatch(t, conn, "ws_tree")
+	eventually(t, "the viewer's ask to be taken in", func() bool {
+		asked := false
+		s.gitHub().do(func() {
+			for _, ids := range s.gitWatches.clients {
+				asked = asked || ids["ws_tree"]
+			}
+		})
+		return asked
+	})
+	if n := watchersOf(s, "ws_tree"); n != 0 {
+		t.Fatalf("a watch that could not start has %d watchers", n)
+	}
+
+	close(tree.ready)
+	s.retryGitWatches()
+	within(t, tree.started, "the refused watch starting once the watcher exists")
+	tree.changes <- []gitops.Change{{Repo: "", Kinds: gitops.KindRefs}}
+	nextGitChange(t, conn)
 }
 
 // git-watch is a viewer's: the engine shows no trees.

@@ -175,6 +175,19 @@ export async function runTests(_ctx) {
     assert(!cancelButton(m), 'Refresh still stops a push that has ended');
   });
 
+  await test('a push that ends is read again at once: the head moves on without waiting for the watch', async () => {
+    const m = await mounted(changesOf([], { upstream: 'origin/develop', ahead: 2, remotes: 1 }));
+    m.holdRuns(true);
+    press(m);
+    await ran(m, 1);
+    m.setChanges(changesOf([], { upstream: 'origin/develop', ahead: 0, remotes: 1 }));
+    m.finishRun(0);
+    // No git-change is emitted: the job ending is news enough.
+    await waitFor(() => primary(m).dataset.kind === 'fetch' && !primary(m).disabled,
+      () => `the primary after the push: ${primary(m).dataset.kind} "${primary(m).textContent}"`);
+    assert(Boolean(m.body.querySelector('.git-pin__sync-ok')), 'the head does not say it is up to date');
+  });
+
   await test('a pull that cannot fast-forward offers the repository\'s way first, then runs it', async () => {
     const m = await mounted(changesOf([], { upstream: 'origin/develop', ahead: 1, behind: 1, remotes: 1 }));
     m.holdRuns(true);

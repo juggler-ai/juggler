@@ -292,6 +292,22 @@ export async function runTests(_ctx) {
     }
   });
 
+  await test('a write from Refs is read again by every place, not Refs alone', async () => {
+    const m = await mounted();
+    m.holdRuns(true);
+    pick(m, 'tg:v1');
+    action(m, 'Delete tag').click();
+    await deleteQuestion(m);
+    inPop('.git-pop__ok').click();
+    const changesBefore = m.changesAsked().length;
+    m.setRefs(refsOf({ ...refs, tags: [] }));
+    m.finishRun(0, { result: { sha: 'bbbbbbb' } });
+    await waitFor(() => !m.body.querySelector('.git-refs__row[data-key="tg:v1"]'), 'the deleted tag to go from Refs');
+    await waitFor(() => m.changesAsked().length > changesBefore,
+      'Changes, which the head is drawn from, to be read again after the write');
+    m.teardown();
+  });
+
   await test('checkout on a dirty tree asks: carry or stash, and sends that', async () => {
     const files = [{ path: 'a.js', index: '.', worktree: 'M', unstaged: { added: 1, removed: 0 } }];
     const m = await mounted({ changes: changesOf(files) });

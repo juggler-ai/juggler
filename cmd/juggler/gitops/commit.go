@@ -17,10 +17,6 @@ import (
 // whitespace cleanup only, so a line that starts with "#" is kept — and the
 // repository's hooks, whose output is streamed as they run. A hook that
 // refuses leaves everything as it was, the index included.
-//
-// All is the explicit "commit everything" of a client with nothing staged:
-// every change is staged and committed as one write, and if the commit is
-// refused the index is emptied again, which is exactly where it was.
 func commit(r *runner, op Op) (Result, error) {
 	if strings.TrimSpace(op.Message) == "" {
 		return Result{}, refused(msg.NewError("Write a commit message first."))
@@ -41,14 +37,7 @@ func commit(r *runner, op Op) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	switch {
-	case op.All && staged:
-		return Result{}, refused(msg.NewError("Something is already staged. Commit that, or unstage it first."))
-	case op.All:
-		if _, err := r.git("add", "-A"); err != nil {
-			return Result{}, err
-		}
-	case !staged && !op.Amend:
+	if !staged && !op.Amend {
 		return Result{}, refused(msg.NewError("Nothing is staged."))
 	}
 
@@ -57,9 +46,6 @@ func commit(r *runner, op Op) (Result, error) {
 		args = append(args, "--amend")
 	}
 	if _, err := r.run(call{args: args, stdin: []byte(op.Message), stream: true}); err != nil {
-		if op.All {
-			_ = r.unstageEverything() // the failure being reported is the commit's
-		}
 		return Result{}, err
 	}
 	id, _, err := r.ask("rev-parse", "HEAD")

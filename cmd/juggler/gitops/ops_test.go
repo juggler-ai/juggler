@@ -347,33 +347,6 @@ func TestCommitHooks(t *testing.T) {
 	}
 }
 
-func TestCommitAll(t *testing.T) {
-	t.Parallel()
-	r := committed(t)
-	r.write("a.txt", "x\n")
-	r.write("new.txt", "n\n")
-	r.hook("pre-commit", "exit 1\n")
-	if _, err := op(t, r.dir, Op{Kind: OpCommit, Message: "All", All: true}); err == nil {
-		t.Fatal("the hook should have refused")
-	}
-	if got := r.staged(); got != "" {
-		t.Fatalf("a refused commit-all left %q staged", got)
-	}
-
-	r.hook("pre-commit", "exit 0\n")
-	mustOp(t, r.dir, Op{Kind: OpCommit, Message: "All", All: true})
-	if got := strings.TrimSpace(r.git("show", "--name-status", "--format=")); got != "M\ta.txt\nA\tnew.txt" {
-		t.Errorf("commit-all committed %q", got)
-	}
-
-	r.write("a.txt", "y\n")
-	r.git("add", "a.txt")
-	var refused *RefusedError
-	if _, err := op(t, r.dir, Op{Kind: OpCommit, Message: "All", All: true}); !errors.As(err, &refused) {
-		t.Errorf("commit-all with something staged: %v", err)
-	}
-}
-
 func TestCommitRefusesADetachedHead(t *testing.T) {
 	t.Parallel()
 	r := committed(t)

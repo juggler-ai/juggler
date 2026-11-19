@@ -38,14 +38,15 @@ import { icon } from './icons.js';
 
 /**
  * @param {{className: string, label: string, onChoose: (value: string) => void,
- *   expand?: () => MenuChoice[]}} options - The button's class, its accessible
+ *   expand?: () => MenuChoice[], bare?: boolean}} options - The button's class, its accessible
  *   name, and what a pick does; with `expand`, the choices to list, asked each
  *   time the menu opens — for a list that may run to thousands, built only when
  *   someone looks. `set`'s choices then only name the chosen one on the button.
+ *   A `bare` button is not drawn as a field: `className` alone styles it.
  * @returns {MenuSelect} The picker.
  */
-export function createMenuSelect({ className, label, onChoose, expand }) {
-  const button = /** @type {HTMLButtonElement} */ (createElement('button', `git-select field-input field-input-xs ${className}`));
+export function createMenuSelect({ className, label, onChoose, expand, bare = false }) {
+  const button = /** @type {HTMLButtonElement} */ (createElement('button', bare ? className : `git-select field-input field-input-xs ${className}`));
   button.type = 'button';
   button.setAttribute('aria-haspopup', 'menu');
   button.setAttribute('aria-expanded', 'false');

@@ -97,6 +97,29 @@ func (s *Server) dropGitWatches(clientID string) {
 	s.setGitWatches(clientID, nil)
 }
 
+// retryGitWatches starts every watch a connection asked for that could not be
+// started, and gives it to the connections that asked. Called once the
+// server's git watcher exists: a window reconnecting to a server that has just
+// started asks before it does, and names its trees again only when what it
+// shows changes.
+func (s *Server) retryGitWatches() {
+	h := s.gitHub()
+	h.post(func() {
+		for clientID, ids := range h.clients {
+			for id := range ids {
+				e := h.watches[id]
+				if e == nil {
+					if e = h.start(s, id); e == nil {
+						continue
+					}
+					h.watches[id] = e
+				}
+				e.clients[clientID] = true
+			}
+		}
+	})
+}
+
 // stopGitWatches ends every watch, for shutdown. Safe to call twice.
 func (s *Server) stopGitWatches() {
 	h := s.gitHub()

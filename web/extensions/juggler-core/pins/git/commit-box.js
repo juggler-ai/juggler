@@ -6,8 +6,7 @@
 /**
  * The commit box: one auto-growing textarea holding git's own shape of a
  * message (summary, blank line, body), the summary's length once it is long,
- * Amend, "Commit all changes" when nothing is staged, and a button that says
- * what it will do. It draws and reports; committing is its host's.
+ * Amend, and a button that says what it will do. It draws and reports; committing is its host's.
  *
  * While a commit runs the button spins and what the hooks print streams into a
  * small output area under it; a failure leaves the message exactly as typed
@@ -42,7 +41,6 @@ const SUMMARY_LIMIT = 72;
  * @property {string} branch - The branch, '' when detached.
  * @property {boolean} detached - Whether HEAD is detached.
  * @property {number} staged - Files staged.
- * @property {number} tracked - Tracked files with unstaged changes, for "Commit all".
  * @property {string} headMessage - The last commit's message, '' before the first.
  * @property {string} operation - The operation in progress, '' for none.
  */
@@ -51,7 +49,6 @@ const SUMMARY_LIMIT = 72;
  * @typedef {object} CommitRequest
  * @property {string} message - The message as typed.
  * @property {boolean} amend - Whether to amend the last commit.
- * @property {boolean} all - Whether to commit every tracked change.
  */
 
 /**
@@ -106,18 +103,17 @@ export function createCommitBox(host) {
   amendLabel.append(amend,
     createElement('span', 'git-commit__amend-long', t('Amend last commit')),
     createElement('span', 'git-commit__amend-short', t('Amend')));
-  const allLabel = createElement('label', 'git-commit__option git-commit__all-wrap');
-  const all = /** @type {HTMLInputElement} */ (createElement('input', 'git-commit__all'));
-  all.type = 'checkbox';
-  allLabel.title = t('Nothing is staged: commit every change to a tracked file');
-  allLabel.append(all, createElement('span', '', t('Commit all changes')));
   const go = /** @type {HTMLButtonElement} */ (createElement('button', 'git-commit__go btn btn-sm btn-primary'));
   go.type = 'button';
   go.title = t('Commit (⌘↵)');
-  const gen = /** @type {HTMLButtonElement} */ (createElement('button', 'git-commit__gen btn btn-sm'));
+  const gen = /** @type {HTMLButtonElement} */ (createElement('button', 'git-commit__gen btn btn-sm btn-neutral'));
   gen.type = 'button';
   gen.setAttribute('aria-haspopup', 'menu');
-  row.append(amendLabel, allLabel, gen, go);
+  const options = createElement('div', 'git-commit__options');
+  options.append(amendLabel);
+  const actions = createElement('div', 'git-commit__actions');
+  actions.append(gen, go);
+  row.append(options, actions);
   const sourceLine = /** @type {HTMLButtonElement} */ (createElement('button', 'git-commit__source'));
   sourceLine.type = 'button';
   sourceLine.hidden = true;
@@ -129,7 +125,7 @@ export function createCommitBox(host) {
   element.append(filesButton, operationLine, wrap, sourceLine, row, output);
 
   /** @type {CommitBoxState} */
-  let state = { branch: '', detached: false, staged: 0, tracked: 0, headMessage: '', operation: '' };
+  let state = { branch: '', detached: false, staged: 0, headMessage: '', operation: '' };
   let running = false;
   let expanded = false;
   let generating = false;
@@ -159,9 +155,7 @@ export function createCommitBox(host) {
       ? t('Detached HEAD: make a branch first')
       : t('Message for {branch}: summary first, then the body', { branch: state.branch });
     amend.disabled = running || !state.headMessage && !amend.checked;
-    allLabel.hidden = state.staged > 0 || amend.checked;
-    if (allLabel.hidden) all.checked = false;
-    const count = all.checked ? state.tracked : state.staged;
+    const count = state.staged;
     let label;
     let can;
     if (amend.checked) {
@@ -227,7 +221,6 @@ export function createCommitBox(host) {
     fit();
     draw();
   });
-  all.addEventListener('change', draw);
   go.addEventListener('click', () => host.onCommit());
   gen.addEventListener('click', () => {
     if (generating) host.onStopGenerating();
@@ -254,7 +247,7 @@ export function createCommitBox(host) {
       state = next;
       draw();
     },
-    request: () => ({ message: field.value, amend: amend.checked, all: all.checked && !allLabel.hidden }),
+    request: () => ({ message: field.value, amend: amend.checked }),
     setMessage: (message) => {
       field.value = message;
       fit();
@@ -276,7 +269,6 @@ export function createCommitBox(host) {
     committed: () => {
       field.value = '';
       amend.checked = false;
-      all.checked = false;
       beforeAmend = null;
       sourceLine.hidden = true;
       fit();

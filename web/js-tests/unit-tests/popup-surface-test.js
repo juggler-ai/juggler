@@ -307,6 +307,37 @@ export async function runTests() {
       }
     });
 
+    await run('a menu placed while its button springs back from a press is placed against the button at rest', () => {
+      // Every button dips when pressed and springs back after
+      // (utils/press-feedback.js): a Web Animation of `scale`, which no inline
+      // style outranks. A menu placed during the spring and placed again once a
+      // content change lands would step by the dip — a few px on a small button.
+      const button = document.createElement('button');
+      button.style.cssText = 'position:fixed;left:40px;top:40px;width:80px;height:20px;';
+      const menu = document.createElement('nav');
+      menu.className = 'dropdown-menu is-open';
+      menu.style.cssText = 'animation:none;width:12rem;height:100px;padding:0;';
+      document.body.append(button, menu);
+      const rest = button.getBoundingClientRect();
+      const dip = button.animate([{ scale: '1' }, { scale: '0.9' }], { duration: 1000, fill: 'forwards' });
+      dip.pause();
+      dip.currentTime = 1000;
+      try {
+        const scaled = button.getBoundingClientRect();
+        assert(scaled.left > rest.left + 0.5, `the dip must shrink the button for this to mean anything: left ${scaled.left} at rest ${rest.left}`);
+        positionDropdown(menu, button, 8);
+        const x = parseFloat(menu.style.getPropertyValue('--dropdown-x'));
+        const y = parseFloat(menu.style.getPropertyValue('--dropdown-y'));
+        assert(Math.abs(x - rest.left) < 0.5 && Math.abs(y - (rest.bottom + 8)) < 0.5,
+          `placed against the button at rest (${rest.left}, ${rest.bottom + 8}), got (${x}, ${y})`);
+        assert(button.getBoundingClientRect().left === scaled.left, 'measuring must leave the dip as it was');
+      } finally {
+        dip.cancel();
+        menu.remove();
+        button.remove();
+      }
+    });
+
     await run('closing returns popup focus to the control used before opening', async () => {
       __resetPopupManagerForTests();
       const textarea = document.createElement('textarea');

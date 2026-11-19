@@ -60,6 +60,11 @@ func (s *Server) StartBackgroundServices() {
 			}
 			s.projectState.Store(&newSt)
 			go s.forwardFileChanges(&newSt)
+			// Windows that reconnected while the project was being walked asked
+			// for watches that could not start then.
+			if newSt.gitWatcher != nil {
+				s.retryGitWatches()
+			}
 		}
 	}
 	s.startPluginWatcher()

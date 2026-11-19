@@ -247,7 +247,7 @@ export async function runTests(_ctx) {
     m.holdRuns(true);
     /** @type {HTMLElement} */ (m.body.querySelector('.git-commit__go')).click();
     const op = m.runs()[0]?.op;
-    assert(op?.kind === 'commit' && !op.amend && !op.all, `op ${JSON.stringify(op)}`);
+    assert(op?.kind === 'commit' && !op.amend, `op ${JSON.stringify(op)}`);
     const lines = String(op.message).split('\n');
     assert(lines[0] === 'Did a thing' && lines.length > 3 && lines.slice(2).every((l) => l.length <= 72),
       `the body is wrapped: ${JSON.stringify(op.message)}`);
@@ -295,20 +295,6 @@ export async function runTests(_ctx) {
     amend.dispatchEvent(new Event('change', { bubbles: true }));
     go.click();
     assert(m.runs()[0]?.op?.amend === true && m.runs()[0]?.op?.message === 'Last commit', `op ${JSON.stringify(m.runs()[0]?.op)}`);
-    m.teardown();
-  });
-
-  await test('with nothing staged, Commit all changes sends all', async () => {
-    const m = await mounted({ changes: changesOf([unstaged]) });
-    const all = /** @type {HTMLInputElement} */ (m.body.querySelector('.git-commit__all'));
-    assert(all && !all.closest('[hidden]'), 'offered when nothing is staged');
-    all.checked = true;
-    all.dispatchEvent(new Event('change', { bubbles: true }));
-    message(m).value = 'Everything';
-    message(m).dispatchEvent(new Event('input', { bubbles: true }));
-    m.holdRuns(true);
-    /** @type {HTMLElement} */ (m.body.querySelector('.git-commit__go')).click();
-    assert(m.runs()[0]?.op?.all === true, `op ${JSON.stringify(m.runs()[0]?.op)}`);
     m.teardown();
   });
 

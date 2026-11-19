@@ -5,7 +5,7 @@
 
 /**
  * How the Git pin's places run a write and answer its failure: each write goes
- * through `git.run` and is followed by a read of what it changed; a refusal
+ * through `git.run`, whose end every place hears as a change; a refusal
  * says what to do next — a ref that moved is read again, a branch out in
  * another tree offers that tree, conflicts offer Changes, and changes in the
  * way offer to stash them and try again.
@@ -130,6 +130,8 @@ export function createActions(host) {
     }
   };
 
+  // What a write changed is read again by every place once it ends: the pin's
+  // git service tells them all (tree-events.js), so a run does not reread here.
   /** @type {PlaceActions['run']} */
   const run = async (op, onError) => {
     try {
@@ -137,8 +139,6 @@ export function createActions(host) {
     } catch (e) {
       if (host.live() && !onError?.(e)) explain(e);
       return null;
-    } finally {
-      host.reread();
     }
   };
 

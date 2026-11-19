@@ -1426,7 +1426,6 @@
   "Skip": "跳跃",
   "Slash commands": "斜杠命令",
   "Some files still have conflicts. Resolve them, then continue.": "部分文件仍有冲突。请先解决，再继续。",
-  "Something is already staged. Commit that, or unstage it first.": "已有暂存的内容。请先提交它，或取消暂存。",
   "Sound": "声音",
   "Source File": "源文件",
   "Sparkle": "闪烁",

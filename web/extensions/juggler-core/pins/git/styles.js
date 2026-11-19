@@ -26,6 +26,31 @@ export function injectGitClientStyles() {
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* The pin is chrome — rows, labels, captions and buttons are aimed at with
+   clicks, so a drag across them selects nothing (base/text-selection.css) —
+   except for what is worth copying: the diffs, the Review place, a commit's
+   or ref's message and facts, the command log, what the hooks printed, the
+   fields, and the errors worth pasting into a report. */
+.git-pin :is(input, textarea),
+.git-pin diff-viewer,
+.git-changes__file,
+.git-pin__place--review,
+.git-history__about,
+.git-history__facts,
+.git-refs__facts,
+.git-refs__message,
+.git-pin__log-list,
+.git-commit__output,
+.git-pin__error,
+.git-changes__error,
+.git-history__error,
+.git-refs__error {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 /* Focused as the board opens and after Escape leaves a field: a place the
@@ -45,7 +70,21 @@ export function injectGitClientStyles() {
   border-bottom: 1px solid var(--border-divider);
 }
 
-.git-pin__branch {
+/* \`repo / branch\`: one name of two buttons, each answering a hover on its own
+   so each reads as the chooser it opens. The repository gives way first. */
+.git-pin__ref {
+  min-width: 0;
+  flex: 0 1 auto;
+  display: inline-flex;
+  align-items: center;
+}
+
+.git-pin__slash {
+  flex: none;
+  color: var(--text-tertiary);
+}
+
+.git-pin__seg {
   min-width: 0;
   flex: 0 1 auto;
   display: inline-flex;
@@ -60,8 +99,35 @@ export function injectGitClientStyles() {
   cursor: pointer;
 }
 
-/* The repository's name and the branch's are different faces on one line:
-   inline text, so they share a baseline whatever their fonts' metrics. */
+.git-pin__seg[hidden],
+.git-pin__slash[hidden] {
+  display: none;
+}
+
+.git-pin__seg:hover:not(:disabled) {
+  background: var(--wash-1);
+}
+
+.git-pin__seg .git-pin__icon {
+  color: var(--text-tertiary);
+}
+
+.git-pin__repo {
+  flex-shrink: 3;
+  color: var(--text-secondary);
+}
+
+/* One repository: its name, with nothing to choose. */
+.git-pin__repo:disabled {
+  cursor: default;
+}
+
+.git-pin__repo:disabled .git-pin__icon {
+  display: none;
+}
+
+/* The sha and "detached" are different faces on one line: inline text, so
+   they share a baseline whatever their fonts' metrics. */
 .git-pin__branch-text {
   min-width: 0;
 }
@@ -99,10 +165,6 @@ export function injectGitClientStyles() {
   max-height: min(70vh, 30rem);
 }
 
-.git-pin__branch:hover {
-  background: var(--wash-1);
-}
-
 .git-pin__icon {
   flex: none;
   width: 1em;
@@ -112,10 +174,6 @@ export function injectGitClientStyles() {
   stroke-width: 1.3;
   stroke-linecap: round;
   stroke-linejoin: round;
-}
-
-.git-pin__repo-name {
-  color: var(--text-secondary);
 }
 
 .git-pin__branch-name {
@@ -693,9 +751,11 @@ export function injectGitClientStyles() {
   }
 }
 
-/* Squeezed: the head drops what the branch button and the menus also say. */
+/* Squeezed: the head drops the repository's name when there is no other to
+   choose — the switcher names it too — but keeps it while it is a chooser. */
 @container git-pin (width < 24rem) {
-  .git-pin__repo-name {
+  .git-pin__ref[data-repo-optional] > .git-pin__repo,
+  .git-pin__ref[data-repo-optional] > .git-pin__slash {
     display: none;
   }
 }
@@ -711,7 +771,8 @@ export function injectGitClientStyles() {
 @container git-pin (height < 5.5rem) {
   .git-pin > .git-pin__places,
   .git-pin > .git-op,
-  .git-pin > .git-pin__main {
+  .git-pin > .git-pin__main,
+  .git-pin > .git-pin__log {
     display: none;
   }
 
@@ -1021,12 +1082,37 @@ export function injectGitClientStyles() {
   color: var(--warning);
 }
 
+/* The checkbox on one line, the buttons on the next, flush right — unless
+   the box is wide enough for both on one line, the buttons still at its end. */
 .git-commit__row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--stack-gap);
+  min-width: 0;
+}
+
+@container git-commit (width >= 30rem) {
+  .git-commit__row {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+.git-commit__options {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--stack-gap-tight) var(--toolbar-gap);
   min-width: 0;
+}
+
+.git-commit__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--toolbar-gap);
 }
 
 .git-commit__option {
@@ -1039,10 +1125,6 @@ export function injectGitClientStyles() {
 
 .git-commit__option[hidden] {
   display: none;
-}
-
-.git-commit__go {
-  margin-left: auto;
 }
 
 .git-commit__amend-short {
@@ -1082,17 +1164,10 @@ export function injectGitClientStyles() {
   display: none;
 }
 
-/* Auto-generate: a tinted menu button beside Commit, the second most common thing to press. */
+/* Auto-generate: the neutral button beside Commit, as the pin's other
+   secondary actions are; while a message is written it is Stop, pulsing. */
 .git-commit__gen {
-  font-weight: var(--font-weight-semibold);
-  color: var(--accent-purple);
-  background: color-mix(in srgb, var(--accent-purple) 13%, transparent);
-  border-color: color-mix(in srgb, var(--accent-purple) 45%, transparent);
   white-space: nowrap;
-}
-
-.git-commit__gen:hover:not(:disabled) {
-  border-color: var(--accent-purple);
 }
 
 .git-commit__gen[data-running="true"] {
@@ -1140,6 +1215,7 @@ export function injectGitClientStyles() {
   align-items: baseline;
   gap: var(--space-8);
   width: 100%;
+  text-align: start;
 }
 
 .git-gen-menu__label {
@@ -1657,8 +1733,11 @@ export function injectGitClientStyles() {
   gap: var(--toolbar-gap);
 }
 
+/* A little room after the lanes, so the subject and its chips don't crowd the
+   rightmost line. */
 .git-graph {
   flex: none;
+  margin-inline-end: var(--space-6);
   fill: none;
   stroke-width: 1.6;
 }
@@ -1737,25 +1816,25 @@ export function injectGitClientStyles() {
   }
 }
 
-/* A ref's lozenge. Each kind has a hue; its words are that hue pulled most of
-   the way to the body text, on a faint wash of it, so every kind reads at the
-   body text's contrast in either theme and the hue only tells them apart. */
+/* A ref's lozenge: a solid fill per kind, from the context-item presets, whose
+   --ci-text reads on every one of them in either theme (deep fills under white
+   in dark, pale ones under ink in light). The UI face, a small corner and
+   tight padding keep a row of them narrow. */
 .git-history__chip {
-  --git-chip-hue: var(--text-secondary);
+  --git-chip-fill: var(--ci-preset-slate);
 
   display: inline-flex;
   align-items: center;
-  gap: var(--space-4);
+  gap: var(--space-2);
   margin-right: var(--space-4);
-  padding: 0 var(--space-6);
-  font-family: var(--font-mono);
+  padding: 0 var(--space-4);
+  font-family: var(--font-ui);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-medium);
   line-height: var(--leading-tight);
-  color: color-mix(in srgb, var(--git-chip-hue) 45%, var(--text-primary));
-  background: color-mix(in srgb, var(--git-chip-hue) 14%, transparent);
-  border: 1px solid color-mix(in srgb, var(--git-chip-hue) 55%, transparent);
-  border-radius: var(--radius-pill);
+  color: var(--ci-text);
+  background: var(--git-chip-fill);
+  border-radius: var(--radius-sm);
   vertical-align: 0.05em;
 }
 
@@ -1767,28 +1846,27 @@ export function injectGitClientStyles() {
   color: var(--text-tertiary);
 }
 
+/* The checked-out branch is the one chip in the accent itself, bold, so it
+   stands out from the other branches' deeper or paler blue. A remote branch
+   keeps the neutral fill. */
 .git-history__chip[data-kind="head"] {
+  --git-chip-fill: var(--accent-blue);
+
   color: var(--text-on-accent);
-  background: var(--accent-blue);
-  border-color: var(--accent-blue);
   font-weight: var(--font-weight-bold);
 }
 
 .git-history__chip[data-kind="branch"] {
-  --git-chip-hue: var(--accent-blue);
+  --git-chip-fill: var(--ci-preset-blue);
 }
 
 .git-history__chip[data-kind="wt"],
 .git-history__chip[data-kind="detached"] {
-  --git-chip-hue: var(--accent-purple);
-}
-
-.git-history__chip[data-kind="remote"] {
-  border-style: dashed;
+  --git-chip-fill: var(--ci-preset-purple);
 }
 
 .git-history__chip[data-kind="tag"] {
-  --git-chip-hue: var(--accent-orange);
+  --git-chip-fill: var(--ci-preset-orange);
 }
 
 .git-history__note {

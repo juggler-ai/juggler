@@ -301,7 +301,7 @@ export function createChangesPlace(host) {
   detail.append(crumb, note, placeholder, viewerHost, fileHost);
   const body = createElement('div', 'git-changes__body');
   body.append(listPane, detail);
-  element.append(body, host.log.element);
+  element.append(body);
 
   const viewer = createDiffViewer({ readOnly: true, blame: true });
   viewerHost.append(viewer);
@@ -585,7 +585,7 @@ export function createChangesPlace(host) {
    */
   const commit = (anchor = null) => {
     if (committing || !read) return;
-    const { message, amend, all } = commitBox.request();
+    const { message, amend } = commitBox.request();
     if (!message.trim()) {
       if (!commitPopover && anchor && measureMode() === 'chip') {
         openCommitPopover(anchor);
@@ -598,7 +598,7 @@ export function createChangesPlace(host) {
     }
     // Continue commits an operation in progress, with git's own message.
     if (read.detached || read.operation) return;
-    if (!amend && !all && stagedCount() === 0) return;
+    if (!amend && stagedCount() === 0) return;
     const branch = read.branch;
     const amendedPushed = amend && Boolean(read.head?.pushed);
     /** @type {PinGitOp} */
@@ -607,7 +607,6 @@ export function createChangesPlace(host) {
       repo,
       message: read.wrapsBody === false ? message : wrapBody(message),
       ...(amend ? { amend: true } : {}),
-      ...(all ? { all: true } : {}),
     };
     committing = true;
     commitBox.setRunning(true);
@@ -1046,7 +1045,6 @@ export function createChangesPlace(host) {
       branch: read?.branch || '',
       detached: Boolean(read?.detached),
       staged: stagedCount(),
-      tracked: (groupsOf(files()).find((g) => g.id === 'changes')?.files.length) || 0,
       headMessage: read?.head?.message || '',
       operation: read?.operation || '',
     });

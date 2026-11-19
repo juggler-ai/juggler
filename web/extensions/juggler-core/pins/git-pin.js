@@ -28,6 +28,7 @@ import {
   scopePreset,
   turnConversation,
 } from '../lib/git-scope.js';
+import { createAbsence } from './git/absence.js';
 import { createActions } from './git/actions.js';
 import { createChangesPlace } from './git/changes-place.js';
 import { createCommandLog } from './git/command-log.js';
@@ -43,6 +44,7 @@ import { createRefsPlace } from './git/refs-place.js';
 import { applySplits, createSplitHandle, normalizeSplits } from './git/splitter.js';
 import { createToast } from './git/toast.js';
 import { injectGitClientStyles } from './git/styles.js';
+import { createTreeEvents } from './git/tree-events.js';
 
 const t = translator('@juggler/core');
 
@@ -415,6 +417,9 @@ class GitPin extends PinboardItemType {
    */
   mount(container, pinContext) {
     let context = pinContext;
+    // The one git service every place and the pin itself use: one watch of the
+    // tree, and a write ending told to all of them as a change (tree-events.js).
+    const events = createTreeEvents(() => context.services.git);
     injectGitClientStyles();
     const root = createElement('div', 'git-pin');
     root.tabIndex = 0;
@@ -825,7 +830,7 @@ class GitPin extends PinboardItemType {
       renderHead();
       let id = '';
       try {
-        const job = await context.services.git.run(op, workspaceOption());
+        const job = await events.git().run(op, workspaceOption());
         id = job?.id || '';
         if (op.kind === 'fetch') {
           const first = firstFetches.get(fetchKey(op.repo));
@@ -980,7 +985,7 @@ class GitPin extends PinboardItemType {
       changes.showFirstConflict();
     };
     const operationActions = createActions({
-      git: () => context.services.git,
+      git: events.git,
       repo: () => shownRepo?.repo || '',
       workspaceOption,
       toast,
@@ -1069,7 +1074,7 @@ class GitPin extends PinboardItemType {
     };
 
     const changes = createChangesPlace({
-      git: () => context.services.git,
+      git: events.git,
       workspaceOption,
       treeKey,
       root: treeRoot,
@@ -1168,7 +1173,7 @@ class GitPin extends PinboardItemType {
     };
 
     const refs = createRefsPlace({
-      git: () => context.services.git,
+      git: events.git,
       workspaces: () => context.services.workspaces,
       workspaceOption,
       rootElement: root,
@@ -1214,7 +1219,7 @@ class GitPin extends PinboardItemType {
     refs.element.classList.add('git-pin__place', 'git-pin__place--refs');
 
     const history = createHistoryPlace({
-      git: () => context.services.git,
+      git: events.git,
       workspaces: () => context.services.workspaces,
       workspaceOption,
       root: treeRoot,
@@ -1262,7 +1267,7 @@ class GitPin extends PinboardItemType {
     const unwatchStatus = context.services.git.onChange?.(() => {
       if (live && !isPinned(config)) changes.setRepos(status()?.repos || []);
     });
-    const watchResync = () => context.services.git.watch?.((event) => {
+    const watchResync = () => events.git().watch?.((event) => {
       if (live && event.type === 'git-resync') void readRepos();
     }, workspaceOption());
     let unwatchResync = watchResync();
@@ -1376,7 +1381,9 @@ class GitPin extends PinboardItemType {
     splitHandle(history.element.querySelector('.git-history__body'), 'history', t('Resize the commit list'));
     splitHandle(refs.element.querySelector('.git-refs__body'), 'refs', t('Resize the refs list'));
     splitHandle(refs.element, 'sidebar', t('Resize the sidebar'));
-    root.append(head.element, banner.element, switcher, main);
+    // The log is the tree's, under every place: History, Refs and the head run
+    // git too, and the repository menu opens it from anywhere.
+    root.append(head.element, banner.element, switcher, main, log.element);
 
     /**
      * Write the mode the pin's size puts it in onto the root, where tests and
@@ -1403,6 +1410,19 @@ class GitPin extends PinboardItemType {
       if (live) syncMode();
     });
     resizes.observe(root);
+
+    // Back in sight after STALE_AFTER_MS or more, every place reads again, as
+    // Refresh does: another board tab (hide/show), the board put away (off the
+    // screen, which the observer sees), or the window in the background.
+    const absence = createAbsence({ onReturn: () => { if (live) void head.handlers.refresh(); } });
+    const onScreen = new IntersectionObserver((entries) => {
+      const entry = entries.at(-1);
+      if (live && entry) absence.set('board', !entry.isIntersecting);
+    });
+    onScreen.observe(root);
+    const onDocumentVisibility = () => { if (live) absence.set('window', document.hidden); };
+    document.addEventListener('visibilitychange', onDocumentVisibility);
+    absence.set('window', document.hidden);
 
     /**
      * @param {PlaceId} next - The place to show.
@@ -1484,13 +1504,18 @@ class GitPin extends PinboardItemType {
       hide: () => {
         closePopover();
         toast.hide();
+        absence.set('tab', true);
       },
+      show: () => absence.set('tab', false),
       teardown: () => {
         live = false;
         resizes.disconnect();
+        onScreen.disconnect();
+        document.removeEventListener('visibilitychange', onDocumentVisibility);
         for (const p of Object.values(/** @type {Record<PlaceId, PinPlace>} */ (places))) p.teardown();
         unwatchStatus?.();
         unwatchResync?.();
+        events.stop();
       },
     };
   }

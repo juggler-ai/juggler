@@ -60,7 +60,7 @@ const SETTINGS_TABS = [
 const DATA = '.project-path-display__path, .session-switcher-chip-tile, .user-message-text, .markdown, .model-name, .usage-card__sub, '
   + '#auto-name-instruction-input, .plugin-version, .plugin-author, .properties-panel-filepath, '
   + '.account-card .provider-name, .account-type-name, .account-type-detail, .account-chip:not(.account-chip-source), '
-  + '.git-pin__repo-name, .git-pin__branch-name, .git-pin__repo option, '
+  + '.git-pin__repo, .git-pin__branch-name, '
   + 'code, pre, option[lang]';
 
 /**

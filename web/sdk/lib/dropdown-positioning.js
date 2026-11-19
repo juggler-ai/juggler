@@ -143,22 +143,31 @@ function takeScrollOffsets(dropdown) {
  * change then repositions against the settled button, nudging the popup a few px
  * on both axes (the reported "popup shifts the moment I start typing").
  *
- * Neutralising the button's own transform for the measurement gives the resting
- * box every time. Killing the transition first is essential: with the transition
- * live, setting `transform: none` animates toward it rather than applying
- * instantly, so the immediate measurement would still read the scaled value.
- * Both inline overrides are restored synchronously, before any paint, so the
- * button's visual press animation is untouched.
+ * Every button also dips and springs back as a Web Animation of `scale`
+ * (utils/press-feedback.js), which no plain inline style outranks — an
+ * animation sits above normal declarations in the cascade. A menu placed
+ * during that spring, and placed again when its content changes, steps by the
+ * dip: on a small button, a few px.
+ *
+ * Neutralising the button's own transforms for the measurement gives the
+ * resting box every time: `transform` and the individual `scale`, `rotate` and
+ * `translate`, each set `!important`, which outranks an animation. Killing the
+ * transition first is essential: with the transition live, setting
+ * `transform: none` animates toward it rather than applying instantly, so the
+ * immediate measurement would still read the scaled value. Every inline
+ * override is restored synchronously, before any paint, so the button's visual
+ * press animation is untouched.
  * @param {HTMLElement} button
- * @returns {DOMRect} The button's rect with its own transform neutralised.
+ * @returns {DOMRect} The button's rect with its own transforms neutralised.
  */
 function measureRestingRect(button) {
-  const prevTransition = button.style.transition;
-  const prevTransform = button.style.transform;
-  button.style.transition = 'none';
-  button.style.transform = 'none';
+  const props = ['transition', 'transform', 'scale', 'rotate', 'translate'];
+  const prev = props.map((p) => ({ p, value: button.style.getPropertyValue(p), priority: button.style.getPropertyPriority(p) }));
+  for (const p of props) button.style.setProperty(p, 'none', 'important');
   const rect = button.getBoundingClientRect();
-  button.style.transition = prevTransition;
-  button.style.transform = prevTransform;
+  for (const { p, value, priority } of prev) {
+    if (value) button.style.setProperty(p, value, priority);
+    else button.style.removeProperty(p);
+  }
   return rect;
 }

@@ -105,6 +105,25 @@ export async function runTests(_ctx) {
     m.teardown();
   });
 
+  await test('a redraw of the open switcher keeps focus on the row it was on', async () => {
+    const m = await mounted();
+    const switcher = await openSwitcher(m);
+    // Placed, as the frame lanes do not deliver would place it: until then it is
+    // hidden, and nothing hidden takes focus.
+    /** @type {HTMLElement} */ (switcher).style.removeProperty('visibility');
+    entry(switcher, '/tmp/wt-plain').focus();
+    m.emitWorkspaces();
+    await nextTask();
+    const onTree = /** @type {HTMLElement|null} */ (document.activeElement);
+    assert(onTree?.dataset.path === '/tmp/wt-plain' && switcher.contains(onTree), `after a redraw on a tree: ${onTree?.outerHTML.slice(0, 80)}`);
+    /** @type {HTMLElement} */ (switcher.querySelector('[data-act="new"]')).focus();
+    m.emitWorkspaces();
+    await nextTask();
+    const onAct = /** @type {HTMLElement|null} */ (document.activeElement);
+    assert(onAct?.dataset.act === 'new' && switcher.contains(onAct), `after a redraw on an action: ${onAct?.outerHTML.slice(0, 80)}`);
+    m.teardown();
+  });
+
   await test('picking a plain tree pins its wt: id, and the reads follow it', async () => {
     const m = await mounted();
     entry(await openSwitcher(m), '/tmp/wt-plain').click();

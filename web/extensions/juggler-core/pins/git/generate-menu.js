@@ -180,7 +180,9 @@ export function createGenerateControl(host) {
       delete loading.dataset.source;
       rows.push(loading);
     } else if (read.conversations.length) {
-      rows.push(createElement('div', 'menu-header', t('From the conversation that made it')));
+      const caption = createElement('div', 'menu-header menu-header-plain caps-label', t('From the conversation that made it'));
+      caption.setAttribute('role', 'none');
+      rows.push(caption);
       for (const c of read.conversations) {
         rows.push(row(`conv:${c.conv}`, c.title || c.conv,
           t('made {count} of {total} staged', { count: c.files.length, total: read.staged })));

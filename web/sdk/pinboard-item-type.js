@@ -810,7 +810,7 @@ import { validateManifest } from './lib/manifest.js';
  *   `context` and `revision` of the diff the lines were chosen on — a different
  *   revision refuses the write, since the same numbers would be other lines.
  * - `ignore`: `paths[0]` and `pattern`.
- * - `commit`: `message`, and `amend` or `all`. `result.head` is the new commit.
+ * - `commit`: `message`, and `amend`. `result.head` is the new commit.
  * - `undo-commit`: `expectHead`, the commit it undoes.
  *
  * The Refs place's writes name a branch, tag or stash as the client saw it —
@@ -913,7 +913,6 @@ import { validateManifest } from './lib/manifest.js';
  * @property {'file'|'extension'|'folder'} [pattern] - What an ignore covers
  * @property {string} [message] - A commit's message
  * @property {boolean} [amend] - Whether a commit amends HEAD
- * @property {boolean} [all] - Whether a commit takes everything rather than what is staged
  * @property {string} [expectHead] - The HEAD an undo-commit undoes, or a reset moves from
  * @property {string} [discard] - The discard an undo-discard restores, or the save a hard reset back or an unresolve writes back
  * @property {string} [branch] - The branch

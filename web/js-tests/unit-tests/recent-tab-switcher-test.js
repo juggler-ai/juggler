@@ -75,9 +75,9 @@ const huds = () => /** @type {HTMLElement[]} */ ([...document.querySelectorAll('
 const rows = (hud) => {
   const items = /** @type {HTMLElement[]} */ ([...hud.querySelectorAll('.recent-tabs-row')]);
   return {
-    ids: items.map((row) => row.dataset.conversationId).join(),
+    ids: items.map((row) => row.dataset.itemId).join(),
     names: items.map((row) => row.querySelector('.recent-tabs-name')?.textContent).join(),
-    selected: items.find((row) => row.classList.contains('recent-tabs-row--selected'))?.dataset.conversationId,
+    selected: items.find((row) => row.classList.contains('recent-tabs-row--selected'))?.dataset.itemId,
   };
 };
 
@@ -220,7 +220,7 @@ export async function runTests() {
     await run('a click on a row shows that conversation', (session) => {
       key('keydown', 'Control');
       press('next');
-      const row = /** @type {HTMLElement|null} */ (huds()[0]?.querySelector('.recent-tabs-row[data-conversation-id="d"]'));
+      const row = /** @type {HTMLElement|null} */ (huds()[0]?.querySelector('.recent-tabs-row[data-item-id="d"]'));
       assert(!!row, 'the list has a row for d');
       row?.click();
       assert(session.switches.join() === 'd', `got [${session.switches.join()}]`);

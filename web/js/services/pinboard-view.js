@@ -91,6 +91,14 @@ let _remembered = null;
  */
 let _generation = 0;
 
+/**
+ * The pins this viewer has shown, most recent first: the order Ctrl+Tab walks a
+ * board window's tabs in. A pin since removed may linger here; the reader
+ * filters against the board.
+ * @type {string[]}
+ */
+let _recentPinIds = [];
+
 /** @type {string} */
 let _status = '';
 
@@ -112,6 +120,11 @@ const _subscribers = new Set();
  */
 function notify() {
   rememberActive();
+  // Every change of active pin, whoever made it, notifies — so this is the one
+  // place that sees them all.
+  if (_activePinId && _recentPinIds[0] !== _activePinId) {
+    _recentPinIds = [_activePinId, ..._recentPinIds.filter((id) => id !== _activePinId)];
+  }
   for (const fn of _subscribers) {
     try {
       fn();
@@ -414,6 +427,16 @@ const pinboardView = {
   },
 
   /**
+   * The pins still on the board that this viewer has shown, most recently
+   * shown first.
+   * @returns {string[]} Pin ids.
+   */
+  recentlyUsedPinIds() {
+    const onBoard = new Set(pinboardStore.get().map((pin) => pin.id));
+    return _recentPinIds.filter((id) => onBoard.has(id));
+  },
+
+  /**
    * Make a pin the active tab in this viewer, without opening the board.
    * @param {string|null} pinId - The pin to select.
    * @returns {void}
@@ -697,6 +720,7 @@ const pinboardView = {
     _chosen = false;
     _recalled = false;
     _remembered = null;
+    _recentPinIds = [];
     _generation++;
     _status = '';
   },

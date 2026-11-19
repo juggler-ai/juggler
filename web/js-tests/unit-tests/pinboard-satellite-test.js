@@ -839,6 +839,59 @@ export async function runTests() {
       }
     });
 
+    // The desktop window claims Ctrl+Tab and re-raises it as `juggler:recent-tab`;
+    // the Control key's own keydown and keyup reach the page as usual.
+    await run('Ctrl+Tab in a board window walks its pins in order of use, not the conversations', async () => {
+      const pins = [
+        ...PROBE_BOARD,
+        { id: 'pin_c', type: 'satellite-probe', config: { label: 'gamma' } },
+      ];
+      const { teardown } = await mountShell({ pins });
+      const bar = /** @type {any} */ (document.createElement('conversation-bar'));
+      const ctrl = (/** @type {'keydown'|'keyup'} */ type) =>
+        document.dispatchEvent(new KeyboardEvent(type, { key: 'Control', bubbles: true, cancelable: true }));
+      const press = () =>
+        window.dispatchEvent(new CustomEvent('juggler:recent-tab', { detail: { direction: 'next' } }));
+      const huds = () => /** @type {HTMLElement[]} */ ([...document.querySelectorAll('.recent-tabs-hud')]);
+      try {
+        document.body.appendChild(bar);
+        assert(bar._recentTabs === null,
+          'a board window has no conversations to switch between, so the bar must not answer Ctrl+Tab there');
+
+        await waitFor(() => pinboardView.getActivePinId() === 'pin_a', 'the board to open');
+        pinboardView.setActivePin('pin_c');
+        pinboardView.setActivePin('pin_b');
+
+        ctrl('keydown');
+        press();
+        const [hud, ...more] = huds();
+        assert(!!hud && more.length === 0, `holding Ctrl through the press opens one list — got ${huds().length}`);
+        const rows = /** @type {HTMLElement[]} */ ([...hud.querySelectorAll('.recent-tabs-row')]);
+        const ids = rows.map((row) => row.dataset.itemId).join();
+        assert(ids === 'pin_b,pin_c,pin_a', `the pins in order of use — got ${ids}`);
+        const names = rows.map((row) => row.querySelector('.recent-tabs-name')?.textContent).join();
+        assert(names.startsWith('beta@'), `each row is named as its tab is — got ${names}`);
+        const lit = rows.find((row) => row.classList.contains('recent-tabs-row--selected'))?.dataset.itemId;
+        assert(lit === 'pin_c', `the first press lights the pin read before this one — got ${lit}`);
+        assert(pinboardView.getActivePinId() === 'pin_b', 'nothing is shown while Ctrl is held');
+
+        ctrl('keyup');
+        assert(pinboardView.getActivePinId() === 'pin_c', `release shows the pin picked — got ${pinboardView.getActivePinId()}`);
+        assert(huds().length === 0, 'and closes the list');
+
+        ctrl('keydown');
+        press();
+        ctrl('keyup');
+        assert(pinboardView.getActivePinId() === 'pin_b',
+          `a second tap comes straight back — got ${pinboardView.getActivePinId()}`);
+      } finally {
+        ctrl('keyup');
+        for (const hud of huds()) hud.remove();
+        bar.remove();
+        teardown();
+      }
+    });
+
     await run('the reduced layout is CSS, so it lands on the first frame', async () => {
       const { doc, frame } = await styledFrame(900);
       try {

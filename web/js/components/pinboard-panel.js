@@ -305,6 +305,18 @@ class PinboardPanel extends JugglerElement {
   }
 
   /**
+   * A pin's row in the Ctrl+Tab list: named, and badged, as its tab is.
+   * @param {string} pinId - The pin.
+   * @returns {import('./recent-tab-switcher.js').RecentTabRow} The row.
+   */
+  recentTabRow(pinId) {
+    const pin = pinboardStore.getPin(pinId);
+    if (!pin) return { name: pinId, place: '' };
+    const described = describePin(pin, this._activeContext());
+    return { name: described.title, place: described.badge || '' };
+  }
+
+  /**
    * The keys the board answers to while it has focus, and the rules about whose
    * they are.
    *

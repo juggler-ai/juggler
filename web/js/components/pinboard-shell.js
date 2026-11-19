@@ -41,6 +41,7 @@ import { isPinboardView } from '../utils/view-mode.js';
 import { t } from '../../sdk/lib/i18n.js';
 import findBar from './find-bar.js';
 import { cachedWindowPref, getWindowPref, setWindowPref } from '../services/prefs.js';
+import RecentTabSwitcher, { recentTabOrder } from './recent-tab-switcher.js';
 import './pinboard-panel.js';
 
 /** The window preference holding the panel's width, in rem. */
@@ -81,6 +82,8 @@ class PinboardShell extends JugglerElement {
     this._pruneStarted = false;
     /** @type {number} @private The panel's width in rem, after clamping. */
     this._widthRem = DEFAULT_WIDTH_REM;
+    /** @type {RecentTabSwitcher|null} @private A board window's Ctrl+Tab switcher. */
+    this._recentTabs = null;
   }
 
   connectedCallback() {
@@ -94,6 +97,7 @@ class PinboardShell extends JugglerElement {
     // item type, or takes its last one away.
     this.onDocument(REGISTRIES_RELOADED, () => this._syncVisibility());
     this.onDocument('keydown', (e) => this._onKeyDown(/** @type {KeyboardEvent} */ (e)));
+    if (isPinboardView()) this._setupRecentTabs();
     this._syncVisibility();
     this._syncOpen();
   }
@@ -102,6 +106,36 @@ class PinboardShell extends JugglerElement {
     super.disconnectedCallback();
     this._releasePopup?.();
     this._releasePopup = null;
+    this._recentTabs?.destroy();
+    this._recentTabs = null;
+  }
+
+  /**
+   * Ctrl+Tab in a board window: its pins in order of use, the way the Juggler
+   * shell's Ctrl+Tab walks its conversations. The desktop window claims the
+   * press and re-raises it as `juggler:recent-tab` (see recent-tab-switcher.js);
+   * in the shell the conversation bar answers it, and the docked board leaves it
+   * to the bar.
+   * @private
+   */
+  _setupRecentTabs() {
+    this._recentTabs?.destroy();
+    this._recentTabs = new RecentTabSwitcher({
+      label: t('Recent pins'),
+      order: () => recentTabOrder(pinboardView.recentlyUsedPinIds(), pinboardView.getActivePinId(),
+        pinboardStore.get().map((pin) => pin.id)),
+      visibleId: () => pinboardView.getActivePinId(),
+      describe: (id) => this._panel?.recentTabRow(id) ?? { name: id, place: '' },
+      show: (id) => {
+        pinboardView.setActivePin(id);
+        this._panel?.focusInto();
+      },
+    });
+    this._recentTabs.init();
+    this.onWindow('juggler:recent-tab', (e) => {
+      if (this.hidden) return;
+      this._recentTabs?.press(/** @type {CustomEvent} */ (e).detail?.direction === 'prev' ? -1 : 1);
+    });
   }
 
   /**

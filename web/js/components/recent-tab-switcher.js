@@ -3,11 +3,12 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 /**
- * The recent-conversation switcher behind Ctrl+Tab: the editor's "go back to
- * the last tab" key. Page Up/Down walk the strip in the order it is drawn; this
- * walks it in the order the conversations were last used.
+ * The recent-tab switcher behind Ctrl+Tab: the editor's "go back to the last
+ * tab" key. Page Up/Down walk the strip in the order it is drawn; this walks it
+ * in the order the tabs were last used. Its host decides what the tabs are: the
+ * conversations in the Juggler shell, the pins in a board window.
  *
- * A tap shows the conversation used before this one, so tapping again comes
+ * A tap shows the tab used before this one, so tapping again comes
  * straight back — the two most recent are always one keystroke apart. Holding
  * Ctrl opens the list as a HUD: each further Tab moves down it, Shift moves up,
  * letting go of Ctrl shows the one picked, Escape closes it having changed
@@ -24,7 +25,6 @@
 
 import HoldToCycleController, { popupAwareShouldHandle } from '../services/hold-to-cycle.js';
 import { registerOpenPopup } from '../utils/popup-manager.js';
-import { t } from '../../sdk/lib/i18n.js';
 
 /** The popup id the switcher's HUD registers under. */
 const RECENT_TABS_POPUP_ID = 'recent-tabs';
@@ -32,30 +32,33 @@ const RECENT_TABS_POPUP_ID = 'recent-tabs';
 /**
  * What one row of the list shows.
  * @typedef {object} RecentTabRow
- * @property {string} name - The conversation's name as its tab shows it.
- * @property {string} place - The workspace it works in, or '' at the top level.
- * @property {string} preset - The status circle's colour preset (`color-*`), as its tab's.
- * @property {string} glyphHtml - The glyph inside the circle, as markup.
+ * @property {string} name - The name its tab shows.
+ * @property {string} place - Secondary text after the name (a conversation's
+ *   workspace), or ''.
+ * @property {string} [preset] - The status circle's colour preset (`color-*`),
+ *   as its tab's; a row without one draws no circle.
+ * @property {string} [glyphHtml] - The glyph inside the circle, as markup.
  */
 
 /**
  * What the switcher needs from the strip it serves.
  * @typedef {object} RecentTabSwitcherHost
- * @property {() => string[]} order - The open conversations, most recently used
- *   first (see {@link recentTabOrder}).
- * @property {() => string|null} visibleId - The conversation on screen, or null
- *   when something else is (a workspace panel).
- * @property {(id: string) => RecentTabRow} describe - How to draw a conversation's row.
- * @property {(id: string) => void} show - Show a conversation, as a click on its tab would.
+ * @property {string} label - The list's accessible name.
+ * @property {() => string[]} order - The open tabs, most recently used first
+ *   (see {@link recentTabOrder}).
+ * @property {() => string|null} visibleId - The tab on screen, or null when
+ *   something else is (a workspace panel).
+ * @property {(id: string) => RecentTabRow} describe - How to draw a tab's row.
+ * @property {(id: string) => void} show - Show a tab, as a click on it would.
  */
 
 /**
- * The open conversations in order of use: the one on screen (or behind the
- * panel on screen), then those switched to most recently, then the rest in the
- * order the strip draws them. Anything the strip does not draw is left out.
- * @param {string[]} recentlyUsed - Switched-to conversations, most recent first.
- * @param {string|null} loadedId - The conversation on screen or behind a panel.
- * @param {string[]} drawn - Every open conversation, in strip order.
+ * The open tabs in order of use: the one on screen (or behind the panel on
+ * screen), then those switched to most recently, then the rest in the order the
+ * strip draws them. Anything the strip does not draw is left out.
+ * @param {string[]} recentlyUsed - Switched-to tabs, most recent first.
+ * @param {string|null} loadedId - The tab on screen or behind a panel.
+ * @param {string[]} drawn - Every open tab, in strip order.
  * @returns {string[]} The ids, most recently used first.
  */
 export function recentTabOrder(recentlyUsed, loadedId, drawn) {
@@ -119,8 +122,8 @@ export default class RecentTabSwitcher {
 
   /**
    * Freeze the list and light the row the first press asks for: forward, the
-   * conversation used before the one on screen — or, over a workspace panel,
-   * the conversation behind it, which leads the list; back, the last row.
+   * tab used before the one on screen — or, over a workspace panel, the
+   * conversation behind it, which leads the list; back, the last row.
    * @param {number} step
    * @param {boolean} open - False when the gesture ends with this press, so
    *   there is no HUD to draw.
@@ -145,8 +148,8 @@ export default class RecentTabSwitcher {
   }
 
   /**
-   * Show the lit row's conversation and close the HUD. The one already on
-   * screen is left as it is.
+   * Show the lit row's tab and close the HUD. The one already on screen is
+   * left as it is.
    * @private
    */
   _commit() {
@@ -159,23 +162,26 @@ export default class RecentTabSwitcher {
   _open() {
     const hud = document.createElement('nav');
     hud.className = 'dropdown-menu is-open recent-tabs-hud';
-    hud.setAttribute('aria-label', t('Recent conversations'));
+    hud.setAttribute('aria-label', this._host.label);
     const list = document.createElement('menu');
     list.setAttribute('role', 'listbox');
     for (const id of this._ids) {
       const row = this._host.describe(id);
       const item = document.createElement('li');
       item.className = 'menu-item recent-tabs-row';
-      item.dataset.conversationId = id;
+      item.dataset.itemId = id;
       item.setAttribute('role', 'option');
-      const circle = document.createElement('span');
-      circle.className = `item-circle recent-tabs-status ${row.preset}`;
-      circle.setAttribute('aria-hidden', 'true');
-      circle.innerHTML = row.glyphHtml;
+      if (row.preset) {
+        const circle = document.createElement('span');
+        circle.className = `item-circle recent-tabs-status ${row.preset}`;
+        circle.setAttribute('aria-hidden', 'true');
+        circle.innerHTML = row.glyphHtml || '';
+        item.append(circle);
+      }
       const name = document.createElement('span');
       name.className = 'recent-tabs-name text-truncate';
       name.textContent = row.name;
-      item.append(circle, name);
+      item.append(name);
       if (row.place) {
         const place = document.createElement('span');
         place.className = 'recent-tabs-place text-truncate';
@@ -188,7 +194,7 @@ export default class RecentTabSwitcher {
     // A click picks a row: it is the release, arriving by pointer.
     hud.addEventListener('click', (e) => {
       const item = /** @type {HTMLElement|null} */ (/** @type {HTMLElement} */ (e.target).closest?.('.recent-tabs-row'));
-      const index = item ? this._ids.indexOf(item.dataset.conversationId || '') : -1;
+      const index = item ? this._ids.indexOf(item.dataset.itemId || '') : -1;
       if (index < 0) return;
       this._cursor = index;
       this._controller.commit();

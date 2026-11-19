@@ -352,6 +352,12 @@ class ConversationBar extends JugglerElement {
    * @private
    */
   _setupKeyboardNavigation() {
+    // A detached board has no conversations to navigate — it is a view of the
+    // one its URL names — so none of the keys or commands that switch, create,
+    // bin or rename one are this bar's to answer there. Ctrl+Tab is the board's
+    // own (pinboard-shell.js).
+    if (isPinboardView()) return;
+
     this.onDocument('juggler:focus-tab-list', () => this._enterTabListFocus({ ring: true }));
 
     // A click on the bar's empty background focuses the tab list — the same
@@ -434,6 +440,7 @@ class ConversationBar extends JugglerElement {
     // Ctrl+Tab: the conversations in order of use rather than strip order.
     this._recentTabs?.destroy();
     this._recentTabs = new RecentTabSwitcher({
+      label: t('Recent conversations'),
       order: () => (this._session
         ? recentTabOrder(this._session.recentlyUsedConversationIds ?? [],
           this._session.loadedConversationId, drawnConversationOrder(this._session))

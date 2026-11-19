@@ -28,6 +28,7 @@ import pinboardStore from '../services/pinboard-store.js';
 import pinboardView from '../services/pinboard-view.js';
 import pinboardItemRegistry from '../registries/pinboard-item-registry.js';
 import { REGISTRIES_RELOADED } from '../registries/reload-registries.js';
+import { whenRegistriesReady } from '../registries/registry-ready.js';
 import { THREAD_FOCUS_CHANGED } from './conversation-tab.js';
 import { isEditableTarget } from '../services/key-shortcut-manager.js';
 import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
@@ -80,13 +81,22 @@ class PinboardPanel extends JugglerElement {
     this._placeholder = null;
     /**
      * How far a detached board has got with the conversation named in its URL:
-     * 'opening' until the session has been asked for it, then 'ready' or
-     * 'missing'. A board that guessed instead of waiting would draw an empty
-     * Plan, no changed files and no running tasks over a conversation that is
-     * merely still loading — and would look right doing it.
+     * 'opening' until the session has been asked for it, then 'ready' — with
+     * that conversation, or as a view of the project once it has gone — or
+     * 'missing', for a board left with nothing to show. A board that guessed
+     * instead of waiting would draw an empty Plan, no changed files and no
+     * running tasks over a conversation that is merely still loading — and would
+     * look right doing it.
      * @type {'opening'|'ready'|'missing'} @private
      */
     this._boardState = 'opening';
+    /**
+     * Whether this board has dealt with losing its conversation. Once: every
+     * later deletion in the project arrives as the same event, and a board the
+     * user has since emptied by hand is not to be closed by one of those.
+     * @type {boolean} @private
+     */
+    this._conversationLost = false;
     /**
      * What the conversation this board is a view of was called, kept from the
      * last time there was one to ask. A deleted conversation cannot be asked its
@@ -168,8 +178,14 @@ class PinboardPanel extends JugglerElement {
   async _openBoardConversation() {
     const conversationId = boardConversationId();
     const session = /** @type {any} */ (this._session);
-    if (!conversationId || !session) {
+    if (!session) {
       this._boardState = 'missing';
+      this.render();
+      return;
+    }
+    if (!conversationId) {
+      this._boardState = 'ready';
+      void this._loseConversation();
       this.render();
       return;
     }
@@ -180,21 +196,44 @@ class PinboardPanel extends JugglerElement {
         console.error('[Pinboard] Could not read the conversation this board is a view of:', err);
       }
     }
-    this._boardState = session.getConversation?.(conversationId) ? 'ready' : 'missing';
+    this._boardState = 'ready';
+    // Gone while this window was shut, or removed from the project by hand: the
+    // same loss as a delete seen live, met the same way.
+    if (!session.getConversation?.(conversationId)) void this._loseConversation();
     this.render();
   }
 
   /**
-   * Give up the conversation this board was a view of.
+   * Go on without the conversation this board was a view of.
    *
-   * A board is a window onto one conversation, so a conversation that has been
-   * deleted leaves this window nothing to show and nothing to become: it says
-   * which one has gone and asks to be closed. The order matters — a window that
-   * cannot be closed from script, a browser tab the user opened themselves,
-   * keeps that message rather than a transcript that is no longer anywhere.
+   * A board's window is often about the project rather than the conversation —
+   * Git, a file, the running tasks — so losing the conversation takes only the
+   * tabs whose type cannot be shown without one, and the window stays as a view
+   * of the project. A board that has nothing left says which conversation has
+   * gone and asks to be closed. The order matters there — a window that cannot
+   * be closed from script, a browser tab the user opened themselves, keeps that
+   * message rather than an empty board.
+   *
+   * What a pin's type needs is the registry's to say, so this waits for the
+   * registry and the board both; a failed edit leaves the board as it was, with
+   * the complaint on its status line, rather than closing on a guess.
+   * @returns {Promise<void>}
    * @private
    */
-  _loseConversation() {
+  async _loseConversation() {
+    if (this._conversationLost) return;
+    this._conversationLost = true;
+    await whenRegistriesReady();
+    if (!pinboardStore.isLoaded()) {
+      try {
+        await pinboardStore.load();
+      } catch (err) {
+        console.error('[Pinboard] Could not read the board its conversation left behind:', err);
+        return;
+      }
+    }
+    const left = await pinboardView.dropConversationPins();
+    if (!left || left.length) return;
     this._boardState = 'missing';
     this.render();
     closeThisWindow();
@@ -233,12 +272,11 @@ class PinboardPanel extends JugglerElement {
           case 'conversation:deleted':
             // The session is asked rather than the event: deleting and binning
             // both arrive as this, and both have already taken the conversation
-            // out of the session by the time they do. A board still opening, or
-            // one that never found its conversation, has nothing to lose.
+            // out of the session by the time they do. A board still opening finds
+            // out for itself once it has asked.
             if (isPinboardView() && this._boardState === 'ready'
               && !session.getConversation(boardConversationId())) {
-              this._loseConversation();
-              break;
+              void this._loseConversation();
             }
             this.render();
             break;
@@ -703,10 +741,10 @@ class PinboardPanel extends JugglerElement {
   /**
    * Show a detached board's two other states in place of the board.
    *
-   * A board still opening its conversation, or one whose conversation is not in
-   * this project, is not an empty board — it is a board with nothing to be a
-   * view of. Both say so rather than drawing tabs against a transcript nobody
-   * can read.
+   * A board still opening its conversation is not an empty board — it is a
+   * board with nothing yet to be a view of — and one whose conversation went
+   * and took every tab with it is a window on its way out. Both say so rather
+   * than drawing tabs against a transcript nobody can read.
    *
    * A board that has lost its conversation names it, when it was around long
    * enough to learn the name: this window is one of several, all of them called
@@ -767,8 +805,8 @@ class PinboardPanel extends JugglerElement {
    * The immutable snapshot every item type is rendered against.
    *
    * One substitution makes a detached board what it is: the conversation is the
-   * one its URL names rather than the one this viewer is showing, and the thread
-   * is that conversation's root. A board has no columns and follows no reader,
+   * one its URL names rather than the one this viewer is showing — or none, once
+   * that one has gone — and the thread is that conversation's root. A board has no columns and follows no reader,
    * so there is no thread being looked at here to report — and a board that
    * reported this window's own visible conversation would be a second, quieter
    * view of whatever the app is doing, which is the one thing it must not be.

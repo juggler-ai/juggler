@@ -882,6 +882,13 @@ function jsStrings(text, file, espree, out, composed) {
 /** `{{.CSPNonce}}` and its kin: Go template actions, which no JS parser will take. */
 const TEMPLATE_ACTION = /\{\{[^}]*\}\}/g;
 
+/**
+ * A template action that yields no value — `{{if …}}`, `{{end}}` and the rest —
+ * which stands for nothing in the script around it, so `{{if .X}}try {` reads as
+ * `try {` rather than as an identifier jammed against a block.
+ */
+const TEMPLATE_CONTROL = /\{\{-?\s*(?:if|else|end|range|with|define|template|block|break|continue)\b[^}]*\}\}/g;
+
 /** One open tag, attributes and all, with `>` allowed inside a quoted value. */
 const OPEN_TAG = /<[a-zA-Z][\w-]*(?:\s+[^\s=>/]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?)*\s*\/?>/g;
 const ATTRIBUTE_VALUE = /=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g;
@@ -899,7 +906,7 @@ const ATTRIBUTE_VALUE = /=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g;
 function htmlStrings(text, file, espree, out, composed) {
   let html = text.replace(/<!--[\s\S]*?-->/g, '');
   html = html.replace(/(<script\b([^>]*)>)([\s\S]*?)(<\/script>)/gi, (whole, open, attrs, body, close) => {
-    const code = body.replace(TEMPLATE_ACTION, '_');
+    const code = body.replace(TEMPLATE_CONTROL, '').replace(TEMPLATE_ACTION, '_');
     if (code.trim()) {
       if (/type\s*=\s*["']?(importmap|application\/(ld\+)?json)/i.test(attrs)) {
         for (const token of espree.tokenize(code, { ecmaVersion: 'latest' })) {

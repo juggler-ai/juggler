@@ -40,6 +40,7 @@ class PlanPin extends PinboardItemType {
     // What the agent is about to do, which is the first thing worth a glance.
     order: 10,
     defaultPin: true,
+    needsConversation: true,
   };
 
   /**

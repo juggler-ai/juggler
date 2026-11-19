@@ -8,27 +8,28 @@ the current release). The project follows semantic versioning.
 
 - Open projects in another window directly from the project chooser
 
+- The Git pin has grown into a full git client: staging, commits, branches, worktrees, push/pull, commit graph, reword/squash/drop, blame, reflog undo, conflict resolution, auto-generated commit messages
+- Web search can now use Tavily, Brave, SearXNG, DeepSeek, Bocha or Zhipu, in your order
+- Added a prompt history button: search, reuse or delete past prompts; ⌘S/Ctrl+S sets a draft aside
+- Windows: Update & restart reopens Juggler; an update that fails offers the installer
+- Launching Juggler while it runs opens a new window; Windows taskbar menu adds New Window
 - Skills with 'disable-model-invocation: true' are yours to start with $name, never the model's
-- Prompt history button: search, reuse or delete past prompts; ⌘S/Ctrl+S sets a draft aside
 - Clearing a prompt with Escape keeps its images in the prompt history
 - Pinboard Pop-out works in windows connected to another machine's server
 - Popped-out pinboards reopen only on the machine that popped them out
+- Deleting a conversation keeps its popped-out pinboards open, dropping only its Plan and Todo tabs
+- Popped-out pinboard windows have their own zoom buttons
 - /compact during a running turn waits for it to finish instead of stopping it
 - An app and another machine's server that don't fit say which to update, not "Not Found"
 - About shows the desktop app's version beside the server's when they differ
-- Windows: Update & restart reopens Juggler; an update that fails offers the installer
 - An in-app update can be cancelled mid-download, or its download discarded
-- Launching Juggler while it runs opens a new window; Windows taskbar menu adds New Window
 - Closing a tab no longer makes a later tab jump past a workspace box
 - Pressing a menu's button again closes the menu instead of reopening it
-- Web search can use Tavily, Brave, SearXNG, DeepSeek, Bocha or Zhipu, in your order
 - Exa now answers WebSearch, replacing its separate exa_search tool; your key carries over
 - Settings → Connectivity says where the server is and places clients relative to it
 - Remote windows show the LAN address or tunnel link they came in by
 - The sessions page header has zoom, theme, and Settings for this computer
 - Settings → Project files: "Keep project state outside the project" saves again
-- The Git status card updates as soon as files or branches change, worktrees included
-- The Git pin is a git client: staging, commits, branches, worktrees, push/pull, commit graph, reword/squash/drop, blame, reflog undo, conflict resolution, auto-generated commit messages
 
 ## [0.8.1] - 2026-11-15
 

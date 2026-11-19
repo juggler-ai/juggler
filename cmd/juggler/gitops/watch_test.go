@@ -359,6 +359,53 @@ func TestWatch_RealCommitInLinkedWorktree(t *testing.T) {
 	waitFor(t, mainCh, "", KindRefs)
 }
 
+// A push moves nothing but the remote-tracking ref it pushed to, which is how
+// the branch stops being ahead: that is a change of refs.
+func TestWatch_RealPushIsRefs(t *testing.T) {
+	r := committed(t)
+	r.withRemote()
+	r.write("mine.txt", "mine\n")
+	r.commit("ahead")
+
+	w, err := NewWatcher("", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(w.Close)
+	ch := watch(t, w, r.dir)
+
+	if _, _, _, err := netOp(t, r.dir, Op{Kind: OpPush}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, ch, "", KindRefs)
+}
+
+// The same push from a submodule, whose git directory lies in its
+// superproject's .git/modules, is that submodule's change of refs.
+func TestWatch_RealPushInSubmoduleIsRefs(t *testing.T) {
+	super, _, _ := withSubmodule(t)
+	sub := &repo{t: t, dir: filepath.Join(super.dir, "lib")}
+	bare := filepath.Join(t.TempDir(), "up.git")
+	sub.git("init", "-q", "--bare", bare)
+	sub.git("remote", "set-url", "origin", bare)
+	sub.git("push", "-q", "-u", "origin", "HEAD:refs/heads/"+sub.mainBranch())
+	sub.git("branch", "-q", "--set-upstream-to=origin/"+sub.mainBranch())
+	sub.write("mine.txt", "mine\n")
+	sub.commit("ahead")
+
+	w, err := NewWatcher("", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(w.Close)
+	ch := watch(t, w, super.dir)
+
+	if _, _, _, err := netOp(t, super.dir, Op{Kind: OpPush, Repo: "lib"}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, ch, "lib", KindRefs)
+}
+
 func TestWatch_RealMergeConflictIsOperation(t *testing.T) {
 	r := newRepo(t)
 	r.write("shared.txt", "first\n")

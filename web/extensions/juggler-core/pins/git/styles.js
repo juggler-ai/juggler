@@ -603,7 +603,7 @@ export function injectGitClientStyles() {
   left: var(--git-split-at, 50%);
   z-index: var(--z-raised);
   width: 0.5rem;
-  margin-left: -0.25rem;
+  margin-left: calc(-1 * var(--space-4));
   cursor: var(--cursor-col-resize);
   touch-action: none;
 }
@@ -620,7 +620,7 @@ export function injectGitClientStyles() {
   width: 0.125rem;
   content: "";
   background: transparent;
-  transition: background-color 120ms ease;
+  transition: background-color var(--transition-fast);
 }
 
 .git-split:hover::after,

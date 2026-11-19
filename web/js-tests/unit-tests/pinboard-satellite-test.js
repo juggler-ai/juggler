@@ -28,6 +28,7 @@ import { assert, styledProbeFrame, waitFor, nextTask } from '../utilities/test-h
 import pinboardStore from '../../js/services/pinboard-store.js';
 import pinboardView from '../../js/services/pinboard-view.js';
 import pinboardItemRegistry from '../../js/registries/pinboard-item-registry.js';
+import { markRegistriesReady } from '../../js/registries/registry-ready.js';
 import wsService from '../../js/services/websocket.js';
 import { ownerLink, satelliteLink, frameHintOf } from '../../js/services/pinboard-link.js';
 import { isMac } from '../../js/services/key-shortcut-manager.js';
@@ -114,6 +115,32 @@ class RevealProbePin extends PinboardItemType {
         run: () => pinContext.services.contextItems.reveal(found?.source?.threadId ?? null, found?.source?.itemId ?? null),
       }],
     };
+  }
+}
+
+/**
+ * A pin shaped like the Plan and Todo pins in the one respect that matters when
+ * a board's conversation goes: it shows nothing without one, so it says so in
+ * its manifest and is taken off a board that has lost its conversation.
+ */
+class ConversationProbePin extends PinboardItemType {
+  static MANIFEST = {
+    id: 'conversation-probe',
+    name: 'Conversation probe',
+    version: '1.0.0',
+    description: 'A pin that exists only in this test',
+    instances: 'multiple',
+    group: 'project',
+    needsConversation: true,
+  };
+
+  describe(config, active) {
+    return { title: `${config.label || 'Conv'}@${active?.conversation?.id || 'none'}` };
+  }
+
+  mount(container) {
+    container.textContent = 'conversation probe';
+    return { teardown: () => {} };
   }
 }
 
@@ -357,7 +384,9 @@ function stubActiveTab(conversationId = 'conv_main') {
 
 /**
  * A fetch stub answering only the board's own URLs, and delegating everything
- * else — including the harness's result POST — to the real one.
+ * else — including the harness's result POST — to the real one. A board edit is
+ * applied to the board it holds, so what the panel is told back is what a server
+ * would have made of it.
  *
  * `left` is what the server holds of the boards open when it was last shut. A
  * claim is answered as the real one answers it: with those of the boards it
@@ -374,12 +403,16 @@ function stubActiveTab(conversationId = 'conv_main') {
  * @param {any[]} [left] - The detached boards outliving the last run.
  * @param {Record<string, any>} [prefs] - This window's stored preferences.
  * @param {Promise<void>} [prefsGate] - What a preferences read waits for.
- * @returns {{urls: string[], prefWrites: any[], claims: string[][], claimants: string[], restore: () => void}}
+ * @returns {{urls: string[], prefWrites: any[], claims: string[][], claimants: string[], operations: any[], restore: () => void}}
  *   The URLs asked for, the preference patches written, the ids each claim named and
- *   the viewer that made it, and its restore.
+ *   the viewer that made it, the board edits applied, and its restore.
  */
 function stubBoard(pins, left = [], prefs = {}, prefsGate = Promise.resolve()) {
   const original = window.fetch;
+  /** @type {any[]} */
+  let current = [...pins];
+  /** @type {any[]} */
+  const operations = [];
   /** @type {string[]} */
   const urls = [];
   /** @type {any[]} */
@@ -415,11 +448,18 @@ function stubBoard(pins, left = [], prefs = {}, prefsGate = Promise.resolve()) {
         const missing = ids.filter((id) => !left.some((b) => b.id === id));
         return { ok: true, json: async () => ({ boards, missing }) };
       }
-      return { ok: true, json: async () => ({ pins }) };
+      if (asked.includes('/operations')) {
+        const body = typeof opts?.body === 'string' ? JSON.parse(opts.body) : opts?.body;
+        for (const op of body?.operations ?? []) {
+          operations.push(op);
+          if (op.op === 'remove') current = current.filter((pin) => pin.id !== op.id);
+        }
+      }
+      return { ok: true, json: async () => ({ pins: current }) };
     }
     return original(url, opts);
   });
-  return { urls, prefWrites, claims, claimants, restore: () => { window.fetch = original; } };
+  return { urls, prefWrites, claims, claimants, operations, restore: () => { window.fetch = original; } };
 }
 
 /**
@@ -514,6 +554,9 @@ const PROBE_BOARD = [
   { id: 'pin_a', type: 'satellite-probe', config: { label: 'alpha' } },
   { id: 'pin_b', type: 'satellite-probe', config: { label: 'beta' } },
 ];
+
+/** A board whose only tab needs a conversation, so losing one leaves it empty. */
+const CONVERSATION_BOARD = [{ id: 'pin_conv', type: 'conversation-probe', config: { label: 'plan' } }];
 
 /** A board holding the pin that reads a context item and offers a way back to it. */
 const REVEAL_BOARD = [{ id: 'pin_reveal', type: 'reveal-probe', config: {} }];
@@ -624,6 +667,11 @@ export async function runTests() {
   pinboardItemRegistry.reset();
   pinboardItemRegistry.registerClass(SatelliteProbePin, { extensionId: 'test' });
   pinboardItemRegistry.registerClass(RevealProbePin, { extensionId: 'test' });
+  pinboardItemRegistry.registerClass(ConversationProbePin, { extensionId: 'test' });
+  // Filled by hand rather than by initAllRegistries, so the signal production
+  // raises once it has filled them is this suite's to raise: a board that has
+  // lost its conversation waits on it before asking what a pin's type needs.
+  markRegistriesReady();
 
   try {
     await run('the mode is read from the query, and junk ids are not ids', () => {
@@ -818,7 +866,11 @@ export async function runTests() {
           // Grouped as index.html groups them, so hiding a control can never
           // be done by hiding the group the theme button shares.
           + '<div class="header-group header-group--view">'
+          + '<div class="header-foldable"><button class="help-button"></button></div>'
+          + '<div class="header-foldable"><div class="header-zoom">'
+          + '<button class="zoom-out-button"></button>'
           + '<button class="zoom-in-button"></button>'
+          + '</div></div>'
           + '<button class="theme-button"></button>'
           + '</div>'
           + '<div class="header-group header-group--app">'
@@ -841,14 +893,16 @@ export async function runTests() {
         assert(styleOf('.network-button').display === 'none',
           'nor the network button after it, which belongs to the window that opened it');
         assert(styleOf('.settings-button').display === 'none'
-          && styleOf('.zoom-in-button').display === 'none',
+          && styleOf('.help-button').display === 'none',
         'nor controls belonging to the window that opened it — even one grouped with the theme button');
         assert(styleOf('update-button').display === 'none',
           'nor an update pill, which is the app’s news and not this window’s');
         // Rendered, not merely un-hidden itself: a button whose group is hidden
         // still reports its own display.
-        assert(/** @type {Element} */ (host.querySelector('.theme-button')).getClientRects().length > 0,
-          'but the theme button stays: a board window is read where the window that opened it is not, and it is the one control that answers to that');
+        const shown = (/** @type {string} */ sel) =>
+          /** @type {Element} */ (host.querySelector(sel)).getClientRects().length > 0;
+        assert(shown('.theme-button') && shown('.zoom-out-button') && shown('.zoom-in-button'),
+          'but theme and zoom stay: a board window is read where the window that opened it is not, and they are the controls that answer to that');
         assert(styleOf('.app-header').display !== 'none',
           'but the header itself stays: it is the window’s drag region, and on Windows and Linux it carries the only close button');
         assert(styleOf('.app-header__board-title').display === 'flex',
@@ -875,6 +929,13 @@ export async function runTests() {
         const width = /** @type {HTMLElement} */ (host.querySelector('.pinboard-panel'))
           .getBoundingClientRect().width;
         assert(Math.round(width) === 900, `the detached board takes the window, got ${width}px`);
+
+        // A board window is usually narrow, and a narrow header folds zoom into
+        // the "…" menu — which a board window does not have.
+        host.style.width = '400px';
+        assert(shown('.zoom-out-button') && shown('.zoom-in-button'),
+          'zoom stays in a narrow board window, where there is no "…" menu for it to fold into');
+        assert(!shown('.help-button'), 'while what folds with nowhere to go stays folded');
       } finally {
         frame.remove();
       }
@@ -1244,51 +1305,92 @@ export async function runTests() {
       }
     });
 
-    await run('a board whose conversation is gone says so', async () => {
-      const { shell, teardown } = await mountShell({
-        pins: PROBE_BOARD,
-        // A session that has never heard of it: the conversation was deleted, or
-        // this window's server has been pointed at another project since.
+    // A board's window is often about the project rather than the conversation
+    // it was opened from — Git, a file, the running tasks — so a conversation
+    // that goes takes only the tabs that cannot be shown without it. The window
+    // stays, and is a view of the project from then on.
+    await run('a board whose conversation is gone keeps the tabs that do not need one', async () => {
+      const originalClose = window.close;
+      let closes = 0;
+      window.close = () => { closes += 1; };
+      const { shell, board, teardown } = await mountShell({
+        pins: [...PROBE_BOARD, ...CONVERSATION_BOARD],
+        // A session that has never heard of it: the conversation was deleted
+        // while this window was shut, or by hand outside Juggler.
         session: makeSession(),
       });
       try {
-        await waitFor(() => shell.querySelector('.pinboard-placeholder')?.textContent?.startsWith('This conversation is no longer available'),
-          'the board to say what is missing');
-        assert(tabLabels(shell).length === 0,
-          'a board with no conversation to be a view of draws no tabs against one');
+        await waitFor(() => tabLabels(shell).join() === 'alpha@none,beta@none',
+          () => `the board to show only what needs no conversation, got ${JSON.stringify(tabLabels(shell))}`);
+        assert(board.operations.length === 1 && board.operations[0].op === 'remove' && board.operations[0].id === 'pin_conv',
+          `the tab that needed the conversation is taken off the board itself, not merely hidden, got ${JSON.stringify(board.operations)}`);
+        assert(shell.querySelector('.pinboard-placeholder:not([hidden])') === null,
+          'a board with tabs left to show shows them, not a notice that something has gone');
+        assert(closes === 0, 'and its window stays open');
       } finally {
+        window.close = originalClose;
         teardown();
       }
     });
 
-    // Deleting the conversation is meant to take its windows with it, and the
-    // window it is meant to take is this one. It cannot be told to go: the app
-    // that owns the frame hears nothing from the server, so the page in the
-    // window is the only thing that knows both that the conversation has gone
-    // and which window it is in.
-    await run('a board whose conversation is deleted says which one and closes the window', async () => {
+    await run('a board whose conversation is deleted drops the tabs that needed it and stays open', async () => {
       const session = makeBoardSession();
-      const { shell, teardown } = await mountShell({ pins: PROBE_BOARD, session });
       const originalClose = window.close;
       let closes = 0;
       window.close = () => { closes += 1; };
+      const { shell, board, teardown } = await mountShell({
+        pins: [
+          ...PROBE_BOARD,
+          ...CONVERSATION_BOARD,
+          // A type nothing here provides — an extension disabled or not yet
+          // loaded. Whether it needs a conversation cannot be known, and a pin
+          // is not deleted on a guess.
+          { id: 'pin_unknown', type: 'uninstalled-probe', config: {} },
+        ],
+        session,
+      });
       try {
         await waitFor(() => tabLabels(shell).includes(`alpha@${BOARD_CONVERSATION}`), 'the board to open');
+        assert(board.operations.length === 0, 'a board with its conversation removes nothing');
 
         // What a delete and a bin both look like from here: the conversation is
-        // out of the session before the event announcing it arrives. The board
-        // answers in the same turn, so nothing is waited for — a lane page is
-        // hidden, where a browser clamps even a zero timer to a full second.
+        // out of the session before the event announcing it arrives.
         session.known.delete(BOARD_CONVERSATION);
         session.emit('conversation:deleted');
 
+        await waitFor(() => board.operations.length > 0, 'the board to take the conversation’s tabs off');
+        await waitFor(() => tabLabels(shell).length === 3 && tabLabels(shell)[0] === 'alpha@none',
+          () => `the board to redraw as a view of the project, got ${JSON.stringify(tabLabels(shell))}`);
+        assert(JSON.stringify(board.operations.map((/** @type {any} */ op) => op.id)) === '["pin_conv"]',
+          `only the tab that needs a conversation goes, got ${JSON.stringify(board.operations)}`);
+        assert(shell.querySelector('.pinboard-placeholder:not([hidden])') === null,
+          'the board goes on showing what it still has');
+        assert(closes === 0,
+          'and the window is not closed under the user: a Git view or a project file is not about the conversation that went');
+      } finally {
+        window.close = originalClose;
+        teardown();
+      }
+    });
+
+    await run('a board left with nothing once its conversation is deleted says which one and closes the window', async () => {
+      const session = makeBoardSession();
+      const originalClose = window.close;
+      let closes = 0;
+      window.close = () => { closes += 1; };
+      const { shell, teardown } = await mountShell({ pins: CONVERSATION_BOARD, session });
+      try {
+        await waitFor(() => tabLabels(shell).includes(`plan@${BOARD_CONVERSATION}`), 'the board to open');
+
+        session.known.delete(BOARD_CONVERSATION);
+        session.emit('conversation:deleted');
+
+        await waitFor(() => closes > 0, 'the window to be asked to close');
         const placeholder = shell.querySelector('.pinboard-placeholder:not([hidden])');
         assert(placeholder?.textContent?.startsWith('\u201CBoard conversation\u201D has gone.'),
-          `every board window is called Pinboard, so the one that has stopped working has to name the conversation it was a view of, got ${JSON.stringify(placeholder?.textContent)}`);
-        assert(tabLabels(shell).length === 0,
-          'and it stops showing a board over a transcript that is not there any more');
-        assert(closes === 1,
-          'and asks the window it is in to go: a board is a window onto one conversation, and that one has gone');
+          `every board window is called Pinboard, so one that cannot be closed from script has to name the conversation it was a view of, got ${JSON.stringify(placeholder?.textContent)}`);
+        assert(tabLabels(shell).length === 0, 'and draws no tabs');
+        assert(closes === 1, `and asks the window it is in to go once, asked ${closes} times`);
       } finally {
         window.close = originalClose;
         teardown();
@@ -1968,7 +2070,7 @@ export async function runTests() {
         // conversation as a control, and says what kind of window this is.
         document.body.appendChild(slot);
         asDesktopWindow(true);
-        const linked = await mountShell({ pins: PROBE_BOARD, session: named() });
+        const linked = await mountShell({ pins: CONVERSATION_BOARD, session: named() });
         try {
           await waitFor(() => !!slot.querySelector('button.app-header__board-conversation'),
             'the header to name the conversation as a control', budgetFor(2000));
@@ -1976,10 +2078,13 @@ export async function runTests() {
           check('header name control', [attr(name, 'title'), attr(name, 'aria-label')], 2);
           check('header kind', [slot.querySelector('.app-header__board-kind')?.textContent || '']);
 
-          // Its conversation goes: the board names the one it has lost.
+          // Its conversation goes, and with it the board's only tab: the board
+          // names the one it has lost.
           window.close = () => {};
           linked.session.known.delete(BOARD_CONVERSATION);
           linked.session.emit('conversation:deleted');
+          await waitFor(() => !!linked.shell.querySelector('.pinboard-placeholder:not([hidden])')?.textContent,
+            'the emptied board to say what has gone', budgetFor(2000));
           const gone = linked.shell.querySelector('.pinboard-placeholder:not([hidden])')?.textContent || '';
           if (!gone.includes('7')) raw.push(`the lost board keeps its name: ${gone}`);
           check('named conversation gone', [gone.replace('7', '')]);
@@ -2000,13 +2105,16 @@ export async function runTests() {
           opening.teardown();
         }
 
-        // A conversation this session never knew.
-        const missing = await mountShell({ pins: PROBE_BOARD, session: makeSession() });
+        // A conversation this session never knew, on a board with nothing
+        // that could be shown without it.
+        window.close = () => {};
+        const missing = await mountShell({ pins: CONVERSATION_BOARD, session: makeSession() });
         try {
           await waitFor(() => !!missing.shell.querySelector('.pinboard-placeholder:not([hidden])')?.textContent,
             'the board to say what is missing', budgetFor(2000));
           check('unnamed conversation gone', [missing.shell.querySelector('.pinboard-placeholder')?.textContent || '']);
         } finally {
+          window.close = originalClose;
           missing.teardown();
         }
       });

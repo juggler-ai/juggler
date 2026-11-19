@@ -331,47 +331,6 @@ func (s *Session) setBoard(board Board) {
 	s.Boards[board.ID] = board
 }
 
-// removeBoardsForConversation forgets every detached board that is a view of
-// one conversation, along with the geometry of the window each one held.
-//
-// A board is a window onto one conversation and stays there, so a conversation
-// that has gone leaves its boards nothing to be a view of — and a board kept
-// past that is a window reopened, next run, onto a transcript that no longer
-// exists. The main board names no conversation and is never touched.
-//
-// Returns the ids removed, in board order, so a caller can say what it did.
-func (s *Session) removeBoardsForConversation(convID string) []string {
-	if convID == "" {
-		return nil
-	}
-	s.migrateBoards()
-	var removed []string
-	for id, board := range s.Boards {
-		if board.Conversation != convID {
-			continue
-		}
-		delete(s.Boards, id)
-		delete(s.WindowStates, WindowRolePinboardFor(id))
-		removed = append(removed, id)
-	}
-	sort.Strings(removed)
-	return removed
-}
-
-// hasConversation reports whether a conversation is one of this project's
-// active ones. ConversationOrder is the authority: it holds exactly the
-// conversations the bar can open, and the on-load reconcile keeps it to the
-// folders that are actually there. A binned or deleted conversation has already
-// left it.
-func (s *Session) hasConversation(convID string) bool {
-	for _, id := range s.ConversationOrder {
-		if id == convID {
-			return true
-		}
-	}
-	return false
-}
-
 // Validate checks if the session is valid
 func (s *Session) Validate() error {
 	if s.Version != 5 {

@@ -44,6 +44,14 @@ const MainBoardID = "main"
 // conversation it was opened for. It is also what tells the two apart: a board
 // with a conversation is a window that can be reopened, and a board without one
 // is the panel that is always there.
+//
+// A detached board outlives its conversation. Its window often holds what has
+// nothing to do with the conversation it came from — a Git view, a project file
+// — so a conversation deleted, binned or removed by hand leaves the board, its
+// frame and its Conversation as they were. Which of its tabs could only be shown
+// against that conversation is a question about item types, which this package
+// knows only as opaque strings; the window answers it, takes those tabs off, and
+// closes itself if that leaves it nothing.
 // Seeded records that the board has been furnished with its starting tabs, which
 // is not the same as its having any. A board arrives empty and is filled once,
 // by whichever viewer claims the seed; from then on its composition is the user's,

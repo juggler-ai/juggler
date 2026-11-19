@@ -674,14 +674,13 @@ func mergeConversationOrder(current, desired []string) []string {
 }
 
 // DeleteConversation removes the conversation's folder and session manifest entry,
-// along with the detached boards that were views of it and the project's record
-// of which files it wrote (gitattr).
+// along with the project's record of which files it wrote (gitattr). The
+// detached boards opened from it are kept: see [Board].
 // Set permanent=true for test teardown (permanent delete); false for user-initiated
 // deletion (moves to OS trash so the user can recover if needed).
 func (m *SessionManager) DeleteConversation(convID string, permanent bool) error {
 	_, err := runWrite(m, func(s *sessionState) (struct{}, error) {
 		removeConvIDFromSession(s.session, convID)
-		s.session.removeBoardsForConversation(convID)
 		if err := s.store.removeConversationFiles(convID, permanent); err != nil {
 			return struct{}{}, err
 		}
@@ -778,14 +777,11 @@ func (m *SessionManager) ResolveAutoName(base, excludeID string) string {
 }
 
 // BinConversation moves a conversation's folder to the state folder's trash/ and removes
-// it from the active conversation order. The detached boards that were views of
-// it are forgotten as they are on a delete: the bin holds the conversation, not
-// the windows that were watching it, and a board window left open over a
-// conversation the user has put away has nothing to show.
+// it from the active conversation order. The detached boards opened from it are
+// kept, as they are on a delete: see [Board].
 func (m *SessionManager) BinConversation(convID string) error {
 	binnedDir, err := runWrite(m, func(s *sessionState) (string, error) {
 		removeConvIDFromSession(s.session, convID)
-		s.session.removeBoardsForConversation(convID)
 		dir, binErr := s.store.binConversationDeferred(convID)
 		if binErr != nil {
 			return "", binErr
@@ -1240,14 +1236,8 @@ func (m *SessionManager) DeleteBoard(boardID string) error {
 // claims are deliberately not persisted: they are about live viewers, and a
 // board stays restorable for as long as it exists.
 //
-// A board whose conversation has gone is dropped here rather than handed out,
-// along with the geometry of the window that held it. Forgetting boards as a
-// conversation is deleted or binned covers the ways a conversation goes through
-// this server, and it is where a board should be forgotten. It cannot cover a
-// conversation removed from the project folder by hand. This is the last point
-// at which such a board can be caught, and the only one that is asked before a
-// window is opened onto it — so it is checked here as well, and a board that
-// answers for nothing is finished with.
+// A board whose conversation has gone is handed out like any other: see
+// [Board].
 func (m *SessionManager) ClaimDetachedBoards(ids []string, claimant string, live BoardLiveness) (boards []Board, missing []string) {
 	type claim struct {
 		boards  []Board
@@ -1259,14 +1249,6 @@ func (m *SessionManager) ClaimDetachedBoards(ids []string, claimant string, live
 			return out, nil
 		}
 		s.session.migrateBoards()
-		dropped := false
-		for id, board := range s.session.Boards {
-			if board.IsDetached() && !s.session.hasConversation(board.Conversation) {
-				delete(s.session.Boards, id)
-				delete(s.session.WindowStates, WindowRolePinboardFor(id))
-				dropped = true
-			}
-		}
 		if s.claimedBoards == nil {
 			s.claimedBoards = map[string]string{}
 		}
@@ -1304,12 +1286,7 @@ func (m *SessionManager) ClaimDetachedBoards(ids []string, claimant string, live
 		sort.Slice(out.boards, func(i, j int) bool { return out.boards[i].ID < out.boards[j].ID })
 		sort.Strings(out.missing)
 		out.missing = slices.Compact(out.missing)
-		// Only a claim that dropped something has anything to write, so the
-		// ordinary one still costs no disk.
-		if !dropped {
-			return out, nil
-		}
-		return out, s.store.Save(s.session)
+		return out, nil
 	})
 	return c.boards, c.missing
 }

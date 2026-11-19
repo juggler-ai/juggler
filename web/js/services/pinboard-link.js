@@ -406,7 +406,8 @@ export const ownerLink = {
    *
    * Only this machine's boards ({@link DETACHED_PREF}): the session holds every
    * board any viewer of the project popped out. Those the server says are gone —
-   * closed on purpose, or their conversation deleted — are forgotten here.
+   * closed on purpose — are forgotten here. A board whose conversation has gone
+   * since is reopened like any other, and settles that itself.
    *
    * The server withholds a board that has a window, or that another window still
    * here is opening, so it is safe for every main window to ask.

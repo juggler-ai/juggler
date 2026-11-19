@@ -58,6 +58,12 @@ import { validateManifest } from './lib/manifest.js';
  *   sight. Its controller gets `hide()` and `show()` to quieten down and pick up
  *   again. `teardown()` then means what it says: the pin is going for good, not
  *   merely off screen.
+ * @property {boolean} [needsConversation] - Whether a pin of this type can only be
+ *   shown against a conversation — the conversation's plan, its todo list. Off by
+ *   default. A popped-out board belongs to the conversation it was opened from,
+ *   and when that conversation is deleted the board takes these pins off and goes
+ *   on showing the rest; a board left with none closes its window. Leave it off
+ *   for a type that merely uses a conversation when there is one.
  * @property {boolean} [toolbar] - Set it `false` and the host draws no item toolbar
  *   above this type's body: no title, no subtitle, no actions. For a pin whose
  *   body opens with a head line of its own that already says what it shows and

@@ -606,6 +606,37 @@ const pinboardView = {
   },
 
   /**
+   * Take off this board every pin whose type can only be shown against a
+   * conversation — what a popped-out board does once the conversation it was
+   * opened from has gone.
+   *
+   * Only types that say so (`needsConversation`). A pin whose type is not
+   * registered stays: its extension may be disabled or still loading, and a pin
+   * is not deleted on a guess about what it would have needed.
+   *
+   * The store's op rather than {@link remove}, as for {@link prune}: the user did
+   * not remove these, and a type's `willRemove` is for releasing what a pin
+   * started on the user's say-so.
+   * @returns {Promise<Pin[]|null>} The board left behind, or null when the edit
+   *   failed and the board is as it was.
+   */
+  async dropConversationPins() {
+    const going = pinboardStore.get().filter((pin) => {
+      try {
+        return pinboardItemRegistry.getType(pin.type)?.getManifest().needsConversation === true;
+      } catch (err) {
+        console.error(`[Pinboard] Item type "${pin.type}" failed to describe itself:`, err);
+        return false;
+      }
+    });
+    if (!going.length) return pinboardStore.get();
+    return attempt(
+      (error) => t("Couldn't tidy the pinboard. {error}", { error }),
+      () => pinboardStore.applyOperations(going.map((pin) => ({ op: 'remove', id: pin.id }))),
+    );
+  },
+
+  /**
    * Whether anything enabled could pin this source. For a surface deciding
    * whether to offer the action at all: a "Pin to Pinboard" button that does
    * nothing when clicked is worse than no button, so ask first and leave it out.

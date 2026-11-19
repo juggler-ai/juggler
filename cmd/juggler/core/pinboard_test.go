@@ -622,11 +622,14 @@ func TestDetachedBoardsSurviveReopen(t *testing.T) {
 	}
 }
 
-// A board is a window onto one conversation, so a conversation that goes takes
-// its boards with it — otherwise the next run reopens a window over a transcript
-// that is not there any more. Binning counts: the bin holds the conversation,
-// not the windows that were watching it.
-func TestLosingAConversationForgetsItsBoards(t *testing.T) {
+// A board's window can hold things that have nothing to do with the
+// conversation it was opened from — a Git view, a project file — so a
+// conversation that goes leaves its boards where they are: still on disk, still
+// with their frames, and still reopened next run. Which tabs went with the
+// conversation is the window's to settle, because only the client knows what a
+// pin's type needs. Binning is the same: the bin holds the conversation, not the
+// windows that were watching it.
+func TestLosingAConversationKeepsItsBoards(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		remove func(m *SessionManager, convID string) error
@@ -640,66 +643,38 @@ func TestLosingAConversationForgetsItsBoards(t *testing.T) {
 			if err != nil {
 				t.Fatalf("CreateConversation going: %v", err)
 			}
-			staying, _, err := m.CreateConversation("Staying")
-			if err != nil {
-				t.Fatalf("CreateConversation staying: %v", err)
-			}
-			if _, err := m.CreateBoard("board_one", going, []Pin{{ID: "a", Type: "file"}}); err != nil {
+			if _, err := m.CreateBoard("board_one", going, []Pin{{ID: "a", Type: "file"}, {ID: "p", Type: "plan"}}); err != nil {
 				t.Fatalf("CreateBoard one: %v", err)
-			}
-			if _, err := m.CreateBoard("board_two", staying, []Pin{{ID: "b", Type: "file"}}); err != nil {
-				t.Fatalf("CreateBoard two: %v", err)
 			}
 			if err := m.SetWindowState(WindowRolePinboardFor("board_one"), WindowState{Width: 400, Height: 900}); err != nil {
 				t.Fatalf("SetWindowState: %v", err)
-			}
-			if _, err := m.ApplyPinboardOps(MainBoardID, []PinboardOp{addOp("m", nil)}); err != nil {
-				t.Fatalf("edit main: %v", err)
 			}
 
 			if err := tc.remove(m, going); err != nil {
 				t.Fatalf("remove conversation: %v", err)
 			}
 
-			if got := pinIDs(m.GetPinboard("board_one")); got != "" {
-				t.Fatalf("the board of a conversation that has gone must go too, still holds %q", got)
+			if got := pinIDs(m.GetPinboard("board_one")); got != "a,p" {
+				t.Fatalf("the board outlives its conversation, tabs and all: got %q want %q", got, "a,p")
 			}
-			if _, ok := m.GetWindowState(WindowRolePinboardFor("board_one")); ok {
-				t.Fatal("and so must the frame of the window that held it")
+			if _, ok := m.GetWindowState(WindowRolePinboardFor("board_one")); !ok {
+				t.Fatal("and so does the frame of the window that holds it")
 			}
-			if got := pinIDs(m.GetPinboard("board_two")); got != "b" {
-				t.Fatalf("a board on another conversation is untouched: got %q want %q", got, "b")
+			claimed, missing := m.ClaimDetachedBoards([]string{"board_one"}, "v_one", BoardLiveness{})
+			if len(claimed) != 1 || claimed[0].ID != "board_one" || claimed[0].Conversation != going {
+				t.Fatalf("it is reopened next run, still naming the conversation it came from, got %+v", claimed)
 			}
-			// The main board names no conversation, so nothing can single it out.
-			if got := pinIDs(m.GetPinboard(MainBoardID)); got != "m" {
-				t.Fatalf("the docked panel is not a view of one conversation: got %q want %q", got, "m")
-			}
-			claimed, missing := m.ClaimDetachedBoards([]string{"board_one", "board_two"}, "v_one", BoardLiveness{})
-			if len(claimed) != 1 || claimed[0].ID != "board_two" {
-				t.Fatalf("only the surviving board is reopened next run, got %+v", claimed)
-			}
-			if len(missing) != 1 || missing[0] != "board_one" {
-				t.Fatalf("the board that went is reported missing, got %v", missing)
+			if len(missing) != 0 {
+				t.Fatalf("and is not reported missing, got %v", missing)
 			}
 		})
 	}
 }
 
-// Forgetting a conversation's boards as it goes covers the conversations that go
-// through this server. A folder removed from the project by hand does not, and
-// leaves a board that would reopen a window onto nothing. The claim is the last
-// point that can catch one, so it does.
-func TestClaimDetachedBoardsDropsBoardsWhoseConversationHasGone(t *testing.T) {
-	dir := t.TempDir()
-	store, err := NewFileSessionStore(dir)
-	if err != nil {
-		t.Fatalf("NewFileSessionStore: %v", err)
-	}
-	if err := store.Save(NewSession()); err != nil {
-		t.Fatalf("seed session: %v", err)
-	}
-	m := startManager(store, dir)
-
+// A conversation folder removed from the project by hand is a conversation gone
+// by another route, and its boards are kept for the same reason.
+func TestClaimDetachedBoardsKeepsBoardsWhoseConversationHasGone(t *testing.T) {
+	m := newManagerForTest(t)
 	living, _, err := m.CreateConversation("Living")
 	if err != nil {
 		t.Fatalf("CreateConversation: %v", err)
@@ -707,47 +682,24 @@ func TestClaimDetachedBoardsDropsBoardsWhoseConversationHasGone(t *testing.T) {
 	if _, err := m.CreateBoard("board_live", living, []Pin{{ID: "a", Type: "file"}}); err != nil {
 		t.Fatalf("CreateBoard live: %v", err)
 	}
-	// Two boards on conversations this project has never heard of: what is left
+	// A board on a conversation this project has never heard of: what is left
 	// behind by a folder deleted outside Juggler.
-	for _, id := range []string{"board_gone_one", "board_gone_two"} {
-		if _, err := m.CreateBoard(id, "conv_vanished", []Pin{{ID: "b", Type: "file"}}); err != nil {
-			t.Fatalf("CreateBoard %s: %v", id, err)
-		}
-		if err := m.SetWindowState(WindowRolePinboardFor(id), WindowState{Width: 400, Height: 900}); err != nil {
-			t.Fatalf("SetWindowState %s: %v", id, err)
-		}
+	if _, err := m.CreateBoard("board_gone", "conv_vanished", []Pin{{ID: "b", Type: "file"}}); err != nil {
+		t.Fatalf("CreateBoard gone: %v", err)
+	}
+	if err := m.SetWindowState(WindowRolePinboardFor("board_gone"), WindowState{Width: 400, Height: 900}); err != nil {
+		t.Fatalf("SetWindowState: %v", err)
 	}
 
-	claimed, missing := m.ClaimDetachedBoards([]string{"board_live", "board_gone_one", "board_gone_two"}, "v_one", BoardLiveness{})
-	if len(claimed) != 1 || claimed[0].ID != "board_live" {
-		t.Fatalf("only a board with a conversation is reopened, got %+v", claimed)
+	claimed, missing := m.ClaimDetachedBoards([]string{"board_live", "board_gone"}, "v_one", BoardLiveness{})
+	if len(claimed) != 2 || claimed[0].ID != "board_gone" || claimed[1].ID != "board_live" {
+		t.Fatalf("both boards are reopened, got %+v", claimed)
 	}
-	if strings.Join(missing, ",") != "board_gone_one,board_gone_two" {
-		t.Fatalf("the boards answering for nothing are reported missing, got %v", missing)
+	if len(missing) != 0 {
+		t.Fatalf("neither is missing, got %v", missing)
 	}
-	for _, id := range []string{"board_gone_one", "board_gone_two"} {
-		if got := pinIDs(m.GetPinboard(id)); got != "" {
-			t.Fatalf("a board answering for nothing must be forgotten, %s still holds %q", id, got)
-		}
-		if _, ok := m.GetWindowState(WindowRolePinboardFor(id)); ok {
-			t.Fatalf("and so must the frame of the window that held it, %s kept one", id)
-		}
-	}
-	if got := pinIDs(m.GetPinboard("board_live")); got != "a" {
-		t.Fatalf("the surviving board keeps its tabs: got %q want %q", got, "a")
-	}
-
-	// Dropped for good, not just left out of one answer: a claim is spent, so a
-	// board that survived on disk would be handed out by the next run instead.
-	m.Shutdown()
-	reopened, err := NewFileSessionStore(dir)
-	if err != nil {
-		t.Fatalf("reopen store: %v", err)
-	}
-	m2 := startManager(reopened, dir)
-	t.Cleanup(m2.Shutdown)
-	if again, _ := m2.ClaimDetachedBoards([]string{"board_live", "board_gone_one"}, "v_one", BoardLiveness{}); len(again) != 1 || again[0].ID != "board_live" {
-		t.Fatalf("the next run must not be given them either, got %+v", again)
+	if _, ok := m.GetWindowState(WindowRolePinboardFor("board_gone")); !ok {
+		t.Fatal("and the frame of the window that held it is kept")
 	}
 }
 

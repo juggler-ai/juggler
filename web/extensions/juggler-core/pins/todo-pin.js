@@ -35,6 +35,7 @@ class TodoPin extends PinboardItemType {
     description: 'Follows the current checklist',
     order: 20,
     defaultPin: true,
+    needsConversation: true,
   };
 
   /**

@@ -29,6 +29,7 @@ import { REGISTRIES_RELOADED } from '../../js/registries/reload-registries.js';
 import { __resetPopupManagerForTests, isAnyPopupOpen } from '../../js/utils/popup-manager.js';
 import PinboardItemType from 'juggler/pinboard-item-type';
 import '../../js/components/pinboard-shell.js';
+import '../../js/components/conversation-bar.js';
 import { composeForThread } from '../../js/components/pinboard-content.js';
 import { CONVERSATION_TAB_SHOWN } from '../../js/components/conversation-tab.js';
 import { budgetFor } from '../utilities/test-deadline.js';
@@ -674,6 +675,87 @@ export async function runTests(_ctx) {
         assert(pinboardStore.get().map((p) => p.id).join(',') === 'pin_kept',
           `and this viewer should be showing what is left: ${JSON.stringify(pinboardStore.get())}`);
       } finally {
+        teardown();
+      }
+    });
+
+    // The desktop window claims Ctrl+Tab and re-raises it as `juggler:recent-tab`;
+    // the Control key's own keydown and keyup reach the page as usual. The bar
+    // is there to prove the board takes the key from it only while open.
+    await run('Ctrl+Tab walks the open board\u2019s pins, and the conversations once it is closed', async () => {
+      const { shell, toggle, teardown } = await mountShell([
+        { id: 'pin_a', type: 'probe', config: { label: 'alpha' } },
+        { id: 'pin_b', type: 'probe', config: { label: 'beta', badge: '3' } },
+        { id: 'pin_c', type: 'probe', config: { label: 'gamma' } },
+      ]);
+      const tabs = document.createElement('conversation-tabs-container');
+      const bar = /** @type {any} */ (document.createElement('conversation-bar'));
+      /** @type {string[]} */
+      const switches = [];
+      const session = {
+        workspaces: [],
+        conversations: new Map(['x', 'y'].map((id) => [id, { id, name: `Name ${id}` }])),
+        bin: { count: 0, sizeBytes: 0 },
+        selection: null,
+        loadedConversationId: 'x',
+        visibleConversationId: 'x',
+        recentlyUsedConversationIds: ['x', 'y'],
+        switchConversation(/** @type {string} */ id) {
+          switches.push(id);
+          session.loadedConversationId = id;
+          session.visibleConversationId = id;
+          return true;
+        },
+      };
+      const ctrl = (/** @type {'keydown'|'keyup'} */ type) =>
+        document.dispatchEvent(new KeyboardEvent(type, { key: 'Control', bubbles: true, cancelable: true }));
+      const tap = () => {
+        ctrl('keydown');
+        window.dispatchEvent(new CustomEvent('juggler:recent-tab', { detail: { direction: 'next' } }));
+        ctrl('keyup');
+      };
+      const huds = () => /** @type {HTMLElement[]} */ ([...document.querySelectorAll('.recent-tabs-hud')]);
+      try {
+        document.body.append(tabs, bar);
+        bar._session = session;
+        bar.render();
+        await waitFor(() => pinboardStore.get().length === 3, 'the board to load');
+
+        toggle.click();
+        assert(shell.classList.contains('is-open'), 'the board is open');
+        pinboardView.setActivePin('pin_c');
+        pinboardView.setActivePin('pin_b');
+
+        tap();
+        assert(pinboardView.getActivePinId() === 'pin_c',
+          `over the open board a tap goes back to the pin read before — got ${pinboardView.getActivePinId()}`);
+        assert(switches.length === 0, `and leaves the conversation alone — got [${switches.join()}]`);
+
+        ctrl('keydown');
+        window.dispatchEvent(new CustomEvent('juggler:recent-tab', { detail: { direction: 'next' } }));
+        const [hud, ...more] = huds();
+        assert(!!hud && more.length === 0, `holding Ctrl opens one list — got ${huds().length}`);
+        const rows = /** @type {HTMLElement[]} */ ([...hud.querySelectorAll('.recent-tabs-row')]);
+        const ids = rows.map((row) => row.dataset.itemId).join();
+        assert(ids === 'pin_c,pin_b,pin_a', `the pins in order of use — got ${ids}`);
+        const beta = rows[1]?.textContent;
+        assert(beta === 'beta3', `a row is named and badged as its tab is — got ${beta}`);
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', ctrlKey: true, bubbles: true, cancelable: true }));
+        ctrl('keyup');
+        assert(huds().length === 0, 'Escape closes the list');
+        assert(shell.classList.contains('is-open'), 'and only the list: the board stays open');
+        assert(pinboardView.getActivePinId() === 'pin_c', 'having changed nothing');
+
+        toggle.click();
+        assert(!shell.classList.contains('is-open'), 'the board is closed');
+        tap();
+        assert(switches.join() === 'y', `with the board closed the key is the conversations' — got [${switches.join()}]`);
+        assert(pinboardView.getActivePinId() === 'pin_c', 'and the pins are left alone');
+      } finally {
+        ctrl('keyup');
+        for (const hud of huds()) hud.remove();
+        bar.remove();
+        tabs.remove();
         teardown();
       }
     });

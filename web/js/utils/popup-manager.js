@@ -64,15 +64,23 @@ let nextPopupToken = 0;
  * (which both Escape and the mobile/browser Back button route through) will call
  * it. Dropdowns/menus that dismiss via the `POPUP_CLOSE_ALL` event instead pass
  * nothing.
+ *
+ * Pass `id` as well to make the surface nameable: a window-wide gesture can then
+ * allow-list it in {@link isForeignPopupOpen}. Naming it opts into nothing else —
+ * no mutual exclusion, so it is not closed when another popup opens over it.
  * @param {() => void} [onClose] - Idempotent handler that closes this surface.
+ * @param {string} [id] - The surface's popup id.
  * @returns {() => void} Release function that marks the popup closed.
  */
-export function markPopupOpen(onClose) {
+export function markPopupOpen(onClose, id) {
   const token = nextPopupToken++;
   openPopups.set(token, onClose || null);
+  const releaseId = id ? registerPopupId(id, onClose || (() => {})) : null;
   pushOverlayStateIfFirst();
   return () => {
-    if (openPopups.delete(token)) releaseOverlayStateIfLast();
+    if (!openPopups.delete(token)) return;
+    releaseId?.();
+    releaseOverlayStateIfLast();
   };
 }
 

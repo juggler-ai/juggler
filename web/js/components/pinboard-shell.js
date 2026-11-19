@@ -48,6 +48,12 @@ import './pinboard-panel.js';
 const WIDTH_PREF = 'juggler-pinboard-width';
 
 /**
+ * The popup id the docked board's token is held under, so its own Ctrl+Tab
+ * switcher can tell the board from an overlay on top of it.
+ */
+const PINBOARD_POPUP_ID = 'pinboard';
+
+/**
  * Panel width bounds, in rem. Wide, on purpose: what the board is for changes
  * with what is on it — a task list wants a strip, a file wants half the display
  * — so the bounds are the extremes of usefulness rather than a house opinion,
@@ -97,7 +103,7 @@ class PinboardShell extends JugglerElement {
     // item type, or takes its last one away.
     this.onDocument(REGISTRIES_RELOADED, () => this._syncVisibility());
     this.onDocument('keydown', (e) => this._onKeyDown(/** @type {KeyboardEvent} */ (e)));
-    if (isPinboardView()) this._setupRecentTabs();
+    this._setupRecentTabs();
     this._syncVisibility();
     this._syncOpen();
   }
@@ -111,17 +117,18 @@ class PinboardShell extends JugglerElement {
   }
 
   /**
-   * Ctrl+Tab in a board window: its pins in order of use, the way the Juggler
-   * shell's Ctrl+Tab walks its conversations. The desktop window claims the
-   * press and re-raises it as `juggler:recent-tab` (see recent-tab-switcher.js);
-   * in the shell the conversation bar answers it, and the docked board leaves it
-   * to the bar.
+   * Ctrl+Tab while the board is open: its pins in order of use, the way the
+   * key walks the conversations otherwise. The desktop window claims the press
+   * and re-raises it as `juggler:recent-tab` (see recent-tab-switcher.js). In
+   * the Juggler shell the conversation bar hears it too, and stands down while
+   * the board's popup token is held; a closed board leaves the key to the bar.
    * @private
    */
   _setupRecentTabs() {
     this._recentTabs?.destroy();
     this._recentTabs = new RecentTabSwitcher({
       label: t('Recent pins'),
+      ownPopupIds: [PINBOARD_POPUP_ID],
       order: () => recentTabOrder(pinboardView.recentlyUsedPinIds(), pinboardView.getActivePinId(),
         pinboardStore.get().map((pin) => pin.id)),
       visibleId: () => pinboardView.getActivePinId(),
@@ -133,7 +140,7 @@ class PinboardShell extends JugglerElement {
     });
     this._recentTabs.init();
     this.onWindow('juggler:recent-tab', (e) => {
-      if (this.hidden) return;
+      if (this.hidden || !pinboardView.isOpen()) return;
       this._recentTabs?.press(/** @type {CustomEvent} */ (e).detail?.direction === 'prev' ? -1 : 1);
     });
   }
@@ -290,9 +297,10 @@ class PinboardShell extends JugglerElement {
 
     if (open) {
       // Escape and the browser/mobile Back button dismiss via popup-manager. The
-      // token is id-less, so the board is not closed by the add picker (or any
-      // other menu) opening over it.
-      this._releasePopup = markPopupOpen(() => pinboardView.close());
+      // token is held with markPopupOpen rather than registerOpenPopup, so the
+      // board is not closed by the add picker (or any other menu) opening over
+      // it; its id only lets the board's own Ctrl+Tab tell it from those.
+      this._releasePopup = markPopupOpen(() => pinboardView.close(), PINBOARD_POPUP_ID);
       this._panel?.focusInto();
       return;
     }

@@ -50,6 +50,8 @@ const RECENT_TABS_POPUP_ID = 'recent-tabs';
  *   something else is (a workspace panel).
  * @property {(id: string) => RecentTabRow} describe - How to draw a tab's row.
  * @property {(id: string) => void} show - Show a tab, as a click on it would.
+ * @property {string[]} [ownPopupIds] - Popups the tabs themselves are shown in,
+ *   which the switcher does not stand down for (the docked pinboard).
  */
 
 /**
@@ -89,8 +91,9 @@ export default class RecentTabSwitcher {
     /** @type {HoldToCycleController} @private */
     this._controller = new HoldToCycleController({
       modifierKeys: ['Control'],
-      // Window-wide, standing down for any overlay but its own HUD.
-      shouldHandle: popupAwareShouldHandle([RECENT_TABS_POPUP_ID]),
+      // Window-wide, standing down for any overlay but its own HUD and the
+      // surface its tabs are on.
+      shouldHandle: popupAwareShouldHandle([RECENT_TABS_POPUP_ID, ...(host.ownPopupIds ?? [])]),
       canCycle: () => this._host.order().length >= 2,
       onGestureStart: (step, open) => this._start(step, open),
       onCycle: (step) => this._move(step),

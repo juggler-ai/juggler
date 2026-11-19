@@ -42,7 +42,7 @@ export const APPEARANCE_EVENT = 'juggler:appearance';
  * The theme and zoom the page wears now, as {@link APPEARANCE_EVENT} carries them.
  * @returns {{mode: string, zoom: number}} The mode and zoom.
  */
-export function currentAppearance() {
+function currentAppearance() {
   return { mode: getMode(), zoom: getCurrentZoom() };
 }
 
@@ -57,7 +57,7 @@ let settingsLoaded = /** @type {Promise<unknown>|null} */ (null);
  * @param {string} [tab] - The tab to open on.
  * @returns {Promise<void>} Resolves once it is open, or the load has failed.
  */
-export async function openMachineSettings(tab) {
+async function openMachineSettings(tab) {
   if (!settingsLoaded) settingsLoaded = import('../js/components/machine-settings-panel.js');
   try {
     await settingsLoaded;

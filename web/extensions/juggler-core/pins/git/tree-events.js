@@ -26,11 +26,10 @@
 /**
  * @typedef {import('juggler/pinboard-item-type').PinGitService} PinGitService
  * @typedef {import('juggler/pinboard-item-type').PinGitWatchEvent} PinGitWatchEvent
- * @typedef {import('juggler/pinboard-item-type').PinGitJob} PinGitJob
  */
 
 /** Every part of a repository a `git-change` can name: what a write may have touched. */
-export const ALL_KINDS = Object.freeze(['index', 'refs', 'head', 'worktree', 'operation']);
+const ALL_KINDS = Object.freeze(['index', 'refs', 'head', 'worktree', 'operation']);
 
 /** States a job does not leave. */
 const FINAL = new Set(['done', 'failed', 'cancelled']);

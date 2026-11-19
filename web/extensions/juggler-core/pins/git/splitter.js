@@ -32,7 +32,7 @@ import { createElement } from 'juggler/ui';
 /** @typedef {'changes'|'history'|'refs'|'sidebar'} SplitName */
 
 /** @type {Readonly<Record<SplitName, SplitSpec>>} */
-export const SPLITS = Object.freeze({
+const SPLITS = Object.freeze({
   changes: { unit: 'share', fallback: 0.42, min: 0.15, max: 0.85, step: 0.02 },
   history: { unit: 'share', fallback: 0.55, min: 0.15, max: 0.85, step: 0.02 },
   refs: { unit: 'share', fallback: 0.42, min: 0.15, max: 0.85, step: 0.02 },

@@ -21,6 +21,8 @@ import (
 // tokens). Source: developers.openai.com model pages.
 var ModelContextWindows = map[string]int{
 	// GPT-6 Series (1.05M total: 922K input + 128K output)
+	"gpt-6.2-astra": 1050000,
+	"gpt-6.2-sol":   1050000,
 	"gpt-6-astra":   1050000,
 	"gpt-6.1-sol":   1050000,
 	"gpt-6.1-terra": 1050000,
@@ -116,6 +118,8 @@ var ModelContextWindows = map[string]int{
 // model's real ceiling is a hard 400 and one below it silently truncates.
 var ModelMaxOutputTokens = map[string]int{
 	// The whole modern line shares a 128000 output ceiling.
+	"gpt-6.2-astra": 128000,
+	"gpt-6.2-sol":   128000,
 	"gpt-6-astra":   128000,
 	"gpt-6.1-sol":   128000,
 	"gpt-6.1-terra": 128000,

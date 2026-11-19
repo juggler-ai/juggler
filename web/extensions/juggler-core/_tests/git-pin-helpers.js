@@ -89,12 +89,6 @@ export function confirmPop() {
 }
 
 /**
- * The open text question — the form dialog `askText` asks in — once it is open.
- * @returns {HTMLElement|null} Its dialog element.
- */
-export const askDialog = () => /** @type {HTMLElement|null} */ (document.querySelector('modal-dialog.git-ask-dialog.is-open'));
-
-/**
  * A repo with everything filled in, so a case overrides only what it is about.
  * @param {Partial<import('juggler/pinboard-item-type').PinGitReviewRepo>} [overrides] - What this case cares about.
  * @returns {any} The repo.

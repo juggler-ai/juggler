@@ -141,6 +141,7 @@ export async function runTests(_ctx) {
     const transport = makeTransport();
     svc._transport = transport;
     svc._reestablish = () => {}; // never re-open anything from a unit test
+    svc._askServer = async () => false; // a server that does not answer, unless a case says so
     svc.connected = true;
     svc._lastInboundAt = Date.now();
     svc._lastOutboundAt = Date.now();
@@ -155,6 +156,12 @@ export async function runTests(_ctx) {
    * @returns {any[]} Parsed frames.
    */
   const framesOf = (transport) => transport.frames.map((/** @type {string} */ f) => JSON.parse(f));
+
+  /**
+   * Let the answer to a stalled attempt's question to the server land.
+   * @returns {Promise<void>} Resolves after pending microtasks have run.
+   */
+  const answered = () => new Promise((resolve) => { queueMicrotask(() => queueMicrotask(() => resolve())); });
 
   /**
    * Stop the timers connect() started and put the service beyond caring, so a
@@ -180,6 +187,7 @@ export async function runTests(_ctx) {
     svc._reloadPage = () => { reloaded++; };
     svc.on('open', () => { opened++; });
     svc.serverBootId = recordedBootId;
+    svc._askServer = async () => false; // a server that does not answer, unless a case says so
     const transport = makeTransport();
     svc._configureTransport(transport, 'WebSocket');
     svc._transport = transport;
@@ -349,9 +357,64 @@ export async function runTests(_ctx) {
     svc._connecting = true;
     svc._connectStartedAt = Date.now() - 600000; // opened into a network that is gone
     svc._checkLink();
+    await answered();
     svc._intentionalDisconnect = true;
-    assert(transport.closed === true, 'the stuck attempt is closed');
+    assert(transport.closed === true, 'the stuck attempt is closed once the server does not answer either');
     assert(attempts() === 1, `and replaced with a fresh one; got ${attempts()} attempts`);
+  });
+
+  await run('a slow handshake to a server that answers is waited on, not cut off', async () => {
+    const { svc, transport, attempts } = live();
+    svc.connected = false;
+    svc._connecting = true;
+    // A busy machine: the upgrade has been in flight past the stall limit,
+    // but the server is there and says so.
+    svc._connectStartedAt = Date.now() - 600000;
+    let asked = 0;
+    svc._askServer = async () => { asked++; return true; };
+    svc._checkLink();
+    await answered();
+    svc._intentionalDisconnect = true;
+    assert(asked === 1, `the stall is a question to the server; asked ${asked} times`);
+    assert(transport.closed === false, 'an attempt to a server that answers is not abandoned');
+    assert(attempts() === 0, `and no retry is armed; got ${attempts()}`);
+    assert(Date.now() - svc._connectProgressAt < 60000, 'its answer is progress, so the next stall is measured from it');
+  });
+
+  await run('while the server has not answered, the watchdog asks once and waits', async () => {
+    const { svc, transport, attempts } = live();
+    svc.connected = false;
+    svc._connecting = true;
+    svc._connectStartedAt = Date.now() - 600000;
+    let asked = 0;
+    svc._askServer = () => { asked++; return new Promise(() => {}); };
+    svc._checkLink();
+    svc._checkLink();
+    await answered();
+    svc._intentionalDisconnect = true;
+    assert(asked === 1, `one question per attempt; asked ${asked} times`);
+    assert(transport.closed === false, 'no clock decides while the question is out');
+    assert(attempts() === 0, `and no retry is armed; got ${attempts()}`);
+  });
+
+  await run('an answer about an attempt that has since settled changes nothing', async () => {
+    const { svc, transport, attempts } = live();
+    svc.connected = false;
+    svc._connecting = true;
+    svc._connectStartedAt = Date.now() - 600000;
+    /** @type {(v: boolean) => void} */
+    let reply = () => {};
+    svc._askServer = () => new Promise((resolve) => { reply = resolve; });
+    svc._checkLink();
+    // The socket opened while the question was out (its open event was queued
+    // behind the tick on a starved page).
+    svc._connecting = false;
+    svc.connected = true;
+    reply(false);
+    await answered();
+    svc._intentionalDisconnect = true;
+    assert(transport.closed === false, 'a link that opened meanwhile is not dropped for a stale question');
+    assert(attempts() === 0, `and no retry is armed; got ${attempts()}`);
   });
 
   await run('the first retry is fast, and every tier is jittered', async () => {
@@ -697,6 +760,7 @@ export async function runTests(_ctx) {
     svc._connectStartedAt = Date.now() - 600000;
     svc._connectProgressAt = Date.now() - 600000;
     svc._checkLink();
+    await answered();
     svc._intentionalDisconnect = true;
     assert(transport.closed === true, 'the stuck park is closed rather than waited on');
     assert(reloads() === 0, `a link we condemned says nothing about the server; got ${reloads()} reloads`);
@@ -747,6 +811,7 @@ export async function runTests(_ctx) {
     svc._connectStartedAt = Date.now() - 600000;
     svc._connectProgressAt = Date.now() - 600000;
     svc._checkLink();
+    await answered();
     assert(reloads() === 0, 'the drop we inflicted did not reload');
 
     // The retry opens a second socket, which parks the same way and is then

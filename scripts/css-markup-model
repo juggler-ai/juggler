@@ -208,6 +208,28 @@ function classesIn(value) {
 }
 
 /**
+ * The tag a lookup selector says its element is: `.modal-footer button`,
+ * `a.link`, `li[data-id]`. Every part of a list has to name the same tag, and
+ * each subject has to be a tag followed by nothing but classes, ids, plain
+ * attributes and argument-free pseudo-classes, so that splitting on
+ * combinators cannot have cut it out of the middle of an `:is(…)` or a quoted
+ * value.
+ * @param {string} selector - A literal querySelector/closest selector.
+ * @returns {string|null} The one tag, or null when it names none or several.
+ */
+function selectorTag(selector) {
+  if (selector.startsWith('@param ')) return null;
+  let tag = null;
+  for (const part of selector.split(',')) {
+    const subject = part.trim().split(/\s*[\s>+~]\s*/).pop() ?? '';
+    const match = /^([a-z][\w-]*)(?:[.#]-?[_a-zA-Z][\w-]*|\[[^\]\s"']*\]|:[\w-]+)*$/.exec(subject);
+    if (!match || (tag !== null && tag !== match[1])) return null;
+    tag = match[1];
+  }
+  return tag;
+}
+
+/**
  * True when a string had something interpolated into it.
  * @param {string} value - Text from staticText.
  * @returns {boolean} Whether it contains HOLE.
@@ -813,6 +835,8 @@ function harvestJS(source, file, espree, eslintScope, evidence, extended = new S
       if (name === 'from' && node.callee.object?.type === 'Identifier' && node.callee.object.name === 'Array') {
         return lookedUpSelector(node.arguments[0], depth + 1);
       }
+      // `rows.at(-1)`: an index into one, written as a call.
+      if (name === 'at' && node.callee.type === 'MemberExpression') return lookedUpSelector(node.callee.object, depth + 1);
       return null;
     }
     if (node.type === 'ArrayExpression' && node.elements.length === 1 && node.elements[0]?.type === 'SpreadElement') {
@@ -1771,6 +1795,9 @@ class MarkupModel {
       if (!targets) {
         element.complete = false;
         element.grafted = true;
+        // Which element it is stays unknown, but a selector whose every
+        // subject names one tag says what kind it is.
+        if (!element.tag && element.bySelector) element.tag = selectorTag(element.bySelector);
         continue;
       }
       for (const cls of element.classes) if (element.file) this.addFileClass(element.file, cls);

@@ -419,6 +419,11 @@ try {
       "const mb = document.createElement('menu'); mb.className = 'open-menu-b';",
       "export function inlineAny(host, sel) { host.querySelector(sel).classList.add('open-any-sheet'); }",
       "inlineAny(document, '.open-menu-a'); inlineAny(document, window.someSelector);",
+      "const menus = [...document.querySelectorAll('.open-menu-a')]; menus.at(-1).classList.add('open-at');",
+      "const footer = [...document.querySelectorAll('.open-foot button')]; const last = footer.at(-1); last.classList.add('open-tagged');",
+      "document.querySelector('.open-foot a.open-link').classList.add('open-tagged-link');",
+      "document.querySelector('.open-foot :is(a, b)').classList.add('open-is-list');",
+      "document.querySelector('.open-foot [data-k=\"x y\"]').classList.add('open-spaced-attr');",
       '',
     ].join('\n'),
   });
@@ -441,6 +446,11 @@ try {
   assert.deepEqual([...(openModel.tagsOf('open-sheet') ?? [])], ['menu'], 'a lookup by a selector parameter: what its callers name');
   assert.equal(openModel.canCoexist(['open-sheet', 'open-solo']), false, 'a lookup by a selector parameter: no other element');
   assert.equal(openModel.canCoexist(['open-any-sheet', 'open-solo']), true, 'a selector parameter one caller cannot name: any element');
+  assert.deepEqual([...(openModel.tagsOf('open-at') ?? [])], ['menu'], 'list.at(n) of a lookup: the element it looked up');
+  assert.deepEqual([...(openModel.tagsOf('open-tagged') ?? [])], ['button'], 'a lookup the model cannot settle: the tag its selector names');
+  assert.deepEqual([...(openModel.tagsOf('open-tagged-link') ?? [])], ['a'], 'a lookup by tag.class nobody builds: that tag');
+  assert.equal(openModel.tagsOf('open-is-list'), null, 'a selector the subject regex cannot take whole: any tag');
+  assert.equal(openModel.tagsOf('open-spaced-attr'), null, 'an attribute value with a space: any tag');
 
   // -------------------------------------------------------------------------
   // css-markup-model: an element a call hands back is the element that

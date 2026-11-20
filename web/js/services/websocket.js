@@ -4,7 +4,8 @@
 
 import { recordTape } from '../utils/event-tape.js';
 import { isEngine } from '../../sdk/lib/client-role.js';
-import { wsUrl } from '../utils/api-url.js';
+import { wsUrl, apiUrl } from '../utils/api-url.js';
+import { withApiToken } from './http.js';
 import { WSChunkReassembler, WS_CHUNK_KIND_TEXT, WS_CHUNK_KIND_BINARY } from '../utils/ws-chunk.js';
 import { encodeYjsSyncFrame, decodeYjsSyncFrame, isYjsSyncFrame, fitsYjsSyncFrame } from '../utils/yjs-sync-frame.js';
 import { bytesToBase64 } from '../utils/base64.js';
@@ -45,10 +46,13 @@ const VIEWER_BEAT_MS = 15000;
 const LINK_STALL_MS = 60000;
 
 /**
- * How long a connection attempt may hang before it is abandoned. An attempt that
- * neither opens nor fails is the shape of a wake-from-sleep: the socket was
- * created into a network that is no longer there, and nothing will ever complete
- * or fail it. Generous, because a genuine handshake over a bad link is slow.
+ * How long a connection attempt may go silent before the server is asked
+ * whether it is there. An attempt that neither opens nor fails is the shape of
+ * a wake-from-sleep: the socket was created into a network that is no longer
+ * there, and nothing will ever complete or fail it. It is also the shape of a
+ * handshake to a server too busy to finish one quickly, which this span alone
+ * cannot tell apart — so it ends in a question (_askAboutStalledAttempt), not
+ * a drop.
  */
 const CONNECT_STALL_MS = 20000;
 
@@ -263,6 +267,13 @@ class WebSocketService {
      * @type {number} @private
      */
     this._connectProgressAt = 0;
+    /**
+     * The transport of the attempt the server was last asked about, while the
+     * answer is outstanding (see _askAboutStalledAttempt). One question per
+     * attempt; a newer attempt asks afresh even if the old answer never comes.
+     * @type {any} @private
+     */
+    this._stallQuestionFor = null;
     /**
      * Set while a connection attempt is outstanding — from the moment the
      * transport primitive runs until the transport opens or dies. It is what
@@ -1502,9 +1513,7 @@ class WebSocketService {
       // bound is on silence: an attempt that opened or heard something lately
       // is slow, not stuck.
       const silent = now - Math.max(this._connectStartedAt, this._connectProgressAt);
-      if (this._connecting && silent > CONNECT_STALL_MS) {
-        this._dropLink(`the connection attempt went unanswered for ${Math.round(silent / 1000)}s`);
-      }
+      if (this._connecting && silent > CONNECT_STALL_MS) this._askAboutStalledAttempt(silent);
       return;
     }
 
@@ -1518,6 +1527,63 @@ class WebSocketService {
     // proves something this one cannot (engine-app.js).
     if (!isEngine() && now - this._lastOutboundAt >= VIEWER_BEAT_MS) {
       this.sendViewerHeartbeat();
+    }
+  }
+
+  /**
+   * A connection attempt has gone silent past CONNECT_STALL_MS: ask the server,
+   * over a plain request, whether it is there. If it answers, the attempt is
+   * slow rather than stuck — a busy machine finishing the upgrade — and its
+   * answer counts as progress, so the attempt is left to finish and asked about
+   * again after the next silent span. If it does not, nothing is there to finish
+   * it, and the attempt is dropped for a fresh one.
+   *
+   * No clock decides while the question is out: the answer does, and an
+   * answer about an attempt that has since opened or been replaced is ignored.
+   * The wake signals (_retryNow) bound the one case the question cannot, a page
+   * that slept through both.
+   *
+   * Over juggler.studio every request is tunnelled through the link in
+   * question, so the answer would say nothing about it; there the attempt is
+   * dropped at once.
+   * @param {number} silent - How long the attempt has been silent, in ms.
+   * @private
+   */
+  _askAboutStalledAttempt(silent) {
+    const reason = `the connection attempt went unanswered for ${Math.round(silent / 1000)}s`;
+    const attempt = this._transport;
+    if (this._transportLabel === 'studio') {
+      this._dropLink(reason);
+      return;
+    }
+    if (attempt && this._stallQuestionFor === attempt) return;
+    this._stallQuestionFor = attempt;
+    const current = () => this._connecting && !this._intentionalDisconnect && this._transport === attempt;
+    this._askServer().then((answers) => {
+      if (this._stallQuestionFor === attempt) this._stallQuestionFor = null;
+      if (!current()) return;
+      if (answers) {
+        console.info(`[WebSocket] ${reason}, but the server answers: waiting on it`);
+        this._connectProgressAt = Date.now();
+        return;
+      }
+      this._dropLink(`${reason}, and so did the server`);
+    });
+  }
+
+  /**
+   * Whether the server this page belongs to answers a plain request. Through
+   * the machine server's proxy a session that is gone answers 404 or 503, which
+   * is not this server answering.
+   * @returns {Promise<boolean>} True when its health route answered OK.
+   * @private
+   */
+  async _askServer() {
+    try {
+      const res = await fetch(apiUrl('/health'), { cache: 'no-store', headers: withApiToken({}) });
+      return res.ok;
+    } catch {
+      return false;
     }
   }
 

@@ -328,6 +328,73 @@ func TestPushTagAndDeleteRemoteBranch(t *testing.T) {
 	}
 }
 
+func TestPushEveryTag(t *testing.T) {
+	t.Parallel()
+	r := committed(t)
+	bare := r.withRemote()
+	r.git("tag", "v1")
+	r.git("tag", "-a", "-m", "two", "v2")
+	if _, _, _, err := netOp(t, r.dir, Op{Kind: OpPushTags}); err != nil {
+		t.Fatal(err)
+	}
+	if remoteSha(t, bare, "refs/tags/v1") != r.sha("v1") || remoteSha(t, bare, "refs/tags/v2") != r.sha("v2") {
+		t.Fatal("push-tags did not push every tag")
+	}
+
+	// A tag the remote has at another commit is turned down and left; the rest go.
+	other := cloneOf(t, bare)
+	other.write("theirs.txt", "theirs\n")
+	other.commit("theirs")
+	other.git("tag", "v3")
+	other.git("push", "-q", "origin", "v3")
+	r.write("mine.txt", "mine\n")
+	r.commit("mine")
+	r.git("tag", "v3")
+	r.git("tag", "v4")
+	_, _, _, err := netOp(t, r.dir, Op{Kind: OpPushTags})
+	rejected := wantErr[*RejectedError](t, err, "pushing a tag the remote has elsewhere")
+	if !slices.Equal(rejected.Refs, []string{"refs/tags/v3"}) || !strings.Contains(rejected.Error(), "1 tag was not pushed") {
+		t.Fatalf("rejected = %q: %v", rejected.Refs, rejected)
+	}
+	if remoteSha(t, bare, "refs/tags/v3") != other.sha("v3") || remoteSha(t, bare, "refs/tags/v4") != r.sha("v4") {
+		t.Fatal("push-tags moved the remote's tag, or held back the others")
+	}
+}
+
+func TestPushToAnotherBranchAndRemote(t *testing.T) {
+	t.Parallel()
+	r := committed(t)
+	main := r.mainBranch()
+	bare := r.withRemote()
+	fork := filepath.Join(t.TempDir(), "fork.git")
+	r.git("init", "-q", "--bare", fork)
+	r.git("remote", "add", "fork", fork)
+
+	// To another name on another remote, leaving the upstream as it was.
+	if _, _, _, err := netOp(t, r.dir, Op{Kind: OpPush, Remote: "fork", Name: "review"}); err != nil {
+		t.Fatal(err)
+	}
+	if remoteSha(t, fork, "refs/heads/review") != r.sha("HEAD") || remoteSha(t, fork, "refs/heads/"+main) != "" {
+		t.Fatal("push with Name did not push to fork's review alone")
+	}
+	if r.out("rev-parse", "--abbrev-ref", "@{upstream}") != "origin/"+main {
+		t.Fatal("push with Name moved the upstream unasked")
+	}
+
+	// With Track, that becomes the upstream.
+	if _, _, _, err := netOp(t, r.dir, Op{Kind: OpPush, Remote: "origin", Name: "copy", Track: true}); err != nil {
+		t.Fatal(err)
+	}
+	if remoteSha(t, bare, "refs/heads/copy") != r.sha("HEAD") || r.out("rev-parse", "--abbrev-ref", "@{upstream}") != "origin/copy" {
+		t.Fatal("push with Name and Track did not push and track origin/copy")
+	}
+
+	_, _, _, err := netOp(t, r.dir, Op{Kind: OpPush, Remote: "fork", Name: "-bad"})
+	mustFailAs[*RefusedError](t, err, "pushing to a name git does not allow")
+	_, _, _, err = netOp(t, r.dir, Op{Kind: OpPush, Remote: "nope", Name: "review"})
+	mustFailAs[*RefusedError](t, err, "pushing to a remote that is not one")
+}
+
 // A network write waits on its own lane, so a slow fetch never holds up a
 // local write — and cancelling it stops git, frees the lane and leaves no lock.
 func TestCancelledFetchFreesItsLaneAndLeavesNoLock(t *testing.T) {

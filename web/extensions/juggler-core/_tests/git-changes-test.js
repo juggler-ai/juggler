@@ -12,7 +12,7 @@
  */
 
 import GitPin from '../pins/git-pin.js';
-import { assert, nextTask } from '../../../js-tests/utilities/test-helpers.js';
+import { assert, nextTask, waitFor } from '../../../js-tests/utilities/test-helpers.js';
 import { isolateFocus } from '../../../js-tests/utilities/isolate-focus.js';
 import { changesOf, mountPin } from './git-pin-helpers.js';
 
@@ -275,6 +275,26 @@ export async function runTests(_ctx) {
     /** @type {HTMLElement} */ (m.body.querySelector('.git-pin__toast-undo')).click();
     const op = m.runs()[1]?.op;
     assert(op?.kind === 'undo-commit' && op.expectHead === 'abcdef1234567', `undo ${JSON.stringify(op)}`);
+    m.teardown();
+  });
+
+  await test('Skip hooks commits with noVerify, once: it is cleared when the commit lands', async () => {
+    const m = await mounted({ changes: changesOf([partly]) });
+    const skip = /** @type {HTMLInputElement} */ (m.body.querySelector('.git-commit__no-verify'));
+    assert(Boolean(skip) && !skip.checked, 'Skip hooks is there, unticked');
+    m.holdRuns(true);
+    message(m).value = 'Hooks skipped';
+    message(m).dispatchEvent(new Event('input', { bubbles: true }));
+    skip.click();
+    /** @type {HTMLElement} */ (m.body.querySelector('.git-commit__go')).click();
+    assert(m.runs()[0]?.op?.noVerify === true, `op ${JSON.stringify(m.runs()[0]?.op)}`);
+    m.finishRun(0, { result: { head: 'abcdef1234567' } });
+    await waitFor(() => message(m).value === '', 'the commit to land');
+    assert(!skip.checked, 'Skip hooks still ticked after the commit');
+    message(m).value = 'With hooks';
+    message(m).dispatchEvent(new Event('input', { bubbles: true }));
+    /** @type {HTMLElement} */ (m.body.querySelector('.git-commit__go')).click();
+    assert(m.runs()[1]?.op && !('noVerify' in m.runs()[1].op), `the next commit runs its hooks: ${JSON.stringify(m.runs()[1]?.op)}`);
     m.teardown();
   });
 

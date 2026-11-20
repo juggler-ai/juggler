@@ -648,8 +648,8 @@ import { validateManifest } from './lib/manifest.js';
  * @property {{name: string, sha: string, subject: string, date: number, upstream?: string, ahead: number, behind: number, gone?: boolean, worktree?: string, head?: boolean}[]} branches -
  *   Local branches; `worktree` is the tree that has one out, anywhere on disk,
  *   and `head` whether that is the tree read
- * @property {{name: string, branches: {name: string, sha: string, subject: string, date: number}[]}[]} remotes -
- *   Each remote, with its branches named without it
+ * @property {{name: string, url: string, branches: {name: string, sha: string, subject: string, date: number}[]}[]} remotes -
+ *   Each remote, with where it fetches from ('' for nowhere set) and its branches named without it
  * @property {{name: string, sha: string, target: string, annotated: boolean, subject: string, date: number}[]} tags -
  *   Newest first; `sha` is the tag's object, `target` its commit
  * @property {{sha: string, message: string, date: number}[]} stashes - Newest first
@@ -816,7 +816,8 @@ import { validateManifest } from './lib/manifest.js';
  *   `context` and `revision` of the diff the lines were chosen on — a different
  *   revision refuses the write, since the same numbers would be other lines.
  * - `ignore`: `paths[0]` and `pattern`.
- * - `commit`: `message`, and `amend`. `result.head` is the new commit.
+ * - `commit`: `message`, `amend`, and `noVerify` to skip the pre-commit and
+ *   commit-msg hooks. `result.head` is the new commit.
  * - `undo-commit`: `expectHead`, the commit it undoes.
  *
  * The Refs place's writes name a branch, tag or stash as the client saw it —
@@ -832,7 +833,10 @@ import { validateManifest } from './lib/manifest.js';
  *   `upstream` ('' unsets it).
  * - `branch-delete`: `branch`, `expectSha`, `force` for an unmerged one.
  *   `result.sha` is what a `ref-restore` names in `sha`.
- * - `merge`, `rebase`: `rev`, `dirty`.
+ * - `merge`, `rebase`: `rev`, `dirty`. A merge's `mode` is 'no-ff' for a merge
+ *   commit even where it could fast-forward, or 'squash' for `rev`'s changes
+ *   staged and nothing committed — refused over local changes (set aside or
+ *   not), and taken back and refused where it conflicts.
  * - `fast-forward`: `branch`, `expectSha`, `rev` (default its upstream).
  * - `ref-restore`: `ref` (refs/heads/… or refs/tags/…) and `sha`, only if
  *   the ref does not exist.
@@ -844,6 +848,10 @@ import { validateManifest } from './lib/manifest.js';
  * - `worktree-lock` (`reason`), `worktree-unlock`, `worktree-remove`
  *   (`force`; a dirty tree's changes are saved first, in `result.saved`):
  *   `worktree`, a path. `worktree-prune`: nothing more.
+ * - `remote-add`: `name`, `url`. `remote-rename`: `remote` to `name`, its
+ *   remote-tracking branches and the upstreams set to them with it.
+ *   `remote-set-url`: `remote`, `url`. `remote-remove`: `remote`, taking its
+ *   remote-tracking branches and the upstreams set to them with it.
  *
  * The History place's writes act on the current branch:
  *
@@ -899,8 +907,12 @@ import { validateManifest } from './lib/manifest.js';
  *   to bring it in instead. `dirty` as for a merge.
  * - `push`: `branch` (default the current one) to its upstream; one with none
  *   is published — pushed to `remote`, or the repository's obvious one, and
- *   tracked. With `force`, only over `expectSha`, the remote sha the user saw.
- * - `push-tag`: tag `name`, to `remote` or the obvious one.
+ *   tracked. With `name`, to the branch of that name on `remote` (or the obvious
+ *   one) instead, whatever its upstream, made its upstream only with `track`.
+ *   With `force`, only over `expectSha`, the remote sha the user saw.
+ * - `push-tag`: tag `name`, to `remote` or the obvious one. `push-tags`: every
+ *   tag, likewise; one the remote has at another commit is left and refused as
+ *   'rejected', the rest pushed.
  * - `remote-branch-delete`: `ref`, a remote-tracking branch ('origin/feat'), at
  *   `expectSha`.
  * - `submodule-update`: the submodule at `path` checked out at the commit the
@@ -909,7 +921,7 @@ import { validateManifest } from './lib/manifest.js';
  *   ('' for one not checked out): a `switch` of the submodule's own repository
  *   back to them undoes it. Refused as 'dirty' when local changes are in the way.
  * @typedef {object} PinGitOp
- * @property {'stage'|'unstage'|'stage-all'|'unstage-all'|'stage-lines'|'unstage-lines'|'discard'|'discard-lines'|'undo-discard'|'ignore'|'commit'|'undo-commit'|'branch-create'|'switch'|'branch-rename'|'branch-upstream'|'branch-delete'|'merge'|'rebase'|'fast-forward'|'ref-restore'|'stash-save'|'stash-apply'|'stash-pop'|'stash-drop'|'stash-store'|'stash-branch'|'tag-create'|'tag-delete'|'worktree-lock'|'worktree-unlock'|'worktree-remove'|'worktree-prune'|'fetch'|'pull'|'push'|'push-tag'|'remote-branch-delete'|'submodule-update'|'cherry-pick'|'revert'|'reset'|'reword'|'squash'|'fixup'|'drop'|'operation-continue'|'operation-skip'|'operation-abort'|'operation-quit'|'resolve'|'unresolve'} kind - What to do
+ * @property {'stage'|'unstage'|'stage-all'|'unstage-all'|'stage-lines'|'unstage-lines'|'discard'|'discard-lines'|'undo-discard'|'ignore'|'commit'|'undo-commit'|'branch-create'|'switch'|'branch-rename'|'branch-upstream'|'branch-delete'|'merge'|'rebase'|'fast-forward'|'ref-restore'|'stash-save'|'stash-apply'|'stash-pop'|'stash-drop'|'stash-store'|'stash-branch'|'tag-create'|'tag-delete'|'worktree-lock'|'worktree-unlock'|'worktree-remove'|'worktree-prune'|'remote-add'|'remote-remove'|'remote-rename'|'remote-set-url'|'fetch'|'pull'|'push'|'push-tag'|'push-tags'|'remote-branch-delete'|'submodule-update'|'cherry-pick'|'revert'|'reset'|'reword'|'squash'|'fixup'|'drop'|'operation-continue'|'operation-skip'|'operation-abort'|'operation-quit'|'resolve'|'unresolve'} kind - What to do
  * @property {string} repo - The repository, '' for the root
  * @property {string[]} [paths] - The files
  * @property {string} [path] - The file, for the lines kinds
@@ -919,10 +931,11 @@ import { validateManifest } from './lib/manifest.js';
  * @property {'file'|'extension'|'folder'} [pattern] - What an ignore covers
  * @property {string} [message] - A commit's message
  * @property {boolean} [amend] - Whether a commit amends HEAD
+ * @property {boolean} [noVerify] - Commit without the pre-commit and commit-msg hooks
  * @property {string} [expectHead] - The HEAD an undo-commit undoes, or a reset moves from
  * @property {string} [discard] - The discard an undo-discard restores, or the save a hard reset back or an unresolve writes back
  * @property {string} [branch] - The branch
- * @property {string} [name] - A new branch's, tag's or name's name
+ * @property {string} [name] - A new branch's, tag's or remote's name; the branch a push goes to
  * @property {string} [rev] - A revision: where to start, what to merge
  * @property {string} [upstream] - An upstream such as 'origin/main'
  * @property {string} [ref] - The ref a ref-restore restores
@@ -934,11 +947,12 @@ import { validateManifest } from './lib/manifest.js';
  * @property {'carry'|'stash'} [dirty] - What to do with local changes in the way
  * @property {boolean} [force] - Delete an unmerged branch; remove a dirty or locked worktree; mark a file with conflict markers resolved; rewrite a published commit
  * @property {boolean} [switch] - Switch to the branch made
- * @property {boolean} [track] - Make the branch track `rev`
+ * @property {boolean} [track] - Make the branch track `rev`; make the branch a push with `name` goes to the upstream
  * @property {boolean} [detach] - Switch to `rev` detached
  * @property {boolean} [untracked] - Stash untracked files too
- * @property {string} [remote] - The remote a publish or a tag goes to
- * @property {'merge'|'rebase'|'soft'|'mixed'|'hard'|'keep'|'ours'|'theirs'|'resolved'} [mode] - How a pull brings in what it can't fast-forward to; what a reset keeps; how a conflict is resolved
+ * @property {string} [remote] - The remote a publish, a push with `name` or a tag goes to; the remote renamed, re-pointed or removed
+ * @property {string} [url] - A remote's URL
+ * @property {'merge'|'rebase'|'no-ff'|'squash'|'soft'|'mixed'|'hard'|'keep'|'ours'|'theirs'|'resolved'} [mode] - How a pull brings in what it can't fast-forward to; how a merge brings `rev` in; what a reset keeps; how a conflict is resolved
  * @property {'merge'|'rebase'|'cherry-pick'|'revert'} [operation] - The operation in progress the client saw
  */
 

@@ -351,6 +351,12 @@ func TestCommitHooks(t *testing.T) {
 	if got := r.staged(); got != "M\ta.txt" {
 		t.Errorf("staged after the refused commit = %q", got)
 	}
+
+	// NoVerify goes past both: the refusing pre-commit, and the commit-msg trailer.
+	mustOp(t, r.dir, Op{Kind: OpCommit, Message: "Past the hooks", NoVerify: true})
+	if got := r.git("log", "-1", "--format=%B"); !strings.HasPrefix(got, "Past the hooks") || strings.Contains(got, "Checked-by") {
+		t.Errorf("a commit with NoVerify ran its hooks, or did not land: %q", got)
+	}
 }
 
 func TestCommitRefusesADetachedHead(t *testing.T) {

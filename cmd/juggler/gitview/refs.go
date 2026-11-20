@@ -53,9 +53,11 @@ type Branch struct {
 	Head     bool   `json:"head,omitempty"`
 }
 
-// Remote is one remote and the branches the repository last fetched from it.
+// Remote is one remote, where it fetches from, and the branches the repository
+// last fetched from it. URL is "" for a remote with none set.
 type Remote struct {
 	Name     string         `json:"name"`
+	URL      string         `json:"url"`
 	Branches []RemoteBranch `json:"branches"`
 }
 
@@ -205,6 +207,18 @@ func readRemotes(ctx context.Context, dir string, r *Refs) error {
 	for _, name := range strings.Fields(string(out.Kept)) {
 		index[name] = len(r.Remotes)
 		r.Remotes = append(r.Remotes, Remote{Name: name, Branches: []RemoteBranch{}})
+	}
+	// "<name>\t<url> (fetch)", and a (push) line after it, for each remote with a URL.
+	urls, err := gitRead(ctx, dir, clocks.Review.PerCmd, refsReadMax, "remote", "-v")
+	if err != nil {
+		return err
+	}
+	for _, line := range strings.Split(string(urls.Kept), "\n") {
+		name, rest, ok := strings.Cut(line, "\t")
+		url, fetch := strings.CutSuffix(rest, " (fetch)")
+		if i, known := index[name]; ok && fetch && known {
+			r.Remotes[i].URL = url
+		}
 	}
 	lines, err := readRefLines(ctx, dir, r, "--sort=refname", "refs/remotes")
 	if err != nil {

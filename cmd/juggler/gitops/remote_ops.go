@@ -231,9 +231,14 @@ func (r *runner) pushRemote(branch, named string, publish bool) (string, error) 
 }
 
 // push sends a branch to its upstream, or publishes one that has none: to the
-// remote pushRemote finds, setting it as the upstream. Force replaces what the
-// remote has, and only if that is still ExpectSha.
+// remote pushRemote finds, setting it as the upstream. With Name it goes to the
+// branch of that name on Remote (or the remote pushRemote finds) instead,
+// whatever its upstream, and becomes its upstream only with Track. Force
+// replaces what the remote has, and only if that is still ExpectSha.
 func push(r *runner, op Op) (Result, error) {
+	if op.Name != "" {
+		return pushElsewhere(r, op)
+	}
 	branch := op.Branch
 	if branch == "" {
 		var err error
@@ -272,6 +277,61 @@ func push(r *runner, op Op) (Result, error) {
 	}
 	args = append(args, remote, "refs/heads/"+branch+":"+dest)
 	return Result{}, r.pushRefs(remote, args...)
+}
+
+// pushElsewhere is push with Name: the branch to refs/heads/Name on the remote
+// named, or the one pushRemote finds as for a publish.
+func pushElsewhere(r *runner, op Op) (Result, error) {
+	branch := op.Branch
+	if branch == "" {
+		var err error
+		if branch, err = r.currentBranch(); err != nil {
+			return Result{}, err
+		}
+	} else if err := r.branchName(branch); err != nil {
+		return Result{}, err
+	}
+	if err := r.branchName(op.Name); err != nil {
+		return Result{}, err
+	}
+	if _, err := r.rev("refs/heads/" + branch); err != nil {
+		return Result{}, err
+	}
+	remote, err := r.pushRemote(branch, op.Remote, true)
+	if err != nil {
+		return Result{}, err
+	}
+	dest := "refs/heads/" + op.Name
+	args := []string{"push", "--porcelain", "--progress"}
+	if op.Track {
+		args = append(args, "-u")
+	}
+	if op.Force {
+		if !isSha(op.ExpectSha) {
+			return Result{}, refused(msg.NewError("A forced push needs the sha the remote was seen at."))
+		}
+		args = append(args, "--force-with-lease="+dest+":"+op.ExpectSha)
+	}
+	args = append(args, remote, "refs/heads/"+branch+":"+dest)
+	return Result{}, r.pushRefs(remote, args...)
+}
+
+// pushTags sends every tag to Remote, or the remote pushRemote finds for a
+// tag. One the remote already has elsewhere is turned down (RejectedError),
+// never moved.
+func pushTags(r *runner, op Op) (Result, error) {
+	remote, err := r.pushRemote("", op.Remote, true)
+	if err != nil {
+		return Result{}, err
+	}
+	err = r.pushRefs(remote, "push", "--porcelain", "--progress", remote, "refs/tags/*:refs/tags/*")
+	var rejected *RejectedError
+	if errors.As(err, &rejected) {
+		// The rest went: a tag push is per ref, and pull-or-force is no answer for a tag.
+		rejected.Err = msg.NewError("{count, plural, one {# tag was} other {# tags were}} not pushed: {remote} already has {count, plural, one {it} other {them}} at another commit.",
+			"remote", remote, "count", len(rejected.Refs))
+	}
+	return Result{}, err
 }
 
 func pushTag(r *runner, op Op) (Result, error) {

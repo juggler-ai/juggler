@@ -249,17 +249,18 @@ export function currentBranch(state) {
 }
 
 /**
- * Merge into, and rebase onto, the current branch.
+ * Merge into, squash into, and rebase onto, the current branch.
  * @param {RefsState} state - What is known.
  * @param {string} rev - What to merge or rebase onto.
  * @param {string} name - What to call it.
- * @returns {RefItem[]} The two, or none when HEAD is detached or it is the current branch.
+ * @returns {RefItem[]} The three, or none when HEAD is detached or it is the current branch.
  */
 function integrateItems(state, rev, name) {
   const current = currentBranch(state);
   if (!current || name === current) return [];
   return [
     { label: t('Merge into {branch}', { branch: current }), action: { type: 'merge', rev, into: current } },
+    { label: t('Squash into {branch}…', { branch: current }), action: { type: 'squash-merge', rev, into: current } },
     { label: t('Rebase {branch} onto this', { branch: current }), action: { type: 'rebase', rev, into: current } },
   ];
 }
@@ -296,6 +297,9 @@ function branchItems(state, b) {
       action: { type: 'fast-forward', branch: b.name, upstream: b.upstream, expectSha: b.sha },
     });
   }
+  items.push(state.refs?.remotes.length
+    ? { label: t('Push to…'), action: { type: 'push-to', branch: b.name } }
+    : { label: t('Push to…'), disabled: true, hint: t('No remote') });
   items.push({ separator: true });
   items.push({ label: t('Rename…'), action: { type: 'rename', branch: b.name } });
   items.push({ label: t('Set upstream…'), action: { type: 'upstream', branch: b.name, upstream: b.upstream || '' } });
@@ -329,12 +333,13 @@ function remoteItems(state, r) {
 }
 
 /**
- * The remote a tag is pushed to: the current branch's upstream's remote, else
- * `origin` when there is one, else '' for the server to choose.
+ * The remote a tag is pushed to, and the one a Push to… starts at: the current
+ * branch's upstream's remote, else `origin` when there is one, else '' for the
+ * server to choose.
  * @param {RefsState} state - What is known.
  * @returns {string} The remote's name.
  */
-function tagRemote(state) {
+export function tagRemote(state) {
   const remotes = (state.refs?.remotes || []).map((r) => r.name);
   const current = currentBranch(state);
   const upstream = state.refs?.branches.find((b) => b.name === current)?.upstream || '';
@@ -470,6 +475,9 @@ export function menuFor(ctx, key, state) {
       { label: t('Fetch'), action: { type: 'network', kind: 'fetch' } },
       { label: t('Pull'), action: { type: 'network', kind: 'pull' } },
       { label: t('Push'), action: { type: 'network', kind: 'push' } },
+      ...(currentBranch(state) && state.refs?.remotes.length
+        ? [{ label: t('Push to…'), action: { type: 'push-to', branch: currentBranch(state) } }] : []),
+      { label: t('Add remote…'), action: { type: 'remote-add' } },
       { separator: true },
       { label: t('Stash changes…'), disabled: state.dirty === 0, action: { type: 'stash-save' } },
       { label: t('New branch…'), action: { type: 'branch-create' } },
@@ -488,6 +496,21 @@ export function menuFor(ctx, key, state) {
     }
     if (key === 'branches') return [{ label: t('New branch…'), action: { type: 'branch-create' } }];
     if (key === 'stashes') return [{ label: t('Stash changes…'), disabled: state.dirty === 0, action: { type: 'stash-save' } }];
+    if (key === 'tags') {
+      const remote = tagRemote(state);
+      return [{
+        label: t('Push all'),
+        disabled: !state.refs?.tags.length || !state.refs?.remotes.length,
+        action: { type: 'push-tags', remote },
+      }];
+    }
+    const remote = key.startsWith('remote:') ? state.refs?.remotes.find((r) => `remote:${r.name}` === key) : undefined;
+    if (remote) {
+      return [
+        { label: t('Edit…'), action: { type: 'remote-edit', remote: remote.name, url: remote.url || '' } },
+        { label: t('Remove…'), action: { type: 'remote-remove', remote: remote.name } },
+      ];
+    }
     return [];
   }
   const row = rowOf(state, key);

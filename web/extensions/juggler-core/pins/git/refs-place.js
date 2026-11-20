@@ -52,7 +52,7 @@ import { measureMode } from './layout.js';
 import { askText, closePopover, confirmAction } from './popover.js';
 import { createReader } from './reader.js';
 import { createListFilter } from './list-filter.js';
-import { baseName, menuFor, refsState, rowName, rowOf, sectionsOf, treeAt, viewedTree } from './refs-model.js';
+import { baseName, menuFor, refsState, rowName, rowOf, sectionsOf, tagRemote, treeAt, viewedTree } from './refs-model.js';
 import { openWorktreeSwitcher } from './worktree-switcher.js';
 import { createVirtualList, remHeight, WINDOWED_ABOVE } from 'juggler/utils/virtual-list';
 
@@ -357,6 +357,85 @@ export function createRefsPlace(host) {
   };
 
   /**
+   * Push a branch to a branch of any name on any remote, typed as
+   * remote/branch — and, if asked, make that its upstream.
+   * @param {string} branch - The local branch.
+   * @param {Element} anchor - What asked.
+   */
+  const pushTo = (branch, anchor) => {
+    const remotes = (refs?.remotes || []).map((r) => r.name);
+    const start = tagRemote(state()) || remotes[0] || '';
+    askText(anchor, element, {
+      label: t('Push {branch} to', { branch }),
+      value: start ? `${start}/${branch}` : '',
+      // i18n-ignore: a git ref, shown as typed
+      placeholder: `origin/${branch}`,
+      ok: t('Push'),
+      check: t('Make it the upstream of {branch}', { branch }),
+      checked: false,
+      onSubmit: (target, track) => {
+        const remote = remotes.filter((name) => target.startsWith(`${name}/`)).sort((x, y) => y.length - x.length)[0];
+        const name = remote ? target.slice(remote.length + 1) : '';
+        if (!remote || !name) {
+          host.toast.error(t('{target} is not a remote and a branch, such as origin/{branch}.', { target, branch }));
+          return;
+        }
+        void run({ kind: 'push', branch, remote, name, ...(track ? { track: true } : {}) }).then((job) => {
+          if (job) host.toast.show(t('Pushed {branch} to {target}', { branch, target }));
+        });
+      },
+    });
+  };
+
+  /**
+   * Add a remote, then fetch it, so its branches are listed at once.
+   * @param {Element} anchor - What asked.
+   */
+  const addRemote = (anchor) => {
+    const first = !refs?.remotes.length;
+    askText(anchor, element, {
+      label: t('Add a remote'),
+      // i18n-ignore: git's conventional name for a first remote
+      value: first ? 'origin' : '',
+      placeholder: t('name'),
+      ok: t('Add'),
+      secondary: { label: t('URL'), placeholder: t('https://… or git@…') },
+      onSubmit: (name, _checked, url) => {
+        if (!url) {
+          host.toast.error(t('A remote needs a URL.'));
+          return;
+        }
+        void run({ kind: 'remote-add', name, url }).then((job) => {
+          if (job) host.network('fetch');
+        });
+      },
+    });
+  };
+
+  /**
+   * Rename a remote, or point it somewhere else, or both: the URL first, so a
+   * rename that is refused leaves the change that went through under the name
+   * the user saw.
+   * @param {string} remote - Its name.
+   * @param {string} url - Its URL as read.
+   * @param {Element} anchor - What asked.
+   */
+  const editRemote = (remote, url, anchor) => {
+    askText(anchor, element, {
+      label: t('Remote {name}', { name: remote }),
+      value: remote,
+      ok: t('Save'),
+      secondary: { label: t('URL'), value: url },
+      onSubmit: (name, _checked, nextUrl) => {
+        void (async () => {
+          if (nextUrl && nextUrl !== url && !await run({ kind: 'remote-set-url', remote, url: nextUrl })) return;
+          if (name !== remote) await run({ kind: 'remote-rename', remote, name });
+        })();
+      },
+    });
+  };
+
+  /**
    * Carry out one of the model's actions.
    * @param {{type: string, [field: string]: any}} a - The action.
    * @param {Element} anchor - The control it came from, for what it asks.
@@ -374,8 +453,23 @@ export function createRefsPlace(host) {
           .then(() => readAll()).catch((e) => host.toast.error(errorText(e)));
         break;
       case 'merge':
-        askFirst(anchor, t('Merge {rev} into {branch}?', { rev: a.rev, branch: a.into }), t('Merge'), () => {
-          void runPastChanges({ kind: 'merge', rev: a.rev }, t('Stash them, then merge'));
+        confirmAction(anchor, element, {
+          text: t('Merge {rev} into {branch}?', { rev: a.rev, branch: a.into }),
+          ok: t('Merge'),
+          tone: 'primary',
+          check: { label: t('Always make a merge commit (no fast-forward)') },
+          onConfirm: (noFF) => {
+            void runPastChanges({ kind: 'merge', rev: a.rev, ...(noFF ? { mode: 'no-ff' } : {}) }, t('Stash them, then merge'));
+          },
+        });
+        break;
+      case 'squash-merge':
+        askFirst(anchor, t('Squash {rev} into {branch}? Its changes are staged as one, for you to commit; no merge is recorded.', { rev: a.rev, branch: a.into }), t('Squash'), () => {
+          void run({ kind: 'merge', rev: a.rev, mode: 'squash' }).then((job) => {
+            if (!job) return;
+            host.toast.show(t('Squashed {rev}: its changes are staged. Commit them to finish.', { rev: a.rev }), undefined,
+              { label: t('Show them'), run: () => host.showChanges() });
+          });
         });
         break;
       case 'rebase':
@@ -436,6 +530,28 @@ export function createRefsPlace(host) {
           void run({ kind: 'push-tag', name: a.name, ...(a.remote ? { remote: a.remote } : {}) }).then((job) => {
             if (job) host.toast.show(t('Pushed tag {name}', { name: a.name }));
           });
+        });
+        break;
+      case 'push-tags':
+        askFirst(anchor, a.remote ? t('Push every tag to {remote}?', { remote: a.remote }) : t('Push every tag?'), t('Push all'), () => {
+          void run({ kind: 'push-tags', ...(a.remote ? { remote: a.remote } : {}) }).then((job) => {
+            if (job) host.toast.show(a.remote ? t('Pushed every tag to {remote}', { remote: a.remote }) : t('Pushed every tag'));
+          });
+        });
+        break;
+      case 'push-to': pushTo(a.branch, anchor); break;
+      case 'remote-add': addRemote(anchor); break;
+      case 'remote-edit': editRemote(a.remote, a.url, anchor); break;
+      case 'remote-remove':
+        confirmAction(anchor, element, {
+          text: t('Remove the remote {name}? Its remote-tracking branches go with it, and branches tracking them lose their upstream. Nothing on the remote itself changes.', { name: a.remote }),
+          title: t('Remove remote'),
+          ok: t('Remove'),
+          onConfirm: () => {
+            void run({ kind: 'remote-remove', remote: a.remote }).then((job) => {
+              if (job) host.toast.show(t('Removed the remote {name}', { name: a.remote }));
+            });
+          },
         });
         break;
       case 'view-stash': host.showScope(`${a.stash}^1..${a.stash}`); break;

@@ -32,7 +32,7 @@ const t = translator('@juggler/core');
 /** @typedef {import('juggler/pinboard-item-type').PinGitJob} PinGitJob */
 
 /** The kinds of write that talk to a remote: a submodule update may clone or fetch. */
-export const NETWORK_KINDS = new Set(['fetch', 'pull', 'push', 'push-tag', 'remote-branch-delete', 'submodule-update']);
+export const NETWORK_KINDS = new Set(['fetch', 'pull', 'push', 'push-tag', 'push-tags', 'remote-branch-delete', 'submodule-update']);
 
 /**
  * @param {PinGitJob|null|undefined} job - A job.
@@ -98,11 +98,13 @@ export function commandOf(kind) {
  */
 export function runningLabel(job) {
   const percent = job.progress && job.progress.percent >= 0 ? job.progress.percent : -1;
+  // Every tag pushed reads as one tag pushed does.
+  const kind = job.kind === 'push-tags' ? 'push-tag' : job.kind;
   if (percent < 0) {
-    return t('{kind, select, fetch {Fetching…} pull {Pulling…} push {Pushing…} push-tag {Pushing…} submodule-update {Updating…} other {Deleting…}}', { kind: job.kind });
+    return t('{kind, select, fetch {Fetching…} pull {Pulling…} push {Pushing…} push-tag {Pushing…} submodule-update {Updating…} other {Deleting…}}', { kind });
   }
   return t('{kind, select, fetch {Fetching {percent}%} pull {Pulling {percent}%} push {Pushing {percent}%} push-tag {Pushing {percent}%} submodule-update {Updating {percent}%} other {Deleting {percent}%}}',
-    { kind: job.kind, percent });
+    { kind, percent });
 }
 
 /**

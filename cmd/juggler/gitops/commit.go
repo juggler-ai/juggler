@@ -15,8 +15,9 @@ import (
 
 // commit commits what is staged, with the message as written — git's
 // whitespace cleanup only, so a line that starts with "#" is kept — and the
-// repository's hooks, whose output is streamed as they run. A hook that
-// refuses leaves everything as it was, the index included.
+// repository's hooks, whose output is streamed as they run — unless NoVerify,
+// which skips the pre-commit and commit-msg hooks as `--no-verify` does. A hook
+// that refuses leaves everything as it was, the index included.
 func commit(r *runner, op Op) (Result, error) {
 	if strings.TrimSpace(op.Message) == "" {
 		return Result{}, refused(msg.NewError("Write a commit message first."))
@@ -44,6 +45,9 @@ func commit(r *runner, op Op) (Result, error) {
 	args := []string{"commit", "--cleanup=whitespace", "-F", "-"}
 	if op.Amend {
 		args = append(args, "--amend")
+	}
+	if op.NoVerify {
+		args = append(args, "--no-verify")
 	}
 	if _, err := r.run(call{args: args, stdin: []byte(op.Message), stream: true}); err != nil {
 		return Result{}, err

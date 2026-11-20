@@ -2118,6 +2118,13 @@ export function injectGitClientStyles() {
   color: var(--text-secondary);
 }
 
+/* A confirmation's question with its checkbox under it. */
+.git-pop__confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack-gap);
+}
+
 /* A confirmation's question, set as the dialog sets its own message. */
 .git-pop__text {
   margin: 0;

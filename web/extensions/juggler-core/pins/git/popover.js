@@ -90,8 +90,11 @@ function button(cls, label) {
  * several lines: Enter is a new line, and Cmd/Ctrl+Enter gives it.
  *
  * With `secondary`, a second, optional field below the first — a single line,
- * or several with its own `multiline` — whose trimmed value, '' when left
- * empty, is `onSubmit`'s third argument.
+ * or several with its own `multiline`, starting at its `value` — whose trimmed
+ * value, '' when left empty, is `onSubmit`'s third argument.
+ *
+ * With `check`, a checkbox of those words under the fields, ticked unless
+ * `checked` is false, whose state is `onSubmit`'s second argument.
  *
  * It is the app's own form dialog, as every other question asking for words
  * is, not a popover: `label` is its title, the fields are its body, and its
@@ -102,8 +105,8 @@ function button(cls, label) {
  * @param {Element} _anchor - What asked; the dialog is centred, not hung off it.
  * @param {Element} _fallback - Unused, as `_anchor` is.
  * @param {{label: string, value?: string, placeholder?: string, ok: string, allowEmpty?: boolean,
- *   check?: string, secret?: boolean, multiline?: boolean, onCancel?: () => void,
- *   secondary?: {label: string, placeholder?: string, multiline?: boolean},
+ *   check?: string, checked?: boolean, secret?: boolean, multiline?: boolean, onCancel?: () => void,
+ *   secondary?: {label: string, value?: string, placeholder?: string, multiline?: boolean},
  *   onSubmit: (value: string, checked: boolean, secondary: string) => void}} ask - What to ask.
  * @returns {HTMLElement} The dialog's fields, in the document while it is open.
  */
@@ -146,14 +149,17 @@ export function askText(_anchor, _fallback, ask) {
   input.value = ask.value || '';
   input.placeholder = ask.placeholder || '';
   const second = ask.secondary ? field(ask.secondary.label, Boolean(ask.secondary.multiline), ' git-pop__input--secondary').input : null;
-  if (second) second.placeholder = ask.secondary?.placeholder || '';
+  if (second) {
+    second.value = ask.secondary?.value || '';
+    second.placeholder = ask.secondary?.placeholder || '';
+  }
   /** @type {HTMLInputElement|null} */
   let box = null;
   if (ask.check) {
     const row = createElement('label', 'git-pop__check');
     box = /** @type {HTMLInputElement} */ (createElement('input'));
     box.type = 'checkbox';
-    box.checked = true;
+    box.checked = ask.checked ?? true;
     row.append(box, document.createTextNode(ask.check));
     form.append(row);
   }
@@ -215,18 +221,36 @@ export function askText(_anchor, _fallback, ask) {
  * question open whichever kind it is. `onCancel` is called for the Cancel
  * button only; Escape, or a click on the backdrop, closes it without an answer.
  * Like a popover, it is closed by `closePopover` and by another opening.
+ *
+ * With `check`, a checkbox under the text, unticked, whose state is
+ * `onConfirm`'s argument. While it is ticked the OK button reads `check.ok`,
+ * when given, and with `check.danger` is a danger button: for a tick that turns
+ * the answer into a riskier one.
  * @param {Element} _anchor - What asked; the dialog is centred, not hung off it.
  * @param {Element} _fallback - Unused, as `_anchor` is.
  * @param {{text: string, ok: string, title?: string, cancel?: string, tone?: 'danger'|'primary',
- *   onConfirm: () => void, onCancel?: () => void}} ask - What to say.
+ *   check?: {label: string, ok?: string, danger?: boolean},
+ *   onConfirm: (checked: boolean) => void, onCancel?: () => void}} ask - What to say.
  * @returns {HTMLElement} The dialog's text, in the document while it is open.
  */
 export function confirmAction(_anchor, _fallback, ask) {
   closePopover();
   const text = createElement('p', 'git-pop__text', ask.text);
+  /** @type {HTMLInputElement|null} */
+  let box = null;
+  /** @type {HTMLElement} */
+  let content = text;
+  if (ask.check) {
+    content = createElement('div', 'git-pop__confirm');
+    const row = createElement('label', 'git-pop__check');
+    box = /** @type {HTMLInputElement} */ (createElement('input'));
+    box.type = 'checkbox';
+    row.append(box, document.createTextNode(ask.check.label));
+    content.append(text, row);
+  }
   const dialog = showFormDialog({
     title: ask.title || ask.ok,
-    content: text,
+    content,
     confirmText: ask.ok,
     cancelText: ask.cancel || t('Cancel'),
     danger: ask.tone !== 'primary',
@@ -234,8 +258,9 @@ export function confirmAction(_anchor, _fallback, ask) {
     // Closed before the answer is acted on, as a popover is, so what it
     // starts — another question, most often — finds nothing still open.
     onConfirm: () => {
+      const checked = Boolean(box?.checked);
       closePopover();
-      ask.onConfirm();
+      ask.onConfirm(checked);
       return true;
     },
   });
@@ -250,6 +275,17 @@ export function confirmAction(_anchor, _fallback, ask) {
     closePopover();
     ask.onCancel?.();
   });
+  const check = ask.check;
+  if (box && ok && check) {
+    const ticked = box;
+    const danger = ask.tone !== 'primary';
+    ticked.addEventListener('change', () => {
+      ok.textContent = ticked.checked && check.ok ? check.ok : ask.ok;
+      const risky = danger || (ticked.checked && Boolean(check.danger));
+      ok.classList.toggle('btn-danger', risky);
+      ok.classList.toggle('btn-primary', !risky);
+    });
+  }
   // The element outlives its closing while its scrim fades; it stops being
   // the open question at once.
   const release = () => {

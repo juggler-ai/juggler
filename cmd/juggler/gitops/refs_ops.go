@@ -337,14 +337,52 @@ func refRestore(r *runner, op Op) (Result, error) {
 	return Result{}, err
 }
 
-// mergeInto merges Rev into the current branch. git is given Rev as the client
-// named it, once it is known to name a commit, because git titles the merge
-// commit with that name: "Merge branch 'topic'", not a sha.
+// mergeInto merges Rev into the current branch: a fast-forward where it can be
+// one, else a merge commit; always a merge commit with MergeNoFF; and with
+// MergeSquash, as squashMerge does. git is given Rev as the client named it,
+// once it is known to name a commit, because git titles the merge commit with
+// that name: "Merge branch 'topic'", not a sha.
 func mergeInto(r *runner, op Op) (Result, error) {
 	if _, err := r.rev(op.Rev); err != nil {
 		return Result{}, err
 	}
-	return r.intoCurrent(op, "Juggler: set aside to merge "+op.Rev, nil, "merge", "--no-edit", op.Rev)
+	switch op.Mode {
+	case "":
+		return r.intoCurrent(op, "Juggler: set aside to merge "+op.Rev, nil, "merge", "--no-edit", op.Rev)
+	case MergeNoFF:
+		return r.intoCurrent(op, "Juggler: set aside to merge "+op.Rev, nil, "merge", "--no-edit", "--no-ff", op.Rev)
+	case MergeSquash:
+		return squashMerge(r, op)
+	}
+	return Result{}, refused(msg.NewError("Unknown way to merge: {mode}", "mode", op.Mode))
+}
+
+// squashMerge brings Rev's changes into the index and working tree as one set
+// of staged changes, committing nothing: the user commits them. Its result is
+// changes of its own, so it is refused over local ones rather than mixing them
+// in — setting them aside included, since putting them back would land them
+// among what it staged. git starts no operation for a squash, so one that
+// conflicts would leave conflicts nothing could continue or abort; it is taken
+// back instead (the tree was clean), and refused.
+func squashMerge(r *runner, op Op) (Result, error) {
+	changes, _, err := r.ask("status", "--porcelain", "-uno")
+	if err != nil {
+		return Result{}, err
+	}
+	if changes != "" {
+		return Result{}, refused(msg.NewError("Commit or stash your changes before a squash merge: what it brings in is staged for you to commit."))
+	}
+	if _, err := r.rawGit("merge", "--squash", op.Rev); err != nil {
+		unmerged, _, askErr := r.ask("ls-files", "--unmerged")
+		if askErr != nil || unmerged == "" {
+			return Result{}, r.explain(err)
+		}
+		if _, err := r.git("reset", "-q", "--merge"); err != nil {
+			return Result{}, err
+		}
+		return Result{}, refused(msg.NewError("Squashing {rev} in conflicts with this branch. Merge it instead, or rebase it first.", "rev", op.Rev))
+	}
+	return Result{Head: r.headSha()}, nil
 }
 
 // rebaseOnto rebases the current branch onto Rev. git refuses any rebase with

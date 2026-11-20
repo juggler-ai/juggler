@@ -867,11 +867,18 @@ class GitPin extends PinboardItemType {
             : t('Push {branch} to {upstream}?', { branch, upstream }))
         : (read?.behind && upstream ? t('Pull {count, plural, one {# commit} other {# commits}} from {upstream} into {branch}?', { count: read.behind, branch, upstream })
           : upstream ? t('Pull {upstream} into {branch}?', { branch, upstream }) : t('Pull into {branch}?', { branch }));
+      // Forcing replaces what the upstream has, so it is offered only where
+      // there is one; it is leased as the rejected push's offer is.
+      const forcible = kind === 'push' && Boolean(upstream);
       confirmAction(anchor, root, {
         text,
         ok: kind === 'push' ? (upstream ? t('Push') : t('Publish')) : t('Pull'),
         tone: 'primary',
-        onConfirm: () => { void runNetwork({ kind, repo }); },
+        check: forcible ? { label: t('Force push with lease'), ok: t('Force push'), danger: true } : undefined,
+        onConfirm: (force) => {
+          if (force) void forceLeased({ kind, repo });
+          else void runNetwork({ kind, repo });
+        },
       });
     };
 
@@ -947,6 +954,35 @@ class GitPin extends PinboardItemType {
     const forcePush = async (op) => {
       const read = shownRepo?.read;
       const upstream = read?.upstream || '';
+      const sha = await leaseSha(op);
+      if (!sha) return;
+      confirmAction(head.primaryButton, root, {
+        text: t('Replace {upstream} (at {sha}) with {branch}? Commits only {upstream} has are lost from it. If it has moved since, the push is refused.',
+          { upstream, sha: sha.slice(0, 7), branch: read?.branch || '' }),
+        ok: t('Force push'),
+        onConfirm: () => { void runNetwork({ kind: 'push', repo: op.repo, force: true, expectSha: sha }); },
+      });
+    };
+
+    /**
+     * Push over what the remote has, asked for up front by the push's own
+     * confirmation — leased as `forcePush`'s is.
+     * @param {import('juggler/pinboard-item-type').PinGitOp} op - The push.
+     */
+    const forceLeased = async (op) => {
+      const sha = await leaseSha(op);
+      if (sha) void runNetwork({ kind: 'push', repo: op.repo, force: true, expectSha: sha });
+    };
+
+    /**
+     * The sha the shown upstream was last fetched at, for a forced push to be
+     * leased on; '' — having said why — when there is none to lease on, or the
+     * pin has gone.
+     * @param {import('juggler/pinboard-item-type').PinGitOp} op - The push.
+     * @returns {Promise<string>} The sha.
+     */
+    const leaseSha = async (op) => {
+      const upstream = shownRepo?.read?.upstream || '';
       let sha = '';
       try {
         const refsRead = /** @type {import('juggler/pinboard-item-type').PinGitRefs} */ (
@@ -958,19 +994,11 @@ class GitPin extends PinboardItemType {
         }
       } catch (/** @type {any} */ e) {
         toast.error(errorText(e));
-        return;
+        return '';
       }
-      if (!live) return;
-      if (!sha) {
-        toast.show(t("{upstream} hasn't been fetched: fetch it and look before forcing over it.", { upstream }));
-        return;
-      }
-      confirmAction(head.primaryButton, root, {
-        text: t('Replace {upstream} (at {sha}) with {branch}? Commits only {upstream} has are lost from it. If it has moved since, the push is refused.',
-          { upstream, sha: sha.slice(0, 7), branch: read?.branch || '' }),
-        ok: t('Force push'),
-        onConfirm: () => { void runNetwork({ kind: 'push', repo: op.repo, force: true, expectSha: sha }); },
-      });
+      if (!live) return '';
+      if (!sha) toast.show(t("{upstream} hasn't been fetched: fetch it and look before forcing over it.", { upstream }));
+      return sha;
     };
 
     // --- the operation in progress: the banner's writes --------------------

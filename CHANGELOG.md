@@ -6,6 +6,9 @@ the current release). The project follows semantic versioning.
 
 ## [Unreleased]
 
+- Git pin: force push, skip commit hooks, no-fast-forward and squash merges, push to any branch
+- Git pin: add, edit and remove remotes, and push every tag at once
+
 ## [0.8.2] - 2026-11-20
 
 - The Git pin has grown into a full git client: staging, commits, branches, worktrees, push/pull, commit graph, reword/squash/drop, blame, reflog undo, conflict resolution, auto-generated commit messages

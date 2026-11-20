@@ -226,6 +226,22 @@ export async function runTests(_ctx) {
     assert((await ran(m, 3)).kind === 'pull', 'choosing Pull did not pull');
   });
 
+  await test('the push confirmation can force the push, leased on the sha the remote was seen at', async () => {
+    const m = await mounted(changesOf([], { upstream: 'origin/develop', ahead: 1, remotes: 1 }), {
+      refs: refsOf({ remotes: [{ name: 'origin', branches: [{ name: 'develop', sha: OLD, subject: 'Theirs', date: 0 }] }] }),
+    });
+    m.holdRuns(true);
+    primary(m).click();
+    const box = /** @type {HTMLInputElement|null} */ (await waitFor(() => document.querySelector('.git-pop .git-pop__check input'), 'the force checkbox'));
+    const ok = /** @type {HTMLElement} */ (document.querySelector('.git-pop .git-pop__ok'));
+    assert(Boolean(box) && !box?.checked && ok.textContent === 'Push', `unticked, OK = ${ok.textContent}`);
+    box?.click();
+    assert(ok.textContent === 'Force push' && ok.classList.contains('btn-danger'), `ticked, OK = ${ok.textContent} (${ok.className})`);
+    ok.click();
+    const forced = await ran(m, 1);
+    assert(forced?.kind === 'push' && forced.force === true && forced.expectSha === OLD, `forced push = ${JSON.stringify(forced)}`);
+  });
+
   await test('publishing with no obvious remote asks which', async () => {
     const m = await mounted(changesOf([], { upstream: '', remotes: 2 }));
     m.holdRuns(true);

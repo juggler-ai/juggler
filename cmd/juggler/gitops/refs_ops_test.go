@@ -6,6 +6,7 @@ package gitops
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -286,6 +287,114 @@ func TestMergeAndRebaseIntoCurrent(t *testing.T) {
 	mustFailAs[*ConflictsError](t, err, "a merge that conflicts")
 	if !r.exists(".git/MERGE_HEAD") {
 		t.Fatal("the conflicted merge was not left in progress")
+	}
+}
+
+func TestMergeNoFastForwardAndSquash(t *testing.T) {
+	t.Parallel()
+	r := committed(t)
+	main := r.mainBranch()
+	r.git("switch", "-q", "-c", "topic")
+	r.write("t.txt", "t\n")
+	r.commit("topic")
+	r.git("switch", "-q", main)
+
+	// topic is only ahead, so a plain merge would fast-forward: no-ff commits anyway.
+	before := r.sha("HEAD")
+	mustOp(t, r.dir, Op{Kind: OpMerge, Rev: "topic", Mode: MergeNoFF})
+	if r.out("rev-list", "--count", "--merges", before+"..HEAD") != "1" || r.sha("HEAD^2") != r.sha("topic") {
+		t.Fatal("a no-ff merge of a branch only ahead made no merge commit")
+	}
+
+	// A squash stages topic's changes and commits nothing.
+	r.git("reset", "-q", "--hard", before)
+	res := mustOp(t, r.dir, Op{Kind: OpMerge, Rev: "topic", Mode: MergeSquash})
+	if res.Head != before || r.sha("HEAD") != before || r.staged() != "A\tt.txt" {
+		t.Fatalf("squash: head %s (was %s), staged %q", r.sha("HEAD"), before, r.staged())
+	}
+
+	// Over local changes it is refused, set aside or not, and leaves them be.
+	r.git("reset", "-q", "--hard", before)
+	r.write("a.txt", "mine\n")
+	for _, dirty := range []string{"", DirtyStash} {
+		_, err := op(t, r.dir, Op{Kind: OpMerge, Rev: "topic", Mode: MergeSquash, Dirty: dirty})
+		mustFailAs[*RefusedError](t, err, "a squash over local changes (dirty "+dirty+")")
+		if r.read("a.txt") != "mine\n" || r.exists("t.txt") || r.out("stash", "list") != "" {
+			t.Fatalf("a refused squash (dirty %q) touched the tree or the stashes", dirty)
+		}
+	}
+
+	// One that conflicts is taken back whole and refused: no operation to finish.
+	r.git("checkout", "--", "a.txt")
+	r.git("switch", "-q", "-c", "clash", before)
+	r.write("a.txt", "clash\n")
+	r.commit("clash")
+	r.git("switch", "-q", main)
+	r.write("a.txt", "ours\n")
+	r.commit("ours")
+	head := r.sha("HEAD")
+	_, err := op(t, r.dir, Op{Kind: OpMerge, Rev: "clash", Mode: MergeSquash})
+	mustFailAs[*RefusedError](t, err, "a squash that conflicts")
+	if r.sha("HEAD") != head || r.out("status", "--porcelain") != "" {
+		t.Fatalf("a conflicting squash left the tree changed: %q", r.out("status", "--porcelain"))
+	}
+
+	_, err = op(t, r.dir, Op{Kind: OpMerge, Rev: "topic", Mode: "octopus"})
+	mustFailAs[*RefusedError](t, err, "an unknown merge mode")
+}
+
+func TestRemoteAddRenameSetURLRemove(t *testing.T) {
+	t.Parallel()
+	r := committed(t)
+	bare := r.withRemote()
+
+	_, err := op(t, r.dir, Op{Kind: OpRemoteAdd, Name: "origin", URL: bare})
+	mustFailAs[*RefusedError](t, err, "adding a remote under a name that is taken")
+	for _, bad := range []Op{
+		{Kind: OpRemoteAdd, Name: "-x", URL: bare},
+		{Kind: OpRemoteAdd, Name: "a..b", URL: bare},
+		{Kind: OpRemoteAdd, Name: "fork", URL: "--upload-pack=evil"},
+		{Kind: OpRemoteAdd, Name: "fork", URL: "a\nb"},
+		{Kind: OpRemoteSetURL, Remote: "nope", URL: bare},
+		{Kind: OpRemoteRemove, Remote: "nope"},
+	} {
+		_, err := op(t, r.dir, bad)
+		mustFailAs[*RefusedError](t, err, fmt.Sprintf("%+v", bad))
+	}
+
+	mustOp(t, r.dir, Op{Kind: OpRemoteAdd, Name: "fork", URL: "https://example.com/fork.git"})
+	if r.out("remote", "get-url", "fork") != "https://example.com/fork.git" {
+		t.Fatal("remote-add did not add fork")
+	}
+	mustOp(t, r.dir, Op{Kind: OpRemoteSetURL, Remote: "fork", URL: "https://example.com/other.git"})
+	if r.out("remote", "get-url", "fork") != "https://example.com/other.git" {
+		t.Fatal("remote-set-url did not change fork's URL")
+	}
+
+	// A rename carries the remote-tracking branches and the upstream with it.
+	main := r.mainBranch()
+	_, err = op(t, r.dir, Op{Kind: OpRemoteRename, Remote: "origin", Name: "fork"})
+	mustFailAs[*RefusedError](t, err, "renaming onto a remote that exists")
+	mustOp(t, r.dir, Op{Kind: OpRemoteRename, Remote: "origin", Name: "up"})
+	if !r.hasRef("refs/remotes/up/"+main) || r.hasRef("refs/remotes/origin/"+main) || r.out("rev-parse", "--abbrev-ref", "@{upstream}") != "up/"+main {
+		t.Fatal("remote-rename did not move the tracking branch and upstream")
+	}
+
+	refs, err := gitview.ReadRefs(t.Context(), r.dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	urls := map[string]string{}
+	for _, rm := range refs.Remotes {
+		urls[rm.Name] = rm.URL
+	}
+	if urls["up"] != bare || urls["fork"] != "https://example.com/other.git" {
+		t.Fatalf("the refs read's remote URLs = %v", urls)
+	}
+
+	mustOp(t, r.dir, Op{Kind: OpRemoteRemove, Remote: "up"})
+	if r.hasRef("refs/remotes/up/"+main) || strings.Contains(r.out("remote"), "up") {
+		t.Fatal("remote-remove left the remote or its tracking branch")
 	}
 }
 

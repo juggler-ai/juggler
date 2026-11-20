@@ -6,7 +6,7 @@
 /**
  * The commit box: one auto-growing textarea holding git's own shape of a
  * message (summary, blank line, body), the summary's length once it is long,
- * Amend, and a button that says what it will do. It draws and reports; committing is its host's.
+ * Amend, Skip hooks, and a button that says what it will do. It draws and reports; committing is its host's.
  *
  * While a commit runs the button spins and what the hooks print streams into a
  * small output area under it; a failure leaves the message exactly as typed
@@ -49,6 +49,7 @@ const SUMMARY_LIMIT = 72;
  * @typedef {object} CommitRequest
  * @property {string} message - The message as typed.
  * @property {boolean} amend - Whether to amend the last commit.
+ * @property {boolean} noVerify - Whether to skip the pre-commit and commit-msg hooks.
  */
 
 /**
@@ -59,7 +60,7 @@ const SUMMARY_LIMIT = 72;
  * @property {(message: string) => void} setMessage - Replace the message (a draft coming back).
  * @property {(running: boolean) => void} setRunning - A commit started or ended.
  * @property {(output: string) => void} setOutput - What the hooks printed, '' to hide it.
- * @property {() => void} committed - The commit went through: clear the message and Amend.
+ * @property {() => void} committed - The commit went through: clear the message, Amend and Skip hooks.
  * @property {() => void} focus - Put the caret in the message.
  * @property {() => boolean} isExpanded - Whether the message has the whole list pane.
  * @property {() => boolean} canGenerate - Whether Auto-generate is enabled.
@@ -103,6 +104,12 @@ export function createCommitBox(host) {
   amendLabel.append(amend,
     createElement('span', 'git-commit__amend-long', t('Amend last commit')),
     createElement('span', 'git-commit__amend-short', t('Amend')));
+  // One commit's way past a hook that refuses it: cleared once the commit lands.
+  const noVerifyLabel = createElement('label', 'git-commit__option');
+  const noVerify = /** @type {HTMLInputElement} */ (createElement('input', 'git-commit__no-verify'));
+  noVerify.type = 'checkbox';
+  noVerifyLabel.title = t('Commit without running the pre-commit and commit-msg hooks (--no-verify)');
+  noVerifyLabel.append(noVerify, createElement('span', '', t('Skip hooks')));
   const go = /** @type {HTMLButtonElement} */ (createElement('button', 'git-commit__go btn btn-sm btn-primary'));
   go.type = 'button';
   go.title = t('Commit (⌘↵)');
@@ -110,7 +117,7 @@ export function createCommitBox(host) {
   gen.type = 'button';
   gen.setAttribute('aria-haspopup', 'menu');
   const options = createElement('div', 'git-commit__options');
-  options.append(amendLabel);
+  options.append(amendLabel, noVerifyLabel);
   const actions = createElement('div', 'git-commit__actions');
   actions.append(gen, go);
   row.append(options, actions);
@@ -174,6 +181,7 @@ export function createCommitBox(host) {
       ? t('{kind, select, merge {Continue, above, finishes the merge with git’s message.} rebase {Continue, above, goes on with the rebase.} cherry-pick {Continue, above, finishes the cherry-pick with git’s message.} other {Continue, above, finishes the revert with git’s message.}}', { kind: state.operation })
       : '';
     field.disabled = standAside;
+    noVerify.disabled = running || standAside;
     if (standAside) amend.disabled = true;
     go.disabled = running || state.detached || standAside || !can;
     go.replaceChildren(...(running ? [createElement('span', 'git-pin__spin', '◌')] : []), document.createTextNode(label));
@@ -247,7 +255,7 @@ export function createCommitBox(host) {
       state = next;
       draw();
     },
-    request: () => ({ message: field.value, amend: amend.checked }),
+    request: () => ({ message: field.value, amend: amend.checked, noVerify: noVerify.checked }),
     setMessage: (message) => {
       field.value = message;
       fit();
@@ -269,6 +277,7 @@ export function createCommitBox(host) {
     committed: () => {
       field.value = '';
       amend.checked = false;
+      noVerify.checked = false;
       beforeAmend = null;
       sourceLine.hidden = true;
       fit();

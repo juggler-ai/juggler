@@ -587,7 +587,7 @@ export function createChangesPlace(host) {
    */
   const commit = (anchor = null) => {
     if (committing || !read) return;
-    const { message, amend } = commitBox.request();
+    const { message, amend, noVerify } = commitBox.request();
     if (!message.trim()) {
       if (!commitPopover && anchor && measureMode() === 'chip') {
         openCommitPopover(anchor);
@@ -609,6 +609,7 @@ export function createChangesPlace(host) {
       repo,
       message: read.wrapsBody === false ? message : wrapBody(message),
       ...(amend ? { amend: true } : {}),
+      ...(noVerify ? { noVerify: true } : {}),
     };
     committing = true;
     commitBox.setRunning(true);

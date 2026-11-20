@@ -371,6 +371,115 @@ export async function runTests(_ctx) {
     n.teardown();
   });
 
+  /**
+   * @param {any} m - The mounted pin.
+   * @param {string} section - A section's id.
+   * @param {string} label - One of its header's buttons.
+   * @returns {HTMLButtonElement} That button.
+   */
+  const sectAct = (m, section, label) => {
+    const buttons = /** @type {HTMLButtonElement[]} */ ([...m.body.querySelectorAll(`.git-refs__sect[data-section="${CSS.escape(section)}"] .git-refs__sect-act`)]);
+    const found = buttons.find((b) => b.textContent === label);
+    if (!found) throw new Error(`no "${label}" on ${section}: ${JSON.stringify(buttons.map((b) => b.textContent))}`);
+    return found;
+  };
+  /**
+   * Answer the open question for words.
+   * @param {string} value - The first field's.
+   * @param {{secondary?: string, check?: boolean}} [more] - The second field's, and the checkbox.
+   */
+  const answer = (value, more = {}) => {
+    /** @type {HTMLInputElement} */ (inPop('.git-pop__input:not(.git-pop__input--secondary)')).value = value;
+    if (more.secondary !== undefined) /** @type {HTMLInputElement} */ (inPop('.git-pop__input--secondary')).value = more.secondary;
+    if (more.check !== undefined) /** @type {HTMLInputElement} */ (inPop('.git-pop__check input')).checked = more.check;
+    inPop('.git-pop__ok').click();
+  };
+
+  await test('a merge can be made a merge commit always; a squash stages and says so', async () => {
+    const m = await mounted();
+    m.holdRuns(true);
+    for (const noFF of [false, true]) {
+      pick(m, 'br:old');
+      action(m, 'Merge into develop').click();
+      const box = /** @type {HTMLInputElement} */ (inPop('.git-pop__check input'));
+      assert(!box.checked, 'no-fast-forward starts unticked');
+      if (noFF) box.click();
+      inPop('.git-pop__ok').click();
+      const op = m.runs().at(-1)?.op;
+      assert(op?.kind === 'merge' && op.rev === 'old' && op.mode === (noFF ? 'no-ff' : undefined), `merge (no-ff ${noFF}): ${JSON.stringify(op)}`);
+    }
+    pick(m, 'br:old');
+    action(m, 'Squash into develop…').click();
+    assert(confirmPop().includes('staged'), 'the squash says it only stages');
+    const squash = m.runs().at(-1)?.op;
+    assert(squash?.kind === 'merge' && squash.rev === 'old' && squash.mode === 'squash', `squash: ${JSON.stringify(squash)}`);
+    m.finishRun(m.runs().length - 1);
+    await waitFor(() => toastText(m).includes('Commit them to finish'), 'the squash toast');
+    m.teardown();
+  });
+
+  await test('Push to… sends the branch to the remote and branch typed, tracking only when asked', async () => {
+    const m = await mounted();
+    m.holdRuns(true);
+    pick(m, 'br:old');
+    action(m, 'Push to…').click();
+    const field = /** @type {HTMLInputElement} */ (inPop('.git-pop__input'));
+    assert(field.value === 'origin/old', `starts at the obvious remote: ${field.value}`);
+    assert(!(/** @type {HTMLInputElement} */ (inPop('.git-pop__check input'))).checked, 'tracking starts unticked');
+    answer('upstream/review/one');
+    let op = m.runs().at(-1)?.op;
+    assert(op?.kind === 'push' && op.branch === 'old' && op.remote === 'upstream' && op.name === 'review/one' && !op.track, `push: ${JSON.stringify(op)}`);
+
+    action(m, 'Push to…').click();
+    answer('origin/old', { check: true });
+    op = m.runs().at(-1)?.op;
+    assert(op?.remote === 'origin' && op.name === 'old' && op.track === true, `tracked push: ${JSON.stringify(op)}`);
+
+    const before = m.runs().length;
+    action(m, 'Push to…').click();
+    answer('nowhere/old');
+    await waitFor(() => toastText(m).includes('is not a remote and a branch'), 'the refusal of an unknown remote');
+    assert(m.runs().length === before, 'an unknown remote ran nothing');
+    m.teardown();
+  });
+
+  await test('Tags push all; a remote is edited, removed, or added and fetched', async () => {
+    const withUrls = refsOf({ ...refs, remotes: refs.remotes.map((/** @type {any} */ r) => ({ ...r, url: `https://example.com/${r.name}.git` })) });
+    const m = await mounted({ refs: withUrls });
+    m.holdRuns(true);
+    sectAct(m, 'tags', 'Push all').click();
+    assert(confirmPop().includes('to origin'), 'says where the tags go');
+    let op = m.runs().at(-1)?.op;
+    assert(op?.kind === 'push-tags' && op.remote === 'origin', `push-tags: ${JSON.stringify(op)}`);
+
+    sectAct(m, 'remote:upstream', 'Edit…').click();
+    assert((/** @type {HTMLInputElement} */ (inPop('.git-pop__input--secondary'))).value === 'https://example.com/upstream.git', 'the URL is shown to edit');
+    answer('up', { secondary: 'https://example.com/moved.git' });
+    op = await waitFor(() => m.runs().at(-1)?.op.kind === 'remote-set-url' && m.runs().at(-1)?.op, 'the URL set');
+    assert(op.remote === 'upstream' && op.url === 'https://example.com/moved.git', `set-url: ${JSON.stringify(op)}`);
+    m.finishRun(m.runs().length - 1);
+    op = await waitFor(() => m.runs().at(-1)?.op.kind === 'remote-rename' && m.runs().at(-1)?.op, 'the rename after it');
+    assert(op.remote === 'upstream' && op.name === 'up', `rename: ${JSON.stringify(op)}`);
+    m.finishRun(m.runs().length - 1);
+
+    sectAct(m, 'remote:origin', 'Remove…').click();
+    assert(confirmPop().includes('Nothing on the remote itself changes'), 'says the remote itself is untouched');
+    op = m.runs().at(-1)?.op;
+    assert(op?.kind === 'remote-remove' && op.remote === 'origin', `remove: ${JSON.stringify(op)}`);
+    m.finishRun(m.runs().length - 1);
+
+    /** @type {HTMLElement} */ (m.body.querySelector('.git-pin__more')).click();
+    const add = /** @type {HTMLElement|undefined} */ ([...document.querySelectorAll('.juggler-context-menu .menu-item')].find((el) => el.textContent === 'Add remote…'));
+    assert(Boolean(add), 'the ⋯ menu offers Add remote…');
+    add?.click();
+    answer('fork', { secondary: 'git@example.com:me/fork.git' });
+    op = m.runs().at(-1)?.op;
+    assert(op?.kind === 'remote-add' && op.name === 'fork' && op.url === 'git@example.com:me/fork.git', `add: ${JSON.stringify(op)}`);
+    m.finishRun(m.runs().length - 1);
+    op = await waitFor(() => m.runs().at(-1)?.op.kind === 'fetch' && m.runs().at(-1)?.op, 'a fetch of the new remote');
+    m.teardown();
+  });
+
   await test('dropping a stash can be undone with stash-store', async () => {
     const m = await mounted();
     m.holdRuns(true);

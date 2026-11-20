@@ -32,7 +32,7 @@ const (
 	OpDiscardLines OpKind = "discard-lines" // Lines of Path's unstaged diff, recoverably
 	OpUndoDiscard  OpKind = "undo-discard"  // the discard named by Discard
 	OpIgnore       OpKind = "ignore"        // Paths[0], by Pattern, into .gitignore
-	OpCommit       OpKind = "commit"        // what is staged
+	OpCommit       OpKind = "commit"        // what is staged; NoVerify skips the commit hooks
 	OpUndoCommit   OpKind = "undo-commit"   // HEAD, which must be ExpectHead
 )
 
@@ -45,7 +45,7 @@ const (
 	OpBranchRename   OpKind = "branch-rename"   // Branch to Name
 	OpBranchUpstream OpKind = "branch-upstream" // Branch's upstream to Upstream, or none when it is ""
 	OpBranchDelete   OpKind = "branch-delete"   // Branch, at ExpectSha; Force for an unmerged one. Result.Sha is its tip
-	OpMerge          OpKind = "merge"           // Rev into the current branch; Dirty as for switch
+	OpMerge          OpKind = "merge"           // Rev into the current branch, by Mode (MergeNoFF, MergeSquash; default a fast-forward where it can); Dirty as for switch
 	OpRebase         OpKind = "rebase"          // the current branch onto Rev; Dirty as for switch
 	OpFastForward    OpKind = "fast-forward"    // Branch, at ExpectSha, to Rev (default its upstream) without checking it out
 	OpRefRestore     OpKind = "ref-restore"     // Ref (a branch or tag) to Sha, only if it does not exist: undoes a delete
@@ -61,6 +61,10 @@ const (
 	OpWorktreeUnlock OpKind = "worktree-unlock" // Worktree
 	OpWorktreeRemove OpKind = "worktree-remove" // Worktree; Force for a dirty or locked one, whose changes are saved first (Result.Saved)
 	OpWorktreePrune  OpKind = "worktree-prune"  // every tree whose directory is gone
+	OpRemoteAdd      OpKind = "remote-add"      // a remote Name at URL
+	OpRemoteRemove   OpKind = "remote-remove"   // Remote, with its remote-tracking branches and the upstreams set to it
+	OpRemoteRename   OpKind = "remote-rename"   // Remote to Name, its remote-tracking branches and upstreams with it
+	OpRemoteSetURL   OpKind = "remote-set-url"  // Remote's URL to URL
 )
 
 // The writes of the History place (see history_ops.go): a commit applied to,
@@ -107,8 +111,9 @@ const (
 const (
 	OpFetch              OpKind = "fetch"                // every remote, pruned; Auto for the fetch the client makes unasked
 	OpPull               OpKind = "pull"                 // the current branch from its upstream: a fast-forward, or by Mode
-	OpPush               OpKind = "push"                 // Branch (default the current one) to its upstream, publishing it to Remote if it has none; Force with a lease on ExpectSha
+	OpPush               OpKind = "push"                 // Branch (default the current one) to its upstream, publishing it to Remote if it has none; with Name, to branch Name on Remote instead, Track making that its upstream; Force with a lease on ExpectSha
 	OpPushTag            OpKind = "push-tag"             // tag Name to Remote
+	OpPushTags           OpKind = "push-tags"            // every tag to Remote
 	OpRemoteBranchDelete OpKind = "remote-branch-delete" // remote-tracking Ref ("origin/feat") from its remote, at ExpectSha. Result.Sha is its tip
 	OpSubmoduleUpdate    OpKind = "submodule-update"     // the submodule at Path checked out at the commit Repo records, cloned or fetched as it needs (see submodule_ops.go). Result.Sha and Result.Branch are where its HEAD was
 )
@@ -117,6 +122,14 @@ const (
 const (
 	PullMerge  = "merge"
 	PullRebase = "rebase"
+)
+
+// How a merge brings Rev in, beside the default (a fast-forward where it can
+// be one, else a merge commit): always with a merge commit, or as one set of
+// staged changes the user commits themselves.
+const (
+	MergeNoFF   = "no-ff"
+	MergeSquash = "squash"
 )
 
 // What a reset keeps: the changes since the target staged (soft), in the
@@ -161,6 +174,7 @@ type Op struct {
 	Pattern    string    `json:"pattern,omitempty"`
 	Message    string    `json:"message,omitempty"`
 	Amend      bool      `json:"amend,omitempty"`
+	NoVerify   bool      `json:"noVerify,omitempty"` // a commit without its pre-commit and commit-msg hooks
 	ExpectHead string    `json:"expectHead,omitempty"`
 	Discard    string    `json:"discard,omitempty"`
 
@@ -182,10 +196,11 @@ type Op struct {
 	Untracked bool   `json:"untracked,omitempty"`
 
 	Remote string `json:"remote,omitempty"`
+	URL    string `json:"url,omitempty"` // a remote's URL
 	// Mode is how a pull brings in what it can't fast-forward to (PullMerge,
-	// PullRebase), what a reset keeps (ResetSoft, ResetMixed, ResetHard,
-	// ResetKeep), or how
-	// a conflict is resolved (ResolveOurs, ResolveTheirs, ResolveMarked).
+	// PullRebase), how a merge brings Rev in (MergeNoFF, MergeSquash), what a
+	// reset keeps (ResetSoft, ResetMixed, ResetHard, ResetKeep), or how a
+	// conflict is resolved (ResolveOurs, ResolveTheirs, ResolveMarked).
 	Mode string `json:"mode,omitempty"`
 	Auto bool   `json:"auto,omitempty"`
 
@@ -264,6 +279,10 @@ var opFuncs = map[OpKind]func(*runner, Op) (Result, error){
 	OpWorktreeUnlock: worktreeUnlock,
 	OpWorktreeRemove: worktreeRemove,
 	OpWorktreePrune:  worktreePrune,
+	OpRemoteAdd:      remoteAdd,
+	OpRemoteRemove:   remoteRemove,
+	OpRemoteRename:   remoteRename,
+	OpRemoteSetURL:   remoteSetURL,
 
 	OpCherryPick: cherryPick,
 	OpRevert:     revert,
@@ -285,6 +304,7 @@ var opFuncs = map[OpKind]func(*runner, Op) (Result, error){
 	OpPull:               pull,
 	OpPush:               push,
 	OpPushTag:            pushTag,
+	OpPushTags:           pushTags,
 	OpRemoteBranchDelete: remoteBranchDelete,
 	OpSubmoduleUpdate:    submoduleUpdate,
 }
@@ -296,7 +316,7 @@ const netLane = "\x00net"
 // IsNetwork reports whether a kind talks to a remote.
 func IsNetwork(kind OpKind) bool {
 	switch kind {
-	case OpFetch, OpPull, OpPush, OpPushTag, OpRemoteBranchDelete, OpSubmoduleUpdate:
+	case OpFetch, OpPull, OpPush, OpPushTag, OpPushTags, OpRemoteBranchDelete, OpSubmoduleUpdate:
 		return true
 	}
 	return false

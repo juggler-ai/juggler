@@ -85,8 +85,11 @@ If you find yourself wanting to skip a test:
 
 ## Measuring rendered things
 
-The pool window is never shown, so a lane's page lays out but never paints a
-frame. Three consequences catch every test that reads a size or a colour:
+The pool window is never shown. On macOS it is ordered in out of sight so its
+pages run on the performance cores, and frames arrive; on Linux, and on macOS
+under `JUGGLER_TEST_BACKGROUND_POOL=1`, a lane's page lays out but never paints
+a frame. A test must pass in both, so write it for the page that never paints.
+Three consequences catch every test that reads a size or a colour:
 
 - **Turn the transition off before a geometry read.** `el.style.transition =
   'none'` first, then measure. A transition in flight with no frames to drive it

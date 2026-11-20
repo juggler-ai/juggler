@@ -87,15 +87,18 @@ line you already had and cuts the assertion that says what broke.
   app you launch. Once it exists, web-only edits don't need a rebuild — rerun
   `make test RUN='<name>'` (Go builds are incremental, so this is cheap).
   Rebuild only for Go / embedded-asset / build-file changes.
-- Browser-test lanes share one offscreen pool window. They do not reliably paint,
-  so a test must not await `requestAnimationFrame` or a post-layout
-  `ResizeObserver` delivery; exercise a synchronous seam instead. Lane viewport
+- Browser-test lanes share one offscreen pool window. They do not reliably paint
+  on every platform and mode, so a test must not await `requestAnimationFrame`
+  or a post-layout `ResizeObserver` delivery; exercise a synchronous seam
+  instead. Lane viewport
   width also varies by platform and may cross the 36rem phone breakpoint, so
   geometry that depends on a breakpoint belongs in an explicitly sized iframe.
-- rAF delivery in a lane is platform-split: frames never arrive on macOS or
-  Linux (WebKitGTK), but Windows (WebView2) delivers them — so product code
-  deferred through `requestAnimationFrame` is exercised only on Windows CI.
-  Test such behaviour by calling the deferred function directly.
+- rAF delivery in a lane is platform-split: frames arrive on Windows (WebView2)
+  and on macOS, whose test servers keep their pages visible to WebKit so they
+  run on the performance cores, but never on Linux (WebKitGTK) or on macOS
+  under `JUGGLER_TEST_BACKGROUND_POOL=1`, the efficiency-core stress mode — so
+  product code deferred through `requestAnimationFrame` goes unexercised in
+  some runs. Test such behaviour by calling the deferred function directly.
 - The pool is `JUGGLER_TEST_WINDOWS` subprocesses x `JUGGLER_TEST_IFRAMES` lanes,
   and the lanes inside one subprocess share a single content process — one JS
   heap, one main thread. Raising iframes while dropping windows to 1 serialises

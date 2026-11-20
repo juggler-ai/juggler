@@ -479,8 +479,8 @@ func pollResultWhileProgressing(srv testServerEntry, name string, out any) error
 		if aerr != nil {
 			return err
 		}
-		recent := a.ProgressAgeMs >= 0 && time.Duration(a.ProgressAgeMs)*time.Millisecond < resultSilenceWindow
-		if !recent {
+		lanes, _ := fetchLaneTrace(srv.addr)
+		if !stillMoving(a, lanes, resultSilenceWindow) {
 			return fmt.Errorf("%w — no result, and the lane last reported progress %s", err, progressAgo(a.ProgressAgeMs))
 		}
 		if time.Since(started) >= resultCeiling {
@@ -488,6 +488,34 @@ func pollResultWhileProgressing(srv testServerEntry, name string, out any) error
 				err, a.Progress, agoString(a.ProgressAgeMs), resultCeiling)
 		}
 	}
+}
+
+// stillMoving reports whether a test with no result yet is still on its way,
+// so the harness keeps waiting: its lane reported progress within window, or,
+// while no lane has taken it, some lane of its server booted or polled within
+// window. A queued test has no progress of its own to report, and a lane
+// starved by a sibling's long suite in the content process they share can take
+// minutes to reach its poll loop while pinging that it is booting; bounding
+// that wait by the clock alone gave up on a pool that was being served slowly.
+func stillMoving(a testAudit, lanes laneTrace, window time.Duration) bool {
+	if youngerThan(a.ProgressAgeMs, window) {
+		return true
+	}
+	if a.Dispatched > 0 {
+		return false
+	}
+	for _, l := range lanes.Lanes {
+		if youngerThan(l.Booting.AgoMs, window) || youngerThan(l.Polled.AgoMs, window) {
+			return true
+		}
+	}
+	return false
+}
+
+// youngerThan reports whether an age in milliseconds (-1 for never) is under
+// window.
+func youngerThan(ageMs int64, window time.Duration) bool {
+	return ageMs >= 0 && time.Duration(ageMs)*time.Millisecond < window
 }
 
 // progressAgo renders a progress report's age for a failure line.

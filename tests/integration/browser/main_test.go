@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -173,7 +174,7 @@ var testSkillsDir string
 // poolConfig controls the test-pool topology.
 //
 //   - JUGGLER_TEST_WINDOWS=N: number of Wails-window subprocesses for every
-//     test that is not a `unit:` suite (default 2; the unit suites have their
+//     test that is not a `unit:` suite (default 3 on macOS, 2 elsewhere; the unit suites have their
 //     own, below). Each subprocess is fully isolated — its own SessionManager, engine,
 //     WebSocket server, and its own WebKit content process. Cranking this up
 //     gives perfect isolation but burns more memory and WebKit helper startup
@@ -187,38 +188,24 @@ var testSkillsDir string
 //     windows-only topologies hide.
 //
 // Lanes for ordinary tests = (WINDOWS + UNIT_WINDOWS) × IFRAMES, beside the
-// solo windows the exclusive suites run in (below). The defaults give 12 over
-// four windows, two each way, plus one solo window per pool.
+// solo windows the exclusive suites run in (below). The macOS defaults give 18
+// over six windows, three each way, plus one solo window per pool; elsewhere
+// 12 over four.
 //
-// On macOS the bound is not the host's CPU but its efficiency cores. WebKit
-// runs the web process of a page nobody can see at background QoS (priority 4
-// in `ps`), and on Apple silicon that QoS is scheduled on the efficiency cores
-// alone: every pool window's lanes and its engine — two web processes per
-// subprocess — share the two efficiency cores of a 10-core Mac while its eight
-// performance cores idle. Measured 2026-10-23: whole runs with the CPUs 65–75%
-// idle, a load average of 15–25 (threads queued for those two cores), and
-// lanes' timers slipping by up to a second. So more windows means more web
-// processes queued on the same two cores. On the browser package alone six
-// ordinary windows (3+3×2) were the fastest shape measured (144–199s against
-// 184s for 2+2×3), and seven (3+4×2) broke down (255s, timer hops of 1.8s, a
-// lane that never answered). But under `make test-all`, which compiles and
-// lints beside it, 3+3×2 with three solo windows failed every run on timer
-// hops, while 2+2×3 with one solo window per pool ran the package clean in
-// 186s. The defaults are that. Neither switching off WebKit's page-visibility
-// process suppression nor forcing its throttle state lifted the background QoS
-// (both SPIs exist on macOS 27; the processes stayed at priority 4), and
-// un-backgrounding them from outside (`taskpolicy -B`) was undone within the
-// second — the role follows the never-shown window.
+// On macOS the pool's web processes run on the performance cores because each
+// test server keeps its pages visible to WebKit (keepTestPageForeground, in
+// cmd/juggler/app). A page in a window that is never shown drops to background
+// QoS about 30s after load, and Apple silicon runs that band on the efficiency
+// cores alone, two on a 10-core Mac. `make test-all ECORES=1`
+// (JUGGLER_TEST_BACKGROUND_POOL=1) keeps that pool as a stress mode beside
+// SLOW=. Measured 2026-11-20 under `make test-all`: the browser package took
+// 787s on the efficiency cores, 276s on the performance cores at 2+2×3, and
+// 198s at 3+3×3. At that point the core Go package tests (about 215s) set the
+// run's wall time, so more lanes would only take CPU from them.
 //
-// The knee was believed to be the host's CPU ("10 cores here"); whole-run CPU
-// sampling killed that, and with it the reading of the 1-minute load average
-// as CPU contention on this machine.
-//
-// Two more things that cost the same two cores and so bought nothing (measured
-// under `make test-all`, 2026-11-02): a fourth lane in each unit window — the
-// unit windows finished when they had with three, every test in them slower in
-// proportion — and starting the subprocesses all at once rather than in turn,
-// which left the pool's boot at 26-29s.
+// The pool competes with the Go suites for the same cores, so under
+// `test-all` the load average reaches 15-19 per CPU. That is a reading, not a
+// verdict: the waits follow the test's progress, never the machine.
 //
 // How the lanes are SHAPED matters as much as how many there are, and 3×3 beats
 // 1×9 on the same slot count: 46s and clean against 141–214s and 5–34 arbitrary
@@ -236,7 +223,7 @@ var testSkillsDir string
 // what the iframe topology is for.
 //
 //   - JUGGLER_TEST_UNIT_WINDOWS=N: subprocesses that run only the `unit:` suites
-//     (default 2), each with JUGGLER_TEST_IFRAMES lanes and its own project and
+//     (default 3 on macOS, 2 elsewhere), each with JUGGLER_TEST_IFRAMES lanes and its own project and
 //     settings.json, on a pool of their own (unitServerPool). 0 puts the unit
 //     suites back on the shared pool.
 //
@@ -262,8 +249,8 @@ var testSkillsDir string
 //     windows alone, where taking an ordinary window would drain it first and
 //     then hold its other lanes idle. One each carries the measured exclusive
 //     work, ~115s of unit suites and ~30s of the rest (2026-10-23), well inside
-//     the run, and each further window is two more web processes on the
-//     efficiency cores (above). 0 makes a pool's exclusive suites take one of
+//     the run, and each further window is two more web processes competing for
+//     the same cores (above). 0 makes a pool's exclusive suites take one of
 //     its ordinary windows whole (lanePool.acquireServer).
 type poolConfig struct {
 	windows         int
@@ -274,7 +261,13 @@ type poolConfig struct {
 }
 
 func loadPoolConfig() poolConfig {
-	cfg := poolConfig{windows: 2, iframes: 3, unitWindows: 2, soloWindows: 1, unitSoloWindows: 1}
+	// Three windows each way only where the shape was measured (above); the
+	// CI runners elsewhere have fewer cores, and Windows' pool its memory peak.
+	windows := 2
+	if runtime.GOOS == "darwin" {
+		windows = 3
+	}
+	cfg := poolConfig{windows: windows, iframes: 3, unitWindows: windows, soloWindows: 1, unitSoloWindows: 1}
 	for _, v := range []struct {
 		env string
 		dst *int

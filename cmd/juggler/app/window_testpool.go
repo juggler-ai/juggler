@@ -161,11 +161,13 @@ func (a *windowApp) startup() {
 		a.srv.SetTestEngineQuiet(func() { sampleQuietEngine(engineWin) })
 	}
 
-	// Test slot: keep the pool window hidden so it doesn't flash on screen on
-	// every `make test`. Custom-element paths that depend on first paint
-	// (at-mention popup, footer cache reflow, undo-redo prune) are driven off
-	// macrotasks (setTimeout), not requestAnimationFrame, so they run fine in
-	// a non-composited window.
+	// Test slot: never Show() the pool window, so nothing flashes on screen on
+	// every `make test`. On macOS prepareHiddenPool orders it in out of sight,
+	// so WebKit counts its pages as visible; elsewhere, and under
+	// JUGGLER_TEST_BACKGROUND_POOL=1, it stays hidden and may never paint.
+	// Custom-element paths that depend on first paint (at-mention popup, footer
+	// cache reflow, undo-redo prune) are driven off macrotasks (setTimeout), not
+	// requestAnimationFrame, so they run either way.
 	if a.headless && a.testMode {
 		if a.poolLanes > 0 {
 			go a.reloadStalledPool()
@@ -184,7 +186,7 @@ func (a *windowApp) startup() {
 	a.win.Show()
 }
 
-// prepareHiddenPool makes the pool's never-shown window a page the suites can
+// prepareHiddenPool makes the pool's unshown window a page the suites can
 // be measured in: a web view the size the window was asked for, and timers that
 // fire when they are due. Both are settled as soon as there is a web view to
 // configure, and both say so if they never take — a pool that kept the timer
@@ -198,22 +200,30 @@ func (a *windowApp) startup() {
 // WebviewWindow.Run sets the window's impl and only then, after activation,
 // creates the widget. macOS has them on the first attempt.
 //
+// On macOS it also keeps the web processes behind both windows — the pool's and
+// the engine's — in the foreground scheduling band (keepTestPageForeground),
+// unless JUGGLER_TEST_BACKGROUND_POOL=1 asks for the efficiency-core pool.
+//
 // Scoped to the two ports that background a hidden page at all. WebView2 keeps
 // the pool's controller visible and its window allocated instead, so there is
 // nothing there to switch and nothing to report.
-func prepareHiddenPool(win *application.WebviewWindow, width, height int) {
+func prepareHiddenPool(win, engineWin *application.WebviewWindow, width, height int) {
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
 		return
 	}
 	const attempts = 40
 	const between = 100 * time.Millisecond
 	sized, unthrottled := false, false
+	background := testPoolBackgroundRequested()
+	poolForeground, engineForeground := background, background || engineWin == nil
 	var attempt func(left int)
 	attempt = func(left int) {
 		application.InvokeAsync(func() {
 			sized = sized || ensureHiddenPoolWebViewSized(win, width, height)
 			unthrottled = unthrottled || unthrottleHiddenPageTimers(win)
-			if sized && unthrottled {
+			poolForeground = poolForeground || keepTestPageForeground(win)
+			engineForeground = engineForeground || keepTestPageForeground(engineWin)
+			if sized && unthrottled && poolForeground && engineForeground {
 				return
 			}
 			if left <= 1 {
@@ -223,6 +233,9 @@ func prepareHiddenPool(win *application.WebviewWindow, width, height int) {
 				if !unthrottled {
 					jlog.Error("[test-pool] hidden-page timer alignment is still on: every timer a suite waits on fires on a ~1s grid")
 				}
+				if !poolForeground || !engineForeground {
+					jlog.Error("[test-pool] the test pages were never made visible to WebKit (pool %v, engine %v): their web processes run in the background band, on the efficiency cores", poolForeground, engineForeground)
+				}
 				return
 			}
 			time.AfterFunc(between, func() { attempt(left - 1) })
@@ -230,6 +243,15 @@ func prepareHiddenPool(win *application.WebviewWindow, width, height int) {
 	}
 	attempt(attempts)
 }
+
+// testPoolBackgroundEnv, set to 1, leaves a test server's windows hidden, so
+// on macOS their web processes drop to the background band and the efficiency
+// cores: a stress mode beside the harness's slow-core one, not the default.
+const testPoolBackgroundEnv = "JUGGLER_TEST_BACKGROUND_POOL"
+
+// testPoolBackgroundRequested reports whether testPoolBackgroundEnv asks for
+// the efficiency-core pool.
+func testPoolBackgroundRequested() bool { return os.Getenv(testPoolBackgroundEnv) == "1" }
 
 // currentState captures the window's current geometry/state. Must be called
 // on the main thread — the tracker reads live native state, which Wails only
@@ -645,7 +667,7 @@ func runTestPoolWindowApp(srv *server.Server, devMode bool, headless bool, testI
 			// platform allocates a window it never shows. A production window
 			// that goes idle when hidden is behaving correctly and must keep
 			// doing so.
-			prepareHiddenPool(win, width, height)
+			prepareHiddenPool(win, wa.engineWin, width, height)
 		}
 		wa.startup()
 	})

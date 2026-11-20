@@ -445,6 +445,9 @@ func (s *Server) fetchUsageStats(ctx context.Context, providerName string, cred 
 	if err != nil {
 		return nil, err
 	}
+	// A further account of a type reports the type's name; the client matches
+	// a snapshot to the account it asked for by this field.
+	stats.Provider = providerName
 	return &stats, nil
 }
 

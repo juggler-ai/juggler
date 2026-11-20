@@ -26,6 +26,9 @@ import (
 type fakeUsageProvider struct {
 	name string
 	err  error
+	// reportAs, when set, is the Provider its stats name in place of name — as
+	// a further account of a type reports the type's name.
+	reportAs string
 }
 
 func (p fakeUsageProvider) Name() string { return p.name }
@@ -39,8 +42,12 @@ func (p fakeUsageProvider) UsageStats(context.Context) (provider.UsageStats, err
 	if p.err != nil {
 		return provider.UsageStats{}, p.err
 	}
+	reported := p.name
+	if p.reportAs != "" {
+		reported = p.reportAs
+	}
 	return provider.UsageStats{
-		Provider:  p.name,
+		Provider:  reported,
 		Plan:      "test-plan",
 		UpdatedAt: time.Unix(1000, 0).UTC(),
 		Stats: []provider.UsageStat{{
@@ -132,6 +139,35 @@ func TestHandleProviderUsageStatsScopedToProvider(t *testing.T) {
 	}
 	if !gotOK {
 		t.Fatalf("scoped request missing usage for %s: %+v", okName, body.Usage)
+	}
+}
+
+// TestHandleProviderUsageStatsNamesAccount verifies the endpoint labels each
+// snapshot with the account it fetched, whatever name the provider's stats
+// carry: a further account of a type (a second Codex login) reports the type's
+// name, and the client keeps only the entry whose provider matches the account
+// it asked for.
+func TestHandleProviderUsageStatsNamesAccount(t *testing.T) {
+	const accountName = "usage_type-work"
+	provider.RegisterProvider(provider.ProviderInfo{Name: accountName, AuthType: provider.AuthTypeToggle}, func(provider.Config) (provider.Provider, error) {
+		return fakeUsageProvider{name: accountName, reportAs: "usage_type"}, nil
+	})
+	writeEnabledProviders(t, accountName)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/providers/usage?provider="+accountName, nil)
+	rec := httptest.NewRecorder()
+	(&Server{}).handleProviderUsageStats(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Usage []provider.UsageStats `json:"usage"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body.Usage) != 1 || body.Usage[0].Provider != accountName {
+		t.Fatalf("usage = %+v, want one snapshot for %s", body.Usage, accountName)
 	}
 }
 

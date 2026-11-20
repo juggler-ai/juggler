@@ -6,6 +6,8 @@ the current release). The project follows semantic versioning.
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-11-20
+
 - The Git pin has grown into a full git client: staging, commits, branches, worktrees, push/pull, commit graph, reword/squash/drop, blame, reflog undo, conflict resolution, auto-generated commit messages
 - Web search can now use Tavily, Brave, SearXNG, DeepSeek, Bocha or Zhipu, in your order
 - Added a prompt history button: search, reuse or delete past prompts; ⌘S/Ctrl+S sets a draft aside

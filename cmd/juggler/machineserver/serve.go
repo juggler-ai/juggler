@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"juggler/cmd/juggler/core"
+	"juggler/cmd/juggler/parentwatch"
 	"juggler/cmd/juggler/tunnel"
 	"juggler/internal/jlog"
 	"juggler/internal/portbind"
@@ -94,6 +95,7 @@ func RunCommand(args []string, assets fs.FS, peer Peer, startupNotes ...string) 
 	implicit := fs.Bool("implicit", false, "Mark this server as started on demand by a client (bare juggler, the desktop app) rather than by hand; recorded in ~/.juggler/server.json")
 	startedBy := fs.Int("started-by", 0, "PID of the local client holding startup until it attaches or exits")
 	testChildren := fs.Bool("test", false, "Test harness only: spawn session children as test servers driven through this server's proxy")
+	exitWithParent := fs.Bool("exit-with-parent", false, "Stop, with every session, when the process that started this one exits (for a supervisor or test harness that owns the server)")
 	dev := fs.Bool("dev", false, "Enable dev mode in every session: the web inspector and full right-click menu")
 	lan := fs.Bool("lan", false, "Start with LAN access on: other devices on this network can use the server, with no password. Off unless this or Settings → Connectivity says to start it; this machine can switch it at any time (juggler server lan, the sessions page, or Settings → Connectivity)")
 	openTunnel := fs.String("tunnel", "", "Start with a tunnel open in `mode`: anyone with its link can use the server, with no password. Over any tunnel Settings → Connectivity names; none unless one of them does. This machine can open or close one at any time (juggler server tunnel, the sessions page, or Settings → Connectivity)")
@@ -125,7 +127,7 @@ func RunCommand(args []string, assets fs.FS, peer Peer, startupNotes ...string) 
 		jlog.Info("%s", note)
 	}
 
-	err := Serve(ServeOptions{Port: *port, StrictPort: *portStrict, Implicit: *implicit, StartedBy: *startedBy, TestChildren: *testChildren,
+	err := Serve(ServeOptions{Port: *port, StrictPort: *portStrict, Implicit: *implicit, StartedBy: *startedBy, TestChildren: *testChildren, ExitWithParent: *exitWithParent,
 		Dev: *dev, AssetsFromDisk: *assetsFromDisk, AllowHosts: allowHosts, BasePath: *basePath, LAN: *lan, Tunnel: tunnel.Mode(*openTunnel), Assets: assets, Peer: peer})
 	var held *LockHeldError
 	switch {
@@ -180,6 +182,9 @@ type ServeOptions struct {
 	StartedBy int
 	// TestChildren spawns every child as a test server (see Server.testChildren).
 	TestChildren bool
+	// ExitWithParent stops the server, as a signal would, once the process
+	// that started it is gone (serve --exit-with-parent).
+	ExitWithParent bool
 	// Dev and AssetsFromDisk are passed to every child (--dev,
 	// --assets-from-disk).
 	Dev, AssetsFromDisk bool
@@ -341,6 +346,11 @@ func Serve(opts ServeOptions) error {
 		defer signal.Stop(ch)
 		sig = ch
 	}
+	// Nil, so never ready, unless the server is to die with its starter.
+	var parentGone <-chan struct{}
+	if opts.ExitWithParent {
+		parentGone = parentwatch.Gone()
+	}
 
 	ln, err := listenAll(opts.Port, opts.StrictPort)
 	if err != nil {
@@ -413,6 +423,14 @@ func Serve(opts ServeOptions) error {
 			fmt.Fprintln(fg.Out, s.stopNotice(fg.Project))
 		}
 		go forceQuitOnThirdSignal(sig)
+	case <-parentGone:
+		jlog.Info("serve: the process that started this server is gone — shutting down")
+		// Nobody is left to send a second signal, so a stop that wedges ends
+		// the process instead; the children die with it (childcontain).
+		time.AfterFunc(parentGoneStopLimit, func() {
+			jlog.Error("serve: stop did not finish within %v of the parent's exit — exiting anyway", parentGoneStopLimit)
+			os.Exit(1)
+		})
 	case <-s.shutdownReq:
 		jlog.Info("serve: shutting down")
 		select {
@@ -445,6 +463,11 @@ func Serve(opts ServeOptions) error {
 	jlog.Info("serve: all sessions stopped — bye")
 	return failed
 }
+
+// parentGoneStopLimit bounds the stop that serve --exit-with-parent begins when
+// its parent exits: the HTTP drain (10s) and the children's interrupt and kill
+// graces, with room to spare.
+const parentGoneStopLimit = 45 * time.Second
 
 // forceQuitOnThirdSignal follows the stop a first signal began: a second says
 // the stop is still going, and a third ends the process at once, for a stop

@@ -98,6 +98,9 @@ func configDirUnder(home string) string {
 // address, with the cleanup that stops it. The cleanup asks for a graceful
 // shutdown through the control API, falls back to killing the process, and
 // fails the test if any session child it saw is still serving afterwards.
+// The cleanup never runs if the test binary dies first (its -timeout alarm, a
+// Ctrl-C its own process group never passes on), so the server runs with
+// --exit-with-parent and stops, children and all, without it.
 //
 // Children are spawned from the machine server's own executable, as in
 // production: JUGGLER_SERVER_BIN is cleared rather than set, so the harness
@@ -109,7 +112,7 @@ func startMachineServer(t *testing.T, serveArgs ...string) (*machineServer, func
 	t.Helper()
 	iso := newIsolatedRun(t)
 
-	cmd := exec.Command(iso.binary, append([]string{"serve", "--port", "0"}, serveArgs...)...)
+	cmd := exec.Command(iso.binary, append([]string{"serve", "--port", "0", "--exit-with-parent"}, serveArgs...)...)
 	cmd.Env = iso.env
 	helpers.SetProcGroupAttr(cmd)
 
@@ -250,7 +253,7 @@ func startSessionChild(t *testing.T, project, ingressSecret, apiToken string) st
 	iso := newIsolatedRun(t)
 	env := helpers.EnvWithOverride(iso.env, ingress.SecretEnv, ingressSecret)
 	env = helpers.EnvWithOverride(env, ingress.TokenEnv, apiToken)
-	return startServerProcess(t, iso, env, "--session-child", "--port", "0", "--project", project)
+	return startServerProcess(t, iso, env, "--session-child", "--exit-with-parent", "--port", "0", "--project", project)
 }
 
 // startServerProcess runs the suite's binary with args under env, returns the

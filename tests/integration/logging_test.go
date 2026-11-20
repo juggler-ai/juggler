@@ -91,7 +91,7 @@ type headlessServer struct {
 func startHeadlessServer(t *testing.T, binary, proj, logFile string) *headlessServer {
 	t.Helper()
 	cmd := exec.Command(binary,
-		"--session-child", "--port", "0",
+		"--session-child", "--exit-with-parent", "--port", "0",
 		"--project", proj, "--log-file", logFile)
 	cmd.Env = sessionChildEnv(os.Environ())
 	helpers.SetProcGroupAttr(cmd)

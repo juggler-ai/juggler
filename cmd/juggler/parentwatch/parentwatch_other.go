@@ -4,17 +4,17 @@
 
 //go:build !windows
 
-package app
+package parentwatch
 
 import (
 	"os"
 	"time"
 )
 
-// waitParentExit blocks until the parent process identified at startup is gone.
+// waitExit blocks until the parent process identified at startup is gone.
 // macOS/Linux have no Pdeathsig wired here, so poll PPID: when it changes (the
 // orphan is reparented to init/launchd, pid 1), the original parent has exited.
-func waitParentExit(startPPID int) {
+func waitExit(startPPID int) {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 	for range ticker.C {

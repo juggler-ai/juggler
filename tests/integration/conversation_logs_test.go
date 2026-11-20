@@ -58,7 +58,7 @@ func TestServerWritesNestedProjectLog(t *testing.T) {
 		t.Fatalf("server log base = %q, want server.log", filepath.Base(want))
 	}
 
-	cmd := exec.Command(binary, "--session-child", "--port", "0", "--project", proj)
+	cmd := exec.Command(binary, "--session-child", "--exit-with-parent", "--port", "0", "--project", proj)
 	cmd.Env = sessionChildEnv(os.Environ()) // includes JUGGLER_LOG_DIR
 	helpers.SetProcGroupAttr(cmd)
 	stdout, err := cmd.StdoutPipe()

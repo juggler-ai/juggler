@@ -30,6 +30,7 @@ import (
 	"juggler/cmd/juggler/machineserver"
 	"juggler/cmd/juggler/mcp"
 	"juggler/cmd/juggler/ops"
+	"juggler/cmd/juggler/parentwatch"
 	"juggler/cmd/juggler/providers/accounts"
 	"juggler/cmd/juggler/providers/acp"
 	"juggler/cmd/juggler/providers/builtin"
@@ -203,7 +204,8 @@ func Run(cfg Config) int {
 
 	// Self-terminate if our parent dies, so a server spawned by `juggler run`
 	// (or the test harness) never outlives its owner: `juggler run` passes
-	// --exit-with-parent to its child; the test harness relies on --test. A
+	// --exit-with-parent to its child; the test harness passes it or --test
+	// (and `juggler serve --exit-with-parent` does the same for itself). A
 	// machine server contains each child it spawns (childcontain: Pdeathsig on
 	// Linux, its reaper on macOS, a kill-on-close Job Object on Windows), so the
 	// child dies with its supervisor; on Windows the child watches its parent
@@ -265,19 +267,17 @@ func registerProviders() {
 // startParentWatchdog releases resources and self-terminates the process if the
 // parent dies — e.g. the juggler-app desktop process that spawned this server
 // quit or crashed, or the test harness was SIGKILL'd before it could signal the
-// pool. This is what makes a spawned server never outlive its owner. The actual
-// wait is platform-specific (waitParentExit): macOS/Linux poll PPID (no
-// Pdeathsig wired here); Windows waits on the parent's process handle, since
-// Windows never reparents an orphan so PPID polling there would never fire.
+// pool. This is what makes a spawned server never outlive its owner; the wait
+// itself is parentwatch's.
 //
 // release is the teardown this exit path owes: see onParentGone.
 func startParentWatchdog(release func()) {
-	startPPID := os.Getppid()
-	if startPPID <= 1 {
+	gone := parentwatch.Gone()
+	if gone == nil {
 		return
 	}
 	go func() {
-		waitParentExit(startPPID)
+		<-gone
 		onParentGone(release, quitGraceTimeout, os.Exit)
 	}()
 }

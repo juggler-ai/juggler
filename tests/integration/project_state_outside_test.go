@@ -103,7 +103,7 @@ func TestProjectStateOutsideTheProject(t *testing.T) {
 // if it is still running.
 func startStoppableChild(t *testing.T, iso isolatedRun, env []string, project string) (string, func()) {
 	t.Helper()
-	cmd := exec.Command(iso.binary, "--session-child", "--port", "0", "--project", project) //nolint:gosec // the suite's own binary
+	cmd := exec.Command(iso.binary, "--session-child", "--exit-with-parent", "--port", "0", "--project", project) //nolint:gosec // the suite's own binary
 	cmd.Env = env
 	helpers.SetProcGroupAttr(cmd)
 	stdout, err := cmd.StdoutPipe()

@@ -478,6 +478,14 @@ class DiffViewer extends JugglerElement {
     this._blame = null;
     /** @type {number|undefined} @private */
     this._blameRun = undefined;
+    // Where the toolbar is drawn when the host has a bar for it (null: over the
+    // diff), the hosts already listened to, and whether the counts are drawn.
+    /** @type {HTMLElement|null} @private */
+    this._controlsHost = null;
+    /** @type {WeakSet<HTMLElement>} @private */
+    this._wiredHosts = new WeakSet();
+    /** @type {boolean} @private */
+    this._statsShown = true;
     // What a render indexes once so that drawing a row costs the same however
     // long the diff is: every line the diff holds, by side and number, with
     // where it is; the comments that hang from each line; the comments set
@@ -709,6 +717,44 @@ class DiffViewer extends JugglerElement {
     this._blameable = next;
     if (!next) this._blame = null;
     this.render();
+  }
+
+  /**
+   * Draw the toolbar (blame, layout, context) into an element of the host's
+   * rather than over the diff — a host with a bar of its own above the diff
+   * puts them there, so the file has one row of controls instead of two. The
+   * element takes the `diff-viewer-controls` class, and the viewer answers
+   * clicks and changes in it as it does its own. Null puts them back.
+   * @param {HTMLElement|null} host - Where the controls go.
+   * @returns {void}
+   */
+  setControlsHost(host) {
+    if (host === this._controlsHost) return;
+    this._controlsHost?.replaceChildren();
+    this._controlsHost?.classList.remove('diff-viewer-controls');
+    this._controlsHost = host;
+    if (host) {
+      host.classList.add('diff-viewer-controls');
+      if (!this._wiredHosts.has(host)) {
+        this._wiredHosts.add(host);
+        host.addEventListener('click', (event) => { if (this._controlsHost === host) this._onClick(event); });
+        host.addEventListener('change', (event) => { if (this._controlsHost === host) this._onChange(event); });
+      }
+    }
+    if (this._rendered) this.render();
+  }
+
+  /**
+   * Show the added and removed counts under the diff, or leave them to the host
+   * (which says them beside the file's name).
+   * @param {boolean} shown - Whether the viewer draws them.
+   * @returns {void}
+   */
+  setStatsShown(shown) {
+    const next = shown !== false;
+    if (next === this._statsShown) return;
+    this._statsShown = next;
+    if (this._rendered) this.render();
   }
 
   /**
@@ -1075,21 +1121,24 @@ class DiffViewer extends JugglerElement {
     const previous = this._win;
     this._win = null;
 
+    const statsHTML = this._statsShown ? `
+        <diff-stats>
+          <span class="add-count">+${escapeHtml(formatNumber(model.added))}</span>
+          <span class="remove-count">-${escapeHtml(formatNumber(model.removed))}</span>
+        </diff-stats>` : '';
+    if (this._controlsHost) this._controlsHost.innerHTML = controlsHTML;
     this.innerHTML = `
       <diff-content>
         <diff-header>
           ${escapeHtml(this.filePath || t('File diff'))}
         </diff-header>
-        ${controlsHTML}
+        ${this._controlsHost ? '' : controlsHTML}
         ${noticesHTML}
         <diff-body role="group" aria-label="${escapeAttr(label)}">
           ${bodyHTML}
         </diff-body>
         ${fileCommentsHTML}
-        <diff-stats>
-          <span class="add-count">+${escapeHtml(formatNumber(model.added))}</span>
-          <span class="remove-count">-${escapeHtml(formatNumber(model.removed))}</span>
-        </diff-stats>
+        ${statsHTML}
       </diff-content>
     `;
     this._rendered = true;

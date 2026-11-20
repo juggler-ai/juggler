@@ -45,10 +45,8 @@ export function injectGitClientStyles() {
 .git-refs__message,
 .git-pin__log-list,
 .git-commit__output,
-.git-pin__error,
-.git-changes__error,
-.git-history__error,
-.git-refs__error {
+.git-inline-error__text,
+.git-pop__detail {
   -webkit-user-select: text;
   user-select: text;
 }
@@ -272,6 +270,25 @@ export function injectGitClientStyles() {
   .git-pin__stat-word { display: none; }
 }
 
+/* With the switcher in the head line (a full pin), the commands give it room
+   sooner, in the same order. */
+@container git-pin (width < 66rem) {
+  .git-pin__head:has(> .git-pin__places) .git-pin__command[data-rank="1"] { display: none; }
+}
+
+@container git-pin (width < 72rem) {
+  .git-pin__head:has(> .git-pin__places) .git-pin__command[data-rank="2"],
+  .git-pin__head:has(> .git-pin__places) .git-pin__command[data-rank="3"] { display: none; }
+}
+
+@container git-pin (width < 78rem) {
+  .git-pin__head:has(> .git-pin__places) .git-pin__command[data-rank="4"] { display: none; }
+}
+
+@container git-pin (width < 84rem) {
+  .git-pin__head:has(> .git-pin__places) .git-pin__command[data-rank="5"] { display: none; }
+}
+
 /* Refresh ends the left group, its glyph at the size of the command buttons'
    text rather than a small icon's, so it reads as a control and not a mark. */
 .git-pin__refresh {
@@ -375,8 +392,14 @@ export function injectGitClientStyles() {
   margin-left: auto;
 }
 
-.git-op__skip[hidden] {
+.git-op__skip[hidden],
+.git-op__hint[hidden] {
   display: none;
+}
+
+/* Why Continue is disabled, beside it. */
+.git-op__hint {
+  color: var(--text-secondary);
 }
 
 .git-pin__places {
@@ -388,9 +411,43 @@ export function injectGitClientStyles() {
   border-bottom: 1px solid var(--border-divider);
 }
 
+/* A full pin has room for the switcher in the head line, after the branch and
+   its counts, so the pin has one bar above its places rather than two. */
+.git-pin__head > .git-pin__places {
+  padding: 0;
+  margin-left: var(--space-8);
+  border-bottom: 0;
+}
+
+/* There the toast floats in the head's gap between the switcher and the
+   commands (git-pin's toastHome), centred and no wider than the gap, so it
+   covers none of the head's buttons; a failure hangs down from it. */
+.git-pin__head > .git-pin__spacer {
+  position: relative;
+  align-self: stretch;
+  min-width: 0;
+}
+
+.git-pin__spacer > .git-pin__toast {
+  right: auto;
+  left: 50%;
+  max-width: 100%;
+  transform: translate(-50%, -50%);
+}
+
+.git-pin__spacer > :is(.git-pin__toast--error, .git-pin__toast--warn) {
+  top: var(--space-2);
+  transform: translateX(-50%);
+}
+
+/* A segmented control, not a row of pills: the pinboard's own tabs above it
+   are pills, and the pin's places must not read as more of them. */
 .git-pin__tabs {
   display: flex;
   gap: var(--space-2);
+  padding: var(--space-2);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-lg);
 }
 
 .git-pin__place-btn {
@@ -398,36 +455,34 @@ export function injectGitClientStyles() {
   align-items: center;
   gap: var(--space-4);
   font: inherit;
+  font-size: var(--font-size-sm);
   color: var(--text-secondary);
   background: none;
   border: 0;
   border-radius: var(--radius-md);
-  padding: var(--space-2) var(--space-8);
+  padding: var(--space-2) var(--space-10);
   cursor: pointer;
 }
 
 .git-pin__place-btn:hover {
-  background: var(--wash-1);
+  color: var(--text-primary);
 }
 
 .git-pin__place-btn[aria-selected="true"] {
   color: var(--text-primary);
-  background: var(--selection-bg);
+  background: var(--bg-secondary);
   font-weight: var(--font-weight-semibold);
+  box-shadow: var(--shadow-sm);
 }
 
-/* How many files Changes holds, as a count on its tab. */
+/* How many files Changes holds, as a count on its tab: a plain count, like
+   every other count in the pin, and not the colour of a modified file. */
 .git-pin__place-count {
-  min-width: 1.4em;
-  padding: 0 var(--space-4);
+  font-family: var(--font-mono);
   font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-normal);
   font-variant-numeric: tabular-nums;
-  line-height: var(--leading-normal);
-  text-align: center;
-  color: var(--text-on-accent);
-  background: var(--accent-yellow);
-  border-radius: var(--radius-pill);
+  color: var(--text-tertiary);
 }
 
 .git-pin__place-count[hidden] {
@@ -450,8 +505,17 @@ export function injectGitClientStyles() {
    It floats there, so showing it moves nothing. It stands above everything
    else in the pin — the places' sticky crumbs and split handles are raised
    too, and come later — so a failure hanging down over a place is not drawn
-   behind it. */
+   behind it.
+
+   Its kind is its colour (--git-kind): washed through the surface, the
+   border, the glyph and the actions — green for what was done, yellow for
+   what stopped short, red for what failed. The inline errors, a choice's
+   account of a failure and a dialog's refusal speak the same way. */
 .git-pin__toast {
+  --git-kind: var(--success);
+  --btn-ghost-hover-bg: color-mix(in srgb, var(--git-kind) 18%, transparent);
+  --btn-ghost-hover-border: transparent;
+
   position: absolute;
   right: var(--pane-inset);
   top: 50%;
@@ -459,35 +523,56 @@ export function injectGitClientStyles() {
   z-index: var(--z-controls);
   display: flex;
   align-items: center;
-  gap: var(--space-10);
+  gap: var(--space-6);
   max-width: calc(100% - 2 * var(--pane-inset));
-  padding: var(--space-2) var(--space-6) var(--space-2) var(--space-10);
+  padding: var(--space-2) var(--space-6) var(--space-2) var(--space-8);
   font-size: var(--font-size-sm);
-  background: var(--bg-raised);
-  border: 1px solid var(--border-floating);
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--git-kind) 14%, var(--bg-raised));
+  border: 1px solid color-mix(in srgb, var(--git-kind) 45%, transparent);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
   white-space: nowrap;
+}
+
+.git-pin__toast--warn {
+  --git-kind: var(--warning);
+}
+
+.git-pin__toast--error {
+  --git-kind: var(--danger);
+}
+
+.git-pin__toast-icon {
+  flex: none;
+  font-weight: var(--font-weight-semibold);
+  color: var(--git-kind);
+}
+
+.git-pin__toast :is(.git-pin__toast-action, .git-pin__toast-undo) {
+  font-weight: var(--font-weight-semibold);
+  color: var(--git-kind);
 }
 
 .git-pin__toast[hidden] {
   display: none;
 }
 
-/* A failure hangs down from the row rather than centring on it, so the lines
-   it wraps to grow over the place below and never off the top of the pin. */
-.git-pin__toast--error {
+/* A failure or a warning hangs down from the row rather than centring on it,
+   so the lines it wraps to grow over the place below and never off the top of
+   the pin. */
+.git-pin__toast--error,
+.git-pin__toast--warn {
   top: var(--space-2);
   transform: none;
   align-items: flex-start;
   width: max-content;
   max-width: min(32rem, calc(100% - 2 * var(--pane-inset)));
   padding-block: var(--space-4);
-  border-color: var(--danger);
   white-space: normal;
 }
 
-.git-pin__toast--error .git-pin__toast-text {
+:is(.git-pin__toast--error, .git-pin__toast--warn) .git-pin__toast-text {
   max-height: 10lh;
   overflow-y: auto;
   overflow-wrap: anywhere;
@@ -512,12 +597,18 @@ export function injectGitClientStyles() {
   text-align: start;
   background: none;
   border: 0;
-  padding: var(--space-2) var(--pane-inset);
+  padding: var(--space-4) var(--pane-inset);
   cursor: pointer;
 }
 
 .git-pin__log-toggle:hover {
   color: var(--text-secondary);
+}
+
+/* Closed, the log's line marks a last command that failed. */
+.git-pin__log-failed {
+  margin-inline-end: var(--space-4);
+  color: var(--danger);
 }
 
 .git-pin__log-list {
@@ -594,25 +685,27 @@ export function injectGitClientStyles() {
   overflow: auto;
 }
 
-/* A file's diff, and an untracked file's whole content, are inset from the
-   detail's edges: a diff viewer has its own border and shadow, and a file
-   viewer may draw its content right up to its edge. */
+/* A file's diff fills the detail edge to edge: the pane's dividers frame it,
+   so it draws no border or shadow of its own. An untracked file's whole
+   content is inset, as a file viewer may draw right up to its edge. */
 .git-changes__viewer,
 .git-changes__file {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: var(--space-8);
 }
 
 .git-changes__viewer diff-viewer {
   flex: 1 1 auto;
   max-height: none;
   min-height: 0;
+  border: 0;
+  box-shadow: none;
 }
 
 .git-changes__file {
+  padding: var(--space-8);
   overflow: auto;
 }
 
@@ -797,7 +890,7 @@ export function injectGitClientStyles() {
     transform: translate(-50%, -50%);
   }
 
-  .git-pin > .git-pin__toast--error {
+  .git-pin > :is(.git-pin__toast--error, .git-pin__toast--warn) {
     transform: translateX(-50%);
   }
 }
@@ -826,11 +919,11 @@ export function injectGitClientStyles() {
    pushes every row below it off where the list believes it is. */
 .git-changes__sect {
   box-sizing: border-box;
-  height: 1.75rem;
+  height: 2rem;
   display: flex;
   align-items: center;
   gap: var(--space-6);
-  padding: var(--space-8) var(--pane-inset) var(--space-2);
+  padding: 0 var(--space-6) 0 var(--pane-inset);
   color: var(--text-tertiary);
   user-select: none;
 }
@@ -916,6 +1009,14 @@ export function injectGitClientStyles() {
   color: var(--text-tertiary);
 }
 
+/* What changed inside a submodule, where a file's directory would be. */
+.git-changes__inside {
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: var(--font-size-meta);
+  color: var(--text-tertiary);
+}
+
 /* A lozenge: a word about the file (binary, LFS, submodule). */
 .git-changes__badge {
   flex: none;
@@ -973,6 +1074,49 @@ export function injectGitClientStyles() {
   color: var(--text-tertiary);
 }
 
+/* A read that failed, or a write refused, said where it happened: one look in
+   every place (pins/git/inline-error), tinted as a warning toast is, with
+   Retry when reading again may help. It wins over the place's own rule for
+   the same element, and sits inset in the pane as a box of its own. */
+.git-pin .git-inline-error {
+  --git-kind: var(--warning);
+
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-4) var(--space-6);
+  margin: var(--space-4) var(--pane-inset);
+  padding: var(--space-4) var(--space-8);
+  font-size: var(--font-size-meta);
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--git-kind) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--git-kind) 40%, transparent);
+  border-radius: var(--radius-lg);
+}
+
+/* Where the pane already insets what it holds. */
+.git-history__meta > .git-inline-error,
+.git-pin__content > .git-inline-error {
+  margin-inline: 0;
+}
+
+.git-inline-error__icon {
+  flex: none;
+  font-weight: var(--font-weight-semibold);
+  color: var(--git-kind);
+}
+
+.git-inline-error__text {
+  flex: 1 1 12rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.git-inline-error__retry {
+  flex: none;
+}
+
 /* Every place's detail has the same crumb: the way back to the list in a
    stack, and in Changes and Refs the detail's title too. */
 .git-changes__crumb,
@@ -983,23 +1127,49 @@ export function injectGitClientStyles() {
   z-index: var(--z-raised);
   display: flex;
   align-items: center;
-  gap: var(--toolbar-gap);
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--toolbar-gap);
+  box-sizing: border-box;
   min-height: 2rem;
-  padding: var(--space-4) var(--pane-inset);
+  padding: var(--space-2) var(--space-6) var(--space-2) var(--pane-inset);
   white-space: nowrap;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-divider);
 }
 
+/* The bar is the same height as the lists' section headers, so the columns'
+   first rows line up. What does not fit on it — the diff's view options, then
+   the actions — wraps under the file's name rather than squeezing it away. */
 .git-changes__crumb-title {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
+  font-family: var(--font-mono);
+  font-weight: var(--font-weight-semibold);
+}
+
+.git-changes__crumb-nums {
+  flex: none;
+  margin-right: auto;
+}
+
+.git-changes__view-opts {
+  flex: none;
+}
+
+.git-changes__view-opts + .git-changes__crumb-acts {
+  padding-left: var(--toolbar-gap);
+  border-left: 1px solid var(--border-divider);
+}
+
+.git-changes__crumb-discard-lines[hidden] {
+  display: none;
 }
 
 /* The title is one line of inline text, cut at its end, so the directory is
    set off from the name by a margin rather than a row's flex gap. */
 .git-changes__crumb-title .git-changes__dir {
   margin-left: var(--space-6);
+  font-weight: var(--font-weight-normal);
 }
 
 .git-changes__crumb-acts {
@@ -1102,7 +1272,7 @@ export function injectGitClientStyles() {
   min-width: 0;
 }
 
-@container git-commit (width >= 30rem) {
+@container git-commit (width >= 24rem) {
   .git-commit__row {
     flex-direction: row;
     align-items: center;
@@ -1129,8 +1299,20 @@ export function injectGitClientStyles() {
   display: flex;
   align-items: center;
   gap: var(--space-4);
+  font-size: var(--font-size-meta);
   color: var(--text-secondary);
   white-space: nowrap;
+}
+
+/* Why Commit is not offered, beside it, so the button keeps its own name. */
+.git-commit__hint {
+  font-size: var(--font-size-meta);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.git-commit__hint[hidden] {
+  display: none;
 }
 
 .git-commit__option[hidden] {
@@ -1308,13 +1490,19 @@ export function injectGitClientStyles() {
    as the Changes sections are. */
 .git-refs__sect {
   box-sizing: border-box;
-  height: 1.75rem;
+  height: 2rem;
   display: flex;
   align-items: center;
   gap: var(--space-6);
-  padding: var(--space-8) var(--pane-inset) var(--space-2);
+  padding: 0 var(--space-6) 0 var(--pane-inset);
   color: var(--text-tertiary);
+  white-space: nowrap;
   user-select: none;
+}
+
+/* A section with nothing in it says so by its count alone. */
+.git-refs__sect[data-empty] .git-refs__fold {
+  opacity: 0.7;
 }
 
 /* A section's title is the button that folds it. */
@@ -1335,6 +1523,10 @@ export function injectGitClientStyles() {
   color: var(--text-secondary);
 }
 
+.git-refs__fold .git-refs__title {
+  min-width: 0;
+}
+
 .git-refs__fold .git-pin__icon--chev {
   transition: transform var(--transition-base);
 }
@@ -1348,10 +1540,20 @@ export function injectGitClientStyles() {
   font-size: var(--font-size-xs);
 }
 
+/* The section's actions answer the pointer over the header, as a row's ⋯
+   does; a keyboard reaches them regardless, and a touchscreen always sees them. */
 .git-refs__sect-acts {
+  flex: none;
   display: flex;
+  align-items: center;
   gap: var(--space-6);
   margin-left: auto;
+}
+
+@media (hover: hover) {
+  .git-refs__sect:not(:hover, :focus-within) .git-refs__sect-acts {
+    opacity: 0;
+  }
 }
 
 .git-refs__sect-act {
@@ -1454,8 +1656,8 @@ export function injectGitClientStyles() {
   padding: 0 var(--space-8);
 }
 
-.git-refs__none,
-.git-refs__error {
+.git-refs__error,
+.git-refs__more {
   display: block;
   padding: var(--space-2) var(--pane-inset) var(--space-4);
   font-size: var(--font-size-meta);
@@ -1899,8 +2101,13 @@ export function injectGitClientStyles() {
   color: var(--text-tertiary);
 }
 
-.git-history__note[hidden] {
+.git-history__note[hidden],
+.git-history__list-error[hidden] {
   display: none;
+}
+
+.git-history__list-error {
+  padding-block: var(--space-2);
 }
 
 .git-history__detail {
@@ -2139,6 +2346,50 @@ export function injectGitClientStyles() {
   font-size: var(--font-size-xs);
   line-height: var(--leading-normal);
   color: var(--text-tertiary);
+}
+
+/* chooseAction's account of what went wrong: git's words whole, at the size
+   of the choices under it, to be read and copied — tinted as a warning toast
+   is, since what follows are the ways past it. */
+.git-pop__detail {
+  max-width: 28rem;
+  max-height: 12lh;
+  overflow-y: auto;
+  margin: var(--space-2) var(--space-2) var(--space-4);
+  padding: var(--space-6) var(--space-8);
+  font-size: var(--font-size-body);
+  line-height: var(--leading-normal);
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent);
+  border-radius: var(--radius-lg);
+}
+
+/* askText's answer that its validate found wrong, under its field, tinted
+   as a failure toast is; the field itself is marked by aria-invalid. */
+.git-pop__problem {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-6);
+  padding: var(--space-4) var(--space-8);
+  font-size: var(--font-size-meta);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+  border-radius: var(--radius-lg);
+}
+
+.git-pop__problem-icon {
+  flex: none;
+  font-weight: var(--font-weight-semibold);
+  color: var(--danger);
+}
+
+.git-pop__problem[hidden] {
+  display: none;
 }
 
 .git-pop__choose {

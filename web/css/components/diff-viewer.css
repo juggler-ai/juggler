@@ -76,10 +76,29 @@ diff-viewer .diff-controls {
     font-size: var(--font-size-sm);
 }
 
+/* The same controls drawn into a bar of the host's (setControlsHost): inline
+   in that bar, at its height, rather than a sticky bar of their own. */
+.diff-viewer-controls {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+}
+
+.diff-viewer-controls .diff-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--toolbar-gap);
+    color: var(--text-tertiary);
+    font-family: var(--font-sans);
+    font-size: var(--font-size-sm);
+    white-space: nowrap;
+}
+
 /* The picker's dial idiom at chrome scale, as the command editor's run-mode
    control is: same accent for the chosen value, same hover. `aria-pressed` does
    the styling as well as the announcing — the choice is stated once. */
-diff-viewer .diff-view-switch {
+diff-viewer .diff-view-switch,
+.diff-viewer-controls .diff-view-switch {
     display: inline-flex;
     gap: var(--space-2);
     padding: 0.0625rem;
@@ -90,16 +109,19 @@ diff-viewer .diff-view-switch {
 
 /* Each button is `btn btn-xs` (patterns/buttons.css); what is the switch's own
    is the segmented look: unfilled until hovered, the chosen one filled. */
-diff-viewer .diff-view-btn {
+diff-viewer .diff-view-btn,
+.diff-viewer-controls .diff-view-btn {
     color: var(--text-tertiary);
 }
 
-diff-viewer .diff-view-btn:hover:not(:disabled, [aria-pressed="true"]) {
+diff-viewer .diff-view-btn:hover:not(:disabled, [aria-pressed="true"]),
+.diff-viewer-controls .diff-view-btn:hover:not(:disabled, [aria-pressed="true"]) {
     background: var(--bg-tertiary);
     color: var(--text-primary);
 }
 
-diff-viewer .diff-view-btn[aria-pressed="true"] {
+diff-viewer .diff-view-btn[aria-pressed="true"],
+.diff-viewer-controls .diff-view-btn[aria-pressed="true"] {
     background: var(--accent-blue);
     color: var(--text-on-accent);
 }
@@ -109,27 +131,32 @@ diff-viewer .diff-view-btn[aria-pressed="true"] {
    and made hovering the layout in force look like leaving it. Both buttons switch
    layout, so the chosen one is hoverable, and what a hover says here is "this is
    still the one", not "this would be". */
-diff-viewer .diff-view-btn[aria-pressed="true"]:hover:not(:disabled) {
+diff-viewer .diff-view-btn[aria-pressed="true"]:hover:not(:disabled),
+.diff-viewer-controls .diff-view-btn[aria-pressed="true"]:where(:hover:not(:disabled)) {
     background: color-mix(in srgb, var(--accent-blue) 85%, var(--text-primary));
 }
 
 /* The blame toggle (`btn btn-xs`): unfilled when off, the switch's accent when on. */
-diff-viewer .diff-blame-btn {
+diff-viewer .diff-blame-btn,
+.diff-viewer-controls .diff-blame-btn {
     color: var(--text-tertiary);
 }
 
-diff-viewer .diff-blame-btn[aria-pressed="true"] {
+diff-viewer .diff-blame-btn[aria-pressed="true"],
+.diff-viewer-controls .diff-blame-btn[aria-pressed="true"] {
     background: var(--accent-blue);
     color: var(--text-on-accent);
 }
 
-diff-viewer .diff-context-picker {
+diff-viewer .diff-context-picker,
+.diff-viewer-controls .diff-context-picker {
     display: inline-flex;
     align-items: center;
     gap: var(--space-6);
 }
 
-diff-viewer .diff-context-select {
+diff-viewer .diff-context-select,
+.diff-viewer-controls .diff-context-select {
     color: var(--text-secondary);
 }
 

@@ -34,6 +34,7 @@ import { createChangesPlace } from './git/changes-place.js';
 import { createCommandLog } from './git/command-log.js';
 import { createHead } from './git/head.js';
 import { createHistoryPlace } from './git/history-place.js';
+import { inlineError } from './git/inline-error.js';
 import { createMenuSelect } from './git/menu-select.js';
 import { measureMode } from './git/layout.js';
 import { reviewFile } from './git/manifest.js';
@@ -65,10 +66,6 @@ injectStylesOnce('git-pin-styles', `
   color: var(--text-tertiary);
 }
 
-.git-pin__error {
-  color: var(--text-tertiary);
-  font-size: var(--font-size-meta);
-}
 
 .git-pin__content {
   display: flex;
@@ -574,9 +571,9 @@ class GitPin extends PinboardItemType {
         // wrong one of those is worse than saying neither.
         const parts = [createElement('div', 'git-pin__quiet', t('Checking…'))];
         if (error) {
-          parts.push(createElement('div', 'git-pin__error', scope === DEFAULT_SCOPE
+          parts.push(inlineError('git-pin__error', scope === DEFAULT_SCOPE
             ? t("Couldn't read the working tree. {error}", { error })
-            : t("Couldn't compare {scope}. {error}", { scope: scopeName(scope), error })));
+            : t("Couldn't compare {scope}. {error}", { scope: scopeName(scope), error }), () => { void refresh(); }));
         }
         content.replaceChildren(...parts);
         return;
@@ -665,7 +662,9 @@ class GitPin extends PinboardItemType {
     let reviewRead = false;
     /** @type {import('juggler/pinboard-item-type').PinGitReview|null} The pinned tree's last repository list. */
     let pinnedReview = null;
-    const toast = createToast();
+    // A warning or failure toast with nothing else to offer opens the log at
+    // the command that failed; `log` is made below, before anything can fail.
+    const toast = createToast({ showLog: () => log.reveal() });
     /** @returns {import('juggler/pinboard-item-type').PinGitStatus|null} The visible tree's status. */
     const status = () => {
       try {
@@ -698,7 +697,7 @@ class GitPin extends PinboardItemType {
     const treeGone = (e) => {
       if (!live || !isPinned(config) || e?.status !== 400) return false;
       setWorkspace(null);
-      toast.show(t('That worktree is gone — following the conversation’s workspace again'));
+      toast.warn(t('That worktree is gone — following the conversation’s workspace again'));
       return true;
     };
     // --- the head: its primary action and the network writes -------------
@@ -824,9 +823,12 @@ class GitPin extends PinboardItemType {
      * Run a network write from the head, and offer what to do instead when it
      * can't go ahead.
      * @param {import('juggler/pinboard-item-type').PinGitOp} op - The write.
+     * @param {Element} [anchor] - What a choice it fails with hangs off: the
+     *   primary unless another place asked.
      */
-    const runNetwork = async (op) => {
+    const runNetwork = async (op, anchor) => {
       starting = { kind: op.kind, repo: op.repo };
+      toast.userActed();
       renderHead();
       let id = '';
       try {
@@ -838,7 +840,7 @@ class GitPin extends PinboardItemType {
         }
       } catch (/** @type {any} */ e) {
         id = e?.job?.id || '';
-        if (live) networkFailed(op, e);
+        if (live) networkFailed(op, e, anchor);
       } finally {
         starting = null;
         if (id) netJobs.delete(id);
@@ -883,16 +885,33 @@ class GitPin extends PinboardItemType {
     };
 
     /**
-     * What a network write that failed offers instead, on a popover hung off the
-     * primary button; anything else is a toast.
+     * The remote branch a push goes to: the one it names (`remote/name`, a
+     * push from Refs), else the upstream of the branch shown.
+     * @param {import('juggler/pinboard-item-type').PinGitOp} op - The push.
+     * @returns {string} e.g. 'origin/develop', '' when there is none.
+     */
+    const pushTarget = (op) => (op.remote && op.name ? `${op.remote}/${op.name}` : shownRepo?.read?.upstream || '');
+    /**
+     * @param {import('juggler/pinboard-item-type').PinGitOp} op - The push.
+     * @returns {string} The local branch it pushes.
+     */
+    const pushedBranch = (op) => op.branch || shownRepo?.read?.branch || '';
+
+    /**
+     * What a network write that failed offers instead, on a popover hung off
+     * `anchor` with git's whole complaint in it; anything else is a toast.
+     * A push from Refs that was turned down comes here too, so it offers what
+     * the head's does: Pull — when that pulls into the branch pushed, from
+     * where it went — or a forced push.
      * @param {import('juggler/pinboard-item-type').PinGitOp} op - The write.
      * @param {any} e - Its failure.
+     * @param {Element} [anchor] - What the choice hangs off: the primary unless another place asked.
      */
-    const networkFailed = (op, e) => {
+    const networkFailed = (op, e, anchor = head.primaryButton) => {
       const job = e?.job;
       if (job?.state === 'cancelled') return;
-      const anchor = head.primaryButton;
       const upstream = shownRepo?.read?.upstream || '';
+      const detail = errorText(e);
       switch (e?.kind) {
         case 'diverged': {
           const ways = [
@@ -901,48 +920,71 @@ class GitPin extends PinboardItemType {
           ];
           if (job?.prefer !== 'rebase') ways.reverse();
           chooseAction(anchor, root, {
-            title: errorText(e),
+            detail,
             choices: ways,
-            onChoose: (mode) => { void runNetwork({ ...op, mode: /** @type {'merge'|'rebase'} */ (mode) }); },
+            onChoose: (mode) => { void runNetwork({ ...op, mode: /** @type {'merge'|'rebase'} */ (mode) }, anchor); },
           });
           return;
         }
         case 'dirty':
           chooseAction(anchor, root, {
-            title: errorText(e),
+            detail,
             choices: [{ id: 'stash', label: t('Stash them first, then go on') }],
-            onChoose: () => { void runNetwork({ ...op, dirty: 'stash' }); },
+            onChoose: () => { void runNetwork({ ...op, dirty: 'stash' }, anchor); },
           });
           return;
-        case 'rejected':
+        case 'rejected': {
+          const read = shownRepo?.read;
+          const pullable = pushedBranch(op) === (read?.branch || '') && pushTarget(op) === upstream && Boolean(upstream);
           chooseAction(anchor, root, {
-            title: errorText(e),
-            choices: [{ id: 'pull', label: t('Pull') }, { id: 'force', label: t('Force push with lease…') }],
+            detail,
+            choices: [
+              ...(pullable ? [{ id: 'pull', label: t('Pull') }] : []),
+              { id: 'force', label: t('Force push with lease…') },
+            ],
             onChoose: (choice) => {
-              if (choice === 'pull') void runNetwork({ kind: 'pull', repo: op.repo });
-              else void forcePush(op);
+              if (choice === 'pull') void runNetwork({ kind: 'pull', repo: op.repo }, anchor);
+              else void forcePush(op, anchor);
             },
           });
           return;
+        }
         case 'remote':
           chooseAction(anchor, root, {
-            title: errorText(e),
+            title: detail,
             choices: (job?.remotes || []).map((/** @type {string} */ r) => ({ id: r, label: r })),
-            onChoose: (remote) => { void runNetwork({ ...op, remote }); },
+            onChoose: (remote) => { void runNetwork({ ...op, remote }, anchor); },
           });
           return;
         case 'conflicts':
-          toast.error(errorText(e));
-          showPlace('changes', true);
+          // As a merge that stops on them says it; the banner says they last.
+          toast.warn(t('Stopped with conflicts to resolve.'), { label: t('Show them'), run: () => showConflicts() });
           return;
         case 'auth':
           // Declined here: the user knows why it stopped.
           if (job && declinedHere.delete(job.id)) return;
-          toast.error(errorText(e));
+          toast.error(detail);
           return;
         default:
-          toast.error(errorText(e));
+          toast.error(detail);
       }
+    };
+
+    /**
+     * A write another place ran failed: when it is a push turned down, or one
+     * that needs a remote named, offer what the head's would. A tag the remote
+     * has elsewhere is not one Pull or force answers.
+     * @param {import('juggler/pinboard-item-type').PinGitOp} op - The write, with its repository.
+     * @param {any} e - Its failure.
+     * @param {Element} anchor - What asked.
+     * @returns {boolean} True when it was that, and is handled.
+     */
+    const pushFailed = (op, e, anchor) => {
+      const kind = e?.kind;
+      if (!live || !NETWORK_KINDS.has(op.kind)) return false;
+      if (kind !== 'remote' && !(kind === 'rejected' && op.kind === 'push')) return false;
+      networkFailed(op, e, anchor);
+      return true;
     };
 
     /**
@@ -950,17 +992,17 @@ class GitPin extends PinboardItemType {
      * over that: the push is leased on the sha the remote was last seen at, so
      * one that has moved since is refused rather than overwritten.
      * @param {import('juggler/pinboard-item-type').PinGitOp} op - The push turned down.
+     * @param {Element} [anchor] - What asked.
      */
-    const forcePush = async (op) => {
-      const read = shownRepo?.read;
-      const upstream = read?.upstream || '';
+    const forcePush = async (op, anchor = head.primaryButton) => {
+      const target = pushTarget(op);
       const sha = await leaseSha(op);
       if (!sha) return;
-      confirmAction(head.primaryButton, root, {
+      confirmAction(anchor, root, {
         text: t('Replace {upstream} (at {sha}) with {branch}? Commits only {upstream} has are lost from it. If it has moved since, the push is refused.',
-          { upstream, sha: sha.slice(0, 7), branch: read?.branch || '' }),
+          { upstream: target, sha: sha.slice(0, 7), branch: pushedBranch(op) }),
         ok: t('Force push'),
-        onConfirm: () => { void runNetwork({ kind: 'push', repo: op.repo, force: true, expectSha: sha }); },
+        onConfirm: () => { void runNetwork({ ...op, kind: 'push', force: true, expectSha: sha }, anchor); },
       });
     };
 
@@ -971,25 +1013,25 @@ class GitPin extends PinboardItemType {
      */
     const forceLeased = async (op) => {
       const sha = await leaseSha(op);
-      if (sha) void runNetwork({ kind: 'push', repo: op.repo, force: true, expectSha: sha });
+      if (sha) void runNetwork({ ...op, kind: 'push', force: true, expectSha: sha });
     };
 
     /**
-     * The sha the shown upstream was last fetched at, for a forced push to be
-     * leased on; '' — having said why — when there is none to lease on, or the
-     * pin has gone.
+     * The sha the branch a push goes to was last fetched at, for a forced push
+     * to be leased on; '' — having said why — when there is none to lease on,
+     * or the pin has gone.
      * @param {import('juggler/pinboard-item-type').PinGitOp} op - The push.
      * @returns {Promise<string>} The sha.
      */
     const leaseSha = async (op) => {
-      const upstream = shownRepo?.read?.upstream || '';
+      const target = pushTarget(op);
       let sha = '';
       try {
         const refsRead = /** @type {import('juggler/pinboard-item-type').PinGitRefs} */ (
           await context.services.git.read('refs', { repo: op.repo, ...workspaceOption() }));
         for (const remote of refsRead.remotes || []) {
-          if (!upstream.startsWith(`${remote.name}/`)) continue;
-          const branch = upstream.slice(remote.name.length + 1);
+          if (!target.startsWith(`${remote.name}/`)) continue;
+          const branch = target.slice(remote.name.length + 1);
           sha = remote.branches.find((b) => b.name === branch)?.sha || sha;
         }
       } catch (/** @type {any} */ e) {
@@ -997,7 +1039,7 @@ class GitPin extends PinboardItemType {
         return '';
       }
       if (!live) return '';
-      if (!sha) toast.show(t("{upstream} hasn't been fetched: fetch it and look before forcing over it.", { upstream }));
+      if (!sha) toast.warn(t("{upstream} hasn't been fetched: fetch it and look before forcing over it.", { upstream: target }));
       return sha;
     };
 
@@ -1217,6 +1259,7 @@ class GitPin extends PinboardItemType {
       },
       showRefs: () => showPlace('refs', true),
       network: (kind) => askNetwork(kind, head.primaryButton),
+      pushFailed: (op, e, anchor) => pushFailed(op, e, anchor),
       folded: () => (Array.isArray(config.folded) ? config.folded.filter((id) => typeof id === 'string') : []),
       setFolded: (ids) => {
         const saved = { ...config };
@@ -1437,8 +1480,19 @@ class GitPin extends PinboardItemType {
     const syncMode = () => {
       const mode = measureMode(root);
       if (root.dataset.mode !== mode) root.dataset.mode = mode;
-      // A chip has no switcher row: its toast goes over the head line instead.
-      const toastHome = mode === 'chip' ? root : switcher;
+      // A full pin has room for the switcher in the head line, after the
+      // branch and its counts; anything narrower gives it a row of its own.
+      const spacer = /** @type {HTMLElement} */ (head.element.querySelector(':scope > .git-pin__spacer'));
+      if (mode === 'full') {
+        if (switcher.parentElement !== head.element) head.element.insertBefore(switcher, spacer);
+      } else if (switcher.parentElement !== root) {
+        root.insertBefore(switcher, main);
+      }
+      // The toast's home is always the empty end of a row of controls, so it
+      // covers no button anyone wants next: the switcher's row when it has one,
+      // over the head line in a chip, and the head's gap between the switcher
+      // and the commands when the switcher is in the head.
+      const toastHome = mode === 'chip' ? root : mode === 'full' ? spacer : switcher;
       if (toast.element.parentElement !== toastHome) toastHome.append(toast.element);
       // The sidebar is read as the place is, the first time it comes on
       // screen; after that the place's watch keeps it current.

@@ -70,6 +70,7 @@
 import { formatDate, markForTranslation, translator } from 'juggler/i18n';
 import { contextMenuFor, copyToClipboard, createElement, createReviewPanel, errorText, openMenuAt } from 'juggler/ui';
 import { createActions, menuRows } from './actions.js';
+import { inlineError } from './inline-error.js';
 import { graphCell, wipCell } from './graph-cell.js';
 import { createHistoryList, ROW_PX } from './history-list.js';
 import { createMenuSelect } from './menu-select.js';
@@ -287,8 +288,12 @@ export function createHistoryPlace(host) {
   drawPlaceholder();
   search.append(filterInput, fieldSelect.element);
   bar.append(scopeSelect.element, search);
+  // Under the list: why it is empty, or — in the look every place says a
+  // failed read in — that it could not be read, with Retry.
   const note = createElement('div', 'git-history__note');
   note.hidden = true;
+  const listFailure = createElement('div', 'git-history__list-error');
+  listFailure.hidden = true;
   const detail = createElement('section', 'git-history__detail');
   const crumb = createElement('div', 'git-history__crumb');
   const back = /** @type {HTMLButtonElement} */ (createElement('button', 'git-history__back btn btn-icon btn-xs', '‹'));
@@ -430,14 +435,20 @@ export function createHistoryPlace(host) {
       createElement('span', 'git-history__wip-go', t('Show in Changes')));
     wip.title = t('{count, plural, one {# changed file} other {# changed files}} in the working tree, on top of the checked-out commit', { count });
   };
-  listPane.append(bar, wip, list.element, note);
+  listPane.append(bar, wip, list.element, note, listFailure);
 
   const renderNote = () => {
     const s = list.state();
-    const text = listError ? t("Couldn't read the history. {error}", { error: listError })
+    const text = listError ? ''
       : s.loaded && s.total === 0 ? (applied.text ? t('No commits match “{text}”.', { text: applied.text }) : t('No commits.')) : '';
     note.textContent = text;
     note.hidden = !text;
+    listFailure.replaceChildren(...(listError ? [inlineError('git-history__error', t("Couldn't read the history. {error}", { error: listError }), () => {
+      listError = '';
+      renderNote();
+      list.refresh();
+    })] : []));
+    listFailure.hidden = !listError;
   };
 
   // --- the scope picker --------------------------------------------------
@@ -784,6 +795,7 @@ export function createHistoryPlace(host) {
         });
         break;
       case 'copy-sha':
+        host.toast.userActed();
         copyToClipboard(a.sha).then(() => host.toast.show(t('Copied {sha}', { sha: a.sha.slice(0, 10) })),
           (e) => host.toast.error(errorText(e)));
         break;
@@ -1082,7 +1094,13 @@ export function createHistoryPlace(host) {
       acts.append(rest);
     }
     parts.push(acts);
-    if (commitError) parts.push(createElement('div', 'git-history__error', t("Couldn't read the commit. {error}", { error: commitError })));
+    if (commitError) {
+      parts.push(inlineError('git-history__error', t("Couldn't read the commit. {error}", { error: commitError }), () => {
+        commitError = '';
+        renderDetail();
+        if (live && wanted) commitReader.replace();
+      }));
+    }
     meta.replaceChildren(...parts);
     if (commit !== paneled) {
       paneled = commit;

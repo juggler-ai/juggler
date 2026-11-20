@@ -309,7 +309,9 @@ export async function runTests(_ctx) {
     amend.checked = false;
     amend.dispatchEvent(new Event('change', { bubbles: true }));
     assert(message(m).value === '', `restored: ${JSON.stringify(message(m).value)}`);
-    assert(go.disabled && go.textContent?.includes('Nothing staged'), `nothing to commit: ${go.textContent}`);
+    const hint = /** @type {HTMLElement} */ (m.body.querySelector('.git-commit__hint'));
+    assert(go.disabled && go.textContent === 'Commit', `nothing to commit: ${go.textContent}`);
+    assert(!hint.hidden && hint.textContent === 'Nothing staged', `and says why: ${hint.hidden ? '(hidden)' : hint.textContent}`);
     m.holdRuns(true);
     amend.checked = true;
     amend.dispatchEvent(new Event('change', { bubbles: true }));

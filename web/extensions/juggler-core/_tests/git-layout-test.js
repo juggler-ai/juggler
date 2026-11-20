@@ -106,8 +106,8 @@ export async function runTests(_ctx) {
       const kinds = (/** @type {any} */ m) => m.reads().map((/** @type {any} */ r) => r.kind);
       assert(kinds(wide).includes('refs') && kinds(wide).includes('worktrees'), `full reads the sidebar: ${JSON.stringify(kinds(wide))}`);
       assert(!kinds(narrow).includes('refs'), `split does not: ${JSON.stringify(kinds(narrow))}`);
-      // The project's lone checkout is no row of its own: the section says so.
-      await waitFor(() => [...wide.body.querySelectorAll('.git-refs__none')].some((n) => n.textContent === 'No other worktrees'), 'the sidebar drawn');
+      // The project's lone checkout is no row of its own: the section is empty.
+      await waitFor(() => wide.body.querySelector('.git-refs__sect[data-section="worktrees"][data-empty]'), 'the sidebar drawn');
     } finally {
       wide.teardown();
       narrow.teardown();

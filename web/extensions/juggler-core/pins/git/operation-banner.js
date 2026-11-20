@@ -9,6 +9,7 @@
  * tree in view — what it is, how far it has got, how many files are still in
  * conflict, and whether the tree's changes are set aside until it ends — with
  * Continue, Skip (not for a merge, which has no commit to skip) and Abort.
+ * While files are still in conflict, Continue is disabled and says so beside it.
  *
  * A pick or revert of several commits stopped between them — the commit it
  * stopped on committed by hand, the rest still waiting — is applying nothing,
@@ -114,12 +115,18 @@ export function createOperationBanner() {
     return b;
   };
   const continueButton = button('git-op__continue btn-primary', t('Continue'));
+  // Why Continue can't be pressed yet, said beside it rather than in a tooltip
+  // nobody hovers a disabled button for.
+  const hint = createElement('span', 'git-op__hint');
+  const hintId = `git-op-hint-${Math.random().toString(36).slice(2, 8)}`;
+  hint.id = hintId;
+  hint.hidden = true;
   const skipButton = button('git-op__skip btn-neutral', t('Skip'));
   const abortButton = button('git-op__abort btn-danger-quiet', t('Abort'));
   const quitButton = button('git-op__quit btn-neutral', t('Quit'));
   quitButton.title = t('Forget the rest, and leave everything as it is');
   const buttons = createElement('span', 'git-op__buttons');
-  buttons.append(continueButton, skipButton, quitButton, abortButton);
+  buttons.append(hint, continueButton, skipButton, quitButton, abortButton);
   element.append(text, buttons);
 
   /** @type {BannerHandlers} */
@@ -138,7 +145,10 @@ export function createOperationBanner() {
       element.dataset.kind = stopped.kind;
       text.textContent = bannerParts(stopped, conflicts, head).join(' · ');
       continueButton.disabled = busy || conflicts > 0;
-      continueButton.title = conflicts > 0 ? t('Resolve the conflicts first') : '';
+      hint.textContent = conflicts > 0 ? t('Resolve the conflicts first') : '';
+      hint.hidden = conflicts === 0;
+      if (conflicts > 0) continueButton.setAttribute('aria-describedby', hintId);
+      else continueButton.removeAttribute('aria-describedby');
       const between = Boolean(stopped.between);
       skipButton.hidden = stopped.kind === 'merge' || between;
       skipButton.disabled = busy;

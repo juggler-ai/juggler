@@ -119,7 +119,9 @@ export function createCommitBox(host) {
   const options = createElement('div', 'git-commit__options');
   options.append(amendLabel, noVerifyLabel);
   const actions = createElement('div', 'git-commit__actions');
-  actions.append(gen, go);
+  const hint = createElement('span', 'git-commit__hint');
+  hint.hidden = true;
+  actions.append(hint, gen, go);
   row.append(options, actions);
   const sourceLine = /** @type {HTMLButtonElement} */ (createElement('button', 'git-commit__source'));
   sourceLine.type = 'button';
@@ -172,9 +174,12 @@ export function createCommitBox(host) {
       label = t('Commit {count, plural, one {# file} other {# files}}', { count });
       can = true;
     } else {
-      label = t('Nothing staged');
+      // The button keeps its name, dimmed; why it is not offered is said beside it.
+      label = t('Commit');
       can = false;
     }
+    hint.hidden = can || state.detached || Boolean(state.operation);
+    hint.textContent = hint.hidden ? '' : t('Nothing staged');
     const standAside = Boolean(state.operation);
     operationLine.hidden = !standAside;
     operationLine.textContent = standAside

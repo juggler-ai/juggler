@@ -20,8 +20,8 @@
  *
  * **Optimistic writes.** Stage, unstage, stage all, unstage all, discard and
  * resolving a conflict move the row at once: the op is kept as an overlay, applied to the last read
- * and drawn pending. If the job fails the overlay goes and the error shows in
- * the toast. If it succeeds the overlay stays until the first read that
+ * and drawn pending. If the job fails the overlay goes, and the failure is
+ * answered as every place's is (pins/git/actions `explain`). If it succeeds the overlay stays until the first read that
  * STARTED after the job finished — an older read cannot have seen the write.
  *
  * **Conflicts.** A file in conflict is resolved from its row (Ours, Theirs),
@@ -47,7 +47,7 @@
  * @module pins/git/changes-place
  */
 
-import { translator, markForTranslation } from 'juggler/i18n';
+import { formatList, translator, markForTranslation } from 'juggler/i18n';
 import { openPath } from 'juggler/ops';
 import { contextMenuFor, copyToClipboard, createDiffViewer, createElement, createFileActions, errorText, openMenuAt, pinFile } from 'juggler/ui';
 import { measureMode as measurePin } from './layout.js';
@@ -68,10 +68,27 @@ import { createGenerateControl } from './generate-menu.js';
 import { createListFilter } from './list-filter.js';
 import { fetchLiveFile, renderLiveFileBody } from '../../lib/live-file.js';
 import { closePopover, confirmAction, openPopover } from './popover.js';
-import { updateSubmodule } from './actions.js';
+import { createActions, updateSubmodule } from './actions.js';
+import { inlineError } from './inline-error.js';
 import { createVirtualList, remHeight, WINDOWED_ABOVE } from 'juggler/utils/virtual-list';
 
 const t = translator('@juggler/core');
+
+/**
+ * What a failed commit says in the commit box: the hooks' output, then git's
+ * reason — left out when the output already holds it, as it does when the
+ * reason is the tail of what a hook printed.
+ * @param {string} output - What the hooks printed.
+ * @param {string} reason - Why the commit failed.
+ * @returns {string} The text.
+ */
+function commitFailure(output, reason) {
+  const flat = (/** @type {string} */ text) => text.replace(/\s+/g, ' ').trim();
+  const out = output.trimEnd();
+  if (!flat(reason) || flat(out).includes(flat(reason))) return out;
+  if (flat(reason).includes(flat(out))) return reason.trim();
+  return `${out}\n${reason.trim()}`;
+}
 
 /**
  * @typedef {import('./changes-model.js').ChangedFile} ChangedFile
@@ -283,7 +300,7 @@ export function createChangesPlace(host) {
     scroller: scroll,
     spacerClass: 'git-changes__spacer',
     rowHeight: remHeight(1.5),
-    headerHeight: remHeight(1.75),
+    headerHeight: remHeight(2),
     isHeader: (item) => item.header,
     keyOf: (item) => item.key,
     build: (item) => item.build(),
@@ -306,6 +323,27 @@ export function createChangesPlace(host) {
 
   const viewer = createDiffViewer({ readOnly: true, blame: true });
   viewerHost.append(viewer);
+  // The diff's own toolbar (blame, layout, context) is drawn in the crumb, and
+  // its counts beside the file's name there, so the file has one bar.
+  const viewOptions = createElement('span', 'git-changes__view-opts');
+  viewer.setControlsHost(viewOptions);
+  viewer.setStatsShown(false);
+
+  // A failed write is answered as every place's is; this place reads the
+  // tree it shows, and has no other tree to offer.
+  const { explain } = createActions({
+    git,
+    repo: () => repo,
+    workspaceOption: ws,
+    toast: host.toast,
+    element,
+    live: () => live,
+    reread: () => requestRead(),
+    dirty: () => files().length,
+    trees: () => [],
+    viewTree: () => {},
+    showChanges: () => host.showChanges(),
+  });
 
   // --- the model -----------------------------------------------------------
 
@@ -413,12 +451,14 @@ export function createChangesPlace(host) {
 
   /**
    * Run one write. With `optimistic`, the list moves at once and moves back if
-   * the write fails. A failure is toasted unless `onError` takes it.
+   * the write fails. A failure is explained unless `onError` takes it.
    * @param {PinGitOp} op - The write.
    * @param {{optimistic?: boolean, onError?: (e: any) => boolean}} [options] - How.
    * @returns {Promise<PinGitJob|null>} The finished job, or null when it failed.
    */
   const runOp = async (op, options = {}) => {
+    // Another write: what the toast said about the last one has had its say.
+    host.toast.userActed();
     const overlay = options.optimistic ? { op, done: false, finishedAfter: 0 } : null;
     if (overlay) {
       overlays.push(overlay);
@@ -433,7 +473,7 @@ export function createChangesPlace(host) {
       return job;
     } catch (e) {
       if (overlay) overlays = overlays.filter((o) => o !== overlay);
-      if (live && !options.onError?.(e)) host.toast.error(errorText(/** @type {any} */ (e)));
+      if (live && !options.onError?.(e)) explain(e);
       if (live) render();
       return null;
     } finally {
@@ -614,9 +654,11 @@ export function createChangesPlace(host) {
     committing = true;
     commitBox.setRunning(true);
     void runOp(op, {
+      // A failed commit is said in the commit box, under the message it was
+      // for (pins/git/toast's rule 2): what the hooks printed, then git's
+      // reason — once, when the hooks have not already said it.
       onError: (e) => {
-        const job = e?.job;
-        commitBox.setOutput([job?.output, errorText(e)].filter(Boolean).join('\n'));
+        commitBox.setOutput(commitFailure(e?.job?.output || '', errorText(e)));
         return true;
       },
     }).then((job) => {
@@ -679,12 +721,21 @@ export function createChangesPlace(host) {
     if (file.lfs) badges.push(t('LFS'));
     if (file.submodule) badges.push(t('submodule'));
     // What changed in it, in git status's words: only new commits can be staged.
+    /** @type {string[]} */
+    const inside = [];
     if (file.submodule && group === 'changes') {
-      if (file.submoduleCommit) badges.push(t('new commits'));
-      if (file.submoduleModified) badges.push(t('modified content'));
-      if (file.submoduleUntracked) badges.push(t('untracked content'));
+      if (file.submoduleCommit) inside.push(t('new commits'));
+      if (file.submoduleModified) inside.push(t('modified content'));
+      if (file.submoduleUntracked) inside.push(t('untracked content'));
     }
     for (const badge of badges) row.append(createElement('span', 'git-changes__badge', badge));
+    // What changed inside a submodule, in git status's words, takes the
+    // directory's place: it gives way before the name does.
+    if (inside.length) {
+      const words = formatList(inside);
+      pathEl.append(createElement('span', 'git-changes__inside text-truncate', words));
+      row.title = words;
+    }
     if (isPartlyStaged(file)) {
       const part = createElement('span', 'git-changes__part', '◐');
       part.title = t('Partly staged');
@@ -821,12 +872,12 @@ export function createChangesPlace(host) {
           : t('{branch} · nothing to commit', { branch: read.branch })));
       children.push(empty);
     } else if (!read) {
-      children.push(createElement('div', 'git-changes__empty', readError
-        ? t("Couldn't read the changes. {error}", { error: readError })
-        : t('Checking…')));
+      children.push(readError
+        ? inlineError('git-changes__error', t("Couldn't read the changes. {error}", { error: readError }), () => requestRead())
+        : createElement('div', 'git-changes__empty', t('Checking…')));
     }
     if (read?.truncated) children.push(createElement('div', 'git-changes__more-files', t('More files changed than are listed here.')));
-    if (readError && read) children.push(createElement('div', 'git-changes__error', t("Couldn't refresh. {error}", { error: readError })));
+    if (readError && read) children.push(inlineError('git-changes__error', t("Couldn't refresh. {error}", { error: readError }), () => requestRead()));
     if (itemIndex.size && scroll.firstChild === windowed.spacer) {
       // The spacer stays put, so nothing drawn in it loses focus or hover.
       while (windowed.spacer.nextSibling) windowed.spacer.nextSibling.remove();
@@ -930,10 +981,13 @@ export function createChangesPlace(host) {
 
   /**
    * @param {string} text - The note, '' for none.
+   * @param {boolean} [failed] - It says a write was refused, in the look every
+   *   place says a failure inline with, rather than why the file is as it is.
    */
-  const setNote = (text) => {
+  const setNote = (text, failed = false) => {
     note.textContent = text;
     note.hidden = !text;
+    note.classList.toggle('git-inline-error', Boolean(text) && failed);
   };
 
   const discardLinesButton = /** @type {HTMLButtonElement} */ (createElement('button', 'git-changes__crumb-discard-lines btn btn-xs btn-danger-quiet'));
@@ -941,6 +995,9 @@ export function createChangesPlace(host) {
 
   const drawDiscardLines = () => {
     const count = viewer.getStageSelection().length;
+    // Offered once there are lines to discard: before that it would be a
+    // disabled button in a bar that is already full.
+    discardLinesButton.hidden = count === 0;
     discardLinesButton.disabled = count === 0;
     discardLinesButton.textContent = count
       ? t('Discard {count, plural, one {# line} other {# lines}}', { count })
@@ -980,6 +1037,10 @@ export function createChangesPlace(host) {
     const { name, dir } = splitPath(file.path);
     const title = createElement('span', 'git-changes__crumb-title text-truncate');
     title.append(createElement('span', 'git-changes__name', name), createElement('span', 'git-changes__dir', dir));
+    const stat = statOf(file, group);
+    const nums = createElement('span', 'git-changes__nums git-changes__crumb-nums');
+    if (stat?.added) nums.append(createElement('span', 'git-changes__add', `+${stat.added}`));
+    if (stat?.removed) nums.append(createElement('span', 'git-changes__del', `−${stat.removed}`));
     const acts = createElement('span', 'git-changes__crumb-acts');
     if (isToggleable(file, group)) {
       const stage = /** @type {HTMLButtonElement} */ (createElement('button', 'git-changes__crumb-stage btn btn-xs btn-neutral',
@@ -1018,7 +1079,7 @@ export function createChangesPlace(host) {
     const onDisk = file.index !== 'D' && file.worktree !== 'D';
     const fileActions = onDisk ? createFileActions(absolute, { pin: absolute }) : null;
     if (fileActions) acts.append(fileActions);
-    crumb.replaceChildren(back, title, acts);
+    crumb.replaceChildren(back, title, nums, ...(group === 'untracked' ? [] : [viewOptions]), acts);
     drawDiscardLines();
 
     if (group === 'untracked') {
@@ -1137,7 +1198,7 @@ export function createChangesPlace(host) {
       items.push({ label: t('Open'), disabled: gone, onClick: () => { void openPath({ path: absolute }).catch((/** @type {any} */ e) => host.toast.error(errorText(e))); } });
     }
     items.push({ label: t('Add to pinboard'), disabled: gone, onClick: () => { void pinFile(absolute); } });
-    items.push({ label: t('Copy path'), onClick: () => { void copyToClipboard(file.path).catch(() => {}); } });
+    items.push({ label: t('Copy path'), onClick: () => { void copyToClipboard(file.path).catch((/** @type {any} */ e) => host.toast.error(errorText(e))); } });
     return items;
   };
 
@@ -1236,7 +1297,7 @@ export function createChangesPlace(host) {
   const staleRefusal = (e) => {
     if (e?.kind !== 'stale') return false;
     loadDiff();
-    setNote(t('The file changed since this diff was read, so nothing was done. Here it is again: pick the lines again.'));
+    setNote(t('The file changed since this diff was read, so nothing was done. Here it is again: pick the lines again.'), true);
     return true;
   };
 

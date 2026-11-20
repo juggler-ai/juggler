@@ -8,7 +8,9 @@
  * through `git.run`, whose end every place hears as a change; a refusal
  * says what to do next — a ref that moved is read again, a branch out in
  * another tree offers that tree, conflicts offer Changes, and changes in the
- * way offer to stash them and try again.
+ * way offer to stash them and try again. Every place's writes, Changes' too,
+ * are answered here, so one failure reads alike wherever it happened (the
+ * rules are pins/git/toast's).
  * @module pins/git/actions
  */
 
@@ -124,7 +126,7 @@ export function createActions(host) {
           ? { label: t('Go to worktree “{name}”', { name }), run: () => host.viewTree(view) }
           : undefined);
     } else if (kind === 'conflicts') {
-      host.toast.show(t('Stopped with conflicts to resolve.'), undefined, { label: t('Show them'), run: () => host.showChanges() });
+      host.toast.warn(t('Stopped with conflicts to resolve.'), { label: t('Show them'), run: () => host.showChanges() });
     } else {
       host.toast.error(errorText(e));
     }
@@ -134,6 +136,8 @@ export function createActions(host) {
   // git service tells them all (tree-events.js), so a run does not reread here.
   /** @type {PlaceActions['run']} */
   const run = async (op, onError) => {
+    // Another write: what the toast said about the last one has had its say.
+    host.toast.userActed();
     try {
       return await host.git().run(/** @type {PinGitOp} */ ({ repo: host.repo(), ...op }), host.workspaceOption());
     } catch (e) {

@@ -698,7 +698,8 @@ export async function runTests(_ctx) {
       for (const config of [{}, { scope: '1..2' }]) {
         const failed = await mounted({ config, reviewError: new Error('3') });
         shown.push(failed.body.querySelector('.git-pin__quiet')?.textContent || '',
-          failed.body.querySelector('.git-pin__error')?.textContent || '');
+          failed.body.querySelector('.git-pin__error .git-inline-error__text')?.textContent || '',
+          failed.body.querySelector('.git-pin__error .git-inline-error__retry')?.textContent || '');
         failed.teardown();
       }
 
@@ -823,7 +824,7 @@ export async function runTests(_ctx) {
     }, { '@juggler/core': [
       ...SCOPE_PRESETS.flatMap((p) => [p.label, p.description]), SCOPE_SYNTAX,
       'Compare', 'Custom…', 'Git diff expression', 'Show', 'Checking…', 'Refresh', 'Review changes', 'No project',
-      "Couldn't read the working tree. {error}", "Couldn't compare {scope}. {error}", "Couldn't refresh. {error}",
+      "Couldn't read the working tree. {error}", "Couldn't compare {scope}. {error}", "Couldn't refresh. {error}", 'Retry',
       'No git repository.', 'No git repository in {workspace}.',
       'Working tree against HEAD', 'Working tree of {workspace} against HEAD',
       'Working tree against the merge-base with {base}', '{label} in {workspace}',
@@ -832,7 +833,7 @@ export async function runTests(_ctx) {
       ...GIT_STATUS_TEXT,
     ] });
 
-    assert(shown.length === 53, `expected every state drawn, got ${shown.length}: ${JSON.stringify(shown)}`);
+    assert(shown.length === 55, `expected every state drawn, got ${shown.length}: ${JSON.stringify(shown)}`);
     const raw = shown.filter((s) => !isPseudoLocalized(s));
     assert(raw.length === 0, `plain English under en-XA: ${JSON.stringify(raw)}`);
     assert(commentLabel === 'Staged against HEAD (1234567)',

@@ -47,6 +47,7 @@
 import { translator } from 'juggler/i18n';
 import { contextMenuFor, createElement, errorText, openMenuAt } from 'juggler/ui';
 import { createActions, menuRows, updateSubmodule } from './actions.js';
+import { inlineError } from './inline-error.js';
 import { icon } from './icons.js';
 import { measureMode } from './layout.js';
 import { askText, closePopover, confirmAction } from './popover.js';
@@ -80,6 +81,9 @@ const t = translator('@juggler/core');
  * @property {() => void} toggleFollow - Follow, or stop following, the conversation's workspace.
  * @property {() => void} refreshAll - Read everything again.
  * @property {(kind: 'fetch'|'pull'|'push') => void} network - Fetch, pull or push the repository, as the head's buttons do.
+ * @property {(op: import('juggler/pinboard-item-type').PinGitOp, e: any, anchor: Element) => boolean} pushFailed - A push
+ *   from here failed: true when it was turned down or needs a remote named, and
+ *   the head's choices (Pull, a forced push, which remote) are offered.
  * @property {() => string[]} folded - The sections folded away, by id.
  * @property {(ids: string[]) => void} setFolded - Remember which sections are folded.
  * @property {(tree: TreeView) => void} viewTree - Show that tree.
@@ -167,7 +171,7 @@ export function createRefsPlace(host) {
     scroller: scroll,
     spacerClass: 'git-refs__spacer',
     rowHeight: remHeight(1.5),
-    headerHeight: remHeight(1.75),
+    headerHeight: remHeight(2),
     isHeader: (item) => item.header,
     keyOf: (item) => item.key,
     build: (item) => item.build(),
@@ -357,6 +361,17 @@ export function createRefsPlace(host) {
   };
 
   /**
+   * Run a push, and when the remote turns it down — or it needs a remote
+   * named — offer what the head's push would: Pull, a forced push, a remote.
+   * @param {Record<string, any>} op - The push, without its repository.
+   * @param {Element} anchor - What asked.
+   * @returns {Promise<import('juggler/pinboard-item-type').PinGitJob|null>} The finished job, or null.
+   */
+  const runPush = (op, anchor) => run(op, (e) => host.pushFailed(
+    /** @type {import('juggler/pinboard-item-type').PinGitOp} */ ({ repo: host.repo(), ...op }),
+    e, anchor.isConnected ? anchor : element));
+
+  /**
    * Push a branch to a branch of any name on any remote, typed as
    * remote/branch — and, if asked, make that its upstream.
    * @param {string} branch - The local branch.
@@ -365,6 +380,16 @@ export function createRefsPlace(host) {
   const pushTo = (branch, anchor) => {
     const remotes = (refs?.remotes || []).map((r) => r.name);
     const start = tagRemote(state()) || remotes[0] || '';
+    /**
+     * @param {string} target - As typed: remote/branch.
+     * @returns {{remote: string, name: string}|null} Its remote and branch, or
+     *   null when it starts with no remote's name.
+     */
+    const splitTarget = (target) => {
+      const remote = remotes.filter((name) => target.startsWith(`${name}/`)).sort((x, y) => y.length - x.length)[0];
+      const name = remote ? target.slice(remote.length + 1) : '';
+      return remote && name ? { remote, name } : null;
+    };
     askText(anchor, element, {
       label: t('Push {branch} to', { branch }),
       value: start ? `${start}/${branch}` : '',
@@ -373,14 +398,15 @@ export function createRefsPlace(host) {
       ok: t('Push'),
       check: t('Make it the upstream of {branch}', { branch }),
       checked: false,
+      // A target that names no remote is said under the field, and the
+      // question stays open to correct it.
+      validate: (target) => (splitTarget(target)
+        ? null
+        : { text: t('{target} is not a remote and a branch, such as origin/{branch}.', { target, branch }) }),
       onSubmit: (target, track) => {
-        const remote = remotes.filter((name) => target.startsWith(`${name}/`)).sort((x, y) => y.length - x.length)[0];
-        const name = remote ? target.slice(remote.length + 1) : '';
-        if (!remote || !name) {
-          host.toast.error(t('{target} is not a remote and a branch, such as origin/{branch}.', { target, branch }));
-          return;
-        }
-        void run({ kind: 'push', branch, remote, name, ...(track ? { track: true } : {}) }).then((job) => {
+        const split = splitTarget(target);
+        if (!split) return;
+        void runPush({ kind: 'push', branch, ...split, ...(track ? { track: true } : {}) }, anchor).then((job) => {
           if (job) host.toast.show(t('Pushed {branch} to {target}', { branch, target }));
         });
       },
@@ -400,11 +426,8 @@ export function createRefsPlace(host) {
       placeholder: t('name'),
       ok: t('Add'),
       secondary: { label: t('URL'), placeholder: t('https://… or git@…') },
+      validate: (_name, _checked, url) => (url ? null : { text: t('A remote needs a URL.'), field: 'secondary' }),
       onSubmit: (name, _checked, url) => {
-        if (!url) {
-          host.toast.error(t('A remote needs a URL.'));
-          return;
-        }
         void run({ kind: 'remote-add', name, url }).then((job) => {
           if (job) host.network('fetch');
         });
@@ -527,14 +550,14 @@ export function createRefsPlace(host) {
         break;
       case 'push-tag':
         askFirst(anchor, a.remote ? t('Push tag {name} to {remote}?', { name: a.name, remote: a.remote }) : t('Push tag {name}?', { name: a.name }), t('Push'), () => {
-          void run({ kind: 'push-tag', name: a.name, ...(a.remote ? { remote: a.remote } : {}) }).then((job) => {
+          void runPush({ kind: 'push-tag', name: a.name, ...(a.remote ? { remote: a.remote } : {}) }, anchor).then((job) => {
             if (job) host.toast.show(t('Pushed tag {name}', { name: a.name }));
           });
         });
         break;
       case 'push-tags':
         askFirst(anchor, a.remote ? t('Push every tag to {remote}?', { remote: a.remote }) : t('Push every tag?'), t('Push all'), () => {
-          void run({ kind: 'push-tags', ...(a.remote ? { remote: a.remote } : {}) }).then((job) => {
+          void runPush({ kind: 'push-tags', ...(a.remote ? { remote: a.remote } : {}) }, anchor).then((job) => {
             if (job) host.toast.show(a.remote ? t('Pushed every tag to {remote}', { remote: a.remote }) : t('Pushed every tag'));
           });
         });
@@ -611,7 +634,7 @@ export function createRefsPlace(host) {
         break;
       case 'adopt':
         void Promise.resolve(workspaces?.adopt({ path: a.path, branch: a.branch })).then((result) => {
-          if (result === null) host.toast.show(t('No workspace provider offers this worktree.'));
+          if (result === null) host.toast.warn(t('No workspace provider offers this worktree.'));
           readAll();
         }).catch((e) => host.toast.error(errorText(e)));
         break;
@@ -800,29 +823,30 @@ export function createRefsPlace(host) {
       fold.type = 'button';
       fold.setAttribute('aria-expanded', String(!folded.has(section.id)));
       fold.title = folded.has(section.id) ? t('Show {section}', { section: section.title }) : t('Hide {section}', { section: section.title });
-      fold.append(icon('chev'), span('git-refs__title caps-label', section.title), span('git-refs__count', String(section.rows.length)));
+      fold.append(icon('chev'), span('git-refs__title caps-label text-truncate', section.title), span('git-refs__count', String(section.rows.length)));
       head.append(fold);
+      head.toggleAttribute('data-empty', section.rows.length === 0);
       const acts = createElement('span', 'git-refs__sect-acts');
-      menuFor('section', section.id, s).forEach((item, at) => {
-        const b = /** @type {HTMLButtonElement} */ (createElement('button', 'git-refs__sect-act', item.label || ''));
-        b.type = 'button';
-        b.disabled = Boolean(item.disabled);
-        b.dataset.index = String(at);
-        acts.append(b);
-      });
+      const items = menuFor('section', section.id, s);
+      // One action is a button that says what it does; more are a ⋯ menu, so a
+      // header never has to wrap to fit them.
+      if (items.length > 1) {
+        const more = /** @type {HTMLButtonElement} */ (createElement('button', 'git-refs__sect-more btn btn-icon btn-xs', '⋯'));
+        more.type = 'button';
+        more.title = t('{section} actions', { section: section.title });
+        more.setAttribute('aria-label', more.title);
+        acts.append(more);
+      } else {
+        items.forEach((item, at) => {
+          const b = /** @type {HTMLButtonElement} */ (createElement('button', 'git-refs__sect-act', item.label || ''));
+          b.type = 'button';
+          b.disabled = Boolean(item.disabled);
+          b.dataset.index = String(at);
+          acts.append(b);
+        });
+      }
       head.append(acts);
       return head;
-    };
-    /**
-     * @param {import('./refs-model.js').RefSection} section - An open section with no rows.
-     * @returns {string} What it says instead; '' for nothing.
-     */
-    const noneText = (section) => {
-      if (section.rows.length || folded.has(section.id)) return '';
-      if (section.id === 'stashes') return t('None');
-      // The checkout in view is the only tree, once the trees are read.
-      if (section.id === 'worktrees' && s.trees.length) return t('No other worktrees');
-      return '';
     };
     /** @type {HTMLElement[]} */
     const children = [];
@@ -845,8 +869,6 @@ export function createRefsPlace(host) {
           itemIndex.set(row.key, items.length);
           items.push({ key: `${row.key}\u0000${rowSig(row, s)}`, header: false, row: row.key, build: () => buildRow(row, s) });
         }
-        const none = noneText(section);
-        if (none) items.push({ key: `none:${section.id}`, header: false, build: () => span('git-refs__none', none) });
       }
       windowed.setItems(items);
       children.push(windowed.spacer);
@@ -859,18 +881,16 @@ export function createRefsPlace(host) {
           keys.push(row.key);
           children.push(buildRow(row, s));
         }
-        const none = noneText(section);
-        if (none) children.push(span('git-refs__none', none));
       }
     }
     if (!refs) {
-      children.push(createElement('div', 'git-refs__empty', readError
-        ? t("Couldn't read the refs. {error}", { error: readError })
-        : t('Checking…')));
+      children.push(readError
+        ? inlineError('git-refs__error', t("Couldn't read the refs. {error}", { error: readError }), () => readAll())
+        : createElement('div', 'git-refs__empty', t('Checking…')));
     } else {
       if (!keys.length && filter.active()) children.push(createElement('div', 'git-refs__empty', t('Nothing matches')));
-      if (refs.truncated) children.push(createElement('div', 'git-refs__error', t('More refs than are listed here.')));
-      if (readError) children.push(createElement('div', 'git-refs__error', t("Couldn't refresh. {error}", { error: readError })));
+      if (refs.truncated) children.push(createElement('div', 'git-refs__more', t('More refs than are listed here.')));
+      if (readError) children.push(inlineError('git-refs__error', t("Couldn't refresh. {error}", { error: readError }), () => readAll()));
     }
     order = keys;
     if (itemIndex.size && scroll.firstChild === windowed.spacer) {
@@ -1112,6 +1132,13 @@ export function createRefsPlace(host) {
     if (fold) {
       const id = fold.closest('.git-refs__sect')?.getAttribute('data-section') || '';
       if (id && !filter.active()) setFolded(id, fold.getAttribute('aria-expanded') === 'true');
+      return;
+    }
+    const sectMore = target.closest('.git-refs__sect-more');
+    if (sectMore instanceof HTMLElement) {
+      const id = sectMore.closest('.git-refs__sect')?.getAttribute('data-section') || '';
+      const rect = sectMore.getBoundingClientRect();
+      openMenu('section', id, rect.left, rect.bottom, sectMore);
       return;
     }
     const sectAct = target.closest('.git-refs__sect-act');

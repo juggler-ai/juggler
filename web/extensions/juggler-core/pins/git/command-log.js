@@ -5,8 +5,8 @@
 
 /**
  * The command log: the exact git each action in the pin ran, newest last, with
- * what a failed one printed. Closed it is one line — the last command — and a
- * click opens it; it starts from the tree's `jobs()` and is kept current by the
+ * what a failed one printed. Closed it is one line — the last command, marked
+ * ✗ when it failed — and a click opens it; it starts from the tree's `jobs()` and is kept current by the
  * `git-job` events the pin hears. A network write shows its meter's last phase.
  * The jobs are the whole tree's, whichever repository the pin is showing, so
  * each command is prompted with the name of the repository it ran in.
@@ -32,6 +32,7 @@ const KEEP = 100;
  * @property {(jobs: PinGitJob[]) => void} setJobs - Start from these, newest first.
  * @property {(job: PinGitJob) => void} upsert - A job started or moved.
  * @property {() => void} toggle - Open or close it.
+ * @property {() => void} reveal - Open it, with the newest failed command in view.
  * @property {() => boolean} isOpen - Whether it is open.
  */
 
@@ -73,15 +74,25 @@ export function createCommandLog({ repoName }) {
   const render = () => {
     const open = toggleButton.getAttribute('aria-expanded') === 'true';
     const last = jobs.at(-1);
-    toggleButton.textContent = last
-      ? commandLines(last).at(-1) || ''
-      : t('The git commands this pin runs appear here');
-    toggleButton.title = open ? t('Hide the command log') : t('Show every git command this pin ran');
+    // Closed, the line says whether the last command failed: a ✗ before it.
+    const lastFailed = last?.state === 'failed';
+    toggleButton.replaceChildren(
+      ...(lastFailed ? [createElement('span', 'git-pin__log-failed', '✗')] : []),
+      document.createTextNode(last
+        ? commandLines(last).at(-1) || ''
+        : t('The git commands this pin runs appear here')),
+    );
+    if (lastFailed) toggleButton.dataset.state = 'failed';
+    else delete toggleButton.dataset.state;
+    toggleButton.title = open ? t('Hide the command log')
+      : lastFailed ? t('The last git command failed. Show every git command this pin ran')
+        : t('Show every git command this pin ran');
     list.hidden = !open;
     if (!open) return;
     list.replaceChildren(...jobs.map((job) => {
       const entry = createElement('div', 'git-pin__log-entry');
       entry.dataset.state = job.state;
+      entry.dataset.job = job.id;
       entry.append(createElement('div', 'git-pin__log-cmd', commandLines(job).join('\n')));
       entry.append(createElement('div', 'git-pin__log-state', stateWord(job.state)));
       const progress = progressText(job.progress);
@@ -111,6 +122,13 @@ export function createCommandLog({ repoName }) {
     toggle: () => {
       toggleButton.setAttribute('aria-expanded', String(toggleButton.getAttribute('aria-expanded') !== 'true'));
       render();
+    },
+    reveal: () => {
+      toggleButton.setAttribute('aria-expanded', 'true');
+      render();
+      const failed = [...list.querySelectorAll('.git-pin__log-entry[data-state="failed"]')].at(-1)
+        || list.lastElementChild;
+      failed?.scrollIntoView({ block: 'nearest' });
     },
     isOpen: () => toggleButton.getAttribute('aria-expanded') === 'true',
   };

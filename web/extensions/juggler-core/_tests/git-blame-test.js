@@ -98,7 +98,7 @@ export async function runTests(_ctx) {
     const m = await changesOn('changes:src/a.go');
     const viewer = /** @type {Element} */ (m.body.querySelector('.git-changes__viewer'));
     assert(cells(viewer).length === 0, 'no gutter until it is asked for');
-    /** @type {HTMLElement} */ (viewer.querySelector('.diff-blame-btn')).click();
+    /** @type {HTMLElement} */ (m.body.querySelector('.git-changes__crumb .diff-blame-btn')).click();
     await waitFor(() => blames(m).length === 1, 'a blame read');
     const asked = blames(m)[0];
     assert(asked.blame?.path === 'src/a.go' && asked.blame?.rev === '', `the working tree's: ${JSON.stringify(asked)}`);
@@ -115,7 +115,7 @@ export async function runTests(_ctx) {
   await test('Changes: a staged file is blamed in the index; an untracked one is shown whole, with no diff', async () => {
     const m = await changesOn('staged:src/b.go');
     const viewer = /** @type {HTMLElement} */ (m.body.querySelector('.git-changes__viewer'));
-    /** @type {HTMLElement} */ (viewer.querySelector('.diff-blame-btn')).click();
+    /** @type {HTMLElement} */ (m.body.querySelector('.git-changes__crumb .diff-blame-btn')).click();
     await waitFor(() => blames(m).length === 1, 'a blame read');
     assert(blames(m)[0].blame?.rev === '@staged', `the index's: ${JSON.stringify(blames(m)[0])}`);
 
@@ -156,10 +156,10 @@ export async function runTests(_ctx) {
     await underPseudoLocale('git-blame-test', async () => {
       const m = await changesOn('changes:src/a.go');
       const viewer = /** @type {Element} */ (m.body.querySelector('.git-changes__viewer'));
-      /** @type {HTMLElement} */ (viewer.querySelector('.diff-blame-btn')).click();
+      /** @type {HTMLElement} */ (m.body.querySelector('.git-changes__crumb .diff-blame-btn')).click();
       await waitFor(() => cells(viewer).some((c) => c.dataset.sha === BLAMED), 'the gutter');
       const shown = [
-        ...shownStrings(/** @type {Element} */ (viewer.querySelector('.diff-blame-btn'))),
+        ...shownStrings(/** @type {Element} */ (m.body.querySelector('.git-changes__crumb .diff-blame-btn'))),
         ...cells(viewer).flatMap((c) => [c.title, c.dataset.sha ? '' : c.textContent || '']).filter(Boolean),
       ];
       // The fixture's id, author and subject are data.

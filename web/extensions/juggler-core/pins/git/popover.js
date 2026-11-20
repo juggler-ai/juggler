@@ -96,6 +96,11 @@ function button(cls, label) {
  * With `check`, a checkbox of those words under the fields, ticked unless
  * `checked` is false, whose state is `onSubmit`'s second argument.
  *
+ * With `validate`, an answer is checked before it is given: one it finds
+ * wrong is said under the field it names (the first unless `field` is
+ * 'secondary'), and the dialog stays open to correct it — a failure in a form
+ * stays in the form. Typing in that field again clears it.
+ *
  * It is the app's own form dialog, as every other question asking for words
  * is, not a popover: `label` is its title, the fields are its body, and its
  * buttons are the dialog's — tagged `git-pop__ok` and `git-pop__cancel`.
@@ -107,6 +112,7 @@ function button(cls, label) {
  * @param {{label: string, value?: string, placeholder?: string, ok: string, allowEmpty?: boolean,
  *   check?: string, checked?: boolean, secret?: boolean, multiline?: boolean, onCancel?: () => void,
  *   secondary?: {label: string, value?: string, placeholder?: string, multiline?: boolean},
+ *   validate?: (value: string, checked: boolean, secondary: string) => ({text: string, field?: 'value'|'secondary'}|null),
  *   onSubmit: (value: string, checked: boolean, secondary: string) => void}} ask - What to ask.
  * @returns {HTMLElement} The dialog's fields, in the document while it is open.
  */
@@ -140,7 +146,7 @@ export function askText(_anchor, _fallback, ask) {
     form.append(fieldLabel);
     return { label: fieldLabel, input: box };
   };
-  const { input } = field(ask.label, Boolean(ask.multiline), '');
+  const { label: firstLabel, input } = field(ask.label, Boolean(ask.multiline), '');
   if (!ask.multiline) {
     const line = /** @type {HTMLInputElement} */ (input);
     line.type = ask.secret ? 'password' : 'text';
@@ -148,11 +154,33 @@ export function askText(_anchor, _fallback, ask) {
   }
   input.value = ask.value || '';
   input.placeholder = ask.placeholder || '';
-  const second = ask.secondary ? field(ask.secondary.label, Boolean(ask.secondary.multiline), ' git-pop__input--secondary').input : null;
+  const secondField = ask.secondary ? field(ask.secondary.label, Boolean(ask.secondary.multiline), ' git-pop__input--secondary') : null;
+  const second = secondField?.input || null;
   if (second) {
     second.value = ask.secondary?.value || '';
     second.placeholder = ask.secondary?.placeholder || '';
   }
+  // What `validate` found wrong, under the field it is about.
+  const problem = createElement('div', 'git-pop__problem');
+  problem.id = `git-pop-problem-${Math.random().toString(36).slice(2, 8)}`;
+  problem.setAttribute('role', 'alert');
+  problem.hidden = true;
+  const problemGlyph = createElement('span', 'git-pop__problem-icon', '✕');
+  problemGlyph.setAttribute('aria-hidden', 'true');
+  const problemText = createElement('span', 'git-pop__problem-text');
+  problem.append(problemGlyph, problemText);
+  /** @type {HTMLInputElement|HTMLTextAreaElement|null} The field it is about, while it says anything. */
+  let flagged = null;
+  const clearProblem = () => {
+    if (!flagged) return;
+    flagged.removeAttribute('aria-invalid');
+    flagged.removeAttribute('aria-describedby');
+    flagged = null;
+    problem.hidden = true;
+    problemText.textContent = '';
+  };
+  input.addEventListener('input', clearProblem);
+  second?.addEventListener('input', clearProblem);
   /** @type {HTMLInputElement|null} */
   let box = null;
   if (ask.check) {
@@ -173,8 +201,23 @@ export function askText(_anchor, _fallback, ask) {
       input.focus();
       return false;
     }
+    const checked = Boolean(box?.checked);
+    const secondValue = second ? second.value.trim() : '';
+    const wrong = ask.validate?.(value, checked, secondValue);
+    if (wrong) {
+      clearProblem();
+      const onSecond = wrong.field === 'secondary' && second && secondField;
+      flagged = onSecond ? second : input;
+      (onSecond ? secondField.label : firstLabel).after(problem);
+      problemText.textContent = wrong.text;
+      problem.hidden = false;
+      flagged.setAttribute('aria-invalid', 'true');
+      flagged.setAttribute('aria-describedby', problem.id);
+      flagged.focus();
+      return false;
+    }
     if (ask.secret) input.value = '';
-    ask.onSubmit(value, Boolean(box?.checked), second ? second.value.trim() : '');
+    ask.onSubmit(value, checked, secondValue);
     return true;
   };
   let cancelled = false;
@@ -303,14 +346,17 @@ export function confirmAction(_anchor, _fallback, ask) {
 }
 
 /**
- * Offer a few ways on.
+ * Offer a few ways on: under a short `title`, a caption as a menu's header is,
+ * or under `detail` — what went wrong, in git's words — shown whole, at the
+ * size of the text it explains, and selectable to be copied.
  * @param {Element} anchor - What asked.
  * @param {Element} fallback - Where to hang it if `anchor` has gone.
- * @param {{title: string, choices: {id: string, label: string}[], onChoose: (id: string) => void}} ask - The choices.
+ * @param {{title?: string, detail?: string, choices: {id: string, label: string}[], onChoose: (id: string) => void}} ask - The choices.
  */
 export function chooseAction(anchor, fallback, ask) {
   const box = createElement('div', 'git-pop__choose');
-  box.append(createElement('div', 'git-pop__title', ask.title));
+  if (ask.title) box.append(createElement('div', 'git-pop__title', ask.title));
+  if (ask.detail) box.append(createElement('div', 'git-pop__detail', ask.detail));
   for (const choice of ask.choices) {
     const b = button('git-pop__choice', choice.label);
     b.dataset.choice = choice.id;

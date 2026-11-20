@@ -473,6 +473,7 @@
 			"layer": "components",
 			"owns": [
 				"diff-viewer",
+				"diff-viewer-controls",
 				"properties-panel-diff",
 				"review-*"
 			]

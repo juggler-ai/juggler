@@ -384,6 +384,21 @@ export async function runTests(_ctx) {
     return found;
   };
   /**
+   * Choose one of a section's actions from its header's ⋯ menu.
+   * @param {any} m - The mounted pin.
+   * @param {string} section - A section's id.
+   * @param {string} label - The action.
+   */
+  const sectMenu = (m, section, label) => {
+    const more = /** @type {HTMLElement|null} */ (m.body.querySelector(`.git-refs__sect[data-section="${CSS.escape(section)}"] .git-refs__sect-more`));
+    if (!more) throw new Error(`no ⋯ on ${section}`);
+    more.click();
+    const items = [...document.querySelectorAll('.juggler-context-menu .menu-item')];
+    const found = /** @type {HTMLElement|undefined} */ (items.find((el) => el.textContent === label));
+    if (!found) throw new Error(`no "${label}" in ${section}'s menu: ${JSON.stringify(items.map((el) => el.textContent))}`);
+    found.click();
+  };
+  /**
    * Answer the open question for words.
    * @param {string} value - The first field's.
    * @param {{secondary?: string, check?: boolean}} [more] - The second field's, and the checkbox.
@@ -438,8 +453,19 @@ export async function runTests(_ctx) {
     const before = m.runs().length;
     action(m, 'Push to…').click();
     answer('nowhere/old');
-    await waitFor(() => toastText(m).includes('is not a remote and a branch'), 'the refusal of an unknown remote');
+    // Said in the question, which stays open to correct it — not in a toast
+    // after it has gone.
+    const problem = inPop('.git-pop__problem');
+    assert(!problem.hidden && (problem.textContent || '').includes('is not a remote and a branch'), `the refusal: ${problem.textContent}`);
+    assert(Boolean(document.querySelector('.git-ask-dialog.is-open')), 'the question closed on a target it refused');
+    assert(inPop('.git-pop__input:not(.git-pop__input--secondary)').getAttribute('aria-invalid') === 'true', 'the field is not marked');
+    assert(!toastText(m), `a toast said it too: ${toastText(m)}`);
     assert(m.runs().length === before, 'an unknown remote ran nothing');
+    // The dialog's OK is busy until the refused answer has been handled.
+    await nextTask();
+    answer('upstream/fixed');
+    op = m.runs().at(-1)?.op;
+    assert(m.runs().length === before + 1 && op?.remote === 'upstream' && op.name === 'fixed', `the corrected push: ${JSON.stringify(op)}`);
     m.teardown();
   });
 
@@ -452,7 +478,7 @@ export async function runTests(_ctx) {
     let op = m.runs().at(-1)?.op;
     assert(op?.kind === 'push-tags' && op.remote === 'origin', `push-tags: ${JSON.stringify(op)}`);
 
-    sectAct(m, 'remote:upstream', 'Edit…').click();
+    sectMenu(m, 'remote:upstream', 'Edit…');
     assert((/** @type {HTMLInputElement} */ (inPop('.git-pop__input--secondary'))).value === 'https://example.com/upstream.git', 'the URL is shown to edit');
     answer('up', { secondary: 'https://example.com/moved.git' });
     op = await waitFor(() => m.runs().at(-1)?.op.kind === 'remote-set-url' && m.runs().at(-1)?.op, 'the URL set');
@@ -462,7 +488,7 @@ export async function runTests(_ctx) {
     assert(op.remote === 'upstream' && op.name === 'up', `rename: ${JSON.stringify(op)}`);
     m.finishRun(m.runs().length - 1);
 
-    sectAct(m, 'remote:origin', 'Remove…').click();
+    sectMenu(m, 'remote:origin', 'Remove…');
     assert(confirmPop().includes('Nothing on the remote itself changes'), 'says the remote itself is untouched');
     op = m.runs().at(-1)?.op;
     assert(op?.kind === 'remote-remove' && op.remote === 'origin', `remove: ${JSON.stringify(op)}`);

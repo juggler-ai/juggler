@@ -142,7 +142,9 @@ export async function runTests(_ctx) {
 
   await test('Continue waits for the conflicts; the primary is them, then Continue, which sends the operation seen', async () => {
     const m = await mounted(rebasing(CONFLICTED));
-    assert(button(m, 'continue').disabled && Boolean(button(m, 'continue').title), 'Continue is disabled, with why');
+    const hint = /** @type {HTMLElement|null} */ (m.body.querySelector('.git-op__hint'));
+    assert(button(m, 'continue').disabled && !hint?.hidden && hint?.textContent === 'Resolve the conflicts first',
+      `Continue is disabled, and says why beside it: ${hint?.textContent}`);
     assert(primary(m).dataset.kind === 'resolve' && (primary(m).textContent || '').includes('2 conflicts'), `primary: ${primary(m).textContent}`);
     assert(Boolean(m.body.querySelector('.git-commit__go')?.hasAttribute('disabled')), 'the commit button stands aside');
     assert((m.body.querySelector('.git-commit__op')?.textContent || '').includes('Continue'), 'the commit box says Continue finishes it');
@@ -192,6 +194,8 @@ export async function runTests(_ctx) {
     m.failRun(0, { kind: 'conflicts', message: 'Stopped with conflicts.' });
     const show = /** @type {Element} */ (await waitFor(() => m.body.querySelector('.git-pin__toast:not([hidden]) .git-pin__toast-action:not([hidden])'), 'Show them'));
     assert(show.textContent === 'Show them', `the toast offers ${show.textContent}`);
+    assert(m.body.querySelector('.git-pin__toast:not([hidden])')?.classList.contains('git-pin__toast--warn'),
+      'stopping on conflicts is a warning, which stays until it is dealt with');
     assert(!button(m, 'continue').disabled, 'the banner can be used again');
     m.teardown();
   });
@@ -235,7 +239,7 @@ export async function runTests(_ctx) {
       button(m, 'abort').click();
       await waitFor(() => document.querySelector('.git-pop .git-pop__text'), 'the question');
       const shown = [
-        bannerText(m), button(m, 'continue').textContent || '', button(m, 'continue').title,
+        bannerText(m), button(m, 'continue').textContent || '', m.body.querySelector('.git-op__hint')?.textContent || '',
         button(m, 'skip').textContent || '', button(m, 'abort').textContent || '',
         ...[...document.querySelectorAll('.git-pop .git-pop__text, .git-pop button')].map((el) => el.textContent || ''),
       ];

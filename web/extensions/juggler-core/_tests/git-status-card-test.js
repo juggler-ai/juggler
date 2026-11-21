@@ -22,16 +22,17 @@ import { setGitWorkspace } from '../../../js/services/git-workspace.js';
 import pinboardItemRegistry from '../../../js/registries/pinboard-item-registry.js';
 import pinboardStore from '../../../js/services/pinboard-store.js';
 import pinboardView from '../../../js/services/pinboard-view.js';
-import { assert, nextTask } from '../../../js-tests/utilities/test-helpers.js';
+import { assert, nextTask, waitFor } from '../../../js-tests/utilities/test-helpers.js';
 import { underPseudoLocale, shownStrings } from '../../../js-tests/utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../../sdk/lib/i18n.js';
 
 /** juggler-core's English for this card, standing in for its catalogue. */
 const CORE_TEXT = [
   'Checking…', 'No git repository', 'No changed files', 'Workspace: {workspace}',
-  'Review changes in the Pinboard', 'Open Git status in the Pinboard',
-  'Review changes', 'Open in the Pinboard', 'Review changes →',
-  '{count} changed', '{count} staged', '{changed} changed, {staged} staged', 'repo',
+  'Open Git in the Pinboard', 'Open Git', 'Open {repo} in Git',
+  '{count} changed', '{count} staged', '{count, plural, one {# conflict} other {# conflicts}}', 'repo',
+  'Detached head', 'No branch', '{count} ahead', '{count} behind', '{ahead} ahead, {behind} behind',
+  'Upstream {upstream}: {divergence}',
 ];
 
 /**
@@ -87,7 +88,10 @@ export async function runTests(_ctx) {
     path: '',
     changed: 0,
     staged: 0,
+    conflicted: 0,
     total: 0,
+    added: 0,
+    removed: 0,
     branch: 'main',
     upstream: '',
     ahead: 0,
@@ -125,6 +129,8 @@ export async function runTests(_ctx) {
           if (op.op === 'add' && !board.some((p) => p.id === op.id)) {
             board.push({ id: op.id, type: op.type, config: op.config || {} });
           }
+          const pin = op.op === 'update' ? board.find((p) => p.id === op.id) : null;
+          if (pin) pin.config = op.config;
         }
         return { ok: true, json: async () => ({ pins: board }) };
       }
@@ -172,6 +178,10 @@ export async function runTests(_ctx) {
       contentEl,
       server,
       text: () => contentEl.textContent || '',
+      // What the card says, its tooltips and accessible names included: the
+      // counts' breakdown is said only there.
+      says: () => [contentEl.textContent || '', ...[...contentEl.querySelectorAll('[title], [aria-label]')]
+        .flatMap((el) => [el.getAttribute('title') || '', el.getAttribute('aria-label') || ''])].join(' | '),
       launcher: () => contentEl.querySelector('.git-status-card__launch'),
       teardown,
     };
@@ -278,7 +288,7 @@ export async function runTests(_ctx) {
       await nextTask();
       assert(!m.text().includes('Checking…'),
         `the last answer stays up while the new one is read, got ${JSON.stringify(m.text())}`);
-      assert(m.text().includes('2 changed'), `got ${JSON.stringify(m.text())}`);
+      assert(m.says().includes('2 changed'), `got ${JSON.stringify(m.says())}`);
       held.release();
       await gitStatusCache.refresh();
       await nextTask();
@@ -301,7 +311,7 @@ export async function runTests(_ctx) {
     await gitStatusCache.refresh();
     await nextTask();
     assert(m.text().includes('was closed'), `expected the refusal, got ${JSON.stringify(m.text())}`);
-    assert(!m.text().includes('2 changed'), `and not the old tree's counts, got ${JSON.stringify(m.text())}`);
+    assert(!m.says().includes('2 changed'), `and not the old tree's counts, got ${JSON.stringify(m.says())}`);
     held.restore();
     m.teardown();
   });
@@ -314,19 +324,53 @@ export async function runTests(_ctx) {
 
   await test('a clean tree says nothing changed', async () => {
     const m = await mount({ root: '/tmp/proj', repos: [repo()] });
-    assert(m.text().includes('No changed files'), `got ${JSON.stringify(m.text())}`);
+    assert(m.says().includes('No changed files'), `got ${JSON.stringify(m.says())}`);
     m.teardown();
   });
 
-  await test('a dirty tree shows the counts, omitting a zero side', async () => {
+  await test('a dirty repo is one line: a file count, its breakdown on hover, a zero side left out', async () => {
     const m = await mount({ root: '/tmp/proj', repos: [repo({ changed: 2, staged: 1, total: 3 })] });
-    assert(m.text().includes('2 changed, 1 staged'), `got ${JSON.stringify(m.text())}`);
+    const files = m.contentEl.querySelector('.git-status-card__files');
+    assert(files?.textContent === '3' && files.getAttribute('title') === '2 changed, 1 staged',
+      `the count, and its breakdown: ${files?.outerHTML}`);
+    assert(m.contentEl.querySelectorAll('.git-status-card__line').length === 1, `one line: ${m.contentEl.innerHTML}`);
 
     const stagedOnly = await mount({ root: '/tmp/proj', repos: [repo({ staged: 1, total: 1 })] });
-    assert(stagedOnly.text().includes('1 staged') && !stagedOnly.text().includes('0 changed'),
-      `a zero side is left out entirely: ${JSON.stringify(stagedOnly.text())}`);
+    const staged = stagedOnly.contentEl.querySelector('.git-status-card__files');
+    assert(staged?.getAttribute('title') === '1 staged' && staged.classList.contains('git-status-card__files--staged'),
+      `a zero side is left out entirely, and only staged files say so by their colour: ${staged?.outerHTML}`);
     stagedOnly.teardown();
     m.teardown();
+  });
+
+  await test('a repo says its branch, its drift from upstream, and a conflict before anything else', async () => {
+    const m = await mount({ root: '/tmp/proj', repos: [repo({
+      branch: 'develop', upstream: 'origin/develop', ahead: 2, behind: 1, changed: 1, conflicted: 1, total: 1,
+    })] });
+    const q = (/** @type {string} */ sel) => m.contentEl.querySelector(sel);
+    assert(q('.git-status-card__branch')?.textContent === 'develop', `the branch: ${m.contentEl.innerHTML}`);
+    const sync = q('.git-status-card__sync');
+    assert(sync?.textContent === '21' && sync.getAttribute('title') === 'Upstream origin/develop: 2 ahead, 1 behind',
+      `ahead then behind, said in full on hover: ${sync?.outerHTML}`);
+    const files = q('.git-status-card__files');
+    assert(files?.classList.contains('git-status-card__files--conflicted') && files.getAttribute('title') === '1 conflict, 1 changed',
+      `the conflict colours the count and leads its breakdown: ${files?.outerHTML}`);
+    m.teardown();
+
+    const level = await mount({ root: '/tmp/proj', repos: [repo({ upstream: 'origin/main', changed: 1, total: 1 })] });
+    assert(!level.contentEl.querySelector('.git-status-card__sync'), 'a branch level with its upstream shows no drift');
+    level.teardown();
+  });
+
+  await test('a clean lone repo still shows its branch; several clean ones only say so', async () => {
+    const lone = await mount({ root: '/tmp/proj', repos: [repo({ branch: 'develop' })] });
+    assert(lone.contentEl.querySelector('.git-status-card__branch')?.textContent === 'develop'
+      && lone.says().includes('No changed files'), `got ${lone.contentEl.innerHTML}`);
+    lone.teardown();
+    const several = await mount({ root: '/tmp/proj', repos: [repo(), repo({ path: 'sub' })] });
+    assert(!several.contentEl.querySelector('.git-status-card__branch') && several.text().includes('No changed files'),
+      `got ${several.contentEl.innerHTML}`);
+    several.teardown();
   });
 
   await test('a lone repo at the root goes unlabelled, and nested repos do not', async () => {
@@ -384,8 +428,11 @@ export async function runTests(_ctx) {
     const m = await mount({ root: '/tmp/proj', repos: [repo({ changed: 1, total: 1 })] });
     assert(!m.launcher(),
       'an affordance that would do nothing is absent rather than inert');
-    assert(m.text().includes('1 changed'), 'and the card still says what it always said');
+    assert(m.says().includes('1 changed'), 'and the card still says what it always said');
     m.teardown();
+    const nested = await mount({ root: '/tmp/proj', repos: [repo({ changed: 1, total: 1 }), repo({ path: 'juggler', changed: 1, total: 1 })] });
+    assert(!nested.contentEl.querySelector('button.git-status-card__repo'), 'nor do its repository badges');
+    nested.teardown();
   });
 
   await test('with the Git pin enabled, the whole card becomes the way in', async () => {
@@ -394,21 +441,18 @@ export async function runTests(_ctx) {
     const button = m.launcher();
     assert(!!button, 'with a pin that accepts the git source, the card offers to open it');
     assert(button?.tagName === 'BUTTON', `expected a real button, got ${button?.tagName}`);
-    assert(button?.getAttribute('aria-label') === 'Review changes in the Pinboard',
+    assert(button?.getAttribute('aria-label') === 'Open Git in the Pinboard',
       `expected a literal label, got ${JSON.stringify(button?.getAttribute('aria-label'))}`);
-    assert(m.text().includes('Review changes'),
-      `a dirty tree has somewhere to go, and the card should say where:\n${m.text()}`);
-    assert(m.text().includes('1 changed'), 'and the counts are still what it reads as');
+    assert(Boolean(m.contentEl.querySelector('.git-status-card__go')), 'an arrow says the card goes somewhere');
+    assert(m.says().includes('1 changed'), 'and the counts are still what it reads as');
     m.teardown();
   });
 
-  await test('with nothing changed the card offers a look, not a review', async () => {
+  await test('the card offers the same way in whether or not anything changed', async () => {
     enableGitPin();
     const m = await mount({ root: '/tmp/proj', repos: [repo()] });
-    assert(!m.text().includes('Review changes'),
-      `there is nothing to review, so offering to is an invitation to nothing:\n${m.text()}`);
-    assert(m.launcher()?.getAttribute('aria-label') === 'Open Git status in the Pinboard',
-      `and it says what it does do, got ${JSON.stringify(m.launcher()?.getAttribute('aria-label'))}`);
+    assert(m.launcher()?.getAttribute('aria-label') === 'Open Git in the Pinboard',
+      `got ${JSON.stringify(m.launcher()?.getAttribute('aria-label'))}`);
     m.teardown();
   });
 
@@ -457,6 +501,34 @@ export async function runTests(_ctx) {
     m.teardown();
   });
 
+  await test('a repository badge opens the pin on that repository; the rest of the card leaves it where it is', async () => {
+    enableGitPin();
+    const m = await mount({
+      root: '/tmp/proj',
+      repos: [repo({ path: '', changed: 1, total: 1 }), repo({ path: 'juggler', changed: 1, total: 1 })],
+    });
+    const badgeFor = (/** @type {string} */ name) => /** @type {HTMLButtonElement|undefined} */ ([...m.contentEl.querySelectorAll('button.git-status-card__repo')]
+      .find((b) => b.textContent === name));
+    assert(Boolean(badgeFor('juggler') && badgeFor('proj')), `each repository's badge is a button:\n${m.contentEl.innerHTML}`);
+
+    badgeFor('juggler')?.click();
+    await waitFor(() => m.server.board.length > 0 && pinboardView.getActivePinId() === m.server.board[0]?.id, 'the pin to be added and revealed');
+    assert(m.server.board.length === 1 && m.server.board[0].config.repo === 'juggler',
+      `a new pin opens on the nested repository: ${JSON.stringify(m.server.board)}`);
+    assert(pinboardView.getActivePinId() === m.server.board[0].id, 'and is revealed');
+
+    /** @type {any} */ (m.launcher()).click();
+    await nextTask();
+    assert(m.server.board.length === 1 && m.server.board[0].config.repo === 'juggler',
+      `the card elsewhere reveals it on the repository it shows: ${JSON.stringify(m.server.board)}`);
+
+    badgeFor('proj')?.click();
+    await waitFor(() => !('repo' in (m.server.board[0]?.config || {})), 'the pin to move to the root repository');
+    assert(m.server.board.length === 1 && !('repo' in m.server.board[0].config),
+      `the root repository's badge moves the same pin back to the root: ${JSON.stringify(m.server.board)}`);
+    m.teardown();
+  });
+
   await test('the card names a source kind, never the pin class', async () => {
     // The rule this whole seam exists for: the registry resolves {kind:'git'} to
     // whichever enabled type accepts it, so a card and its pin never import each
@@ -485,8 +557,8 @@ export async function runTests(_ctx) {
     // whole reason the cache is in the host rather than in each surface.
     assert(m.server.gitRequests <= before + 1,
       `a second surface should not multiply the git invocations: ${before} → ${m.server.gitRequests}`);
-    assert((second.textContent || '').includes('No changed files'),
-      `and it paints from the shared snapshot at once:\n${second.textContent}`);
+    assert(Boolean(second.querySelector('.git-status-card__clean-tick')),
+      `and it paints from the shared snapshot at once:\n${second.innerHTML}`);
 
     stopSecond?.();
     second.remove();
@@ -516,14 +588,22 @@ export async function runTests(_ctx) {
         ['dirty, both sides', { root: '/tmp/1', workspace: '2', repos: [repo({ changed: 3, staged: 4, total: 7 })] }],
         ['dirty, changed only', { root: '/tmp/1', repos: [repo({ changed: 3, total: 3 })] }],
         ['dirty, staged only', { root: '/tmp/1', repos: [repo({ path: '5', staged: 4, total: 4 })] }],
+        ['drifted, conflicted', { root: '/tmp/1', repos: [repo({ upstream: '6', ahead: 1, behind: 2, changed: 1, staged: 1, conflicted: 1, total: 2 })] }],
+        ['detached', { root: '/tmp/1', repos: [repo({ branch: '', detached: true, changed: 1, total: 1 })] }],
+        ['no branch', { root: '/tmp/1', repos: [repo({ branch: '' })] }],
       ]);
       for (const withPin of [false, true]) {
         if (withPin) enableGitPin(); else pinboardItemRegistry.reset();
         for (const [, status] of states) {
           const m = await mount(status);
-          shown.push(...shownStrings(m.contentEl, '.git-status-card__repo'));
-          for (const badge of m.contentEl.querySelectorAll('.git-status-card__repo[title]')) {
-            shown.push(String(badge.getAttribute('title')));
+          // Names and numbers are data: the badges, a branch's name, the drift's
+          // and the lines' digits. Their tooltips are words, and are checked.
+          const data = '.git-status-card__repo, .git-status-card__branch:not(.git-status-card__branch--none), .git-status-card__sync, .git-status-card__files';
+          shown.push(...shownStrings(m.contentEl, data));
+          for (const node of m.contentEl.querySelectorAll('.git-status-card__repo[title], .git-status-card__sync[title], .git-status-card__files[title]')) {
+            // A badge's title is its name unless it names a workspace.
+            if (node.matches('.git-status-card__repo') && node.getAttribute('title') === node.textContent) continue;
+            shown.push(String(node.getAttribute('title')));
           }
           m.teardown();
         }

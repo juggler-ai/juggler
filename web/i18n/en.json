@@ -425,6 +425,7 @@
   "Couldn't undo all of it: {reasons}": "Couldn't undo all of it: {reasons}",
   "Couldn't update preset": "Couldn't update preset",
   "Couldn't update provider: {detail}": "Couldn't update provider: {detail}",
+  "Couldn't update that pin. {error}": "Couldn't update that pin. {error}",
   "Couldn't write response": "Couldn't write response",
   "Couldn’t add it. {error}": "Couldn’t add it. {error}",
   "Couldn’t check for updates.": "Couldn’t check for updates.",

@@ -155,13 +155,13 @@ function isPlace(value) {
 /**
  * The place a config asks for: Review for a pin scoped to something other than
  * the working tree (how the agent opens it on a commit or a range), else the
- * place last chosen, else Changes.
+ * place last chosen, else History, the place most visits are for.
  * @param {Record<string, unknown>} config - The pin's config.
  * @returns {PlaceId} The place.
  */
 function placeOf(config) {
   if (normalizeScope(config?.scope) !== DEFAULT_SCOPE) return 'review';
-  return isPlace(config?.place) ? config.place : 'changes';
+  return isPlace(config?.place) ? config.place : 'history';
 }
 
 /** The select's value for "type an expression". */
@@ -399,12 +399,29 @@ class GitPin extends PinboardItemType {
   }
 
   /**
+   * A pin asked for again on one repository of its tree shows that one. The
+   * root repository's path is '', which a stored config leaves out, so only the
+   * request as asked can say it was named.
+   * @param {Record<string, unknown>} existing - The pin's config.
+   * @param {Record<string, unknown>} requested - The config asked for, as asked.
+   * @returns {Record<string, unknown>|null} The pin's config on that repository, or null.
+   */
+  revisit(existing, requested) {
+    if (typeof requested?.repo !== 'string') return null;
+    if ((existing?.repo || '') === requested.repo) return null;
+    const { repo: _repo, ...rest } = existing || {};
+    return requested.repo ? { ...rest, repo: requested.repo } : rest;
+  }
+
+  /**
    * @param {import('juggler/pinboard-item-type').PinSource} source - What the user asked to pin.
-   * @returns {Record<string, unknown>|null} The config: the source's scope, if it named one.
+   * @returns {Record<string, unknown>|null} The config: the source's scope, if it
+   *   named one, and its repository, if it named one.
    */
   static configFromSource(source) {
     if (!GitPin.canPinSource(source)) return null;
-    return normalizeGitPinParameters(/** @type {any} */ (source));
+    const config = normalizeGitPinParameters(/** @type {any} */ (source));
+    return typeof source.repo === 'string' ? { ...config, repo: source.repo } : config;
   }
 
   /**
@@ -1594,6 +1611,10 @@ class GitPin extends PinboardItemType {
           if (rescoped) return;
         }
         if (isPlace(config.place) && placeFor(config.place) !== place) showPlace(config.place);
+        // Another repository named from outside (the Git status card, say): a
+        // tree that moved has already been read from the one its config names.
+        const named = typeof config.repo === 'string' ? config.repo : '';
+        if (!movedTree && named !== changes.repo()) changes.showRepo(named);
         syncControls();
         render();
       },

@@ -425,6 +425,7 @@
   "Couldn't undo all of it: {reasons}": "Nicht alles konnte rückgängig gemacht werden: {reasons}",
   "Couldn't update preset": "Vorlage konnte nicht aktualisiert werden",
   "Couldn't update provider: {detail}": "Anbieter konnte nicht aktualisiert werden: {detail}",
+  "Couldn't update that pin. {error}": "Pin konnte nicht aktualisiert werden. {error}",
   "Couldn't write response": "Antwort konnte nicht geschrieben werden",
   "Couldn’t add it. {error}": "Hinzufügen fehlgeschlagen. {error}",
   "Couldn’t check for updates.": "Suche nach Updates fehlgeschlagen.",

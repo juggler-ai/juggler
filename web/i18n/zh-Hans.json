@@ -425,6 +425,7 @@
   "Couldn't undo all of it: {reasons}": "无法全部撤销：{reasons}",
   "Couldn't update preset": "无法更新预设",
   "Couldn't update provider: {detail}": "无法更新提供方：{detail}",
+  "Couldn't update that pin. {error}": "无法更新该置顶项。{error}",
   "Couldn't write response": "无法写入响应",
   "Couldn’t add it. {error}": "无法添加。{error}",
   "Couldn’t check for updates.": "无法检查更新。",

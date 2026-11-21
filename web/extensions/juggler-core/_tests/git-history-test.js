@@ -375,6 +375,20 @@ export async function runTests(_ctx) {
     m.teardown();
   });
 
+  await test('a repository named in a config written from outside is shown; one the tree lacks is not', async () => {
+    const m = mount({ place: 'history', status: { root: '/tmp/proj', repos: [{ path: '' }, { path: 'sub' }] } });
+    const picker = /** @type {HTMLElement} */ (m.body.querySelector('.git-pin__repo'));
+    await waitFor(() => !picker.hidden && pickerChoices(picker).some((c) => c.value === 'sub'), 'the repository picker');
+    m.reconfigure({ place: 'history', repo: 'sub' });
+    assert(pickerValue(picker) === 'sub', `the pin moves to sub: ${pickerValue(picker)}`);
+    await waitFor(() => m.reads().some((/** @type {any} */ r) => r.kind === 'log' && r.options.repo === 'sub'), 'History to read sub');
+    m.reconfigure({ place: 'history', repo: 'gone' });
+    assert(pickerValue(picker) === 'sub', `a repository the tree lacks is not switched to: ${pickerValue(picker)}`);
+    m.reconfigure({ place: 'history' });
+    assert(pickerValue(picker) === '', `no repository named is the root one: ${pickerValue(picker)}`);
+    m.teardown();
+  });
+
   await test('switching places keeps the repository picked, because the pin is not rebuilt', async () => {
     const m = mount({ place: 'changes', status: { root: '/tmp/proj', repos: [{ path: '' }, { path: 'sub' }] } });
     const picker = /** @type {HTMLElement} */ (m.body.querySelector('.git-pin__repo'));

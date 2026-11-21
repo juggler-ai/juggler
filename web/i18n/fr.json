@@ -425,6 +425,7 @@
   "Couldn't undo all of it: {reasons}": "Impossible de tout annuler : {reasons}",
   "Couldn't update preset": "Impossible de mettre à jour le préréglage",
   "Couldn't update provider: {detail}": "Impossible de mettre à jour le fournisseur : {detail}",
+  "Couldn't update that pin. {error}": "Impossible de mettre à jour cette épingle. {error}",
   "Couldn't write response": "Impossible d’écrire la réponse",
   "Couldn’t add it. {error}": "Impossible de l’ajouter. {error}",
   "Couldn’t check for updates.": "Impossible de rechercher des mises à jour.",

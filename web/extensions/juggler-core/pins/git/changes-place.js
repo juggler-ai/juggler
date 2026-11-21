@@ -1482,6 +1482,8 @@ export function createChangesPlace(host) {
     repo: () => repo,
     dirtyCount: () => (read ? files().length : null),
     showRepo: (next) => {
+      // One the tree, as last read, does not hold is not switched to.
+      if (repos.length && !repos.some((r) => r.path === next)) return;
       switchRepo(next);
       drawRepos();
     },

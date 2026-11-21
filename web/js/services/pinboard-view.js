@@ -266,6 +266,27 @@ function findDuplicate(typeId, config) {
 }
 
 /**
+ * The config an existing pin takes on when it is asked for again, if its type
+ * changes it.
+ * @param {ReturnType<typeof pinboardItemRegistry.getType>} type - The pin's type, if registered.
+ * @param {Pin} pin - The pin found.
+ * @param {Record<string, unknown>} requested - The config asked for, as asked.
+ * @returns {Record<string, unknown>|null} The normalized config to store, or null to leave it.
+ */
+function revisedConfig(type, pin, requested) {
+  if (!type) return null;
+  try {
+    const next = type.revisit(pin.config, requested);
+    if (!next) return null;
+    const normalized = type.normalizeConfig(next) ?? next;
+    return JSON.stringify(normalized) === JSON.stringify(pin.config) ? null : normalized;
+  } catch (err) {
+    console.error(`[Pinboard] Item type "${pin.type}" failed to revisit a config:`, err);
+    return null;
+  }
+}
+
+/**
  * The one pin type a board is pruned of: `changed-files`, withdrawn once the Git
  * pin became the review surface for the whole working tree.
  *
@@ -538,7 +559,9 @@ const pinboardView = {
 
   /**
    * Add a pin of a type, revealing the pin that already says the same thing
-   * rather than adding a second one.
+   * rather than adding a second one — carrying onto it whatever the type's
+   * `revisit` takes from the request. The pin is revealed before that config is
+   * written, so the board answers the click at once.
    * @param {string} typeId - Item-type id.
    * @param {Record<string, unknown>} [config] - Provider config.
    * @returns {Promise<Pin|null>} The pin now showing, or null if the add failed.
@@ -556,6 +579,11 @@ const pinboardView = {
     const existing = findDuplicate(typeId, normalized);
     if (existing) {
       this.reveal(existing.id);
+      const revised = revisedConfig(type, existing, config);
+      if (revised) {
+        await attempt((error) => t("Couldn't update that pin. {error}", { error }),
+          () => pinboardStore.updateConfig(existing.id, revised));
+      }
       return existing;
     }
     const pin = await attempt((error) => t("Couldn't add that pin. {error}", { error }),

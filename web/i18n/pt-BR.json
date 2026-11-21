@@ -425,6 +425,7 @@
   "Couldn't undo all of it: {reasons}": "Não foi possível desfazer tudo: {reasons}",
   "Couldn't update preset": "Não foi possível atualizar a predefinição",
   "Couldn't update provider: {detail}": "Não foi possível atualizar o provedor: {detail}",
+  "Couldn't update that pin. {error}": "Não foi possível atualizar esse pin. {error}",
   "Couldn't write response": "Não foi possível gravar a resposta",
   "Couldn’t add it. {error}": "Não foi possível adicionar. {error}",
   "Couldn’t check for updates.": "Não foi possível verificar se há atualizações.",

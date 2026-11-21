@@ -83,6 +83,8 @@ import { validateManifest } from './lib/manifest.js';
  *   a file, for a surface that already knows which it is offering
  * @property {'live'|'snapshot'} [presentation] - Whether the pin tracks the source
  *   or freezes what it said at pin time
+ * @property {string} [repo] - A repository by its path in the tree ('' for the
+ *   root one), for `kind: 'git'`
  */
 
 /**
@@ -1512,6 +1514,24 @@ class PinboardItemType {
    */
   isSameConfig(a, b) {
     return JSON.stringify(a) === JSON.stringify(b);
+  }
+
+  /**
+   * What an existing pin becomes when it is asked for again. The host reveals
+   * the pin it found rather than adding a duplicate; a request that also names
+   * something within that pin — a section of it, one of several things it can
+   * show — can carry that onto it here. Return the config the pin should have
+   * (the host normalizes and stores it when it differs), or null to leave the
+   * pin as it is. Defaults to null.
+   * @param {Record<string, unknown>} existing - The pin's config, normalized.
+   * @param {Record<string, unknown>} requested - The config asked for, as asked:
+   *   not normalized, so it may say what normalizing would drop.
+   * @returns {Record<string, unknown>|null} The config to store, or null.
+   */
+  revisit(existing, requested) {
+    void existing;
+    void requested;
+    return null;
   }
 
   /**

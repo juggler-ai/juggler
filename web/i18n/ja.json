@@ -425,6 +425,7 @@
   "Couldn't undo all of it: {reasons}": "すべてを取り消すことはできませんでした: {reasons}",
   "Couldn't update preset": "プリセットを更新できませんでした",
   "Couldn't update provider: {detail}": "プロバイダを更新できませんでした: {detail}",
+  "Couldn't update that pin. {error}": "そのピンを更新できませんでした。{error}",
   "Couldn't write response": "レスポンスを書き込めませんでした",
   "Couldn’t add it. {error}": "追加できませんでした。{error}",
   "Couldn’t check for updates.": "アップデートを確認できませんでした。",

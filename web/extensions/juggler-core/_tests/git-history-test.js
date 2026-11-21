@@ -275,7 +275,9 @@ export async function runTests(_ctx) {
     const q = logReads(m).find((x) => x.refresh);
     assert(q.find === shaOf(300) && q.graph === 'g1', `found by the top row: ${JSON.stringify(q)}`);
     await waitFor(() => rowAt(m, 302)?.getAttribute('data-sha') === shaOf(300), 'the row to move down two');
-    assert(scroller(m).scrollTop === 302 * ROW + 5, `anchored: ${scroller(m).scrollTop}`);
+    // Within a device pixel: a scaled display snaps scrollTop to one (7857.33 at 150%).
+    assert(Math.abs(scroller(m).scrollTop - (302 * ROW + 5)) < 1 / window.devicePixelRatio,
+      `anchored: ${scroller(m).scrollTop}, want ${302 * ROW + 5}`);
     m.teardown();
   });
 

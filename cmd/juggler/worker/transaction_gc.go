@@ -146,6 +146,50 @@ func collectTxnIDsFromItems(items []ConversationItem, dst map[string]bool) {
 	}
 }
 
+// requestTxnTrim asks the transaction store to strip the input of every blob
+// old enough to have lost it (TransactionStore.RequestTrim), keeping each
+// thread's newest round-trip whole however old: the tool-drift check reads the
+// tools that round-trip was offered from its input.
+//
+// Run after every persisted save, alongside sweepTransactions. The strip runs
+// in the background; this only builds the keep set.
+func (w *ConversationWorker) requestTxnTrim() {
+	if w.txnStore == nil {
+		return
+	}
+	keep := make(map[string]bool)
+	collectLatestRoundTripTxnIDs(w.doc.GetItems(), keep)
+	w.txnStore.RequestTrim(w.conversationID, keep)
+}
+
+// collectLatestRoundTripTxnIDs adds to dst the transactionId of each thread's
+// newest round-trip — at the root and in every nested thread — reading it off
+// the last item a round-trip produced, as the viewer's findLastRoundTripTxnId
+// (web/js/utils/transaction-anchor.js) does. The user message that opened a
+// round-trip carries its id too but sits on the input side, and is skipped.
+func collectLatestRoundTripTxnIDs(items []ConversationItem, dst map[string]bool) {
+	found := false
+	for i := len(items) - 1; i >= 0; i-- {
+		it := items[i]
+		if !found && it.TransactionID != "" && isRoundTripOutput(it.Type) {
+			dst[it.TransactionID] = true
+			found = true
+		}
+		if it.Type == ItemTypeThread && len(it.Items) > 0 {
+			var nested []ConversationItem
+			if err := json.Unmarshal(it.Items, &nested); err == nil {
+				collectLatestRoundTripTxnIDs(nested, dst)
+			}
+		}
+	}
+}
+
+// isRoundTripOutput reports whether an item of this type is something a
+// round-trip produced.
+func isRoundTripOutput(itemType string) bool {
+	return itemType == ItemTypeAssistant || itemType == ItemTypeThinking || itemType == ItemTypeToolAction
+}
+
 // collectAssetIDsFromItems walks items recursively (into nested thread items)
 // adding every attachment id it encounters to dst. Mirrors collectTxnIDsFromItems.
 func collectAssetIDsFromItems(items []ConversationItem, dst map[string]bool) {

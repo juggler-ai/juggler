@@ -782,37 +782,45 @@ func stripConvTxnInputs(convDir string) {
 			continue
 		}
 		path := filepath.Join(txnsDir, name)
-		data, err := os.ReadFile(path)
-		if err != nil {
-			jlog.Info("[session] failed to read txn blob %s: %v", path, err)
-			continue
-		}
-		// A map rather than a struct: the blob's shape belongs to the worker, and
-		// a key this code has not heard of has to survive the round-trip.
-		var blob map[string]any
-		if err := json.Unmarshal(data, &blob); err != nil {
-			jlog.Info("[session] failed to parse txn blob %s: %v", path, err)
-			continue
-		}
-		if _, present := blob["input"]; !present {
-			continue
-		}
-		delete(blob, "input")
-		stripped, err := json.Marshal(blob)
-		if err != nil {
-			jlog.Info("[session] failed to re-encode txn blob %s: %v", path, err)
-			continue
-		}
-		tmp := path + ".tmp"
-		if err := os.WriteFile(tmp, stripped, 0o644); err != nil {
-			jlog.Info("[session] failed to write stripped txn blob %s: %v", path, err)
-			continue
-		}
-		if err := atomicio.RobustRename(tmp, path); err != nil {
-			os.Remove(tmp)
-			jlog.Info("[session] failed to replace txn blob %s: %v", path, err)
+		if _, err := StripTxnBlobInput(path); err != nil {
+			jlog.Info("[session] failed to strip txn blob %s: %v", path, err)
 		}
 	}
+}
+
+// StripTxnBlobInput rewrites one transaction blob without its "input", leaving
+// every other key exactly as it was. It reports whether it rewrote the file: a
+// blob already without input is left untouched. An error leaves the blob as it
+// was — unreadable, unparseable or unwritable alike — and a missing file is
+// reported as the os.ErrNotExist it is.
+func StripTxnBlobInput(path string) (stripped bool, err error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+	// A map rather than a struct: the blob's shape belongs to the worker, and a
+	// key this code has not heard of has to survive the round-trip.
+	var blob map[string]any
+	if err := json.Unmarshal(data, &blob); err != nil {
+		return false, fmt.Errorf("parse: %w", err)
+	}
+	if _, present := blob["input"]; !present {
+		return false, nil
+	}
+	delete(blob, "input")
+	out, err := json.Marshal(blob)
+	if err != nil {
+		return false, fmt.Errorf("re-encode: %w", err)
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, out, 0o644); err != nil {
+		return false, fmt.Errorf("write: %w", err)
+	}
+	if err := atomicio.RobustRename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return false, fmt.Errorf("replace: %w", err)
+	}
+	return true, nil
 }
 
 // sweepBinTxnInputs strips the transaction inputs of every conversation in

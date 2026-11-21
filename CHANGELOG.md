@@ -10,6 +10,7 @@ the current release). The project follows semantic versioning.
 - Git pin: add, edit and remove remotes, and push every tag at once
 - Git pin: the mouse wheel scrolls its lists and panes on Windows
 - The Usage card shows usage for a second Codex, OpenRouter, DeepSeek or Z.AI account
+- Long conversations no longer fill the disk with old request records
 
 ## [0.8.2] - 2026-11-20
 

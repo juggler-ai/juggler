@@ -258,7 +258,13 @@ function _buildInputSection(blob, messageThread = null) {
     copyLabel: t('Copy the whole input as JSON')
   });
 
-  if (!input || (!systemPrompt && !messages.length && !tools.length)) {
+  // A blob without the key had its input stripped: only a conversation's newest
+  // round-trips keep it, since each replays the whole history before it.
+  if (!input) {
+    section.appendChild(_textBlock(t('Only recent round-trips keep their input.')));
+    return section;
+  }
+  if (!systemPrompt && !messages.length && !tools.length) {
     section.appendChild(_textBlock(t('No input recorded.')));
     return section;
   }

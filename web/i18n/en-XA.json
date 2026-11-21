@@ -1052,6 +1052,7 @@
   "Only a run of commits with no merge in it can be squashed.": "[Öñļý å ŕûñ öƒ çöɱɱîţš ŵîţĥ ñö ɱéŕĝé îñ îţ çåñ ƀé šǫûåšĥéð. ················]",
   "Only binary format (application/octet-stream) is supported": "[Öñļý ƀîñåŕý ƒöŕɱåţ (åþþļîçåţîöñ/öçţéţ-šţŕéåɱ) îš šûþþöŕţéð ·················]",
   "Only image/* uploads are accepted": "[Öñļý îɱåĝé/* ûþļöåðš åŕé åççéþţéð ·········]",
+  "Only recent round-trips keep their input.": "[Öñļý ŕéçéñţ ŕöûñð-ţŕîþš ķééþ ţĥéîŕ îñþûţ. ············]",
   "Only the git client works in {path}: it is not a workspace.": "[Öñļý ţĥé ĝîţ çļîéñţ ŵöŕķš îñ {path}: îţ îš ñöţ å ŵöŕķšþåçé. ··············]",
   "Only this machine can do that.": "[Öñļý ţĥîš ɱåçĥîñé çåñ ðö ţĥåţ. ········]",
   "Only you can start this skill, with a $ mention. It isn’t listed for the LLM.": "[Öñļý ýöû çåñ šţåŕţ ţĥîš šķîļļ, ŵîţĥ å $ ɱéñţîöñ. Îţ îšñ’ţ ļîšţéð ƒöŕ ţĥé ĻĻṀ. ····················]",

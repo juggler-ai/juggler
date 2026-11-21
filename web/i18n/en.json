@@ -1052,6 +1052,7 @@
   "Only a run of commits with no merge in it can be squashed.": "Only a run of commits with no merge in it can be squashed.",
   "Only binary format (application/octet-stream) is supported": "Only binary format (application/octet-stream) is supported",
   "Only image/* uploads are accepted": "Only image/* uploads are accepted",
+  "Only recent round-trips keep their input.": "Only recent round-trips keep their input.",
   "Only the git client works in {path}: it is not a workspace.": "Only the git client works in {path}: it is not a workspace.",
   "Only this machine can do that.": "Only this machine can do that.",
   "Only you can start this skill, with a $ mention. It isn’t listed for the LLM.": "Only you can start this skill, with a $ mention. It isn’t listed for the LLM.",

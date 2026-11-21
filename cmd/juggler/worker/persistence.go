@@ -142,8 +142,9 @@ func (r *run) writeStateToDisk() (bool, error) {
 
 // saveStateToDisk writes the document, then sweeps the transaction blob store:
 // any blob whose id is no longer referenced by either the live items tree OR any
-// undoLog entry is deleted, and unreferenced assets go the same way, as do the
-// snapshots of programs whose items have settled.
+// undoLog entry is deleted, and the input of every blob old enough is stripped
+// in the background (requestTxnTrim). Unreferenced assets go the same way as
+// unreferenced blobs, as do the snapshots of programs whose items have settled.
 // Piggy-backing GC on the debounced save keeps it off the hot path while
 // ensuring it runs whenever the doc actually changes.
 func (r *run) saveStateToDisk() error {
@@ -155,6 +156,7 @@ func (r *run) saveStateToDisk() error {
 	if err := r.sweepTransactions(); err != nil {
 		r.log.Error("Failed to sweep transaction blobs: %v", err)
 	}
+	r.requestTxnTrim()
 
 	if err := r.sweepAssets(); err != nil {
 		r.log.Error("Failed to sweep assets: %v", err)
@@ -199,6 +201,11 @@ func (r *run) onShutdown() {
 	// Stop every task-output delivery pump and kill its background task so a
 	// delivering command doesn't outlive the conversation worker.
 	r.pumps.stopAll()
+
+	// Stop the background strip of old transaction inputs before anything can
+	// move or remove the conversation's folder; it returns after the one blob
+	// it is on.
+	r.txnStore.StopTrim()
 
 	// Flush any pending Yjs sync updates
 	r.batcher.Flush()

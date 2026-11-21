@@ -555,7 +555,7 @@ export class SessionSwitcher {
             frag.append(rule);
           }
         } else {
-          const title = el('div', 'session-switcher-heading caps-label', heading === 'open' ? t('Open', undefined, { context: 'sessions running now' }) : t('Recent'), { role: 'presentation' });
+          const title = el('div', 'session-switcher-heading caps-label', heading === 'open' ? t('Active sessions') : t('Recent'), { role: 'presentation' });
           frag.append(title);
         }
         section = heading;

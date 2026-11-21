@@ -54,13 +54,15 @@ const WIDTH_PREF = 'juggler-pinboard-width';
 const PINBOARD_POPUP_ID = 'pinboard';
 
 /**
- * Panel width bounds, in rem. Wide, on purpose: what the board is for changes
- * with what is on it — a task list wants a strip, a file wants half the display
- * — so the bounds are the extremes of usefulness rather than a house opinion,
- * and `_applyWidth` clamps to the viewport on top of them.
+ * Panel width bounds. Wide, on purpose: what the board is for changes with what
+ * is on it — a task list wants a strip, a file wants most of the window — so
+ * the bounds are the extremes of usefulness rather than a house opinion. The
+ * floor is in rem; the ceiling is a fraction of the window, so a wide display
+ * gets a wide board and a sliver of the workspace always stays in view to
+ * click back to.
  */
 const MIN_WIDTH_REM = 20;
-const MAX_WIDTH_REM = 80;
+const MAX_WIDTH_FRACTION = 0.85;
 const DEFAULT_WIDTH_REM = 34;
 
 class PinboardShell extends JugglerElement {
@@ -479,14 +481,15 @@ class PinboardShell extends JugglerElement {
   }
 
   /**
-   * Set the panel width, clamped to its bounds and to a viewport that may be
-   * narrower than either of them.
+   * Set the panel width, clamped to its bounds. On a window too narrow for the
+   * floor the floor wins, and the stylesheet's `max-width: 100%` keeps the
+   * panel inside the working area.
    * @param {number} rem - The requested width in rem.
    * @private
    */
   _applyWidth(rem) {
     const viewportRem = window.innerWidth / remPx();
-    const max = Math.min(MAX_WIDTH_REM, Math.max(MIN_WIDTH_REM, viewportRem - 2));
+    const max = Math.max(MIN_WIDTH_REM, viewportRem * MAX_WIDTH_FRACTION);
     this._widthRem = Math.max(MIN_WIDTH_REM, Math.min(max, rem));
     this.style.setProperty('--pinboard-width', `${this._widthRem}rem`);
   }

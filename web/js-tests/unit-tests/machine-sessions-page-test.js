@@ -683,7 +683,13 @@ export async function runTests() {
       const enter = onBody('Enter');
       assert(enter.defaultPrevented, '↵ was left to the page');
       assert(JSON.stringify(nav.went) === '["/p/alpha-0123abcd/"]', `↵ went to ${JSON.stringify(nav.went)}`);
+      const busy = () => !!m.root.querySelector('.ms-launch-busy')?.checkVisibility();
+      assert(busy() && !row(m.root, 'aaa').checkVisibility(), 'the page was not its spinner the moment ↵ went to the session');
+      // Back brings the page out of the browser's cache as the list again.
+      window.dispatchEvent(Object.assign(new Event('pageshow'), { persisted: true }));
+      assert(!busy() && lit() === 's:aaa', `the page came back from the cache with ${lit()} lit, spinner ${busy()}`);
       onBody('Enter', { metaKey: true });
+      assert(!busy(), 'a session opened in a tab of its own turned this one to its spinner');
       assert(JSON.stringify(nav.tabs) === '["/p/alpha-0123abcd/"]', `⌘↵ opened ${JSON.stringify(nav.tabs)}`);
       const down = onBody('ArrowDown');
       assert(down.defaultPrevented && lit() !== 's:aaa', `↓ left ${lit()} lit`);

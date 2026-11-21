@@ -199,7 +199,7 @@ export async function runTests() {
       const age = recent.querySelector('.session-switcher-meta')?.textContent;
       assert(age === '2 hours ago', `and its age — got ${age}`);
       const headings = [...sw.el.querySelectorAll('.session-switcher-heading')].map((h) => h.textContent).join();
-      assert(headings === 'Open,Recent', `Open, then Recent — got ${headings}`);
+      assert(headings === 'Active sessions,Recent', `Active sessions, then Recent — got ${headings}`);
     } finally {
       done();
     }

@@ -1139,16 +1139,29 @@ export function mountSessionsPage(root, {
   /**
    * Open a session: in a desktop window, this window, through the host; in a
    * browser, this tab — or, asked for (⌘ or Ctrl held), a tab of its own — at
-   * its project's link, which outlives the session.
+   * its project's link, which outlives the session. One opening in this window
+   * or tab turns the page to its spinner in the same task as the click, since
+   * the session's page takes a second or two to come up; one the host refuses
+   * is the page again, saying why.
    * @param {Session} s - The session.
    * @param {boolean} newWindow - Whether a tab of its own was asked for.
    * @returns {Promise<boolean>|undefined} The attach, in a desktop window.
    */
   function openSession(s, newWindow) {
-    if (host) return attach(s.id, s.project, s.link);
-    if (newWindow) openTab(pageURL(s.link));
-    else navigate(pageURL(s.link));
-    return undefined;
+    if (!host && newWindow) {
+      openTab(pageURL(s.link));
+      return undefined;
+    }
+    showLaunchError('');
+    showLaunching(s.project);
+    if (!host) {
+      navigate(pageURL(s.link));
+      return undefined;
+    }
+    return attach(s.id, s.project, s.link).then((ok) => {
+      if (!ok && !disposed) showLaunching('');
+      return ok;
+    });
   }
 
   /**

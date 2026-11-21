@@ -32,6 +32,7 @@ var (
 	unreachableRetry       = msg.New("Try again")
 	unreachableTrying      = msg.New("Trying…")
 	cancelLabel            = msg.New("Cancel")
+	unreachableKeepTrying  = msg.New("Juggler keeps trying, and opens it here as soon as it answers.")
 
 	// connectFromURLWindowRefusal is why a page a server by URL sent cannot
 	// switch its window to another server, or list them (windowActions).

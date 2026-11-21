@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"time"
 
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/machineserver"
@@ -133,6 +134,9 @@ type standIn struct {
 	// not start — one run in a terminal. Its Try again only looks for that
 	// server (windowOpts.noStart); starting one is the page's other button.
 	startedElsewhere bool
+	// keepTrying is an unreachable stand-in whose page keeps asking whether
+	// its server answers yet (controlCheckServer), and shows it once it does.
+	keepTrying bool
 }
 
 func retryButton() standInButton {
@@ -145,13 +149,24 @@ func cancelButton() standInButton {
 	return standInButton{label: cancelLabel, action: "open-local"}
 }
 
-func unreachableStandIn(serverURL string) *standIn {
+// unreachableStandIn stands in for a window on serverURL, a server by URL that
+// does not answer. One that keeps trying is a window that could not be opened
+// on it: its page goes on asking (controlCheckServer), for a server that is
+// there but not yet reachable — just after launch, macOS refuses this app the
+// local network for several seconds, longer than remoteReachBudget waits. One
+// the user stopped reconnecting (controlServerLost ?now) waits for a click.
+func unreachableStandIn(serverURL string, keepTrying bool) *standIn {
+	message := []msg.Message{unreachableMessage(serverURL)}
+	if keepTrying {
+		message = append(message, unreachableKeepTrying)
+	}
 	return &standIn{
 		kind:        standInUnreachable,
 		windowTitle: unreachableWindowTitle,
 		title:       unreachablePageTitle,
-		message:     []msg.Message{unreachableMessage(serverURL)},
+		message:     message,
 		buttons:     []standInButton{retryButton(), cancelButton()},
+		keepTrying:  keepTrying,
 	}
 }
 
@@ -459,6 +474,9 @@ type standInPageData struct {
 	Title              string
 	Message            []string
 	Buttons            []standInPageButton
+	// CheckAction, when set, is the control path the page asks, again and
+	// again, whether its server answers yet (controlCheckServer).
+	CheckAction string
 
 	AssetBase, WailsBase, CSPNonce, Theme string
 	// ThemeMode is always empty: a stand-in paints its window's current
@@ -546,6 +564,9 @@ func (a *appState) serveStandInPage(w http.ResponseWriter, r *http.Request, e *w
 		Theme:     normaliseTheme(a.windowTheme(e)),
 		IsWindow:  r.URL.Query().Has("window"),
 	}
+	if si.keepTrying {
+		data.CheckAction = base + "/check-server"
+	}
 	if cur := a.locale.Load(); cur != nil && cur.locale != sourceLocale {
 		data.HTMLLang, data.UILocale, data.UICatalog = cur.locale, cur.locale, cur.catalog
 	}
@@ -594,6 +615,35 @@ func (a *appState) controlRetryServer(w http.ResponseWriter, _ *http.Request, e 
 	}
 	a.retarget(e, standingIn(v.standIn), v.spec, windowOpts{noStart: v.standIn.startedElsewhere})
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// serverCheckBudget is how long one of an unreachable stand-in's checks waits
+// for its server to answer. The page asks again after each (stand-in.html),
+// so this bounds only how long an ask that is never answered holds it.
+const serverCheckBudget = 3 * time.Second
+
+// controlCheckServer is an unreachable stand-in's page asking whether its
+// server answers yet, which it does for as long as it is shown, backing off
+// between asks. When the server answers, the window does what Try again does
+// and is answered {answered: true}; else {answered: false}, changing nothing.
+// Only a stand-in that keeps trying asks (unreachableStandIn); any other
+// answers 409.
+func (a *appState) controlCheckServer(w http.ResponseWriter, r *http.Request, e *winEntry) {
+	v := a.viewOf(e)
+	si := v.standIn
+	if si == nil || !si.keepTrying || !v.spec.isURL() {
+		w.WriteHeader(http.StatusConflict)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), serverCheckBudget)
+	defer cancel()
+	if probeRemote(ctx, originOf(normalizeURL(v.spec.url))) == remoteSilent {
+		writeJSON(w, http.StatusOK, map[string]bool{"answered": false})
+		return
+	}
+	logf("window %s: %s answers now; opening it", e.id, v.spec.url)
+	a.retarget(e, standingIn(si), v.spec, windowOpts{})
+	writeJSON(w, http.StatusOK, map[string]bool{"answered": true})
 }
 
 // controlStartServer is "Start a server" on the stand-in for a server this app
@@ -710,7 +760,7 @@ func (a *appState) controlServerLost(w http.ResponseWriter, r *http.Request, e *
 		case answer == remoteAnswered:
 			lost = remoteDisconnectedStandIn(spec.url)
 		default:
-			lost = unreachableStandIn(spec.url)
+			lost = unreachableStandIn(spec.url, false)
 		}
 	} else {
 		lost = lostServerStandInFor(v.server)

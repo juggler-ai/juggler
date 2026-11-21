@@ -328,7 +328,7 @@ func anyRequest(*http.Request) bool { return true }
 // language and menus), zoom (the next window's zoom), folder-dropped,
 // pick-directory and pick-file (they answer with a local path), updater,
 // switch-server and discover (choosing another server to show), and the
-// stand-in actions retry-server, start-server,
+// stand-in actions retry-server, check-server, start-server,
 // restart-server, open-local, open-in-browser and download-app, which no page
 // of another server shows.
 var windowActions = map[string]controlAction{
@@ -358,6 +358,7 @@ var windowActions = map[string]controlAction{
 	"discover":        {handle: (*appState).controlDiscover, refusal: &connectFromURLWindowRefusal},
 	"quit":            {handle: (*appState).controlQuit, remote: anyRequest},
 	"retry-server":    {handle: (*appState).controlRetryServer},
+	"check-server":    {handle: (*appState).controlCheckServer},
 	"start-server":    {handle: (*appState).controlStartServer},
 	"restart-server":  {handle: (*appState).controlRestartServer},
 	"open-local":      {handle: (*appState).controlOpenLocal},

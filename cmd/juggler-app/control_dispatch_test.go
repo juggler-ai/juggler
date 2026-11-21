@@ -94,7 +94,7 @@ func TestWindowControlActionTable(t *testing.T) {
 		"open": true, "new": true, "save-file": true, "quit": true,
 		"locale": false, "zoom": false, "folder-dropped": false, "pick-directory": false,
 		"pick-file": false, "updater": false, "switch-server": false, "discover": false,
-		"retry-server": false, "start-server": false, "restart-server": false, "open-local": false,
+		"retry-server": false, "check-server": false, "start-server": false, "restart-server": false, "open-local": false,
 		"open-in-browser": false, "download-app": false,
 	}
 	if len(windowActions) != len(want) {

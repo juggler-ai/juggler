@@ -12,6 +12,7 @@ the current release). The project follows semantic versioning.
 - The Usage card shows usage for a second Codex, OpenRouter, DeepSeek or Z.AI account
 - Long conversations no longer fill the disk with old request records
 - Conversations no longer fail to load at startup on a slow disk
+- A window onto another computer's server keeps trying at launch, then connects itself
 - Settings → Project files can delete transaction records older than a chosen age
 - Import Claude Code, Codex, Pi and OpenCode conversations on first launch.
 

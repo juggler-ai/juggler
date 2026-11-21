@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -267,6 +268,75 @@ func TestOpeningARemoteWindowKeepsAskingForItsWholeBudget(t *testing.T) {
 	}
 }
 
+// An unreachable server's page that keeps trying shows its server in its place
+// once it answers, with no click: just after launch macOS refuses this app the
+// local network for longer than opening a window waits ("no route to host"),
+// and the server is there all along. While it is silent, a check changes
+// nothing. A page the user stopped reconnecting is left for a click.
+func TestAnUnreachableServerPageOpensItsServerOnceItAnswers(t *testing.T) {
+	prevHTTP := windowStateHTTP
+	t.Cleanup(func() { windowStateHTTP = prevHTTP })
+	var up atomic.Bool
+	windowStateHTTP = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		if !up.Load() {
+			return nil, &net.OpError{Op: "dial", Net: "tcp", Err: os.NewSyscallError("connect", syscall.EHOSTUNREACH)}
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"hasState":false}`))}, nil
+	})}
+	a := newTestAppState(t)
+	a.ctlPort = 5000
+	shown := make(chan windowView, 4)
+	prevShown := viewShown
+	viewShown = func(_ *winEntry, v windowView, _ string) { shown <- v }
+	t.Cleanup(func() { viewShown = prevShown })
+
+	server := addressWithNoServer(t)
+	spec := windowSpec{url: server, connected: true}
+	registerStandIn(a, "w1", spec, unreachableStandIn(server, true))
+	if _, page := standInPageOf(t, a, "w1"); !strings.Contains(page, `data-check="/`+controlSecretOf(a, "w1")+`/win/w1/check-server"`) {
+		t.Fatalf("the page does not ask its window whether the server answers:\n%s", page)
+	}
+	if answered(t, controlRequest(a, http.MethodPost, "/win/w1/check-server")) {
+		t.Fatal("a server that refuses every ask was said to answer")
+	}
+	select {
+	case v := <-shown:
+		t.Fatalf("a check of a silent server moved the window to %+v", v)
+	default:
+	}
+
+	up.Store(true)
+	if !answered(t, controlRequest(a, http.MethodPost, "/win/w1/check-server")) {
+		t.Fatal("a server that answers was said not to")
+	}
+	if v := <-shown; v.standIn != nil || v.spec != spec {
+		t.Fatalf("the window moved to %+v; want its server, filed as %+v", v, spec)
+	}
+
+	registerStandIn(a, "w2", spec, unreachableStandIn(server, false))
+	if rec := controlRequest(a, http.MethodPost, "/win/w2/check-server"); rec.Code != http.StatusConflict {
+		t.Fatalf("a page the user stopped reconnecting checked its server: status %d, want 409", rec.Code)
+	}
+	if _, page := standInPageOf(t, a, "w2"); strings.Contains(page, `data-check="`) {
+		t.Fatal("a page the user stopped reconnecting asks whether its server answers")
+	}
+}
+
+// answered reads a check-server answer.
+func answered(t *testing.T, rec *httptest.ResponseRecorder) bool {
+	t.Helper()
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var body struct {
+		Answered *bool `json:"answered"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body.Answered == nil {
+		t.Fatalf("want {answered:bool}, got %q (%v)", rec.Body.String(), err)
+	}
+	return *body.Answered
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
@@ -305,7 +375,7 @@ func TestReadWindowStateReportsAnAnsweringServerReached(t *testing.T) {
 func TestUnreachableServerPagePostsToItsWindow(t *testing.T) {
 	a := newTestAppState(t)
 	a.ctlPort = 5000
-	registerStandIn(a, "w7", windowSpec{url: "http://devbox:8080", connected: true}, unreachableStandIn("http://devbox:8080"))
+	registerStandIn(a, "w7", windowSpec{url: "http://devbox:8080", connected: true}, unreachableStandIn("http://devbox:8080", true))
 	_, doc := standInPageOf(t, a, "w7")
 	base := "/" + controlSecretOf(a, "w7") + "/win/w7"
 	retry := `<form method="post" action="` + base + `/retry-server" data-busy="Trying…">`

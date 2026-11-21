@@ -787,7 +787,7 @@ func (a *appState) planWindow(spec windowSpec, opts windowOpts) windowPlan {
 	if !reached {
 		// Opened where a window onto that server was last left, as the window it
 		// stands in for would have been.
-		p = planStandIn(p, unreachableStandIn(spec.url))
+		p = planStandIn(p, unreachableStandIn(spec.url, true))
 		p.saved, p.hasSaved = a.remoteFrame(spec, roleMain)
 		return p
 	}

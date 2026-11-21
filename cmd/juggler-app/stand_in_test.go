@@ -84,7 +84,7 @@ func TestAWindowOnAServerByURLIsLeftToReconnect(t *testing.T) {
 		t.Fatal("a window onto a server that answers was replaced")
 	}
 
-	registerStandIn(a, "w4", windowSpec{url: down, connected: true}, unreachableStandIn(down))
+	registerStandIn(a, "w4", windowSpec{url: down, connected: true}, unreachableStandIn(down, true))
 	registerWindow(a, &winEntry{id: "w5", role: rolePinboard, view: windowView{spec: windowSpec{url: down, connected: true}, serverURL: down}})
 	for _, id := range []string{"w4", "w5"} {
 		if rec := controlRequest(a, http.MethodPost, "/win/"+id+"/server-lost"); rec.Code != http.StatusConflict {
@@ -376,7 +376,7 @@ func TestEachStandInOffersItsWayOn(t *testing.T) {
 		si   *standIn
 		want []string
 	}{
-		{unreachableStandIn("http://devbox:8080"), []string{"retry-server", "open-local"}},
+		{unreachableStandIn("http://devbox:8080", true), []string{"retry-server", "open-local"}},
 		{failedStandIn(errors.New("could not start")), []string{"retry-server", "quit"}},
 		{lostServerStandIn(), []string{"retry-server"}},
 		{lostSessionStandIn("/p", true), []string{"retry-server"}},
@@ -422,7 +422,7 @@ func TestAStandInsFrameIsKeptForTheWindowItStandsFor(t *testing.T) {
 	a.remoteFrames = newRemoteFramesAt(filepath.Join(t.TempDir(), "remote-frames.json"))
 	frame := core.WindowState{X: 10, Y: 20, Width: 900, Height: 700, HasPos: true}
 
-	unreachable := registerStandIn(a, "w1", windowSpec{url: "http://devbox:8080/", connected: true}, unreachableStandIn("http://devbox:8080"))
+	unreachable := registerStandIn(a, "w1", windowSpec{url: "http://devbox:8080/", connected: true}, unreachableStandIn("http://devbox:8080", false))
 	a.storeFrame(context.Background(), unreachable, frame)
 	if got, ok := a.remoteFrames.get("http://devbox:8080", roleMain); !ok || got.Width != 900 {
 		t.Fatalf("frame under the remote = %+v, %v; want the stand-in's", got, ok)

@@ -773,6 +773,7 @@
   "Juggler is still very new, and I'd love to hear people's opinions about it - please visit the discord group to chat or hear more about the roadmap!": "Juggler는 아직 아주 새로운 프로젝트이며, 여러분의 의견을 듣고 싶습니다 - Discord 그룹을 방문해 대화하거나 로드맵에 대해 더 알아보세요!",
   "Juggler is updated through {packageManager}. Update it there to get this version.": "Juggler는 {packageManager}을(를) 통해 업데이트됩니다. 이 버전을 받으려면 그곳에서 업데이트하세요.",
   "Juggler keeps a record of each request it sends to the model: the reply, token counts, timing and the model used, and for recent requests the full request itself. The transaction view in the Properties panel shows them. Deleting old records frees disk space, but those requests can no longer be inspected and their token counts no longer show. Your conversations are not affected: every message stays, and the newest record of each thread is always kept. Applies when a conversation is opened.": "Juggler는 모델에 보내는 각 요청의 기록을 보관합니다. 응답, 토큰 수, 소요 시간, 사용한 모델이 담기며, 최근 요청은 요청 전체도 함께 담깁니다. 속성 패널의 트랜잭션 보기에서 확인할 수 있습니다. 오래된 기록을 삭제하면 디스크 공간이 확보되지만, 해당 요청은 더 이상 살펴볼 수 없고 토큰 수도 표시되지 않습니다. 대화 자체에는 영향이 없습니다. 모든 메시지는 그대로 남고, 각 스레드의 최신 기록은 항상 보관됩니다. 대화를 열 때 적용됩니다.",
+  "Juggler keeps trying, and opens it here as soon as it answers.": "Juggler가 계속 시도하며, 응답하는 즉시 여기에 엽니다.",
   "Juggler link": "Juggler 링크",
   "Juggler needs one model provider before it can do anything.": "Juggler가 작동하려면 모델 공급자가 하나 필요합니다.",
   "Juggler only": "Juggler 전용",

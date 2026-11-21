@@ -54,7 +54,7 @@ func standInPageOf(t *testing.T, a *appState, id string) (*httptest.ResponseReco
 func TestAStandInWearsTheWindowShell(t *testing.T) {
 	a := newTestAppState(t)
 	a.ctlPort = 5000
-	e := registerStandIn(a, "w7", windowSpec{url: "http://devbox:8080", connected: true}, unreachableStandIn("http://dev<box>:8080"))
+	e := registerStandIn(a, "w7", windowSpec{url: "http://devbox:8080", connected: true}, unreachableStandIn("http://dev<box>:8080", false))
 	a.reg(func(*regState) { e.currentTheme = "light" })
 
 	rec, page := standInPageOf(t, a, "w7")

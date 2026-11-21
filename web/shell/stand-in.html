@@ -31,7 +31,7 @@
             <window-caption-controls></window-caption-controls>
         </header>
         <div class="ms-scroll si-scroll">
-            <main class="notice si-page">
+            <main class="notice si-page"{{if .CheckAction}} data-check="{{.CheckAction}}"{{end}}>
                 <div class="notice__title" role="heading" aria-level="1">{{.Title}}</div>
                 <div class="notice__text si-message">
                     {{range .Message}}<p>{{.}}</p>
@@ -60,6 +60,26 @@
                 button.textContent = form.dataset.busy;
             });
         });
+
+        // A page for a server that may yet answer asks the app, for as long as
+        // it is shown, whether it does: the app shows the server in its place
+        // once it answers. Each ask is bounded by the app, and the pauses
+        // between them grow to a few seconds.
+        var check = document.querySelector('main[data-check]');
+        if (check) {
+            var pause = 1000;
+            var ask = function () {
+                fetch(check.dataset.check, { method: 'POST' })
+                    .then(function (r) { return r.ok ? r.json() : { answered: false, stop: r.status === 409 }; })
+                    .catch(function () { return { answered: false }; })
+                    .then(function (body) {
+                        if (body.answered || body.stop) return;
+                        setTimeout(ask, pause);
+                        pause = Math.min(pause * 1.5, 5000);
+                    });
+            };
+            setTimeout(ask, pause);
+        }
     </script>
 </body>
 </html>

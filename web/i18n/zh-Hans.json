@@ -773,6 +773,7 @@
   "Juggler is still very new, and I'd love to hear people's opinions about it - please visit the discord group to chat or hear more about the roadmap!": "Juggler 还非常新，我很想听听大家的看法 —— 请访问 Discord 群组来聊天，或了解关于路线图的更多信息！",
   "Juggler is updated through {packageManager}. Update it there to get this version.": "Juggler 通过 {packageManager} 更新。请在那里更新以获得此版本。",
   "Juggler keeps a record of each request it sends to the model: the reply, token counts, timing and the model used, and for recent requests the full request itself. The transaction view in the Properties panel shows them. Deleting old records frees disk space, but those requests can no longer be inspected and their token counts no longer show. Your conversations are not affected: every message stays, and the newest record of each thread is always kept. Applies when a conversation is opened.": "Juggler 会为发送给模型的每个请求保存一条记录：回复、token 计数、耗时和所用模型；对于最近的请求，还会保存完整的请求本身。属性面板中的事务视图会显示这些记录。删除旧记录可以释放磁盘空间，但这些请求将无法再查看，其 token 计数也不再显示。你的对话不受影响：所有消息都会保留，且每个线程的最新记录始终保留。在打开对话时生效。",
+  "Juggler keeps trying, and opens it here as soon as it answers.": "Juggler 会继续尝试，一旦它响应就在这里打开。",
   "Juggler link": "Juggler 链接",
   "Juggler needs one model provider before it can do anything.": "Juggler 需要至少一个模型提供方才能执行任何操作。",
   "Juggler only": "仅 Juggler",

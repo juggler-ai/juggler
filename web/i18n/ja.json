@@ -773,6 +773,7 @@
   "Juggler is still very new, and I'd love to hear people's opinions about it - please visit the discord group to chat or hear more about the roadmap!": "Juggler はまだ生まれたばかりで、皆さんの意見をぜひ聞きたいと思っています — Discord グループでチャットしたり、ロードマップについて聞いたりしてください！",
   "Juggler is updated through {packageManager}. Update it there to get this version.": "Juggler は {packageManager} で更新されます。このバージョンを入手するにはそちらで更新してください。",
   "Juggler keeps a record of each request it sends to the model: the reply, token counts, timing and the model used, and for recent requests the full request itself. The transaction view in the Properties panel shows them. Deleting old records frees disk space, but those requests can no longer be inspected and their token counts no longer show. Your conversations are not affected: every message stays, and the newest record of each thread is always kept. Applies when a conversation is opened.": "Juggler は、モデルに送信する各リクエストの記録を保存します。内容は応答、トークン数、所要時間、使用したモデルで、最近のリクエストについてはリクエスト全体も含まれます。これらはプロパティパネルのトランザクション表示に表示されます。古い記録を削除するとディスク容量が空きますが、それらのリクエストは確認できなくなり、トークン数も表示されなくなります。会話そのものには影響しません。すべてのメッセージは残り、各スレッドの最新の記録は常に保持されます。会話を開いたときに適用されます。",
+  "Juggler keeps trying, and opens it here as soon as it answers.": "Juggler は再試行を続け、応答があり次第ここに開きます。",
   "Juggler link": "Juggler のリンク",
   "Juggler needs one model provider before it can do anything.": "Juggler を使うには、まずモデルプロバイダが 1 つ必要です。",
   "Juggler only": "Juggler のみ",

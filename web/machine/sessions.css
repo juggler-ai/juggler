@@ -615,6 +615,74 @@ body {
     line-height: var(--leading-relaxed);
 }
 
+/* A panel's dialog (PanelContext.dialog, sdk/lib/page-panels.js): the chrome
+   every dialog of the app wears — the shared scrim on modal-backdrop, the card
+   on modal-panel — with the modal-dialog rhythm: hairline under the header,
+   hairline over the buttons, and the body scrolling between them, so a long
+   list never carries the title or the buttons off the screen. The panel sets
+   its width with its own class. */
+
+.ms-dialog-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-modal);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-24);
+}
+
+.ms-dialog {
+    display: flex;
+    flex-direction: column;
+    width: min(32rem, 100%);
+    max-height: 85vh;
+}
+
+.ms-dialog-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-8);
+    flex-shrink: 0;
+    padding: var(--space-20) var(--space-24);
+    border-bottom: 0.0625rem solid var(--border-divider);
+}
+
+.ms-dialog-title {
+    margin: 0;
+    font-size: var(--font-size-xl);
+    color: var(--text-primary);
+}
+
+/* Pulled into the padding so the button's box hangs off the corner while its
+   icon stays optically aligned with the title. */
+.ms-dialog-close {
+    margin: calc(-1 * var(--space-8)) calc(-1 * var(--space-8)) calc(-1 * var(--space-8)) 0;
+}
+
+.ms-dialog-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-16);
+    min-height: 0;
+    padding: var(--space-20) var(--space-24);
+    overflow-y: auto;
+}
+
+.ms-dialog-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-12);
+    flex-shrink: 0;
+    padding: var(--space-16) var(--space-24);
+    border-top: 0.0625rem solid var(--border-divider);
+}
+
+.ms-dialog-footer:empty {
+    display: none;
+}
+
 @media (width <= 36rem) {
     .ms-page {
         padding: var(--space-16) var(--space-12);

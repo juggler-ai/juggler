@@ -85,6 +85,8 @@ import { isMac } from '../js/services/key-shortcut-manager.js';
 import { reportFault } from '../js/utils/fault-report.js';
 import { watchPagePanels } from '../sdk/lib/page-panels.js';
 import { cachedMachinePref, reconcilePref, setMachinePref } from '../js/services/prefs.js';
+import { presentModal } from '../js/utils/modal-surface.js';
+import { markDialog } from '../js/utils/dialog-a11y.js';
 
 /**
  * @typedef {import('./control-api.js').Session} Session
@@ -475,6 +477,38 @@ function panelPrefs(id) {
 }
 
 /**
+ * Open a panel's dialog (sdk/lib/page-panels.js PanelContext.dialog): the
+ * app's modal chrome — the shared scrim, a panel card, a header with the
+ * title and a close button, a scrolling body over a footer — for the panel to
+ * fill.
+ * @param {import('../sdk/lib/page-panels.js').PanelDialogOptions} options - Its title, class and onClose.
+ * @returns {import('../sdk/lib/page-panels.js').PanelDialog} The dialog.
+ */
+function openPanelDialog({ title, className, onClose }) {
+  const modal = presentModal({
+    className: 'ms-dialog-overlay',
+    dismissSelectors: ['.ms-dialog-backdrop', '.ms-dialog-close'],
+    onClose: () => onClose?.(),
+  });
+  const card = el('modal-panel', { className: `ms-dialog${className ? ` ${className}` : ''}` });
+  const heading = el('h2', { className: 'ms-dialog-title', text: title });
+  const close = el('button', { className: 'btn btn-icon btn-icon-lg btn-ghost ms-dialog-close', attrs: { type: 'button', 'aria-label': t('Close'), title: t('Close') } }, [
+    el('span', { className: 'icon-close' }),
+  ]);
+  const body = el('div', { className: 'ms-dialog-body' });
+  const footer = el('div', { className: 'ms-dialog-footer' });
+  card.append(el('div', { className: 'ms-dialog-header' }, [heading, close]), body, footer);
+  markDialog(card, heading);
+  modal.root.append(el('modal-backdrop', { className: 'ms-dialog-backdrop' }), card);
+  return {
+    body,
+    footer,
+    close: () => modal.close(),
+    get closed() { return modal.closed; },
+  };
+}
+
+/**
  * Mount the sessions page into root and load it.
  * @param {HTMLElement} root - Where the page goes.
  * @param {object} options
@@ -755,7 +789,7 @@ export function mountSessionsPage(root, {
   /**
    * A distribution's panel on the page (sdk/lib/page-panels.js): its section, what it
    * handed back, and the shape it was last told.
-   * @typedef {{id: string, section: HTMLElement, handle: import('../sdk/lib/page-panels.js').PanelHandle|null, told: string}} MountedPanel
+   * @typedef {{id: string, place: import('../sdk/lib/page-panels.js').PanelPlace, section: HTMLElement, handle: import('../sdk/lib/page-panels.js').PanelHandle|null, told: string}} MountedPanel
    */
   /** @type {MountedPanel[]} */
   const mountedPanels = [];
@@ -824,7 +858,8 @@ export function mountSessionsPage(root, {
       panel.section.hidden = state === 'loading' || state === 'launching';
       if (state === 'first-run' || state === 'listing') tellPanel(panel, state);
     }
-    const order = [welcome, intro, ...mountedPanels.map((p) => p.section), opening, launchError, switcherSection];
+    const placed = (/** @type {string} */ place) => mountedPanels.filter((p) => p.place === place).map((p) => p.section);
+    const order = [welcome, intro, ...placed('main'), opening, launchError, switcherSection, ...placed('foot')];
     // Moved only when the order changes, since a move takes the keyboard's focus.
     if (order.some((part, i) => mainColumn.children[i] !== part)) mainColumn.append(...order);
   }
@@ -836,18 +871,18 @@ export function mountSessionsPage(root, {
   window.addEventListener('pageshow', onPageShow);
 
   // Each panel, in the order registered, gets a section of its own in the main
-  // column (layout); one whose mount throws gets none.
+  // column, where its place says (layout); one whose mount throws gets none.
   const stopPanels = framed ? null : panels((panel) => {
     if (disposed) return;
     const section = el('section', { className: 'ms-section ms-panel', attrs: { 'data-panel': panel.id } });
     let handle = null;
     try {
-      handle = panel.mount(section, { api, config, host, prefs: panelPrefs(panel.id) }) || null;
+      handle = panel.mount(section, { api, config, host, prefs: panelPrefs(panel.id), dialog: openPanelDialog }) || null;
     } catch (err) {
       reportFault('page-panel', err, { panel: panel.id });
       return;
     }
-    mountedPanels.push({ id: panel.id, section, handle, told: '' });
+    mountedPanels.push({ id: panel.id, place: panel.place === 'foot' ? 'foot' : 'main', section, handle, told: '' });
     layout();
   });
 

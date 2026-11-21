@@ -10,8 +10,9 @@
  * imports them all as it starts (web/machine/sessions-page.js), waiting on
  * none; each adds itself here with registerPagePanel as it loads, and the page
  * (web/machine/sessions-view.js) gives each one a section of its own in its
- * main column, under the welcome and over the switcher, in the order they
- * registered. The stock tree has none.
+ * main column — under the welcome and over the switcher, or at the foot under
+ * the switcher (PagePanel.place) — in the order they registered. The stock
+ * tree has none.
  *
  * The page hides a panel's section while it has nothing to act on yet (its
  * first list is loading) and while a project opens, and tells the panel, as it
@@ -29,6 +30,12 @@
 /** @typedef {'first-run'|'listing'} PanelState */
 
 /**
+ * Where on the page a panel's section goes: 'main' under the welcome and over
+ * the switcher, 'foot' under the switcher, at the foot of the main column.
+ * @typedef {'main'|'foot'} PanelPlace
+ */
+
+/**
  * What the page lends a panel as it mounts it.
  * @typedef {object} PanelContext
  * @property {{request?: (method: string, path: string, body?: unknown) => Promise<unknown>}} api -
@@ -42,6 +49,30 @@
  * @property {object|null} host - The desktop app whose window shows the page;
  *   null in a browser.
  * @property {PanelPrefs} prefs - The panel's own preferences.
+ * @property {(options: PanelDialogOptions) => PanelDialog} dialog - Open a
+ *   modal dialog over the page, in the app's own dialog chrome, for the panel
+ *   to fill.
+ */
+
+/**
+ * @typedef {object} PanelDialogOptions
+ * @property {string} title - The dialog's title, which names it to assistive
+ *   technology too.
+ * @property {string} [className] - A class for the dialog's panel, for the
+ *   panel's own styling of what it puts in it (its width, say).
+ * @property {() => void} [onClose] - Called once, however it closed: its close
+ *   button, Escape, Back, a click on the scrim behind it, or close().
+ */
+
+/**
+ * A dialog a panel opened (PanelContext.dialog): a title and close button the
+ * page draws, then the panel's own body, which scrolls, over its footer, whose
+ * buttons sit at the end. Tab stays in it while it is open.
+ * @typedef {object} PanelDialog
+ * @property {HTMLElement} body - Where the panel puts what the dialog says.
+ * @property {HTMLElement} footer - Where the panel puts the dialog's buttons.
+ * @property {() => void} close - Take it down; idempotent.
+ * @property {boolean} closed - Whether it has closed.
  */
 
 /**
@@ -71,6 +102,7 @@
  * @typedef {object} PagePanel
  * @property {string} id - Names the panel: its section's data-panel, and the
  *   one registration a second of the same id is dropped for.
+ * @property {PanelPlace} [place] - Where its section goes; 'main' by default.
  * @property {(container: HTMLElement, context: PanelContext) => PanelHandle|void} mount -
  *   Builds the panel into container, its section. A throw costs the panel
  *   its section and nothing else.

@@ -916,6 +916,7 @@ export async function runTests() {
           return { layout: (/** @type {string} */ state) => { told.push(state); }, unmount: () => { unmounted++; } };
         },
       });
+      fn({ id: 'footnote', place: 'foot', mount: (/** @type {HTMLElement} */ c) => { c.textContent = 'at the foot'; } });
       return () => { stopped = true; };
     };
     // Until the first list arrives, the page has nothing to show a panel by.
@@ -944,6 +945,25 @@ export async function runTests() {
       const at = (/** @type {string} */ sel) => parts.findIndex((p) => p.matches(sel));
       assert(at('.ms-intro') < at('.ms-panel') && at('.ms-panel') < at('.ms-switcher'),
         `the panel is not between the introduction and the switcher: ${parts.map((p) => p.className).join(' | ')}`);
+      assert(at('.ms-switcher') < at('[data-panel="footnote"]'),
+        `a foot panel is not under the switcher: ${parts.map((p) => p.className).join(' | ')}`);
+
+      // A panel's dialog: the app's chrome, named by its title, closed by its
+      // close button or by close(), each telling onClose once.
+      let closes = 0;
+      const dialog = lent.dialog({ title: 'Bring them over', className: 'test-dialog', onClose: () => { closes++; } });
+      const card = /** @type {HTMLElement|null} */ (document.querySelector('.ms-dialog.test-dialog'));
+      assert(card?.getAttribute('role') === 'dialog' && card.getAttribute('aria-modal') === 'true', 'the panel\'s dialog is not a modal dialog');
+      const titleId = card?.getAttribute('aria-labelledby') || '';
+      assert(!!titleId && document.getElementById(titleId)?.textContent === 'Bring them over', 'the dialog is not named by its title');
+      assert(!!dialog.body && card?.contains(dialog.body) && card.contains(dialog.footer), 'the dialog lent no body or footer in its card');
+      /** @type {HTMLElement|null} */ (card?.querySelector('.ms-dialog-close'))?.click();
+      assert(!document.querySelector('.ms-dialog') && dialog.closed && closes === 1, `the close button left the dialog up, or told onClose ${closes} times`);
+      dialog.close();
+      assert(closes === 1, 'closing a closed dialog told onClose again');
+      const second = lent.dialog({ title: 'Again', onClose: () => { closes++; } });
+      second.close();
+      assert(!document.querySelector('.ms-dialog') && closes === 2, 'close() left the dialog up, or did not tell onClose');
 
       api.listSessions = list;
       api.sessions = [{ id: 's1', project: '/work/alpha', link: '/p/s1-0123abcd/', state: 'running', busy: false, startedAt: '' }];

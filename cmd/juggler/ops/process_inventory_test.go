@@ -6,6 +6,7 @@ package ops
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -259,6 +260,35 @@ func TestProcessInventory_RerunSupersedesForeground(t *testing.T) {
 	list := waitForProcess(t, root, hasNoProcess("shell-first"))
 	if !hasProcess("shell-second")(list) || !hasProcess("shell-stranger")(list) {
 		t.Fatalf("the re-run, or another conversation's call, was stopped too: %+v", list)
+	}
+}
+
+// Which run of a tool call is the re-run is decided by the order the runs were
+// asked for, not the order they were listed. Starting a process can take
+// hundreds of milliseconds on Windows, so a run cancelled and re-run at once
+// can see its re-run listed first; listed late, it must not take the re-run
+// for its own earlier run and stop it. It is the stale one, and it is stopped.
+func TestProcessInventory_LateEarlierRunDoesNotStopItsRerun(t *testing.T) {
+	root := t.TempDir()
+	scope := NewPathScope(root, nil)
+	owner := ProcessOwner{ConvID: "conv-late", ThreadID: "", ToolUseID: "call_late"}
+
+	asked := WithRunOrder(context.Background())
+	reasked := WithRunOrder(context.Background())
+
+	var rerunStopped, earlierStopped atomic.Bool
+	untrackRerun := trackProcess("shell-rerun", ProcessForeground, "sleep 30", scope, root, owner,
+		runOrderFrom(reasked), func() { rerunStopped.Store(true) })
+	defer untrackRerun()
+	untrackEarlier := trackProcess("shell-earlier", ProcessForeground, "sleep 30", scope, root, owner,
+		runOrderFrom(asked), func() { earlierStopped.Store(true) })
+	defer untrackEarlier()
+
+	if rerunStopped.Load() {
+		t.Fatal("the earlier run, listed late, stopped its re-run")
+	}
+	if !earlierStopped.Load() {
+		t.Fatal("the earlier run, listed after its re-run, was left running beside it")
 	}
 }
 

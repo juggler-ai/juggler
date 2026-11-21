@@ -261,17 +261,18 @@ export async function runTests(_ctx) {
   });
 
   await run('a blob whose input was stripped still renders everything else', () => {
-    // Binning a conversation drops the replayed history from its blobs — it is
-    // ~99% of the bytes, and doc.yjs already holds every one of them — leaving
-    // the rest. A restored conversation's round-trips are this shape, so they
-    // have to stay readable without the input rather than fall back to the
-    // missing-blob placeholder.
+    // A blob loses the replayed history once it is no longer among a
+    // conversation's newest round-trips, and every blob does when the
+    // conversation is binned — it is ~99% of the bytes, and doc.yjs already
+    // holds every one of them — leaving the rest. So most round-trips of a long
+    // conversation are this shape, and have to stay readable without the input
+    // rather than fall back to the missing-blob placeholder.
     const stripped = { ...makeBlob(), timestamp: Date.now() };
     delete stripped.input;
     const host = render(stripped);
 
-    assert(host.textContent.includes('No input recorded.'),
-      `expected the stripped input to say so, got "${host.textContent.slice(0, 120)}"`);
+    assert(host.textContent.includes('Only recent round-trips keep their input.'),
+      `expected the stripped input to say why it is missing, got "${host.textContent}"`);
     assert(!host.textContent.includes('No transaction data.'),
       'a stripped blob is not a missing one');
 

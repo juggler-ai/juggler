@@ -5,9 +5,11 @@
 package ops
 
 import (
+	"context"
 	"errors"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"juggler/internal/jlog"
@@ -37,7 +39,9 @@ import (
 //
 // A tool call runs one foreground command at a time, so listing one supersedes
 // any earlier foreground or python process the same call still has running: the
-// earlier one is stopped. The engine that executes tool calls holds its
+// earlier one is stopped. Earlier means asked for earlier (WithRunOrder), not
+// listed earlier: a start can take long enough on Windows for a re-run to be
+// listed before the run it replaces, which is then the one stopped. The engine that executes tool calls holds its
 // in-flight set only in memory, and a reloaded engine re-runs the calls the old
 // one left running (resetRunningToolsForReattach) while their commands, which
 // outlive the engine, carry on. Nothing would read the earlier run's output, and
@@ -79,6 +83,30 @@ type processEntry struct {
 	info        ProcessInfo
 	projectRoot string
 	stop        func()
+	// order is the run's place in the order runs were asked for (runOrderFrom).
+	order uint64
+}
+
+// runOrder numbers runs in the order they are asked for; see WithRunOrder.
+var runOrder atomic.Uint64
+
+// runOrderKey carries a run's number on its context.
+type runOrderKey struct{}
+
+// WithRunOrder numbers the run ctx is for with its place in the order runs were
+// asked for. Call it where the request is accepted, in the order requests
+// arrive, before anything that can delay the run's start.
+func WithRunOrder(ctx context.Context) context.Context {
+	return context.WithValue(ctx, runOrderKey{}, runOrder.Add(1))
+}
+
+// runOrderFrom returns the number WithRunOrder gave ctx's run, or numbers it
+// now, for a run whose caller did not.
+func runOrderFrom(ctx context.Context) uint64 {
+	if n, ok := ctx.Value(runOrderKey{}).(uint64); ok {
+		return n
+	}
+	return runOrder.Add(1)
 }
 
 func (e *processEntry) owner() ProcessOwner {
@@ -142,6 +170,7 @@ type inventoryResp struct {
 	owned     []*processEntry    // the processes a stop by owner, or a re-run, ends
 	observers []*processObserver // who to tell about a track or untrack
 	stopNow   bool               // the tracked process's call asked to stop before it was listed
+	stale     bool               // a newer run of the tracked process's call is already listed
 }
 
 var (
@@ -167,10 +196,19 @@ func runProcessInventory() {
 	for op := range inventoryOps {
 		switch op.kind {
 		case invTrack:
+			// Of the call's runs, the one asked for last is the one that goes on:
+			// listed after an older run, it supersedes it; listed after a newer
+			// one — its start outlasted the re-run's — it is the stale run.
 			var superseded []*processEntry
+			stale := false
 			if op.entry.runsInForeground() {
 				for _, entry := range entries {
-					if entry.runsInForeground() && entry.ownedBy(op.entry.owner(), op.entry.projectRoot) {
+					if !entry.runsInForeground() || !entry.ownedBy(op.entry.owner(), op.entry.projectRoot) {
+						continue
+					}
+					if entry.order > op.entry.order {
+						stale = true
+					} else {
 						superseded = append(superseded, entry)
 					}
 				}
@@ -186,7 +224,7 @@ func runProcessInventory() {
 					}
 				}
 			}
-			op.resp <- inventoryResp{observers: snapshot(), stopNow: stopNow, owned: superseded}
+			op.resp <- inventoryResp{observers: snapshot(), stopNow: stopNow, stale: stale, owned: superseded}
 
 		case invUntrack:
 			// Only this entry: an id reused by a later process is that process's.
@@ -251,7 +289,7 @@ func askInventory(op inventoryOp) inventoryResp {
 // trackProcess lists a started process, running in cwd in scope's tree, until
 // the returned untrack is called. stop must end the process and must be safe to call more than once and after
 // the process has gone. untrack is idempotent.
-func trackProcess(id, kind, command string, scope PathScope, cwd string, owner ProcessOwner, stop func()) (untrack func()) {
+func trackProcess(id, kind, command string, scope PathScope, cwd string, owner ProcessOwner, order uint64, stop func()) (untrack func()) {
 	projectRoot := scope.ProjectRoot()
 	entry := &processEntry{
 		info: ProcessInfo{
@@ -262,10 +300,16 @@ func trackProcess(id, kind, command string, scope PathScope, cwd string, owner P
 		},
 		projectRoot: projectRoot,
 		stop:        stop,
+		order:       order,
 	}
 	tracked := askInventory(inventoryOp{kind: invTrack, entry: entry})
 	announceProcessesChanged(tracked.observers, projectRoot)
 	if tracked.stopNow {
+		stop()
+	}
+	if tracked.stale {
+		jlog.Info("ops: %s is an earlier run of tool call %s (conv=%s thread=%s), listed after its re-run; stopping it",
+			id, owner.ToolUseID, owner.ConvID, owner.ThreadID)
 		stop()
 	}
 	for _, earlier := range tracked.owned {

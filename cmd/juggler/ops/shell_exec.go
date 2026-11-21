@@ -223,7 +223,9 @@ func (ops *ShellOperations) startBackground(params map[string]any) (any, error) 
 
 		// Listed while it runs. A stop from the inventory is the kill op, so it
 		// reads on the tool action exactly as a TaskStop would.
-		untrack := trackProcess(shellID, ProcessBackground, command, ops.scope, cmd.Dir, p.owner(),
+		// Unnumbered: a background task is never superseded, so its order is
+		// never asked.
+		untrack := trackProcess(shellID, ProcessBackground, command, ops.scope, cmd.Dir, p.owner(), 0,
 			func() { killShell(shellID) })
 		defer untrack()
 
@@ -355,6 +357,7 @@ func (ops *ShellOperations) startBackground(params map[string]any) (any, error) 
 //
 // WARNING: Both modes execute arbitrary code and are security risks.
 func (ops *ShellOperations) execute(ctx context.Context, params map[string]any) (any, error) {
+	order := runOrderFrom(ctx)
 	p, err := decodeParams[shellParams](params)
 	if err != nil {
 		return nil, err
@@ -429,7 +432,7 @@ func (ops *ShellOperations) execute(ctx context.Context, params map[string]any) 
 	// Listed while the caller waits on it; a stop cancels execCtx, which the
 	// select below turns into taking the process group.
 	stopper := newUserStop(cancel)
-	untrack := trackProcess(spillID, ProcessForeground, command, ops.scope, cmd.Dir, p.owner(), stopper.stop)
+	untrack := trackProcess(spillID, ProcessForeground, command, ops.scope, cmd.Dir, p.owner(), order, stopper.stop)
 	defer untrack()
 
 	// Wait for command with timeout / caller cancellation.
@@ -519,6 +522,7 @@ func (ops *ShellOperations) execute(ctx context.Context, params map[string]any) 
 // never parsed by a shell, so it sidesteps all shell escaping issues (quotes,
 // backslashes, newlines) and shell argument-length limits.
 func (ops *ShellOperations) executePythonCode(ctx context.Context, code string, p shellParams) (any, error) {
+	order := runOrderFrom(ctx)
 	// Get timeout from params (defaults to defaultExecTimeoutMs, capped at maxExecTimeoutMs)
 	timeout := timeoutFrom(p.Timeout, defaultExecTimeoutMs)
 
@@ -547,7 +551,7 @@ func (ops *ShellOperations) executePythonCode(ctx context.Context, code string, 
 	stopper := newUserStop(cancel)
 	err := cmd.Start()
 	if err == nil {
-		untrack := trackProcess(spillID, ProcessPython, pythonLabel(code), ops.scope, cmd.Dir, p.owner(), stopper.stop)
+		untrack := trackProcess(spillID, ProcessPython, pythonLabel(code), ops.scope, cmd.Dir, p.owner(), order, stopper.stop)
 		err = cmd.Wait()
 		untrack()
 	}

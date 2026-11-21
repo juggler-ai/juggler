@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"juggler/cmd/juggler/msg"
+	"juggler/cmd/juggler/ops"
 	"juggler/cmd/juggler/worker"
 	"juggler/internal/jlog"
 )
@@ -388,7 +389,9 @@ func (s *Server) runRealtimeClientLoop(ctx context.Context, client RealtimeClien
 				client.Send(shellRefusedFrame(shellReq.ShellID, "Shell ID already in use"))
 				continue
 			}
-			go s.processShellRequest(ctx, shellReq, to, complete)
+			// Numbered here, in the order the requests arrive: the run's own
+			// goroutine can reach its start after a later request's has.
+			go s.processShellRequest(ops.WithRunOrder(ctx), shellReq, to, complete)
 		}
 	}
 }

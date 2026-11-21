@@ -68,6 +68,9 @@ func (ops *ShellOperations) ExecuteStreamingFor(
 ) {
 	defer close(output)
 	convID := owner.ConvID
+	// Numbered before anything can delay the start: a run asked for later can
+	// be listed first.
+	order := runOrderFrom(ctx)
 
 	// Blocked marks the one error the caller must not retry: the command was
 	// refused outright, so there is no output and nothing about the environment
@@ -134,7 +137,7 @@ func (ops *ShellOperations) ExecuteStreamingFor(
 	// turns into SIGTERM and then the process group. Untracked on return — the
 	// output channel's close is deferred first, so it runs after this.
 	stopper := newUserStop(cancel)
-	untrack := trackProcess(shellID, ProcessForeground, command, ops.scope, workingDir, owner, stopper.stop)
+	untrack := trackProcess(shellID, ProcessForeground, command, ops.scope, workingDir, owner, order, stopper.stop)
 	defer untrack()
 
 	// Channel to signal command completion, and the channel that closes the

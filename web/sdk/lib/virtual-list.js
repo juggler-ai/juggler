@@ -19,8 +19,10 @@
  * element is kept by its item's key for as long as that item stays in the
  * window — across scrolls, across new items, and when the item moves to
  * another index — so focus, hover and a transition on it survive a redraw.
- * An item whose key changes is drawn anew; one that leaves the window is
- * removed, unless `retain` holds for its element.
+ * An item whose key changes is drawn anew, its old element removed; one that
+ * leaves the window is removed, unless `retain` holds for its element. A
+ * retained element is removed once its place is back in the window, where it
+ * would lie over whatever is drawn there.
  *
  * **When.** A scroll that brings in items not yet drawn draws at once, so the
  * view is never blank; one that stays within what is drawn defers to the next
@@ -76,7 +78,7 @@ export const remHeight = (rem) => () => rem * (parseFloat(getComputedStyle(docum
  * @property {(item: T) => boolean} [isHeader] - Whether an item is a section header.
  * @property {(el: HTMLElement, item: T, index: number) => void} [decorate] - Brought up to date on every draw (selection, say).
  * @property {() => number} [originOf] - Where the spacer starts in the scroller's content, in px (default 0).
- * @property {(el: HTMLElement) => boolean} [retain] - Keep a drawn element that leaves the window while this holds — the one with focus, say, so a scroll does not drop focus to the page.
+ * @property {(el: HTMLElement) => boolean} [retain] - Keep a drawn element that leaves the window while this holds — the one with focus, say, so a scroll does not drop focus to the page. Never one whose place is in the window: its item's key changed, and another element is drawn there.
  * @property {(window: VirtualWindow) => void} [beforeDraw] - Told the window before each draw.
  * @property {() => void} [afterDraw] - Told after each draw.
  */
@@ -245,7 +247,12 @@ export function createVirtualList(options) {
       options.decorate?.(entry.el, item, index);
     }
     for (const [key, entry] of drawn) {
-      if (keep.has(key) || options.retain?.(entry.el)) continue;
+      if (keep.has(key)) continue;
+      // Retained only while out of the window: where it was is drawn, and
+      // what stands there now is another item's element (its key changed),
+      // so keeping it would draw it over that one.
+      const outside = entry.index < win.from || entry.index >= end;
+      if (outside && options.retain?.(entry.el)) continue;
       release(entry.el);
       drawn.delete(key);
     }

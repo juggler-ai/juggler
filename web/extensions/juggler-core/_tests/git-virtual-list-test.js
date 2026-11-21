@@ -8,7 +8,8 @@
  * list a window at a time: few elements for thousands of rows, a scroll
  * bringing later rows in, `j` keeping the selection drawn and in view,
  * staging a row far down, the filter over a big list, and the elements of
- * rows that stay in the window surviving a redraw. The fake services are
+ * rows that stay in the window surviving a redraw, and a retained element
+ * giving way to the row that takes its place. The fake services are
  * git-pin-helpers'.
  * @module _tests/git-virtual-list-test
  */
@@ -17,6 +18,8 @@ import GitPin from '../pins/git-pin.js';
 import { assert, nextTask, waitFor } from '../../../js-tests/utilities/test-helpers.js';
 import { isolateFocus } from '../../../js-tests/utilities/isolate-focus.js';
 import { changesOf, mountPin, refsOf, treeOf } from './git-pin-helpers.js';
+import { createElement } from 'juggler/ui';
+import { createVirtualList } from 'juggler/utils/virtual-list';
 
 /**
  * @param {object} _ctx - Test context (unused).
@@ -219,6 +222,41 @@ export async function runTests(_ctx) {
     for (let i = 0; i < 8; i++) await nextTask();
     assert(changeRow(m, `changes:${pathOf(45)}`) === kept, 'a re-read with the same answer keeps it too');
     m.teardown();
+  });
+
+  // The History list retains the row under the pointer; a refresh that moves
+  // the rows under it (new commits on top) gives every row a new key, so the
+  // hovered row's place is taken by another. It must not stay there too,
+  // drawn over its replacement.
+  await test('a retained element whose place in the window is taken goes; one out of the window stays', () => {
+    const scroller = createElement('div');
+    scroller.style.cssText = 'position: fixed; left: 0; top: 0; width: 200px; height: 100px; overflow: auto;';
+    document.body.append(scroller);
+    try {
+      /** @type {import('juggler/utils/virtual-list').VirtualList<string>} */
+      const list = createVirtualList({
+        scroller,
+        rowHeight: 10,
+        overscan: 2,
+        keyOf: (item) => item,
+        build: (item) => createElement('div', 'vl-probe', item),
+        retain: () => true,
+      });
+      scroller.append(list.spacer);
+      const ids = (/** @type {string} */ gen) => Array.from({ length: 100 }, (_, i) => `${gen}${i}`);
+      list.setItems(ids('a'));
+      list.render();
+      list.setItems(ids('b'));
+      list.render();
+      const atTop = [...list.spacer.children].filter((el) => /** @type {HTMLElement} */ (el).style.top === '0px');
+      assert(atTop.length === 1 && atTop[0]?.textContent === 'b0', `one element at the top, the new one: ${atTop.map((el) => el.textContent)}`);
+      const first = list.elementAt(0);
+      scroller.scrollTop = 600;
+      list.render();
+      assert(Boolean(first?.isConnected), 'an element scrolled out of the window is still retained');
+    } finally {
+      scroller.remove();
+    }
   });
 
   await test('the conflict jump reaches a conflict in a big list', async () => {

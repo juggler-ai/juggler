@@ -8,6 +8,7 @@ the current release). The project follows semantic versioning.
 
 - Git pin: force push, skip commit hooks, no-fast-forward and squash merges, push to any branch
 - Git pin: add, edit and remove remotes, and push every tag at once
+- Git pin: the mouse wheel scrolls its lists and panes on Windows
 - The Usage card shows usage for a second Codex, OpenRouter, DeepSeek or Z.AI account
 
 ## [0.8.2] - 2026-11-20

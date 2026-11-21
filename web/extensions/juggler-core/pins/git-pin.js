@@ -36,7 +36,7 @@ import { createHead } from './git/head.js';
 import { createHistoryPlace } from './git/history-place.js';
 import { inlineError } from './git/inline-error.js';
 import { createMenuSelect } from './git/menu-select.js';
-import { measureMode } from './git/layout.js';
+import { markHeight, measureMode } from './git/layout.js';
 import { reviewFile } from './git/manifest.js';
 import { branchOf, createOperationBanner } from './git/operation-banner.js';
 import { askText, chooseAction, closePopover, confirmAction } from './git/popover.js';
@@ -1458,8 +1458,9 @@ class GitPin extends PinboardItemType {
 
     /**
      * Write the mode the pin's size puts it in onto the root, where tests and
-     * the places' keys read it; the stylesheet decides the same with container
-     * queries.
+     * the places' keys read it, and the chip's styles key off it; the
+     * stylesheet decides the width-driven modes the same with container
+     * queries. Its height goes on the root too (markHeight).
      */
     /** Whether the Refs list was on screen as the sidebar when last measured. */
     let sidebarWasShown = false;
@@ -1480,6 +1481,7 @@ class GitPin extends PinboardItemType {
     const syncMode = () => {
       const mode = measureMode(root);
       if (root.dataset.mode !== mode) root.dataset.mode = mode;
+      markHeight(root);
       // A full pin has room for the switcher in the head line, after the
       // branch and its counts; anything narrower gives it a row of its own.
       const spacer = /** @type {HTMLElement} */ (head.element.querySelector(':scope > .git-pin__spacer'));

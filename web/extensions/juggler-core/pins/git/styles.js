@@ -6,11 +6,12 @@
 /**
  * The Git pin's frame and its Changes, History and Refs places: the head line, the
  * place switcher, the list and detail panes, the commit box, the toast, the
- * command log and the anchored popovers. Layout is container queries on the pin (`git-pin`), never the
- * viewport: below 34rem it is a stack showing one pane at a time (the root's
- * `data-level` says which), from 34rem a split, past 60rem full (the Refs list
- * a sidebar beside Changes and History), and under 5.5rem tall a chip — the
- * head line alone (pins/git/layout).
+ * command log and the anchored popovers. Layout follows the pin, never the
+ * viewport: by width, container queries on the pin (`git-pin`) — below 34rem
+ * it is a stack showing one pane at a time (the root's `data-level` says
+ * which), from 34rem a split, past 60rem full (the Refs list a sidebar beside
+ * Changes and History); by height, what pins/git/layout writes on the root —
+ * under 5.5rem tall it is a chip, the head line alone (`data-mode`).
  * @module pins/git/styles
  */
 
@@ -19,8 +20,11 @@ import { injectStylesOnce } from 'juggler/ui';
 /** Put the stylesheet in the document, once. */
 export function injectGitClientStyles() {
   injectStylesOnce('git-client-styles', `
+/* Width only. A height container sized by the board's scrolling body stops
+   Chromium wheel-scrolling every list and pane in the pin wherever scrollbars
+   take room (Windows); height is read in pins/git/layout instead. */
 .git-pin {
-  container: git-pin / size;
+  container: git-pin / inline-size;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -871,28 +875,23 @@ export function injectGitClientStyles() {
 
 /* Chip: a pin too short for anything else is its head line. It is height that
    makes one, so a narrow pin in a tall sidebar stays a stack. */
-@container git-pin (height < 5.5rem) {
-  .git-pin > .git-pin__places,
-  .git-pin > .git-op,
-  .git-pin > .git-pin__main,
-  .git-pin > .git-pin__log {
-    display: none;
-  }
+.git-pin[data-mode="chip"] > :is(.git-pin__places, .git-op, .git-pin__main, .git-pin__log) {
+  display: none;
+}
 
-  .git-pin > .git-pin__head {
-    flex: 1;
-    border-bottom: 0;
-  }
+.git-pin[data-mode="chip"] > .git-pin__head {
+  flex: 1;
+  border-bottom: 0;
+}
 
-  .git-pin > .git-pin__toast {
-    right: auto;
-    left: 50%;
-    transform: translate(-50%, -50%);
-  }
+.git-pin[data-mode="chip"] > .git-pin__toast {
+  right: auto;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
 
-  .git-pin > :is(.git-pin__toast--error, .git-pin__toast--warn) {
-    transform: translateX(-50%);
-  }
+.git-pin[data-mode="chip"] > :is(.git-pin__toast--error, .git-pin__toast--warn) {
+  transform: translateX(-50%);
 }
 
 .git-changes[data-big="true"] .git-changes__scroll {
@@ -1219,7 +1218,7 @@ export function injectGitClientStyles() {
   width: 100%;
   resize: none;
   min-height: 1.85rem;
-  max-height: min(45cqh, 20rem);
+  max-height: min(calc(var(--git-pin-height, 100vh) * 0.45), 20rem);
   padding-right: var(--space-24);
   overflow-y: auto;
 }
@@ -1230,10 +1229,8 @@ export function injectGitClientStyles() {
   text-overflow: ellipsis;
 }
 
-@container git-pin (height >= 24rem) {
-  .git-commit__msg:focus {
-    min-height: 6rem;
-  }
+.git-pin[data-tall] .git-commit__msg:focus {
+  min-height: 6rem;
 }
 
 .git-commit__expand {

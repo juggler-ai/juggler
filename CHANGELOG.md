@@ -13,6 +13,7 @@ the current release). The project follows semantic versioning.
 - Long conversations no longer fill the disk with old request records
 - Conversations no longer fail to load at startup on a slow disk
 - Settings → Project files can delete transaction records older than a chosen age
+- Import Claude Code, Codex, Pi and OpenCode conversations on first launch.
 
 ## [0.8.2] - 2026-11-20
 

@@ -355,6 +355,7 @@
   "Couldn't detach the board. {error}": "Couldn't detach the board. {error}",
   "Couldn't discard. {error}": "Couldn't discard. {error}",
   "Couldn't duplicate conversation: {detail}": "Couldn't duplicate conversation: {detail}",
+  "Couldn't import the conversation: {detail}": "Couldn't import the conversation: {detail}",
   "Couldn't initialize conversation: {detail}": "Couldn't initialize conversation: {detail}",
   "Couldn't load config: {detail}": "Couldn't load config: {detail}",
   "Couldn't load configuration": "Couldn't load configuration",

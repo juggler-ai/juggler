@@ -57,6 +57,10 @@ type Config struct {
 	// ExtraRoutes, if set, registers additional HTTP routes on the server's
 	// router after the built-in ones (see server.Config.ExtraRoutes).
 	ExtraRoutes func(r *mux.Router)
+	// ExtraMachineRoutes, if set, registers additional routes on the machine
+	// server's control API, /api/server, after the built-in ones, with the
+	// sessions it supervises lent to them (see machineserver.ExtraRoutes).
+	ExtraMachineRoutes machineserver.ExtraRoutes
 }
 
 // Run executes the juggler server: CLI dispatch, flag parsing, registrations,
@@ -68,6 +72,13 @@ func Run(cfg Config) int {
 	// binary built on Run answers it, and nothing else starts.
 	if gitaskpass.Invoked(os.Args[1:], os.Getenv) {
 		return gitaskpass.Main(os.Args[1:], os.Getenv, os.Stdout)
+	}
+
+	// Install the asset overlay before anything reads web.Files — the machine
+	// server (`serve`, below) serves its sessions page from it as a session
+	// serves its app.
+	if cfg.AssetOverlay != nil {
+		web.SetOverlay(cfg.AssetOverlay)
 	}
 
 	// Developer CLI: `juggler ext …` is a self-contained tool (scaffold/link/add
@@ -98,7 +109,7 @@ func Run(cfg Config) int {
 		if pathRepairReport != "" {
 			notes = append(notes, "[path] "+pathRepairReport)
 		}
-		return machineserver.RunCommand(os.Args[2:], web.Files, machinePeer(), notes...)
+		return machineserver.RunCommand(os.Args[2:], web.Files, machinePeer(), cfg.ExtraMachineRoutes, notes...)
 	}
 
 	// `juggler server status|sessions|stop` and `juggler open <project>` are
@@ -172,7 +183,7 @@ func Run(cfg Config) int {
 	// Bare juggler rides the machine server; only a session child or the test
 	// harness serves one project in this process (standaloneLaunch).
 	if !flags.standaloneLaunch() {
-		return runBare(flags)
+		return runBare(flags, cfg.ExtraMachineRoutes)
 	}
 
 	// When Node is unavailable, retain the established WebKit fallback: a
@@ -182,11 +193,6 @@ func Run(cfg Config) int {
 		if note := webviewenv.MaybeRelaunchUnderXvfb(spawner.environ()...); note != "" {
 			fmt.Fprintln(os.Stderr, note)
 		}
-	}
-
-	// Install the asset overlay before anything reads web.Files.
-	if cfg.AssetOverlay != nil {
-		web.SetOverlay(cfg.AssetOverlay)
 	}
 
 	ops.RegisterAll()

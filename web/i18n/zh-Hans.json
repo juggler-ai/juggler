@@ -355,6 +355,7 @@
   "Couldn't detach the board. {error}": "无法分离置顶项面板。{error}",
   "Couldn't discard. {error}": "无法放弃。{error}",
   "Couldn't duplicate conversation: {detail}": "无法复制对话：{detail}",
+  "Couldn't import the conversation: {detail}": "无法导入对话：{detail}",
   "Couldn't initialize conversation: {detail}": "无法初始化对话：{detail}",
   "Couldn't load config: {detail}": "无法加载配置：{detail}",
   "Couldn't load configuration": "无法加载配置",

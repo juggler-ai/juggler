@@ -23,7 +23,7 @@ func TestProjectsDirFollowsClaudeConfigDir(t *testing.T) {
 	userpathstest.Isolate(t)
 	home := os.Getenv("HOME")
 	workingDir := filepath.Join(t.TempDir(), "proj")
-	form := projectDirNameFromWorkingDir(workingDir)
+	form := ProjectDirName(workingDir)
 	custom := t.TempDir()
 
 	cases := []struct {

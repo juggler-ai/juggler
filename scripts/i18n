@@ -17,11 +17,13 @@
  *   scripts/i18n coverage  fail unless each shipped catalogue translates every
  *                          message into every language web/i18n has
  *
- * Each command also takes `--go-root <dir>` (repeatable) and `--catalog <dir>`,
- * which replace the catalogues below with one: the messages in the Go under
- * those roots, written to that directory. That is for a module that builds on
- * this one and keeps its own catalogue, which the server is handed through
- * webui.RegisterCatalogFS. Paths are relative to the working directory.
+ * Each command also takes `--go-root <dir>` and `--js-root <dir>` (each
+ * repeatable) and `--catalog <dir>`, which replace the catalogues below with
+ * one: the messages in the Go and the JavaScript under those roots, written to
+ * that directory. That is for a module that builds on this one and keeps its
+ * own catalogue, which the server is handed through webui.RegisterCatalogFS —
+ * its Go, and the assets it overlays on this tree's. Paths are relative to the
+ * working directory.
  *
  * Go messages are the template of every msg.New, msg.NewCtx and msg.NewError
  * call (package juggler/cmd/juggler/msg, imported under its own name), outside
@@ -141,6 +143,29 @@ function jsFiles(roots) {
 }
 
 /**
+ * Every JavaScript file under the given roots, absolute, sorted: a
+ * --js-root's, which need not be in this repo.
+ * @param {string[]} roots - Absolute directories.
+ * @returns {string[]} The files.
+ */
+function absoluteJsFiles(roots) {
+  const out = [];
+  const walk = (dir) => {
+    if (!fs.existsSync(dir)) return;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const child = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (!GO_EXCLUDED_DIRS.has(entry.name) && !entry.name.startsWith('.')) walk(child);
+      } else if (entry.name.endsWith('.js')) {
+        out.push(child);
+      }
+    }
+  };
+  for (const root of roots) walk(root);
+  return out.sort();
+}
+
+/**
  * Every UI source file, repo-relative, sorted.
  * @returns {string[]} The files.
  */
@@ -155,7 +180,7 @@ function uiFiles() {
  * @typedef {object} Target
  * @property {string} label - How it is named in output (its directory, repo-relative).
  * @property {string} dir - Absolute catalogue directory.
- * @property {string[]} files - Repo-relative source files whose messages it holds.
+ * @property {string[]} files - Source files whose messages it holds: repo-relative, or absolute for a --js-root's.
  * @property {string[]} [goFiles] - Absolute Go source files whose messages it holds.
  * @property {string} [packagingFile] - Absolute path of the installers' English source, for the core one.
  * @property {import('../web/js/services/extensions.js').ExtensionManifest} [manifest] - The extension manifest, for an extension's.
@@ -541,8 +566,11 @@ function extract(sdk, target) {
   // Loaded only when there is JavaScript to parse: a Go-only catalogue needs
   // no tooling install.
   const parse = target.files.length ? espree().parse : null;
-  for (const rel of target.files) {
-    const text = fs.readFileSync(path.join(repoRoot, rel), 'utf8');
+  for (const file of target.files) {
+    // Repo-relative, or absolute for a --js-root's (named from the working
+    // directory, as its Go files are).
+    const rel = path.isAbsolute(file) ? path.relative(process.cwd(), file).split(path.sep).join('/') : file;
+    const text = fs.readFileSync(path.resolve(repoRoot, file), 'utf8');
     const hasI18n = /\bi18n\b/.test(text);
     if (!hasI18n && !/\bMANIFEST\b/.test(text)) continue;
     let ast;
@@ -1010,30 +1038,32 @@ module.exports = { loadSdk, translationProblems };
 async function main() {
   const name = process.argv[2];
   const cmd = COMMANDS[name];
-  const usage = `usage: scripts/i18n <${Object.keys(COMMANDS).join('|')}> [--go-root <dir>]... [--catalog <dir>]`;
+  const usage = `usage: scripts/i18n <${Object.keys(COMMANDS).join('|')}> [--go-root <dir>]... [--js-root <dir>]... [--catalog <dir>]`;
   if (!cmd) {
     console.error(usage);
     process.exit(2);
   }
   const roots = [];
+  const jsRoots = [];
   let catalog = null;
   const args = process.argv.slice(3);
   for (let i = 0; i < args.length; i += 2) {
     if (args[i] === '--go-root' && args[i + 1]) roots.push(path.resolve(args[i + 1]));
+    else if (args[i] === '--js-root' && args[i + 1]) jsRoots.push(path.resolve(args[i + 1]));
     else if (args[i] === '--catalog' && args[i + 1]) catalog = path.resolve(args[i + 1]);
     else {
       console.error(usage);
       process.exit(2);
     }
   }
-  if ((roots.length > 0) !== (catalog !== null)) {
-    console.error('--go-root and --catalog go together: the roots to extract, and the catalogue they fill');
+  if ((roots.length + jsRoots.length > 0) !== (catalog !== null)) {
+    console.error('--go-root/--js-root and --catalog go together: the roots to extract, and the catalogue they fill');
     process.exit(2);
   }
   if (catalog !== null) {
     targetOverride = {
       label: path.relative(process.cwd(), catalog).split(path.sep).join('/') || '.',
-      dir: catalog, files: [], goFiles: goFiles(roots),
+      dir: catalog, files: absoluteJsFiles(jsRoots), goFiles: goFiles(roots),
     };
   }
   process.exit(await cmd(await loadSdk()));

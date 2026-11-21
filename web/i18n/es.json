@@ -355,6 +355,7 @@
   "Couldn't detach the board. {error}": "No se pudo separar el tablero. {error}",
   "Couldn't discard. {error}": "No se pudo descartar. {error}",
   "Couldn't duplicate conversation: {detail}": "No se pudo duplicar la conversación: {detail}",
+  "Couldn't import the conversation: {detail}": "No se pudo importar la conversación: {detail}",
   "Couldn't initialize conversation: {detail}": "No se pudo inicializar la conversación: {detail}",
   "Couldn't load config: {detail}": "No se pudo cargar la configuración: {detail}",
   "Couldn't load configuration": "No se pudo cargar la configuración",

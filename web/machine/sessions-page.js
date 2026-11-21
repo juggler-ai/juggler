@@ -18,6 +18,20 @@ import { desktopHost, olderAppNotice } from './native-host.js';
 import { mountSessionsPage, pageTitle, paintedTheme, relayFramerEvents } from './sessions-view.js';
 import { APPEARANCE_EVENT, followFramerAppearance, mountHeaderButtons } from './header-buttons.js';
 import { noteFramedServer } from '../js/services/settings-endpoint.js';
+import { reportFault } from '../js/utils/fault-report.js';
+
+/**
+ * Load a distribution's panels (PageConfig.panels; sdk/lib/page-panels.js).
+ * Each adds itself to the page's registry as it loads, which hands it to the
+ * page however late, so nothing waits on them; one that fails to load costs
+ * only itself.
+ * @param {string[]} urls - The panel modules' URLs.
+ */
+function loadPanels(urls) {
+  for (const url of urls) {
+    import(url).catch((err) => { reportFault('page-panel', err, { url }); });
+  }
+}
 
 /**
  * Take over the hooks the native side calls with the paths of a folder dropped
@@ -104,6 +118,8 @@ function start() {
     });
   }
   const root = document.getElementById('sessions-root');
+  // A page framing another server shows none of this server's panels.
+  if (!framed) loadPanels(config.panels || []);
   if (root) {
     mountSessionsPage(root, {
       api: createControlApi({ token: config.token, base: config.base }),

@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"regexp"
 	"slices"
 	"strings"
@@ -51,6 +52,28 @@ var assetRoots = []string{"css", "js", "machine", "resources", "sdk"}
 // pageTemplates are the sessions page's template in the web tree, and the
 // desktop window's shell it shares with the app's own pages.
 var pageTemplates = []string{"machine/index.html", "shell/window-shell.html"}
+
+// panelsDir is the folder of the web tree whose modules the sessions page
+// loads as it starts (pagePanels, pageConfig.Panels): a distribution's panels,
+// each adding itself to the page through web/sdk/lib/page-panels.js. Served
+// under the machine asset root; the stock tree has none.
+const panelsDir = "machine/panels"
+
+// pagePanels lists the panel modules in assets (panelsDir), in name order, as
+// paths in the tree. None when the folder is missing.
+func pagePanels(assets fs.FS) []string {
+	entries, err := fs.ReadDir(assets, panelsDir)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".js") {
+			out = append(out, path.Join(panelsDir, e.Name()))
+		}
+	}
+	return out
+}
 
 // assetHandler serves files of the web tree under /v<assetVersion>/, from
 // assetRoots only. Directories and HTML (page templates) are not served, and a
@@ -108,6 +131,9 @@ type pageConfig struct {
 	// Base is the path the page was reached under behind a reverse proxy
 	// (requestBase), which its control-API calls go below; "" at the root.
 	Base string `json:"base"`
+	// Panels are the URLs of the panel modules the page loads as it starts
+	// (pagePanels), in name order; none in the stock tree.
+	Panels []string `json:"panels,omitempty"`
 }
 
 // handlePage serves the sessions page. GET /.
@@ -158,6 +184,11 @@ func (s *Server) servePage(w http.ResponseWriter, r *http.Request, status int, c
 		frameSrc = "frame-src " + framed
 	}
 	embed := r.URL.Query().Get("embed") == "1"
+	assetBase := base + "/v" + assetVersion
+	var panels []string
+	for _, p := range pagePanels(s.assets) {
+		panels = append(panels, assetBase+"/"+p)
+	}
 	frameAncestors := "frame-ancestors 'none'"
 	if embed {
 		frameAncestors = embedFrameAncestors
@@ -193,7 +224,7 @@ func (s *Server) servePage(w http.ResponseWriter, r *http.Request, status int, c
 		UICatalog map[string]string
 		Config    pageConfig
 	}{
-		AssetBase: base + "/v" + assetVersion,
+		AssetBase: assetBase,
 		IsWindow:  r.URL.Query().Has("window") && !embed,
 		WailsBase: base,
 		Embed:     embed,
@@ -204,7 +235,7 @@ func (s *Server) servePage(w http.ResponseWriter, r *http.Request, status int, c
 		UILocale:  locale,
 		UICatalog: catalog,
 		Config: pageConfig{Token: s.token, Version: core.Version, Host: host, Local: s.callerKind(r) == "",
-			Open: cfg.Open, OpenMissing: cfg.OpenMissing, Confirm: cfg.Confirm, Base: base},
+			Open: cfg.Open, OpenMissing: cfg.OpenMissing, Confirm: cfg.Confirm, Base: base, Panels: panels},
 	}
 	w.WriteHeader(status)
 	if err := tmpl.Execute(w, data); err != nil {

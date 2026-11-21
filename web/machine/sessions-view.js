@@ -82,6 +82,9 @@ import { followSessionsFeed } from '../js/services/sessions-feed.js';
 import { baseName } from '../js/utils/session-attention.js';
 import { SessionSwitcher } from '../js/components/session-switcher.js';
 import { isMac } from '../js/services/key-shortcut-manager.js';
+import { reportFault } from '../js/utils/fault-report.js';
+import { watchPagePanels } from '../sdk/lib/page-panels.js';
+import { cachedMachinePref, reconcilePref, setMachinePref } from '../js/services/prefs.js';
 
 /**
  * @typedef {import('./control-api.js').Session} Session
@@ -100,6 +103,7 @@ import { isMac } from '../js/services/key-shortcut-manager.js';
  *   setLaunch?: (change: Partial<import('./control-api.js').LaunchState>) => Promise<unknown>,
  *   getStatus?: () => Promise<import('../js/components/connectivity/exposure-view.js').ServerStatus>,
  *   events?: (onSnapshot: (snapshot: import('./control-api.js').Snapshot) => void, signal: AbortSignal) => Promise<void>,
+ *   request?: (method: string, path: string, body?: unknown) => Promise<unknown>,
  * }} ControlApi
  * @typedef {{
  *   attach: (id: string, project: string, link: string, conversation?: string) => Promise<void>,
@@ -449,6 +453,28 @@ export function serverTitle(config, { framed = null, chooser = null } = {}) {
 }
 
 /**
+ * A panel's preferences (sdk/lib/page-panels.js PanelPrefs): Machine-realm
+ * ones, each stored under the panel's id, so no two panels — nor a panel and
+ * the page — share a name.
+ * @param {string} id - The panel's id.
+ * @returns {import('../sdk/lib/page-panels.js').PanelPrefs} The panel's prefs.
+ */
+function panelPrefs(id) {
+  const key = (/** @type {string} */ name) => `panels.${id}.${name}`;
+  return {
+    get: (name, fallback = null) => cachedMachinePref(key(name), fallback),
+    set: (name, value) => setMachinePref(key(name), value),
+    watch: (name, fn) => {
+      const event = `juggler:panel-pref:${id}:${name}`;
+      const listener = () => fn(cachedMachinePref(key(name), null));
+      window.addEventListener(event, listener);
+      void reconcilePref('machine', key(name), event);
+      return () => window.removeEventListener(event, listener);
+    },
+  };
+}
+
+/**
  * Mount the sessions page into root and load it.
  * @param {HTMLElement} root - Where the page goes.
  * @param {object} options
@@ -473,6 +499,9 @@ export function serverTitle(config, { framed = null, chooser = null } = {}) {
  *   here. Only for a page the host may switch, on this machine's server.
  * @param {(message: {type: string, detail: unknown}, origin: string) => void} [options.postToFrame]
  *   Hands a menu command to the framed page at origin, the framed server's.
+ * @param {import('../sdk/lib/page-panels.js').PanelSource} [options.panels] - The
+ *   distribution's panels the page mounts (sdk/lib/page-panels.js); none on a page
+ *   framing another server.
  * @returns {{refresh: () => Promise<void>, dispose: () => void, readonly pending: Promise<void>}} The page:
  *   refresh it now, take it down, or wait for the last switch of a way in to be shown.
  */
@@ -490,6 +519,7 @@ export function mountSessionsPage(root, {
   header = null,
   framed = null,
   postToFrame,
+  panels = watchPagePanels,
 }) {
   /** @type {Session[]} */
   let sessions = [];
@@ -722,6 +752,29 @@ export function mountSessionsPage(root, {
     root.append(launchingPanel);
   }
 
+  /**
+   * A distribution's panel on the page (sdk/lib/page-panels.js): its section, what it
+   * handed back, and the shape it was last told.
+   * @typedef {{id: string, section: HTMLElement, handle: import('../sdk/lib/page-panels.js').PanelHandle|null, told: string}} MountedPanel
+   */
+  /** @type {MountedPanel[]} */
+  const mountedPanels = [];
+  /**
+   * Tell panel the page's shape, once per change. What it throws is its own
+   * fault, and stops nothing else.
+   * @param {MountedPanel} panel
+   * @param {import('../sdk/lib/page-panels.js').PanelState} state
+   */
+  function tellPanel(panel, state) {
+    if (panel.told === state) return;
+    panel.told = state;
+    try {
+      panel.handle?.layout?.(state);
+    } catch (err) {
+      reportFault('page-panel', err, { panel: panel.id });
+    }
+  }
+
   /** The project opening, while the page is its spinner ('' for none). */
   let launchingProject = '';
 
@@ -765,7 +818,13 @@ export function mountSessionsPage(root, {
     // The ways in wait for the first list too, unless it is not coming, since
     // that list decides whether the page is laid out as a first run.
     if (sideColumn) sideColumn.hidden = state === 'launching' || (state === 'loading' && !unreachable);
-    const order = [welcome, intro, opening, launchError, switcherSection];
+    // A distribution's panels: told the page's shape, and hidden while the
+    // page has nothing to act on yet, or is a project's spinner.
+    for (const panel of mountedPanels) {
+      panel.section.hidden = state === 'loading' || state === 'launching';
+      if (state === 'first-run' || state === 'listing') tellPanel(panel, state);
+    }
+    const order = [welcome, intro, ...mountedPanels.map((p) => p.section), opening, launchError, switcherSection];
     // Moved only when the order changes, since a move takes the keyboard's focus.
     if (order.some((part, i) => mainColumn.children[i] !== part)) mainColumn.append(...order);
   }
@@ -775,6 +834,23 @@ export function mountSessionsPage(root, {
     if (e.persisted) showLaunching('');
   };
   window.addEventListener('pageshow', onPageShow);
+
+  // Each panel, in the order registered, gets a section of its own in the main
+  // column (layout); one whose mount throws gets none.
+  const stopPanels = framed ? null : panels((panel) => {
+    if (disposed) return;
+    const section = el('section', { className: 'ms-section ms-panel', attrs: { 'data-panel': panel.id } });
+    let handle = null;
+    try {
+      handle = panel.mount(section, { api, config, host, prefs: panelPrefs(panel.id) }) || null;
+    } catch (err) {
+      reportFault('page-panel', err, { panel: panel.id });
+      return;
+    }
+    mountedPanels.push({ id: panel.id, section, handle, told: '' });
+    layout();
+  });
+
   const toFrame = postToFrame || ((message, origin) => { frame?.contentWindow?.postMessage(message, origin); });
 
   /**
@@ -1406,6 +1482,14 @@ export function mountSessionsPage(root, {
       window.removeEventListener('juggler:window-close-requested', onCloseRequested);
       for (const type of PAGE_COMMANDS) window.removeEventListener(type, onPageCommand);
       closeChooser();
+      stopPanels?.();
+      for (const panel of mountedPanels) {
+        try {
+          panel.handle?.unmount?.();
+        } catch (err) {
+          reportFault('page-panel', err, { panel: panel.id });
+        }
+      }
     },
   };
 }

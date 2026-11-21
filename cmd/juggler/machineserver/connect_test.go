@@ -42,7 +42,7 @@ func TestHelperMachineServer(t *testing.T) {
 		cmd.Env = append(os.Environ(), helperChildEnv+"=1")
 		return cmd
 	}
-	os.Exit(RunCommand([]string{"--implicit", "--port", "0", "--started-by", os.Getenv(helperStarterPIDEnv)}, web.Files, nil))
+	os.Exit(RunCommand([]string{"--implicit", "--port", "0", "--started-by", os.Getenv(helperStarterPIDEnv)}, web.Files, nil, nil))
 }
 
 // helperStarter is a Starter that runs TestHelperMachineServer detached, as

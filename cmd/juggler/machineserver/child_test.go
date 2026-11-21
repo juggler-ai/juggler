@@ -99,6 +99,7 @@ func TestHelperSessionChild(t *testing.T) {
 			EnvSupervisorToken: os.Getenv(ingress.SupervisorTokenEnv),
 			EnvSupervisorSess:  os.Getenv(ingress.SupervisorSessionEnv),
 			Header:             r.Header.Get(ingress.Header),
+			TokenHeader:        r.Header.Get(TokenHeader),
 			BundleID:           os.Getenv("__CFBundleIdentifier"),
 			XPCJob:             os.Getenv("XPC_SERVICE_NAME"),
 		})
@@ -111,6 +112,8 @@ type helperReport struct {
 	EnvSecret string `json:"envSecret"`
 	EnvToken  string `json:"envToken"`
 	Header    string `json:"header"`
+	// TokenHeader is the API token the request quoted (TokenHeader).
+	TokenHeader string `json:"tokenHeader"`
 	// EnvSupervisorAddr and EnvSupervisorToken are how the child was told to
 	// reach its machine server's control API, if it was.
 	EnvSupervisorAddr  string `json:"envSupervisorAddr"`

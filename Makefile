@@ -1023,6 +1023,10 @@ lint-go: app-icon-embed wails-runtime-embed
 ##     none has no WAN feature).
 ##   - webui.RegisterCatalogFS: adds a UI-message catalogue for Go code outside
 ##     this module; updateCatalogSources is reached only through it.
+##   - claudecode.ConfigDirs, claudecode.JugglerSessionUUIDs and
+##     openaicodex.CodexHomes: where the CLIs keep the user's own transcripts,
+##     and which of them Juggler wrote, for a reader of those outside this
+##     module.
 ##
 ## The package patterns are GO_PACKAGES, scoped to our own dirs — ./... would
 ## sweep into tooling/node_modules/, which on a fresh `npm install` ships Go
@@ -1035,7 +1039,10 @@ DEADCODE_RELEASE_MAINS := ./cmd/juggler ./cmd/juggler-app
 DEADCODE_SEAMS := \
 	cmd/juggler/tunnel/tunnel.go:RegisterMode \
 	cmd/juggler/webui/webui.go:RegisterCatalogFS \
-	cmd/juggler/webui/webui.go:updateCatalogSources
+	cmd/juggler/webui/webui.go:updateCatalogSources \
+	cmd/juggler/providers/claudecode/transcripts.go:ConfigDirs \
+	cmd/juggler/providers/claudecode/transcripts.go:JugglerSessionUUIDs \
+	cmd/juggler/providers/openaicodex/transcripts.go:CodexHomes
 lint-deadcode: app-icon-embed wails-runtime-embed
 	@DEADCODE_VERSION="$(DEADCODE_VERSION)" scripts/ensure-deadcode
 	@dc="$(subst \,/,$(shell go env GOPATH))/bin/deadcode$(BIN_EXT)"; \

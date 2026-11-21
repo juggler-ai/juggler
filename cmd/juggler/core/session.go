@@ -729,9 +729,17 @@ func (fs *FileSessionStore) ensureConvDir(convID string) (string, error) {
 	return dir, nil
 }
 
-// binDir returns the .juggler/trash directory path.
+// ConvBinDir is the folder in a project's state folder stateDir
+// (projectpaths.StateDir) that binned conversations' folders are moved into,
+// each keeping its `<name>--<conv_id>` name (ScanConvDirs reads it as it
+// reads stateDir).
+func ConvBinDir(stateDir string) string {
+	return filepath.Join(stateDir, "trash")
+}
+
+// binDir returns the project's bin folder (ConvBinDir).
 func (fs *FileSessionStore) binDir() string {
-	return filepath.Join(fs.jugglerDir(), "trash")
+	return ConvBinDir(fs.jugglerDir())
 }
 
 // jugglerDir returns the project's state folder: <project>/.juggler, or its

@@ -399,7 +399,7 @@ func TestWriteSyntheticSessionToolUseShape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("writeSyntheticSession: %v", err)
 	}
-	wantDir := filepath.Join(os.Getenv("HOME"), ".claude", "projects", projectDirNameFromWorkingDir(workingDir))
+	wantDir := filepath.Join(os.Getenv("HOME"), ".claude", "projects", ProjectDirName(workingDir))
 	if filepath.Dir(path) != wantDir {
 		t.Fatalf("session file under %q; want %q", filepath.Dir(path), wantDir)
 	}

@@ -48,8 +48,9 @@ func (f appFlags) refusal() string {
 // it serves in this terminal's foreground when no server is running, and
 // otherwise attaches to the one that is. It opens a session only for the
 // folder --project names (resolveStartupProject); with none it opens no
-// session and points at the sessions page.
-func runBare(flags appFlags) int {
+// session and points at the sessions page. A server it starts serves extra's
+// routes beside its own (app.Config.ExtraMachineRoutes).
+func runBare(flags appFlags, extra machineserver.ExtraRoutes) int {
 	printBanner()
 	project, err := (&App{flags: flags}).resolveStartupProject()
 	if err != nil {
@@ -78,6 +79,7 @@ func runBare(flags appFlags) int {
 		Signals:        sig,
 		Assets:         web.Files,
 		Peer:           machinePeer(),
+		ExtraRoutes:    extra,
 	}
 	if flags.hasTerminal && isTerminal(os.Stdin) {
 		opts.Stdin = os.Stdin

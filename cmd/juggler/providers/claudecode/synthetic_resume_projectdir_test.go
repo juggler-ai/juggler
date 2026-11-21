@@ -33,14 +33,14 @@ func TestProjectDirNameFromWorkingDir(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := projectDirNameFromWorkingDir(tc.in); got != tc.want {
-				t.Fatalf("projectDirNameFromWorkingDir(%q)\n got = %q\nwant = %q", tc.in, got, tc.want)
+			if got := ProjectDirName(tc.in); got != tc.want {
+				t.Fatalf("ProjectDirName(%q)\n got = %q\nwant = %q", tc.in, got, tc.want)
 			}
 		})
 	}
 
 	// The long case must respect the 200-char cap before the hash suffix.
-	if got := projectDirNameFromWorkingDir(longPath); len(got) != 200+1+len("17lws1") {
+	if got := ProjectDirName(longPath); len(got) != 200+1+len("17lws1") {
 		t.Fatalf("long encoded length = %d, want %d", len(got), 200+1+len("17lws1"))
 	}
 }

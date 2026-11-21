@@ -120,13 +120,25 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, "FAIL: importing claudecode started the model-info actor; it must start on first use")
 		os.Exit(1)
 	}
-	// The resume paths follow CLAUDE_CONFIG_DIR (claudeConfigDir). Inherited
-	// from a developer's shell it would send every session file these tests
-	// write into that real config dir, past the HOME each test isolates.
+	// The resume paths write session files under the claude config dir
+	// (claudeConfigDir): CLAUDE_CONFIG_DIR, else ~/.claude. Most tests drive a
+	// Client built on a bare t.TempDir() project without isolating either, so
+	// the package runs under a home of its own — otherwise every synthetic
+	// resume leaves a <tmp-cwd> folder in the developer's real
+	// ~/.claude/projects. A test that needs a particular home still sets its
+	// own (userpathstest.Isolate, t.Setenv("HOME", …)).
 	_ = os.Unsetenv("CLAUDE_CONFIG_DIR")
+	home, err := os.MkdirTemp("", "claudecode-test-home-")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "FAIL: creating the package's test home:", err)
+		os.Exit(1)
+	}
+	_ = os.Setenv("HOME", home)
+	_ = os.Setenv("USERPROFILE", home) // what os.UserHomeDir resolves on Windows
 	cleanupFakeCLI := prepareFakeCLI()
 	code := m.Run()
 	cleanupFakeCLI()
+	_ = os.RemoveAll(home)
 	os.Exit(code)
 }
 

@@ -169,6 +169,11 @@ const FUNCTION_LIKE = new Set(['FunctionExpression', 'ArrowFunctionExpression', 
  */
 const DYNAMIC_IMPORTS = [
   {
+    file: 'web/machine/sessions-page.js', expr: 'url',
+    targets: [], names: '*',
+    why: 'a distribution\'s panels (machine/panels/*.js, PageConfig.panels): the stock tree has none',
+  },
+  {
     file: 'web/js/utils/asset-url.js', expr: '`/worker-module?url=${encodeURIComponent(resolvedUrl)}`',
     targets: (tree) => tree.manifestModules(false), names: ['default'],
     why: 'the capability loader (base-registry, extensions, sdk/pinboard): the manifests\' modules, already roots',

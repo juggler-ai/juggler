@@ -98,7 +98,7 @@ func TestAStrictPortNeverMoves(t *testing.T) {
 		t.Fatalf("strict on free port %d listened on %s; want that port on every interface", busy, got)
 	}
 
-	if code := RunCommand([]string{"--port", "0", "--port-strict"}, nil, nil); code != 2 {
+	if code := RunCommand([]string{"--port", "0", "--port-strict"}, nil, nil, nil); code != 2 {
 		t.Fatalf("serve --port 0 --port-strict exited %d, want 2 (usage)", code)
 	}
 }

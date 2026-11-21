@@ -79,6 +79,13 @@ export const INITIALISED_KEY = 'initialised';
 const SEEDED_FOR_KEY = 'seededFor';
 
 /**
+ * Doc-metadata key the server writes on a conversation it imported from
+ * another agent's transcript (`worker.BuildImportedConversation`): history
+ * that was never seeded here, however long it is.
+ */
+const IMPORTED_FROM_KEY = 'importedFrom';
+
+/**
  * Doc-metadata key marking a conversation nobody is attending — a headless
  * `juggler run` (see Conversation.setUnattended). The Go worker reads the same
  * key (`worker/unattended.go`).
@@ -1314,8 +1321,10 @@ class Conversation {
     // flag existed — every conversation already on disk is in exactly this
     // state, and seeding one again would resurrect the items its user had
     // deleted and clear the undo history behind their work. Record what is
-    // already true instead, so it is only ever asked once.
-    if (this._hasConversationalHistory()) {
+    // already true instead, so it is only ever asked once. An imported
+    // conversation is the exception: its history was written by another agent,
+    // and this project's standing context has never been seeded into it.
+    if (this._hasConversationalHistory() && !this.getMetadata(IMPORTED_FROM_KEY)) {
       this.initialised = true;
       return;
     }

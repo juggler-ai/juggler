@@ -80,6 +80,7 @@ import { runTests as runContextItemSeedExecuteTests } from '../unit-tests/contex
 import { runTests as runConversationNameTests } from '../unit-tests/conversation-name-persistence-test.js';
 import { runTests as runConversationNamingTests } from '../unit-tests/conversation-naming-test.js';
 import { runTests as runNewConversationSystemPromptTests } from '../unit-tests/new-conversation-system-prompt-test.js';
+import { runTests as runImportedConversationSeedingTests } from '../unit-tests/imported-conversation-seeding-test.js';
 import { runTests as runOneShotRunTests } from '../unit-tests/one-shot-run-test.js';
 import { runTests as runRunAgentTests } from '../unit-tests/run-agent-test.js';
 import { runTests as runRunAgentLimitsTests } from '../unit-tests/run-agent-limits-test.js';
@@ -715,6 +716,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:conversation-name-persistence', run: runConversationNameTests },
   { name: 'unit:conversation-naming', run: runConversationNamingTests },
   { name: 'unit:new-conversation-system-prompt', run: runNewConversationSystemPromptTests },
+  { name: 'unit:imported-conversation-seeding', run: runImportedConversationSeedingTests },
   { name: 'unit:one-shot-run', run: runOneShotRunTests },
   { name: 'unit:run-agent', run: runRunAgentTests },
   { name: 'unit:run-agent-limits', run: runRunAgentLimitsTests },

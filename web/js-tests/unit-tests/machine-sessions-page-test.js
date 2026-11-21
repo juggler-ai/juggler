@@ -892,6 +892,92 @@ export async function runTests() {
     });
   }
 
+  // A distribution's panels (sdk/lib/page-panels.js): each in a section of its
+  // own under the welcome and over the switcher, hidden while the first list
+  // loads, told the page's shape as it changes, and taken down with the page.
+  // One that throws costs only itself.
+  await test('a registered panel renders in its own section, and is told the page\'s shape', async () => {
+    /** @type {Array<(panel: any) => void>} */
+    const deliver = [];
+    let stopped = false;
+    /** @type {string[]} */
+    const told = [];
+    let unmounted = 0;
+    /** @type {any} */
+    let lent = null;
+    const panels = (/** @type {(panel: any) => void} */ fn) => {
+      deliver.push(fn);
+      fn({ id: 'broken', mount: () => { throw new Error('this panel is broken'); } });
+      fn({
+        id: 'import',
+        mount: (/** @type {HTMLElement} */ container, /** @type {any} */ context) => {
+          lent = context;
+          container.append(Object.assign(document.createElement('p'), { className: 'test-panel-body', textContent: 'Import from elsewhere' }));
+          return { layout: (/** @type {string} */ state) => { told.push(state); }, unmount: () => { unmounted++; } };
+        },
+      });
+      return () => { stopped = true; };
+    };
+    // Until the first list arrives, the page has nothing to show a panel by.
+    let release = () => {};
+    const api = stubApi([]);
+    const list = api.listSessions;
+    api.listSessions = () => new Promise((resolve) => { release = () => resolve(list()); });
+    const root = document.createElement('div');
+    document.body.append(root);
+    const page = mountSessionsPage(root, { api, config: { token: 't', version: 'v1.2.3', host: 'studio' }, now: () => NOW, pollMs: 0, panels });
+    try {
+      const section = /** @type {HTMLElement|null} */ (root.querySelector('section.ms-panel[data-panel="import"]'));
+      assert(!!section, 'the panel has no section');
+      assert(!root.querySelector('[data-panel="broken"]'), 'a panel whose mount threw has a section');
+      assert(!section?.checkVisibility(), 'a panel is shown before the first list');
+      assert(told.length === 0, `a loading page told the panel ${JSON.stringify(told)}`);
+      assert(lent?.api === api && lent?.config?.token === 't' && lent?.host === null, 'the panel was not lent the page\'s api, config and host');
+      assert(['get', 'set', 'watch'].every((k) => typeof lent?.prefs?.[k] === 'function'), 'the panel was not lent its prefs');
+      assert(lent?.prefs?.get('never-set', 'fallback') === 'fallback', 'a pref never set does not read as its fallback');
+
+      release();
+      await waitFor(() => !!section?.checkVisibility(), { description: 'the panel shown once the list arrives' });
+      assert(JSON.stringify(told) === '["first-run"]', `a first run told the panel ${JSON.stringify(told)}`);
+      assert(section?.querySelector('.test-panel-body')?.textContent === 'Import from elsewhere', 'the panel did not build into its section');
+      const parts = [...(section?.parentElement?.children || [])];
+      const at = (/** @type {string} */ sel) => parts.findIndex((p) => p.matches(sel));
+      assert(at('.ms-intro') < at('.ms-panel') && at('.ms-panel') < at('.ms-switcher'),
+        `the panel is not between the introduction and the switcher: ${parts.map((p) => p.className).join(' | ')}`);
+
+      api.listSessions = list;
+      api.sessions = [{ id: 's1', project: '/work/alpha', link: '/p/s1-0123abcd/', state: 'running', busy: false, startedAt: '' }];
+      await page.refresh();
+      assert(JSON.stringify(told) === '["first-run","listing"]', `a listing told the panel ${JSON.stringify(told)}`);
+      assert(!!section?.checkVisibility(), 'a listing hides the panel');
+      await page.refresh();
+      assert(told.length === 2, `the panel was told the same shape twice: ${JSON.stringify(told)}`);
+
+      // A panel registered after the page mounted joins it.
+      deliver[0]({ id: 'late', mount: (/** @type {HTMLElement} */ c) => { c.textContent = 'late'; } });
+      assert(root.querySelector('[data-panel="late"]')?.textContent === 'late', 'a panel registered after the page mounted is not shown');
+    } finally {
+      page.dispose();
+      root.remove();
+    }
+    assert(stopped, 'the page went on watching for panels after it was taken down');
+    assert(unmounted === 1, `the panel was unmounted ${unmounted} times`);
+  });
+
+  await test('a page framing another server mounts no panels', async () => {
+    let asked = false;
+    const m = await mount(stubApi([]), {
+      host: stubHost(),
+      framed: { server: 'http://10.0.0.9:3939', frameCtl: 'http://127.0.0.1:5555/c' },
+      panels: () => { asked = true; return () => {}; },
+    });
+    try {
+      assert(!asked && !m.root.querySelector('.ms-panel'), 'a page framing another server mounted panels');
+    } finally {
+      m.dispose();
+    }
+  });
+
   await test('a refusal the server sent a message for is read with it', async () => {
     const message = { key: 'project {path}: give an absolute path, or one starting with ~/', params: { path: 'some/rel' } };
     const api = createControlApi({
@@ -2279,6 +2365,10 @@ export async function runTests() {
     assert(readPageConfig(doc).confirm === false, 'a link a visitor reached from here read as one to ask about');
     el.textContent = JSON.stringify({ token: 'tok', open: '/work/zeta', confirm: true });
     assert(readPageConfig(doc).confirm === true, 'a link reached from another site not read as one to ask about');
+    assert(JSON.stringify(readPageConfig(doc).panels) === '[]', 'a page with no panels read some');
+    el.textContent = JSON.stringify({ token: 'tok', panels: ['/v1/machine/panels/a.js', 7] });
+    assert(JSON.stringify(readPageConfig(doc).panels) === '["/v1/machine/panels/a.js"]',
+      `panels read as ${JSON.stringify(readPageConfig(doc).panels)}`);
   });
 
   // A project's link is where its session is served; while it has no running

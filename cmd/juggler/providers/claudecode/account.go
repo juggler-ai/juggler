@@ -222,5 +222,5 @@ func setAccountLabel(id, label string) {
 // resolves it when run from Juggler's own working directory.
 func defaultConfigDir() string {
 	wd, _ := os.Getwd()
-	return claudeConfigDir("", wd)
+	return claudeConfigDir(wd, "")
 }

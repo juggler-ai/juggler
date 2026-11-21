@@ -18,6 +18,7 @@ import (
 	"juggler/cmd/juggler/providers/provider"
 	"juggler/cmd/juggler/server/handlers"
 	"juggler/cmd/juggler/webui"
+	"juggler/cmd/juggler/worker"
 	"juggler/internal/apipaths"
 	"juggler/internal/jlog"
 	"juggler/internal/userpaths"
@@ -146,6 +147,7 @@ func (s *Server) wireWorkerManager() {
 // session handlers carry nothing of it.
 const (
 	routeConversationCreate = "conversation-create"
+	routeConversationImport = "conversation-import"
 	routeConversationDelete = "conversation-delete"
 	routeConversationBin    = "conversation-bin"
 )
@@ -214,6 +216,10 @@ func (s *Server) setupSessionRoutes(sessionAPI *handlers.SessionAPI) {
 	// Atomic conversation creation: server picks id, creates folder with
 	// the collision-resolved canonical name, returns {id, name, created}.
 	api.HandleFunc("/conversations", sessionAPI.HandleCreateConversation).Methods("POST").Name(routeConversationCreate)
+	// A conversation made from another agent's transcript, in a shape no agent
+	// in particular writes (worker.ImportedTranscript), at worker.ImportPath:
+	// a worker.ImportAnswer.
+	api.HandleFunc(strings.TrimPrefix(worker.ImportPath, "/api"), sessionAPI.HandleImportConversation).Methods("POST").Name(routeConversationImport)
 	api.HandleFunc("/session/conversations/{convId}", sessionAPI.HandleGetConversation).Methods("GET")
 	api.HandleFunc("/session/conversations/{convId}", sessionAPI.HandleUpdateConversation).Methods("PUT")
 	api.HandleFunc("/session/conversations/{convId}", sessionAPI.HandleDeleteConversation).Methods("DELETE").Name(routeConversationDelete)

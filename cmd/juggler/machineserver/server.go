@@ -127,6 +127,9 @@ type Server struct {
 	build string
 	// peer answers a tunnel's WebRTC offers (ServeOptions.Peer); nil answers none.
 	peer Peer
+	// extraRoutes registers a distribution's routes on the control API
+	// (ServeOptions.ExtraRoutes); nil registers none.
+	extraRoutes ExtraRoutes
 	// tunnel is the running tunnel, if any (tunnel.go).
 	tunnel atomic.Pointer[runningTunnel]
 	// ingress is the in-process listener a tunnel's data channels dial, and
@@ -229,6 +232,10 @@ func (s *Server) routes() http.Handler {
 	api.HandleFunc("/i18n/locales", s.handleLocales).Methods("GET")
 	api.HandleFunc("/attach", s.handleAttach).Methods("POST")
 	api.HandleFunc("/attach/{id}/beat", s.handleBeat).Methods("POST")
+	// A distribution's own, after every built-in one, so they shadow none.
+	if s.extraRoutes != nil {
+		s.extraRoutes(api, serverHost{s})
+	}
 	r.HandleFunc("/api/version", s.handleVersion).Methods("GET")
 	r.HandleFunc("/p/{key}", s.redirectProjectLink)
 	r.PathPrefix("/p/{key}/").HandlerFunc(s.handleProjectProxy)

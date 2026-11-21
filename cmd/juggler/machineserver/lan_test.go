@@ -495,7 +495,7 @@ func TestServeLANStartsWithLANAccessOn(t *testing.T) {
 		userpathstest.Isolate(t)
 		got := servedHere(t)
 		code := make(chan int, 1)
-		go func() { code <- RunCommand(c.args, nil, nil) }()
+		go func() { code <- RunCommand(c.args, nil, nil, nil) }()
 		var s *Server
 		select {
 		case s = <-got:

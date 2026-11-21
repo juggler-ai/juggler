@@ -39,9 +39,10 @@ func Discover(ctx context.Context) []provider.Candidate {
 	return discoverIn(ctx, home, defaultConfigDir())
 }
 
-// discoverIn is Discover for the home directory home, with defaultDir the
-// default account's config dir.
-func discoverIn(ctx context.Context, home, defaultDir string) []provider.Candidate {
+// conventionalLogins lists the config dirs in home where a further login
+// conventionally lives that hold a .claude.json, in their one spelling,
+// sorted, without defaultDir — the default account's.
+func conventionalLogins(home, defaultDir string) []string {
 	skip := provider.FolderLoginKey(defaultDir)
 
 	seen := map[string]bool{}
@@ -64,6 +65,13 @@ func discoverIn(ctx context.Context, home, defaultDir string) []provider.Candida
 		consider(dir)
 	}
 	sort.Strings(dirs)
+	return dirs
+}
+
+// discoverIn is Discover for the home directory home, with defaultDir the
+// default account's config dir.
+func discoverIn(ctx context.Context, home, defaultDir string) []provider.Candidate {
+	dirs := conventionalLogins(home, defaultDir)
 
 	// Each probe is a short-lived claude; run them side by side.
 	results := make([]authProbeResult, len(dirs))

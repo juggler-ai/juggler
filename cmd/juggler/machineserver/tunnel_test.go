@@ -519,7 +519,7 @@ func TestServeTunnelStartsWithTheTunnelOpen(t *testing.T) {
 	userpathstest.Isolate(t)
 	got := servedHere(t)
 	code := make(chan int, 1)
-	go func() { code <- RunCommand([]string{"--port", "0", "--tunnel", string(fwdMode)}, nil, nil) }()
+	go func() { code <- RunCommand([]string{"--port", "0", "--tunnel", string(fwdMode)}, nil, nil, nil) }()
 	var s *Server
 	select {
 	case s = <-got:
@@ -543,7 +543,7 @@ func TestServeTunnelStartsWithTheTunnelOpen(t *testing.T) {
 		t.Error("the server stopped and left its tunnel running")
 	}
 
-	if n := RunCommand([]string{"--port", "0", "--tunnel", "nope"}, nil, nil); n != 2 {
+	if n := RunCommand([]string{"--port", "0", "--tunnel", "nope"}, nil, nil, nil); n != 2 {
 		t.Errorf("serve --tunnel nope: exit %d, want 2", n)
 	}
 }
@@ -587,7 +587,7 @@ func TestServeOpensTheSavedWaysIn(t *testing.T) {
 	saveLaunchExposure(t, true, fwdMode)
 	got := servedHere(t)
 	code := make(chan int, 1)
-	go func() { code <- RunCommand([]string{"--port", "0"}, nil, nil) }()
+	go func() { code <- RunCommand([]string{"--port", "0"}, nil, nil, nil) }()
 	var s *Server
 	select {
 	case s = <-got:

@@ -69,7 +69,7 @@ func TestFreshStartWithAssistantTailResumesHistory(t *testing.T) {
 	// The resumed file must still contain the tool_use, under the prefixed
 	// name the CLI records in its own native sessions.
 	sessionPath := filepath.Join(os.Getenv("HOME"), ".claude", "projects",
-		projectDirNameFromWorkingDir(c.workingDir), last.ResumeID+".jsonl")
+		ProjectDirName(c.workingDir), last.ResumeID+".jsonl")
 	data, err := os.ReadFile(sessionPath)
 	if err != nil {
 		t.Fatalf("read synthesised session %s: %v", sessionPath, err)

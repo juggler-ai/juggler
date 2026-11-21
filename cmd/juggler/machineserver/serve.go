@@ -80,13 +80,14 @@ func dialAddr(ln net.Listener) string {
 var serveListening = func(*Server) {}
 
 // RunCommand runs `juggler serve` to completion and returns the process exit
-// code, serving the sessions page from assets and answering a tunnel's WebRTC
-// offers with peer. One machine server per machine,
+// code, serving the sessions page from assets, answering a tunnel's WebRTC
+// offers with peer, and serving extra's routes (nil for none) beside its own.
+// One machine server per machine,
 // enforced by the flock under ~/.juggler/; a second invocation reports the
 // running one and exits. startupNotes are what the caller did before there was
 // a log to say so in (a failed login-shell PATH probe); each is logged once
 // there is.
-func RunCommand(args []string, assets fs.FS, peer Peer, startupNotes ...string) int {
+func RunCommand(args []string, assets fs.FS, peer Peer, extra ExtraRoutes, startupNotes ...string) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	port := fs.Int("port", DefaultPort, "Port for the machine server, or the first free one after it (0 = OS-assigned; the bound address is recorded in ~/.juggler/server.json)")
 	portStrict := fs.Bool("port-strict", false, PortStrictUsage)
@@ -128,7 +129,7 @@ func RunCommand(args []string, assets fs.FS, peer Peer, startupNotes ...string) 
 	}
 
 	err := Serve(ServeOptions{Port: *port, StrictPort: *portStrict, Implicit: *implicit, StartedBy: *startedBy, TestChildren: *testChildren, ExitWithParent: *exitWithParent,
-		Dev: *dev, AssetsFromDisk: *assetsFromDisk, AllowHosts: allowHosts, BasePath: *basePath, LAN: *lan, Tunnel: tunnel.Mode(*openTunnel), Assets: assets, Peer: peer})
+		Dev: *dev, AssetsFromDisk: *assetsFromDisk, AllowHosts: allowHosts, BasePath: *basePath, LAN: *lan, Tunnel: tunnel.Mode(*openTunnel), Assets: assets, Peer: peer, ExtraRoutes: extra})
 	var held *LockHeldError
 	switch {
 	case err == nil:
@@ -205,6 +206,9 @@ type ServeOptions struct {
 	Assets fs.FS
 	// Peer answers a tunnel's WebRTC offers; nil answers none.
 	Peer Peer
+	// ExtraRoutes registers a distribution's routes on the control API; nil
+	// registers none.
+	ExtraRoutes ExtraRoutes
 	// Signals delivers requests to stop. Nil listens for SIGINT and SIGTERM.
 	Signals <-chan os.Signal
 	// Foreground, when set, is the terminal this server serves in the
@@ -333,6 +337,7 @@ func Serve(opts ServeOptions) error {
 		fixedBase:           fixedBase,
 		build:               ownBuild(),
 		peer:                opts.Peer,
+		extraRoutes:         opts.ExtraRoutes,
 	}
 
 	s.rememberLeaving()

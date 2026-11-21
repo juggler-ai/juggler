@@ -355,6 +355,7 @@
   "Couldn't detach the board. {error}": "보드를 분리할 수 없습니다. {error}",
   "Couldn't discard. {error}": "폐기할 수 없습니다. {error}",
   "Couldn't duplicate conversation: {detail}": "대화를 복제할 수 없습니다: {detail}",
+  "Couldn't import the conversation: {detail}": "대화를 가져올 수 없습니다: {detail}",
   "Couldn't initialize conversation: {detail}": "대화를 초기화할 수 없습니다: {detail}",
   "Couldn't load config: {detail}": "구성을 불러올 수 없습니다: {detail}",
   "Couldn't load configuration": "구성을 불러올 수 없습니다",

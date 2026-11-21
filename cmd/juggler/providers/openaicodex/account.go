@@ -100,9 +100,10 @@ func Discover(_ context.Context) []provider.Candidate {
 	return discoverIn(home, defaultHome)
 }
 
-// discoverIn is Discover for the home directory home, with defaultHome the
-// default account's CODEX_HOME.
-func discoverIn(home, defaultHome string) []provider.Candidate {
+// conventionalHomes lists the CODEX_HOMEs in home where a further login
+// conventionally lives, in their one spelling, sorted, without defaultHome —
+// the default account's.
+func conventionalHomes(home, defaultHome string) []string {
 	seen := map[string]bool{provider.FolderLoginKey(defaultHome): true}
 	var dirs []string
 	for _, dir := range append(provider.FoldersNamedLike(home, homePrefixes...), provider.FoldersNamedInShellFiles(home, "CODEX_HOME")...) {
@@ -113,6 +114,13 @@ func discoverIn(home, defaultHome string) []provider.Candidate {
 		}
 	}
 	sort.Strings(dirs)
+	return dirs
+}
+
+// discoverIn is Discover for the home directory home, with defaultHome the
+// default account's CODEX_HOME.
+func discoverIn(home, defaultHome string) []provider.Candidate {
+	dirs := conventionalHomes(home, defaultHome)
 
 	var out []provider.Candidate
 	for _, dir := range dirs {

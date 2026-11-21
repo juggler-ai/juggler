@@ -355,6 +355,7 @@
   "Couldn't detach the board. {error}": "[Çöûļðñ''ţ ðéţåçĥ ţĥé ƀöåŕð. {error} ·······]",
   "Couldn't discard. {error}": "[Çöûļðñ''ţ ðîšçåŕð. {error} ·····]",
   "Couldn't duplicate conversation: {detail}": "[Çöûļðñ''ţ ðûþļîçåţé çöñṽéŕšåţîöñ: {detail} ··········]",
+  "Couldn't import the conversation: {detail}": "[Çöûļðñ''ţ îɱþöŕţ ţĥé çöñṽéŕšåţîöñ: {detail} ··········]",
   "Couldn't initialize conversation: {detail}": "[Çöûļðñ''ţ îñîţîåļîžé çöñṽéŕšåţîöñ: {detail} ··········]",
   "Couldn't load config: {detail}": "[Çöûļðñ''ţ ļöåð çöñƒîĝ: {detail} ······]",
   "Couldn't load configuration": "[Çöûļðñ''ţ ļöåð çöñƒîĝûŕåţîöñ ········]",

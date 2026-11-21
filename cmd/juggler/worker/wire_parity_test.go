@@ -70,6 +70,8 @@ type wireManifest struct {
 			UndoState            []string `json:"undoState"`
 			DisplayData          []string `json:"displayData"`
 			DroppedFile          []string `json:"droppedFile"`
+			SystemPromptData     []string `json:"systemPromptData"`
+			ImportedFrom         []string `json:"importedFrom"`
 		} `json:"docKeys"`
 	} `json:"worker"`
 }
@@ -637,6 +639,8 @@ func TestWireParityDocKeys(t *testing.T) {
 		"undoState":            keys.UndoState,
 		"displayData":          keys.DisplayData,
 		"droppedFile":          keys.DroppedFile,
+		"systemPromptData":     keys.SystemPromptData,
+		"importedFrom":         keys.ImportedFrom,
 	}
 	usedOrMeta := stringSet{}
 	maps.Copy(usedOrMeta, used)

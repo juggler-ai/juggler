@@ -47,7 +47,7 @@ func convOwnershipMiddleware(ledger convOwnershipLedger) mux.MiddlewareFunc {
 			}
 			lane := r.URL.Query().Get("lane")
 			switch route.GetName() {
-			case routeConversationCreate:
+			case routeConversationCreate, routeConversationImport:
 				reason := r.URL.Query().Get("reason")
 				serveHeld(next, w, r, func(status int, body []byte) {
 					if status != http.StatusCreated {

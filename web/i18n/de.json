@@ -355,6 +355,7 @@
   "Couldn't detach the board. {error}": "Board konnte nicht abgelöst werden. {error}",
   "Couldn't discard. {error}": "Verwerfen fehlgeschlagen. {error}",
   "Couldn't duplicate conversation: {detail}": "Unterhaltung konnte nicht dupliziert werden: {detail}",
+  "Couldn't import the conversation: {detail}": "Unterhaltung konnte nicht importiert werden: {detail}",
   "Couldn't initialize conversation: {detail}": "Unterhaltung konnte nicht initialisiert werden: {detail}",
   "Couldn't load config: {detail}": "Konfiguration konnte nicht geladen werden: {detail}",
   "Couldn't load configuration": "Konfiguration konnte nicht geladen werden",

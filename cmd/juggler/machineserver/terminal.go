@@ -36,10 +36,12 @@ type TerminalOptions struct {
 	AllowHosts          []string
 	BasePath            string
 	Dev, AssetsFromDisk bool
-	// Assets is the web tree the sessions page is served from, and Peer what
-	// answers a tunnel's WebRTC offers, when this run serves.
-	Assets fs.FS
-	Peer   Peer
+	// Assets is the web tree the sessions page is served from, Peer what
+	// answers a tunnel's WebRTC offers, and ExtraRoutes a distribution's routes
+	// on the control API (ServeOptions), when this run serves.
+	Assets      fs.FS
+	Peer        Peer
+	ExtraRoutes ExtraRoutes
 	// Stdout is where the run says what it is doing, Stderr why it failed.
 	Stdout, Stderr io.Writer
 	// Stdin, when set, is a person at the terminal: b+Enter opens the session
@@ -71,7 +73,7 @@ func RunTerminal(opts TerminalOptions) int {
 	opts.Ready = withKeys(opts, in)
 	for attempt := 0; attempt < terminalAttempts; attempt++ {
 		err := Serve(ServeOptions{
-			Port: cmp.Or(opts.Port, DefaultPort), StrictPort: opts.StrictPort, Implicit: true, AllowHosts: opts.AllowHosts, BasePath: opts.BasePath, Assets: opts.Assets, Peer: opts.Peer, Signals: opts.Signals,
+			Port: cmp.Or(opts.Port, DefaultPort), StrictPort: opts.StrictPort, Implicit: true, AllowHosts: opts.AllowHosts, BasePath: opts.BasePath, Assets: opts.Assets, Peer: opts.Peer, ExtraRoutes: opts.ExtraRoutes, Signals: opts.Signals,
 			Dev: opts.Dev, AssetsFromDisk: opts.AssetsFromDisk,
 			Foreground: &Foreground{Project: opts.Project, Out: opts.Stdout, Ready: opts.Ready},
 		})

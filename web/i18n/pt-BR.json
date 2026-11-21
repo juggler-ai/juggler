@@ -355,6 +355,7 @@
   "Couldn't detach the board. {error}": "Não foi possível desanexar o quadro. {error}",
   "Couldn't discard. {error}": "Não foi possível descartar. {error}",
   "Couldn't duplicate conversation: {detail}": "Não foi possível duplicar a conversa: {detail}",
+  "Couldn't import the conversation: {detail}": "Não foi possível importar a conversa: {detail}",
   "Couldn't initialize conversation: {detail}": "Não foi possível inicializar a conversa: {detail}",
   "Couldn't load config: {detail}": "Não foi possível carregar a configuração: {detail}",
   "Couldn't load configuration": "Não foi possível carregar a configuração",

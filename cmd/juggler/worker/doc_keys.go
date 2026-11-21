@@ -118,9 +118,27 @@ const (
 
 // Keys of a tool action's result value (docKeys.toolResult): content, isError
 // and cancelled are the item keys of the same name, and fullResult carries the
-// renderer's own completed state under keyState.
+// renderer's own completed state under keyState. resultType says what kind of
+// tool produced it ('action', 'context', …), written by the worker only on an
+// imported call (BuildImportedConversation).
 const (
 	keyFullResult = "fullResult"
+	keyResultType = "resultType"
+)
+
+// Keys of the system-prompt item's data (docKeys.systemPromptData), which the
+// worker writes only when it builds a conversation itself
+// (BuildImportedConversation): the browser's placeholder shape.
+const (
+	keyText             = "text"
+	keySelectedPresetID = "selectedPresetId"
+	keyIsModified       = "isModified"
+)
+
+// Keys of the importedFrom metadata value (docKeys.importedFrom): kind and id
+// are the pending-item keys of the same name.
+const (
+	keyDigest = "digest"
 )
 
 // Keys of a terminal-error item's data, and of a notice item's (docKeys.errorData).
@@ -207,6 +225,7 @@ const (
 	keyCreated             = "created"
 	keyCurrentStrategyID   = "currentStrategyId"
 	keyDefaultModelConfig  = "defaultModelConfig"
+	keyImportedFrom        = "importedFrom"
 	keyModelConfig         = "modelConfig"
 	keyNextSteps           = "nextSteps"
 	keyPendingItems        = "pendingItems"

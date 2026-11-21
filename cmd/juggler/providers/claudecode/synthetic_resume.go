@@ -34,10 +34,11 @@ import (
 	"juggler/cmd/juggler/providers/provider"
 )
 
-// syntheticVersion goes into the "version" field of each entry. The CLI
-// doesn't validate it; pick a value that identifies juggler-written
-// sessions when poking around the CLI's projects dir.
-const syntheticVersion = "juggler-synth"
+// SyntheticVersion goes into the "version" field of each entry. The CLI
+// doesn't validate it; it identifies juggler-written sessions in the CLI's
+// projects dir, to a person poking around and to a reader of the user's own
+// transcripts (transcripts.go), which must tell them from the user's.
+const SyntheticVersion = "juggler-synth"
 
 // continuationNudge is the synthetic user-role text we pipe to the CLI when
 // the stream-json input parser needs *some* user turn to trigger generation
@@ -394,7 +395,7 @@ func newSyntheticEntry(role string, content any, entryUUID string, parentUUID an
 		"entrypoint":  "sdk-cli",
 		"cwd":         workingDir,
 		"sessionId":   sessionUUID,
-		"version":     syntheticVersion,
+		"version":     SyntheticVersion,
 		"gitBranch":   "",
 	}
 	if role == "user" {
@@ -425,7 +426,7 @@ func projectsDir(workingDir, accountDir string) string {
 	if configDir == "" {
 		return ""
 	}
-	return filepath.Join(configDir, "projects", projectDirNameFromWorkingDir(workingDir))
+	return filepath.Join(configDir, "projects", ProjectDirName(workingDir))
 }
 
 // claudeConfigDir returns the config dir of a claude CLI spawned in workingDir,
@@ -453,7 +454,7 @@ func claudeConfigDir(workingDir, accountDir string) string {
 	return filepath.Join(home, ".claude")
 }
 
-// projectDirNameFromWorkingDir maps an absolute working-directory path to the
+// ProjectDirName maps an absolute working-directory path to the
 // directory name the claude CLI uses under its projects dir. It mirrors the
 // CLI's own encoder exactly (the `gw` function, verified against claude-code
 // 2.1.160): every non-alphanumeric character is replaced with "-" — that
@@ -461,8 +462,9 @@ func claudeConfigDir(workingDir, accountDir string) string {
 // as well as dots, spaces and underscores. If the encoded form exceeds 200
 // characters it is truncated to 200 and a hash of the original path is
 // appended so distinct long paths stay unique. Matching this byte-for-byte is
-// what lets a synthesised JSONL land in the directory the CLI reads on resume.
-func projectDirNameFromWorkingDir(workingDir string) string {
+// what lets a synthesised JSONL land in the directory the CLI reads on resume,
+// and what finds a project's own transcripts there (transcripts.go).
+func ProjectDirName(workingDir string) string {
 	const maxLen = 200 // CLI constant: encoded names longer than this get hashed
 	encoded := encodeClaudeProjectSegment(workingDir)
 	if len(encoded) <= maxLen {

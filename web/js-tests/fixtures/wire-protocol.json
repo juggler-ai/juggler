@@ -105,7 +105,7 @@
       "modelConfig": ["model", "provider", "serviceTier", "thinking"],
       "metadata": [
         "activatedStrategyId", "completedTurns", "created", "currentStrategyId", "defaultModelConfig", "forkParked",
-        "hasAutoNamed", "isProvisionalName", "modelConfig", "nextSteps", "pendingItems", "pendingRequests",
+        "hasAutoNamed", "importedFrom", "isProvisionalName", "modelConfig", "nextSteps", "pendingItems", "pendingRequests",
         "processingState", "spendNewInputTokens", "spendOutputTokens", "unattended", "undoState", "workspaceId"
       ],
       "pendingItem": [
@@ -118,7 +118,7 @@
         "politeStops", "politePending", "explicitContinuation", "description", "phase", "inputTokens",
         "outputTokens", "cachedTokens", "raiseMaxOutputTokens", "landed"
       ],
-      "toolResult": ["content", "isError", "cancelled", "fullResult", "state"],
+      "toolResult": ["content", "isError", "cancelled", "fullResult", "state", "resultType"],
       "errorData": [
         "duration", "provider", "model", "errorKind", "resetAt", "message", "compactionReason", "compactionCalls",
         "compactionSpend", "compactionUsage", "summaryMessage"
@@ -133,7 +133,9 @@
       ],
       "undoState": ["canUndo", "canRedo", "seq"],
       "displayData": ["backgroundTask"],
-      "droppedFile": ["hidden"]
+      "droppedFile": ["hidden"],
+      "systemPromptData": ["text", "selectedPresetId", "isModified"],
+      "importedFrom": ["kind", "id", "digest"]
     }
   },
 

@@ -355,6 +355,7 @@
   "Couldn't detach the board. {error}": "Impossible de détacher le tableau. {error}",
   "Couldn't discard. {error}": "Impossible d’abandonner. {error}",
   "Couldn't duplicate conversation: {detail}": "Impossible de dupliquer la conversation : {detail}",
+  "Couldn't import the conversation: {detail}": "Impossible d’importer la conversation : {detail}",
   "Couldn't initialize conversation: {detail}": "Impossible d’initialiser la conversation : {detail}",
   "Couldn't load config: {detail}": "Impossible de charger la configuration : {detail}",
   "Couldn't load configuration": "Impossible de charger la configuration",

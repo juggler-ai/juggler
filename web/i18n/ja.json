@@ -355,6 +355,7 @@
   "Couldn't detach the board. {error}": "ボードを切り離せませんでした。{error}",
   "Couldn't discard. {error}": "破棄できませんでした。{error}",
   "Couldn't duplicate conversation: {detail}": "会話を複製できませんでした: {detail}",
+  "Couldn't import the conversation: {detail}": "会話をインポートできませんでした: {detail}",
   "Couldn't initialize conversation: {detail}": "会話を初期化できませんでした: {detail}",
   "Couldn't load config: {detail}": "設定を読み込めませんでした: {detail}",
   "Couldn't load configuration": "設定を読み込めませんでした",

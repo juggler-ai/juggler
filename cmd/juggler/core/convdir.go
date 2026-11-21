@@ -57,6 +57,7 @@ func generatePrefixedID(prefix string) string {
 //       <sha256>.<ext>
 //     programs/
 //       <toolUseId>.json
+//     imported.json   (only in a conversation made by an import)
 //
 // The folder name is the source of truth for the human-readable name; the
 // id is the stable internal handle (conv_<base36>) used everywhere in code,
@@ -64,7 +65,7 @@ func generatePrefixedID(prefix string) string {
 // the trailing "--<id>" is unambiguously the suffix.
 //
 // Every name in that tree is spelled in this file and nowhere else: the
-// folder name by BuildDirName/ParseDirName, its contents by the four
+// folder name by BuildDirName/ParseDirName, its contents by the five
 // accessors below. A package that stores something for a conversation is
 // handed the folder path and asks here what lives inside it, so how a
 // conversation is laid out on disk stays a question only this package
@@ -83,7 +84,17 @@ const (
 	// programsDirName holds the snapshot a program tool keeps while one of
 	// its calls waits on the user, one per tool-use id.
 	programsDirName = "programs"
+	// importRecordFileName names the transcript an imported conversation was
+	// made from (ImportSource).
+	importRecordFileName = "imported.json"
 )
+
+// ConvImportRecordPath returns the import record's path inside a conversation
+// folder. A clone does not carry it: a duplicate is the user's own copy, not a
+// second import of the transcript.
+func ConvImportRecordPath(convDir string) string {
+	return filepath.Join(convDir, importRecordFileName)
+}
 
 // ConvDocPath returns the Yjs document path inside a conversation folder.
 func ConvDocPath(convDir string) string {

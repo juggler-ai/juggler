@@ -34,6 +34,9 @@ export const TOKEN_HEADER = 'X-Juggler-Token';
  *   the visitor here.
  * @property {string} [base] - The path a reverse proxy mounts the server
  *   under, which the control API is reached below; '' or absent at the root.
+ * @property {string[]} [panels] - The URLs of a distribution's panel modules,
+ *   which the page loads as it starts (sessions-page.js; sdk/lib/page-panels.js);
+ *   absent for none.
  */
 
 /**
@@ -68,6 +71,7 @@ export function readPageConfig(doc = document) {
     openMissing: raw.openMissing === true,
     confirm: raw.confirm === true,
     base: typeof raw.base === 'string' ? raw.base : '',
+    panels: Array.isArray(raw.panels) ? raw.panels.filter((u) => typeof u === 'string') : [],
   };
 }
 
@@ -119,7 +123,9 @@ export class ControlApiError extends Error {
  *   setLaunch: (change: Partial<LaunchState>) => Promise<LaunchState>,
  *   getStatus: () => Promise<import('../js/components/connectivity/exposure-view.js').ServerStatus>,
  *   events: (onSnapshot: (snapshot: Snapshot) => void, signal: AbortSignal) => Promise<void>,
- * }} The calls the sessions page makes.
+ *   request: (method: string, path: string, body?: unknown) => Promise<unknown>,
+ * }} The calls the sessions page makes, and request, any other call under
+ *   /api/server — a distribution's own routes there (sdk/lib/page-panels.js).
  */
 export function createControlApi({ token, base = '', fetchImpl = (input, init) => fetch(input, init) }) {
   /**
@@ -191,6 +197,9 @@ export function createControlApi({ token, base = '', fetchImpl = (input, init) =
     // The server's own status: its process, and whether the desktop app
     // started it.
     getStatus: async () => /** @type {import('../js/components/connectivity/exposure-view.js').ServerStatus} */ (await request('GET', '/status')),
+    // Any other call: path under /api/server, answered with the decoded JSON
+    // body (null for none), refused with a ControlApiError as the rest are.
+    request,
     // Follows the server's events stream, handing onSnapshot each snapshot
     // of the sessions and recents it sends, until the stream ends — which
     // resolves — or signal aborts it. One that cannot be opened, or that

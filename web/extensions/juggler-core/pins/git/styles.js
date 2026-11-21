@@ -1833,66 +1833,42 @@ export function injectGitClientStyles() {
   overflow: auto;
 }
 
-/* The working tree's changes, as the row above HEAD: a hollow ring on the
-   graph's grid in HEAD's lane, where the next commit will go. Its padding and
-   its text's match a commit row's, so ring and text line up with theirs. */
-.git-history__wip {
-  flex: none;
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  height: 1.625rem;
-  padding: 0 var(--space-6) 0 var(--space-2);
-  font: inherit;
-  text-align: start;
-  color: var(--text-primary);
+/* The working tree's changes, as their row of the graph, right above HEAD's:
+   tinted, its ring hollow and its edge into HEAD dashed — a commit still to
+   come. A click shows them in Changes. */
+.git-history__row--worktree {
   background: color-mix(in srgb, var(--accent-yellow) 10%, transparent);
-  border: 0;
-  border-bottom: 1px dashed color-mix(in srgb, var(--accent-yellow) 50%, transparent);
   cursor: pointer;
 }
 
-.git-history__wip[hidden] {
-  display: none;
-}
-
-.git-history__wip:hover {
+.git-history__row--worktree:hover {
   background: color-mix(in srgb, var(--accent-yellow) 18%, transparent);
 }
 
-.git-history__wip .git-graph {
-  overflow: visible;
-}
-
-.git-graph__dot--wip {
+.git-graph__dot--worktree {
   fill: var(--bg-secondary);
   stroke: var(--accent-yellow);
   stroke-width: 2.2;
 }
 
-/* Dashed: a commit still to come. */
-.git-graph__wip-stem,
-.git-graph__in--wip {
+.git-graph__out--worktree {
   stroke-dasharray: 2.5 2;
 }
 
-.git-history__wip--scrolled .git-graph__wip-stem {
-  visibility: hidden;
-}
-
 .git-history__wip-text {
-  padding-inline-start: var(--space-4);
   font-style: italic;
 }
 
 .git-history__wip-count {
   margin-inline-start: var(--space-6);
   font-size: var(--font-size-xs);
+  font-style: normal;
   color: var(--text-secondary);
 }
 
 .git-history__wip-go {
-  margin-inline-start: auto;
+  flex: none;
+  padding-inline-end: var(--space-6);
   font-size: var(--font-size-xs);
   color: var(--accent-blue);
 }

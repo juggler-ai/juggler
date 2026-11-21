@@ -26,13 +26,22 @@
  * runs and the browser's few connections to it go to the reads that matter.
  *
  * **Refreshing** asks the session to catch up with refs that moved and to find
- * the commit at the top of the view, then scrolls by as many rows as that
- * commit moved, so it is back where it was on screen, to the pixel.
+ * the commit at the top of the view. When the rows moved and the view is within
+ * a screen of the top, it goes to the top, so commits that arrived are seen
+ * rather than hidden just above it; further down, it scrolls by as many rows
+ * as that commit moved, so it is back where it was on screen, to the pixel.
  *
  * **Selecting a commit** that is not held asks the session where it is (a
  * `find`, which reads on until it is there or the history ends), then selects
  * that row, which reads its page. Before the first page has landed it waits for
  * that page, so the session it asks is the one the list reads.
+ *
+ * **The working tree's row** (`worktree`, which the server lays out above
+ * HEAD's) is a row like any other to draw, but not a commit: it is never
+ * selected — moving the selection steps over it — and a refresh anchors on the
+ * first commit in view rather than on it. A refresh asked for before the first
+ * page has landed is made once it has, since that page's read may have been
+ * asked with what the refresh is meant to catch up with.
  *
  * **The graph's width** (`cap`) is a style read, taken once per draw and once
  * per page landed, never per row.
@@ -74,11 +83,12 @@ const OVERSCAN = 15;
  * @property {() => void} render - Draw what is in view, reading what it needs.
  * @property {() => void} reset - Start a new session from the top.
  * @property {() => void} refresh - Catch up with moved refs, keeping the top row in view.
- * @property {(index: number) => void} select - Select a row, scrolling it into view.
+ * @property {(index: number) => void} select - Select a row, scrolling it into view; the
+ *   working tree's row is not selected.
  * @property {(sha: string) => Promise<number|null>} selectSha - Select a commit, scrolling
  *   it into view: its row, or -1 when the list does not hold it, or null when a later
  *   `selectSha` or a reset came first (nothing is selected by it then).
- * @property {(by: number) => void} move - Move the selection.
+ * @property {(by: number) => void} move - Move the selection, stepping over the working tree's row.
  * @property {() => {index: number, row: PinGitLogRow|null}} selected - The selection.
  * @property {(index: number) => PinGitLogRow|null} rowAt - A held row.
  * @property {(sha: string) => number} indexOf - Where a held commit is, or -1.
@@ -126,6 +136,8 @@ export function createHistoryList(options) {
   let reported = '';
   let refreshing = false;
   let refreshAgain = false;
+  /** Whether a refresh was asked for before the first page landed. */
+  let refreshDue = false;
   let loaded = false;
   /** @type {((taken: boolean) => void)[]} Waiting for the first page of this session. */
   let waiting = [];
@@ -219,8 +231,15 @@ export function createHistoryList(options) {
     options.fetch({ offset: p * PAGE, limit: PAGE, ...(graph ? { graph } : {}) }, signal).then((page) => {
       if (reading.get(key) === mine) reading.delete(key);
       if (signal.aborted) return;
-      if (adopt(page, asked)) render();
-      else if (asked === epoch) render();
+      if (adopt(page, asked)) {
+        render();
+        if (refreshDue) {
+          refreshDue = false;
+          refresh();
+        }
+      } else if (asked === epoch) {
+        render();
+      }
     }, (e) => {
       if (reading.get(key) === mine) reading.delete(key);
       if (asked !== epoch || signal.aborted) return;
@@ -306,7 +325,9 @@ export function createHistoryList(options) {
   const select = (index) => {
     const most = known() - 1;
     if (most < 0) return;
-    selectedIndex = Math.max(0, Math.min(most, index));
+    const at = Math.max(0, Math.min(most, index));
+    if (rowAt(at)?.worktree) return;
+    selectedIndex = at;
     selectedSha = rowAt(selectedIndex)?.sha || '';
     reported = '';
     reveal(selectedIndex);
@@ -358,8 +379,21 @@ export function createHistoryList(options) {
     return page.found;
   };
 
+  /**
+   * @param {number} by - Rows to move by.
+   */
+  const move = (by) => {
+    const step = by < 0 && selectedIndex >= 0 ? -1 : 1;
+    let at = selectedIndex < 0 ? 0 : selectedIndex + by;
+    if (rowAt(at)?.worktree) at += step;
+    // Above the top, past the working tree's row: the selection stays.
+    if (at < 0) return;
+    select(at);
+  };
+
   const refresh = () => {
     if (!graph) {
+      refreshDue = !loaded;
       render();
       return;
     }
@@ -368,12 +402,25 @@ export function createHistoryList(options) {
       return;
     }
     refreshing = true;
-    const { first } = windowOf();
+    let { first } = windowOf();
+    if (rowAt(first)?.worktree) first++;
     const anchor = rowAt(first)?.sha || '';
     const asked = epoch;
     const p = Math.floor(first / PAGE);
     options.fetch({ offset: p * PAGE, limit: PAGE, graph, refresh: true, ...(anchor ? { find: anchor } : {}) }, session.signal).then((page) => {
-      if (adopt(page, asked) && anchor && page.found >= 0 && page.found !== first) {
+      const was = gen;
+      // Where the view is as the answer lands, so a scroll made meanwhile counts.
+      const nearTop = element.scrollTop < element.clientHeight;
+      if (!adopt(page, asked)) {
+        if (asked === epoch) render();
+        return;
+      }
+      if (page.gen !== was && nearTop) {
+        // The rows moved under a view within a screen of the top: what came
+        // is most likely new on top, and is what the user wants to see.
+        list.spacer.style.height = `${known() * ROW_PX}px`;
+        element.scrollTop = 0;
+      } else if (anchor && page.found >= 0 && page.found !== first) {
         // Everything held moved as the anchor did; a scroll made while the
         // read was out moves with it rather than being undone.
         list.spacer.style.height = `${known() * ROW_PX}px`;
@@ -413,6 +460,7 @@ export function createHistoryList(options) {
     reported = '';
     refreshing = false;
     refreshAgain = false;
+    refreshDue = false;
     wake(false);
     clearDrawn();
     element.scrollTop = 0;
@@ -426,7 +474,7 @@ export function createHistoryList(options) {
     refresh,
     select,
     selectSha,
-    move: (by) => select(selectedIndex < 0 ? 0 : selectedIndex + by),
+    move,
     selected: () => ({ index: selectedIndex, row: selectedIndex >= 0 ? rowAt(selectedIndex) : null }),
     rowAt,
     indexOf,

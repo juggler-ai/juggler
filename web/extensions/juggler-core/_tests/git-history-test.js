@@ -15,7 +15,7 @@ import GitPin from '../pins/git-pin.js';
 import { assert, nextTask, waitFor } from '../../../js-tests/utilities/test-helpers.js';
 import { underPseudoLocale, shownStrings } from '../../../js-tests/utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../../sdk/lib/i18n.js';
-import { commitOf, historyOf, mountPin, pick, pickerChoices, pickerValue, refsOf, shaOf, treeOf } from './git-pin-helpers.js';
+import { changesOf, commitOf, historyOf, mountPin, pick, pickerChoices, pickerValue, refsOf, shaOf, treeOf } from './git-pin-helpers.js';
 
 /** The list's row height, in px (history-list's ROW_PX). */
 const ROW = 26;
@@ -278,6 +278,81 @@ export async function runTests(_ctx) {
     // Within a device pixel: a scaled display snaps scrollTop to one (7857.33 at 150%).
     assert(Math.abs(scroller(m).scrollTop - (302 * ROW + 5)) < 1 / window.devicePixelRatio,
       `anchored: ${scroller(m).scrollTop}, want ${302 * ROW + 5}`);
+    m.teardown();
+  });
+
+  for (const [where, top] of /** @type {[string, number][]} */ ([['at the top', 0], ['a few rows down', 4 * ROW + 5]])) {
+    await test(`commits that arrive while the view is ${where} are scrolled into view, the list at its top`, async () => {
+      const m = mount({ log: historyOf(1000) });
+      await drawn(m, 0);
+      scrollTo(m, top);
+      m.setLog(historyOf(1000, { gen: 1, top: 2 }));
+      m.emitChange([{ path: '', kinds: ['refs'] }]);
+      await waitFor(() => rowAt(m, 0)?.getAttribute('data-sha') === shaOf(0, 'f'), 'the newest commit, drawn first');
+      await nextTask();
+      assert(scroller(m).scrollTop === 0, `at the top: ${scroller(m).scrollTop}`);
+      m.teardown();
+    });
+  }
+
+  await test('a refresh that brings nothing new leaves a view near the top where it is', async () => {
+    const m = mount({ log: historyOf(1000) });
+    await drawn(m, 0);
+    scrollTo(m, 4 * ROW + 5);
+    m.emitChange([{ path: '', kinds: ['refs'] }]);
+    await waitFor(() => logReads(m).some((q) => q.refresh), 'a refresh read');
+    await nextTask();
+    await nextTask();
+    assert(scroller(m).scrollTop === 4 * ROW + 5, `left alone: ${scroller(m).scrollTop}`);
+    m.teardown();
+  });
+
+  /** A changed file, for a tree with changes. */
+  const CHANGED = { path: 'a.txt', index: '.', worktree: 'M', added: 1, removed: 0 };
+
+  await test('the working tree is a row of the graph: above HEAD, under commits HEAD has not caught up with', async () => {
+    // Two commits on top of HEAD (shaOf(0)): an upstream not pulled.
+    const m = mount({ log: historyOf(50, { top: 2 }), changes: changesOf([CHANGED]) });
+    const wip = /** @type {HTMLElement} */ (await waitFor(() => m.body.querySelector('.git-history__row--worktree'), 'the working tree\u2019s row'));
+    assert(logReads(m).some((q) => q.worktree === true), `asked for: ${JSON.stringify(logReads(m))}`);
+    assert(wip.dataset.index === '2', `between the upstream and HEAD: row ${wip.dataset.index}`);
+    const head = await drawn(m, 3);
+    assert(head.dataset.sha === shaOf(0) && Boolean(head.querySelector('.git-graph__dot--head')), 'HEAD right under it');
+    // Drawn by the graph as any row is: its own lane, an edge into HEAD's,
+    // which HEAD's row is entered by from above.
+    const headLane = head.querySelector('.git-graph__dot')?.getAttribute('data-lane');
+    const wipLane = wip.querySelector('.git-graph__dot--worktree')?.getAttribute('data-lane');
+    const to = [...wip.querySelectorAll('.git-graph__out')].map((p) => p.getAttribute('data-to'));
+    assert(JSON.stringify(to) === JSON.stringify([headLane]), `its edge runs into HEAD's lane ${headLane}: ${JSON.stringify(to)}`);
+    assert(wipLane !== undefined && wipLane !== headLane, `beside the upstream's line, not on it: lane ${wipLane}, HEAD ${headLane}`);
+    assert(Boolean(head.querySelector('.git-graph__in')), 'HEAD is entered from above');
+    assert(wip.textContent?.includes('1 file'), `its count: ${wip.textContent}`);
+
+    // Never selected: the arrows step over it.
+    /** @type {HTMLElement} */ (await drawn(m, 1)).click();
+    press(scroller(m), 'j');
+    await waitFor(() => isSelected(m, 3), 'down from the upstream lands on HEAD');
+    press(scroller(m), 'k');
+    await waitFor(() => isSelected(m, 1), 'and back up');
+    wip.click();
+    await waitFor(() => !m.body.querySelector('.git-pin__place--changes')?.hidden, 'a click brings Changes forward');
+    m.teardown();
+  });
+
+  await test('the working tree\u2019s row comes and goes with the changes, keeping the rows in view', async () => {
+    const m = mount({ log: historyOf(1000), changes: changesOf([]) });
+    await drawn(m, 0);
+    scrollTo(m, 300 * ROW + 5);
+    await drawn(m, 300);
+    assert(!m.body.querySelector('.git-history__row--worktree') && !logReads(m).some((q) => q.worktree), 'none while clean');
+    m.setChanges(changesOf([CHANGED]));
+    m.emitChange([{ path: '', kinds: ['worktree'] }]);
+    await waitFor(() => logReads(m).some((q) => q.refresh && q.worktree), 'a refresh asking for it');
+    await waitFor(() => rowAt(m, 301)?.getAttribute('data-sha') === shaOf(300), 'the rows below it move down one');
+    assert(scroller(m).scrollTop === 301 * ROW + 5, `anchored: ${scroller(m).scrollTop}`);
+    scrollTo(m, 0);
+    const wip = /** @type {HTMLElement} */ (await drawn(m, 0));
+    assert(wip.classList.contains('git-history__row--worktree'), 'it is the first row, above HEAD');
     m.teardown();
   });
 

@@ -26,6 +26,15 @@
  * as one first: one that names a commit selects it rather than filtering, and
  * one outside the list is shown by itself, with a way to look among all refs.
  *
+ * **The working tree's changes** are a row of the graph while there are any,
+ * in every ref or what HEAD reaches, unfiltered — the lists HEAD is a tip of.
+ * The server lays the row out as a child of HEAD, right above HEAD's row, so
+ * commits HEAD has not caught up with (an upstream not pulled) sit above it, in
+ * a lane of their own. The list asks for it on every read (`worktree`), and a
+ * change of whether there are changes is a refresh, which moves it in or out
+ * keeping the rows in view where they were. Clicking it brings Changes forward;
+ * it is not a commit, so it is never selected.
+ *
  * **Comparing.** Shift-click, or `x` on the selected row, marks a second
  * commit; the detail then offers to review the two in the Review place, older
  * (lower in the list) first. A plain click, or Escape, lets the mark go.
@@ -71,7 +80,7 @@ import { formatDate, markForTranslation, translator } from 'juggler/i18n';
 import { contextMenuFor, copyToClipboard, createElement, createReviewPanel, errorText, openMenuAt } from 'juggler/ui';
 import { createActions, menuRows } from './actions.js';
 import { inlineError } from './inline-error.js';
-import { graphCell, wipCell } from './graph-cell.js';
+import { graphCell } from './graph-cell.js';
 import { createHistoryList, ROW_PX } from './history-list.js';
 import { createMenuSelect } from './menu-select.js';
 import { chipIndex, detailActions, menuFor, scopeGroups, scopeQuery } from './history-model.js';
@@ -215,8 +224,10 @@ export function createHistoryPlace(host) {
   let chips = new Map();
   /** The viewed tree's HEAD, drawn as a ring. */
   let headSha = '';
-  /** Whether the working tree's changes are shown above the list, joined to HEAD's row when it is the first. */
-  let wipShown = false;
+  /** Whether the list was last asked for the working tree's row. */
+  let wipAsked = false;
+  /** The changed files the working tree's row was last drawn with. */
+  let wipCount = 0;
   /** @type {import('./history-model.js').ScopeKey} */
   let scope = DEFAULT_SCOPE;
   let listError = '';
@@ -349,17 +360,17 @@ export function createHistoryPlace(host) {
 
   /**
    * @param {PinGitLogRow} row - The commit.
-   * @param {number} index - Its position.
+   * @param {number} _index - Its position.
    * @param {{entering: number[], columns: number, cap: number}} graph - Its lanes.
    * @returns {HTMLElement} Its row.
    */
-  const buildRow = (row, index, graph) => {
+  const buildRow = (row, _index, graph) => {
     const el = createElement('div', 'git-history__row');
     el.setAttribute('role', 'option');
+    if (row.worktree) return buildWipRow(el, row, graph);
     if (row.sha === marked) el.classList.add('git-history__row--marked');
     if (list.state().graphed) {
-      const head = row.sha === headSha;
-      el.append(graphCell(graph.entering, row, { cap: graph.cap, columns: graph.columns, height: ROW_PX, head, wip: head && index === 0 && wipShown }));
+      el.append(graphCell(graph.entering, row, { cap: graph.cap, columns: graph.columns, height: ROW_PX, head: row.sha === headSha }));
     }
     const subject = createElement('span', 'git-history__subject text-truncate');
     // The commit checked out here: its branch's chip is the filled one, and
@@ -380,10 +391,39 @@ export function createHistoryPlace(host) {
     return el;
   };
 
+  /**
+   * The working tree's changes, as their row: what it is, how many files, and
+   * that a click shows them.
+   * @param {HTMLElement} el - The row.
+   * @param {PinGitLogRow} row - Its place in the graph.
+   * @param {{entering: number[], columns: number, cap: number}} graph - Its lanes.
+   * @returns {HTMLElement} The row.
+   */
+  const buildWipRow = (el, row, graph) => {
+    el.classList.add('git-history__row--worktree');
+    const count = wipCount;
+    el.title = t('{count, plural, one {# changed file} other {# changed files}} in the working tree, on top of the checked-out commit', { count });
+    if (list.state().graphed) {
+      el.append(graphCell(graph.entering, row, { cap: graph.cap, columns: graph.columns, height: ROW_PX, head: false }));
+    }
+    const subject = createElement('span', 'git-history__subject git-history__wip-text text-truncate', t('Uncommitted changes'));
+    subject.append(createElement('span', 'git-history__wip-count', t('{count, plural, one {# file} other {# files}}', { count })));
+    el.append(subject, createElement('span', 'git-history__wip-go', t('Show in Changes')));
+    return el;
+  };
+
+  /** @returns {boolean} Whether the list is to have the working tree's row. */
+  const wipWanted = () => Boolean(host.dirtyCount()) && (scope === 'head' || scope === 'all') && !applied.text;
+
   const list = createHistoryList({
-    fetch: (query, signal) => /** @type {Promise<any>} */ (git().read('log', {
-      repo: host.repo(), ...ws(), log: { ...scopeQuery(scope), ...(applied.text ? { [applied.field]: applied.text } : {}), ...query }, signal,
-    })),
+    fetch: (query, signal) => {
+      wipAsked = wipWanted();
+      return /** @type {Promise<any>} */ (git().read('log', {
+        repo: host.repo(), ...ws(),
+        log: { ...scopeQuery(scope), ...(applied.text ? { [applied.field]: applied.text } : {}), ...(wipAsked ? { worktree: true } : {}), ...query },
+        signal,
+      }));
+    },
     buildRow,
     cap,
     onSelect: (row) => showCommit(row?.sha || ''),
@@ -395,47 +435,25 @@ export function createHistoryPlace(host) {
     onPage: () => {
       listError = '';
       renderNote();
-      renderWip();
     },
   });
   list.element.setAttribute('aria-label', t('History'));
   // The rows' height, for the columns whose dividers run the row's full height.
   list.element.style.setProperty('--git-history-row', `${ROW_PX}px`);
 
-  // The working tree's changes, as the row above the list: shown while it is
-  // every ref or what HEAD reaches, unfiltered — the lists the checked-out
-  // commit is in, near the top. Its ring sits on the graph's grid in HEAD's
-  // lane, and while HEAD is the first row a stem joins the two, as the next
-  // commit in line; the stem goes once the list scrolls from under it.
-  const wip = /** @type {HTMLButtonElement} */ (createElement('button', 'git-history__wip'));
-  wip.type = 'button';
-  wip.hidden = true;
-  wip.addEventListener('click', () => host.showChanges());
-  list.element.addEventListener('scroll', () => {
-    wip.classList.toggle('git-history__wip--scrolled', list.element.scrollTop > 0);
-  }, { passive: true });
-  const renderWip = () => {
+  /**
+   * The tree's changed files moved: a list that is to gain or lose the working
+   * tree's row catches up (the server puts it in or takes it out), and one
+   * that keeps it draws its count again.
+   */
+  const dirtyChanged = () => {
     const count = host.dirtyCount() || 0;
-    const shown = Boolean(count) && (scope === 'head' || scope === 'all') && !applied.text;
-    wip.hidden = !shown;
-    if (shown !== wipShown) {
-      wipShown = shown;
-      if (headSha && list.state().loaded) list.redraw([headSha]);
-    }
-    if (!shown) return;
-    const s = list.state();
-    const top = list.rowAt(0);
-    const joined = s.graphed && top?.sha === headSha;
-    const cell = wipCell({
-      lane: joined && top ? top.lane : 0, cap: s.cap || cap(), columns: s.graphed ? s.columns : 1, height: ROW_PX - 1, joined,
-    });
-    wip.replaceChildren(cell,
-      createElement('span', 'git-history__wip-text', t('Uncommitted changes')),
-      createElement('span', 'git-history__wip-count', t('{count, plural, one {# file} other {# files}}', { count })),
-      createElement('span', 'git-history__wip-go', t('Show in Changes')));
-    wip.title = t('{count, plural, one {# changed file} other {# changed files}} in the working tree, on top of the checked-out commit', { count });
+    const counted = count !== wipCount;
+    wipCount = count;
+    if (wipWanted() !== wipAsked) list.refresh();
+    else if (counted && wipAsked) list.redraw(['']);
   };
-  listPane.append(bar, wip, list.element, note, listFailure);
+  listPane.append(bar, list.element, note, listFailure);
 
   const renderNote = () => {
     const s = list.state();
@@ -483,7 +501,6 @@ export function createHistoryPlace(host) {
     renderScopes();
     listError = '';
     renderNote();
-    renderWip();
     list.reset();
     marked = '';
     showCommit('');
@@ -501,7 +518,6 @@ export function createHistoryPlace(host) {
     applied = { field, text };
     listError = '';
     renderNote();
-    renderWip();
     list.reset();
     marked = '';
     showCommit('');
@@ -577,7 +593,6 @@ export function createHistoryPlace(host) {
     headSha = nextHead;
     renderScopes();
     if (changed.size) list.redraw(changed);
-    renderWip();
     renderDetail();
   };
   // A reader is still busy while it hands over its answer: the check waits until it is not.
@@ -1121,6 +1136,10 @@ export function createHistoryPlace(host) {
   list.element.addEventListener('click', (event) => {
     const row = /** @type {Element} */ (event.target).closest('.git-history__row');
     if (!(row instanceof HTMLElement)) return;
+    if (row.classList.contains('git-history__row--worktree')) {
+      host.showChanges();
+      return;
+    }
     const more = /** @type {Element} */ (event.target).closest('.git-history__more');
     if (more) {
       const rect = more.getBoundingClientRect();
@@ -1197,11 +1216,11 @@ export function createHistoryPlace(host) {
 
   renderScopes();
   renderDetail();
-  renderWip();
+  wipCount = host.dirtyCount() || 0;
 
   return {
     element,
-    dirtyChanged: () => renderWip(),
+    dirtyChanged,
     shown: () => {
       opened = true;
       const caught = missed;
@@ -1244,7 +1263,6 @@ export function createHistoryPlace(host) {
         readRefs(true);
       }
       renderNote();
-      renderWip();
       showCommit('');
     },
     reveal: async ({ sha, stash }) => {

@@ -274,7 +274,9 @@ function laneLayout() {
  * block's last commit, which the side branch then joins. Commit `p` (from the
  * top of the base history) is `shaOf(p)` whatever is put on top of it, so a
  * case can follow one commit across generations. `top` commits more, `shaOf(i,
- * 'f')`, sit on top in a straight line: what a refresh finds.
+ * 'f')`, sit on top in a straight line: what a refresh finds. A query asking
+ * for the working tree's row (`worktree`) has it as the server does: right
+ * above `shaOf(0)`, HEAD, under whatever is on top, laid out with the rest.
  *
  * The rows are laid out lazily, only as far down as a page asks, and the lane
  * state is remembered where each page starts — 100k commits cost what is read.
@@ -286,12 +288,49 @@ function laneLayout() {
  */
 export function historyOf(n, options = {}) {
   const top = options.top || 0;
-  const total = n + top;
+  /** @type {Map<boolean, (query: any) => any>} By whether it has the working tree's row. */
+  const variants = new Map();
+  // As the server's session: the row is taken on the first read and on a
+  // refresh, which moves the generation on when it comes or goes.
+  /** @type {boolean|null} */
+  let shown = null;
+  let gen = options.gen || 0;
+  return (query = {}) => {
+    const flat = Boolean(query.message || query.author || query.path);
+    const asked = Boolean(query.worktree) && !flat;
+    if (shown === null || !query.graph) shown = asked;
+    else if (query.refresh && asked !== shown) {
+      shown = asked;
+      gen++;
+    }
+    const has = shown && !flat;
+    let answer = variants.get(has);
+    if (!answer) {
+      answer = historyVariant(n, top, has, options);
+      variants.set(has, answer);
+    }
+    return { ...answer(query), gen };
+  };
+}
+
+/**
+ * `historyOf`'s history, with or without the working tree's row.
+ * @param {number} n - The base history's commits.
+ * @param {number} top - The commits on top.
+ * @param {boolean} worktree - Whether the working tree's row is above HEAD's.
+ * @param {{gen?: number, graph?: string, counting?: boolean, subject?: string}} options - As `historyOf` takes them.
+ * @returns {(query: any) => any} Answers one LogQuery.
+ */
+function historyVariant(n, top, worktree, options) {
+  const wt = worktree ? 1 : 0;
+  const total = n + top + wt;
   /**
    * @param {number} i - A row.
-   * @returns {{sha: string, parents: string[]}} Its commit.
+   * @returns {{sha: string, parents: string[], worktree?: boolean}} Its commit, or the working tree.
    */
   const commitAt = (i) => {
+    if (wt && i === top) return { sha: '', parents: [shaOf(0)], worktree: true };
+    if (wt && i > top) i--;
     if (i < top) return { sha: shaOf(i, 'f'), parents: [i + 1 < top ? shaOf(i + 1, 'f') : shaOf(0)] };
     const p = i - top;
     const next = p + 5 - (p % 5);
@@ -318,10 +357,12 @@ export function historyOf(n, options = {}) {
       enteringAt.set(i, layout.occupied());
       const c = commitAt(i);
       const { lane, out } = layout.place(c.sha, c.parents);
-      rows.push({
-        sha: c.sha, parents: c.parents, author: 'Ada', email: 'ada@example.com', date: 1_700_000_000 - i * 60,
-        subject: `${options.subject || 'Commit'} ${i}`, lane, out,
-      });
+      rows.push(c.worktree
+        ? { sha: '', parents: c.parents, author: '', email: '', date: 0, subject: '', lane, out, worktree: true }
+        : {
+          sha: c.sha, parents: c.parents, author: 'Ada', email: 'ada@example.com', date: 1_700_000_000 - i * 60,
+          subject: `${options.subject || 'Commit'} ${i}`, lane, out,
+        });
       if (i > 0 && i % 200 !== 0) enteringAt.delete(i);
     }
   };
@@ -333,7 +374,7 @@ export function historyOf(n, options = {}) {
       const m = /^([af])(.*)$/.exec(query.find);
       const at = m ? parseInt(m[2] || '', 16) : -1;
       if (m && m[1] === 'f' && at < top) found = at;
-      else if (m && m[1] === 'a' && at < n) found = at + top;
+      else if (m && m[1] === 'a' && at < n) found = at + top + wt;
     }
     layTo(offset + limit);
     if (!enteringAt.has(offset)) {

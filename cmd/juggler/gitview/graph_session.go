@@ -38,6 +38,8 @@ type graphSession struct {
 	started     bool
 	gen         int
 	tips        []string
+	head        string // the tree's HEAD, "" when it has no commit or the scope does not read it
+	worktree    bool   // whether the working tree's row is in the list (LogRow.Worktree)
 	rows        []LogRow
 	index       map[string]int // sha → its row
 	layout      *laneLayout
@@ -54,13 +56,15 @@ func newGraphSession(id string, key logKey, deltaMax int) *graphSession {
 	return &graphSession{id: id, key: key, deltaMax: deltaMax, ctx: ctx, end: end, turn: make(chan struct{}, 1), total: -1}
 }
 
-// start reads the scope's tips and starts the stream and the count.
-func (s *graphSession) start(ctx context.Context) error {
-	tips, err := s.readTips(ctx)
+// start reads the scope's tips and starts the stream and the count, with the
+// working tree's row when it is asked for.
+func (s *graphSession) start(ctx context.Context, worktree bool) error {
+	tips, head, err := s.readTips(ctx)
 	if err != nil {
 		return err
 	}
 	s.started = true
+	s.head, s.worktree = head, worktree && s.key.worktreeRow()
 	s.restart(tips)
 	s.gen = 0
 	return nil
@@ -79,6 +83,11 @@ func (s *graphSession) restart(tips []string) {
 	s.layout, s.checkpoints = newLaneLayout(), nil
 	s.stream, s.streamErr, s.count, s.total = nil, nil, nil, -1
 	s.gen++
+	if s.worktree && s.head == "" {
+		// Above no commit: the first row, whatever the stream brings.
+		s.rows = append(s.rows, worktreeRow(""))
+		s.place(0)
+	}
 	if len(tips) == 0 {
 		return
 	}
@@ -86,16 +95,27 @@ func (s *graphSession) restart(tips []string) {
 	s.count = startLogCount(s.ctx, s.key, tips)
 }
 
-// refresh catches up with refs that moved since the tips were read: see the
-// package's account of History above Graphs.
-func (s *graphSession) refresh(ctx context.Context) error {
-	tips, err := s.readTips(ctx)
+// refresh catches up with refs that moved since the tips were read (see the
+// package's account of History above Graphs), and puts the working tree's row
+// above HEAD, if it is asked for, wherever HEAD now is.
+func (s *graphSession) refresh(ctx context.Context, worktree bool) error {
+	tips, head, err := s.readTips(ctx)
 	if err != nil {
 		return err
 	}
+	worktree = worktree && s.key.worktreeRow()
 	if slices.Equal(tips, s.tips) {
+		if head == s.head && worktree == s.worktree {
+			return nil
+		}
+		s.rows = slices.DeleteFunc(s.rows, func(r LogRow) bool { return r.Worktree })
+		s.head, s.worktree = head, worktree
+		s.rows = s.withWorktree(s.rows)
+		s.relayout()
+		s.gen++
 		return nil
 	}
+	s.head, s.worktree = head, worktree
 	if s.key.scope == LogScopeReflog {
 		// An entry is added on top, but one can expire from anywhere: the
 		// reflog is read again.
@@ -121,17 +141,17 @@ func (s *graphSession) refresh(ctx context.Context) error {
 		return nil
 	}
 
-	kept := make([]LogRow, 0, len(added)+len(s.rows))
+	kept := make([]LogRow, 0, len(added)+len(s.rows)+1)
 	kept = append(kept, added...)
 	for _, r := range s.rows {
-		if !gone[r.Sha] {
+		if !gone[r.Sha] && !r.Worktree {
 			kept = append(kept, r)
 		}
 	}
 	for sha := range gone {
 		s.removed[sha] = true
 	}
-	s.rows, s.tips = kept, tips
+	s.rows, s.tips = s.withWorktree(kept), tips
 	s.relayout()
 	// What left is counted unfiltered, so only a graph's total can be moved
 	// by it; a filtered list is counted again.
@@ -148,6 +168,31 @@ func (s *graphSession) refresh(ctx context.Context) error {
 	return nil
 }
 
+// worktreeRow is the working tree's row (LogRow.Worktree) over head.
+func worktreeRow(head string) LogRow {
+	parents := []string{}
+	if head != "" {
+		parents = []string{head}
+	}
+	return LogRow{Parents: parents, Out: []int{}, Worktree: true}
+}
+
+// withWorktree is rows, which hold no working tree's row, with it put above
+// HEAD's when the session shows one: first when HEAD has no commit, and
+// nowhere yet when HEAD's row has still to be read, where next puts it.
+func (s *graphSession) withWorktree(rows []LogRow) []LogRow {
+	if !s.worktree {
+		return rows
+	}
+	at := 0
+	if s.head != "" {
+		if at = slices.IndexFunc(rows, func(r LogRow) bool { return r.Sha == s.head }); at < 0 {
+			return rows
+		}
+	}
+	return slices.Insert(rows, at, worktreeRow(s.head))
+}
+
 // relayout lays every row the session holds out again, from the top.
 func (s *graphSession) relayout() {
 	s.layout, s.checkpoints = newLaneLayout(), nil
@@ -160,7 +205,9 @@ func (s *graphSession) relayout() {
 // place lays out row i, the next row, and remembers where it is.
 func (s *graphSession) place(i int) {
 	r := &s.rows[i]
-	s.index[r.Sha] = i
+	if !r.Worktree {
+		s.index[r.Sha] = i
+	}
 	if !s.key.graphed() {
 		r.Lane, r.Out = 0, []int{}
 		return
@@ -218,6 +265,10 @@ func (s *graphSession) next(ctx context.Context) (bool, error) {
 		if _, dup := s.index[r.Sha]; dup {
 			return true, nil
 		}
+		if s.worktree && s.head != "" && r.Sha == s.head {
+			s.rows = append(s.rows, worktreeRow(s.head))
+			s.place(len(s.rows) - 1)
+		}
 		s.rows = append(s.rows, r)
 		s.place(len(s.rows) - 1)
 		return true, nil
@@ -235,8 +286,12 @@ func (s *graphSession) page(offset, limit int) LogPage {
 	}
 	ended := s.stream == nil
 	total := s.total
-	if ended {
+	switch {
+	case ended:
 		total = len(s.rows)
+	case total >= 0 && s.worktree:
+		// What is counted is commits; HEAD is a tip, so its row is on its way.
+		total++
 	}
 	start := min(offset, len(s.rows))
 	end := min(offset+limit, len(s.rows))
@@ -262,35 +317,36 @@ func (s *graphSession) lanesAt(i int) []int {
 }
 
 // readTips is the commits the scope starts from, sorted and unique: none for a
-// repository with no commits yet.
-func (s *graphSession) readTips(ctx context.Context) ([]string, error) {
+// repository with no commits yet. head is HEAD, for the scopes HEAD is a tip of
+// (what HEAD reaches, and every ref); "" for the others, or when HEAD has no
+// commit.
+func (s *graphSession) readTips(ctx context.Context) (tips []string, head string, err error) {
 	ctx, cancel := context.WithTimeout(ctx, clocks.Review.Budget)
 	defer cancel()
-	var tips []string
 	switch s.key.scope {
 	case LogScopeReflog:
 		// What the stream walks is HEAD's reflog, not these; they are what
 		// tells a refresh it moved: HEAD and how many entries it has.
 		head, ok, err := revParse(ctx, s.key.dir, "HEAD", clocks.Review.PerCmd)
 		if err != nil || !ok {
-			return nil, err
+			return nil, "", err
 		}
 		out, err := gitRead(ctx, s.key.dir, clocks.Review.PerCmd, 64, "rev-list", "--walk-reflogs", "--count", "HEAD", "--")
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
-		return []string{head, "entries:" + strings.TrimSpace(string(out.Kept))}, nil
+		return []string{head, "entries:" + strings.TrimSpace(string(out.Kept))}, "", nil
 	case LogScopeRef:
 		tip, err := resolveCommit(ctx, s.key.dir, s.key.ref, clocks.Review.PerCmd)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		tips = append(tips, tip)
 	case LogScopeAll:
 		out, err := gitRead(ctx, s.key.dir, clocks.Review.PerCmd, refsReadMax, "for-each-ref",
 			"--format=%(objecttype)%00%(objectname)%00%(*objecttype)%00%(*objectname)", "refs/heads", "refs/remotes", "refs/tags")
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		for _, line := range strings.Split(string(out.Kept), "\n") {
 			f := strings.Split(line, "\x00")
@@ -304,7 +360,7 @@ func (s *graphSession) readTips(ctx context.Context) ([]string, error) {
 		}
 		trees, err := ListWorktrees(ctx, s.key.dir, "")
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		for _, t := range trees.Trees {
 			if !t.Prunable && t.Head != "" && strings.Trim(t.Head, "0") != "" {
@@ -313,16 +369,16 @@ func (s *graphSession) readTips(ctx context.Context) ([]string, error) {
 		}
 		fallthrough
 	default:
-		head, ok, err := revParse(ctx, s.key.dir, "HEAD", clocks.Review.PerCmd)
+		sha, ok, err := revParse(ctx, s.key.dir, "HEAD", clocks.Review.PerCmd)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		if ok {
-			tips = append(tips, head)
+			tips, head = append(tips, sha), sha
 		}
 	}
 	slices.Sort(tips)
-	return slices.Compact(tips), nil
+	return slices.Compact(tips), head, nil
 }
 
 // revList is the commits from reaches that not does not, as a set.

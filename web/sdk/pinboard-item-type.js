@@ -677,6 +677,10 @@ import { validateManifest } from './lib/manifest.js';
  * @property {boolean} [refresh] - Catch up with refs that moved first: new commits
  *   arrive on top, ones nothing reaches leave, and `gen` moves on
  * @property {string} [find] - A full commit id to find in the list (`found`)
+ * @property {boolean} [worktree] - Show the working tree's changes as a row of the
+ *   list, right above HEAD's (`PinGitLogRow.worktree`). Only a graph of what HEAD
+ *   reaches or of every ref has one. It is taken when the session opens and on
+ *   each `refresh`, so pass it on every read of a session
  */
 
 /**
@@ -694,6 +698,9 @@ import { validateManifest } from './lib/manifest.js';
  * @property {number[]} out - Its parents' lanes (empty in a flat list)
  * @property {string} [reflog] - In the reflog scope, git's words for the entry
  *   ('commit: …', 'reset: moving to …'); `date` is then the entry's time
+ * @property {boolean} [worktree] - The working tree's changes, as the commit they
+ *   would make: `sha` is '', HEAD is its one parent (none while HEAD has no
+ *   commit), and it is laid out with the rest, right above HEAD's row
  */
 
 /**

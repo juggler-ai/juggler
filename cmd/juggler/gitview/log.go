@@ -74,31 +74,42 @@ const logFormat = "%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%s"
 // Refresh asks the session to catch up with refs
 // that moved, and Find asks where a commit is in the list, reading on until it
 // is found or the history ends.
+//
+// Worktree asks for the working tree's changes as a row of the list (see
+// LogRow): it is taken when the session opens and on each Refresh, so a page
+// read between them leaves the rows where they are.
 type LogQuery struct {
-	Graph   string `json:"graph,omitempty"`
-	Scope   string `json:"scope,omitempty"`
-	Ref     string `json:"ref,omitempty"`
-	Message string `json:"message,omitempty"`
-	Author  string `json:"author,omitempty"`
-	Path    string `json:"path,omitempty"`
-	Offset  int    `json:"offset,omitempty"`
-	Limit   int    `json:"limit,omitempty"`
-	Refresh bool   `json:"refresh,omitempty"`
-	Find    string `json:"find,omitempty"`
+	Graph    string `json:"graph,omitempty"`
+	Scope    string `json:"scope,omitempty"`
+	Ref      string `json:"ref,omitempty"`
+	Message  string `json:"message,omitempty"`
+	Author   string `json:"author,omitempty"`
+	Path     string `json:"path,omitempty"`
+	Offset   int    `json:"offset,omitempty"`
+	Limit    int    `json:"limit,omitempty"`
+	Refresh  bool   `json:"refresh,omitempty"`
+	Find     string `json:"find,omitempty"`
+	Worktree bool   `json:"worktree,omitempty"`
 }
 
 // LogRow is one commit of the list, and where the graph puts it: the lane its
 // dot is in, and the lane each of its parents continues in, in parent order.
+//
+// The Worktree row is the working tree's changes, as the commit they would
+// make: no Sha, HEAD its one parent (none while HEAD has no commit), and laid
+// out with the rest, right above HEAD's row. Only a graph of what HEAD reaches
+// or of every ref has one, and only when asked (LogQuery.Worktree).
 type LogRow struct {
-	Sha     string   `json:"sha"`
-	Parents []string `json:"parents"`
-	Author  string   `json:"author"`
-	Email   string   `json:"email"`
-	Date    int64    `json:"date"` // its author time, Unix seconds
-	Subject string   `json:"subject"`
-	Lane    int      `json:"lane"`
-	Out     []int    `json:"out"`
-	Reflog  string   `json:"reflog,omitempty"`
+	Sha      string   `json:"sha"`
+	Parents  []string `json:"parents"`
+	Author   string   `json:"author"`
+	Email    string   `json:"email"`
+	Date     int64    `json:"date"` // its author time, Unix seconds
+	Subject  string   `json:"subject"`
+	Lane     int      `json:"lane"`
+	Out      []int    `json:"out"`
+	Reflog   string   `json:"reflog,omitempty"`
+	Worktree bool     `json:"worktree,omitempty"`
 }
 
 // LogPage is one page of the list.
@@ -227,12 +238,12 @@ func (g *Graphs) Read(ctx context.Context, root, repo string, q LogQuery) (LogPa
 	defer func() { <-s.turn }()
 
 	if !s.started {
-		if err := s.start(ctx); err != nil {
+		if err := s.start(ctx, q.Worktree); err != nil {
 			g.do(func() { g.drop(s.id) })
 			return LogPage{}, err
 		}
 	} else if q.Refresh {
-		if err := s.refresh(ctx); err != nil {
+		if err := s.refresh(ctx, q.Worktree); err != nil {
 			return LogPage{}, err
 		}
 	}
@@ -330,6 +341,12 @@ func (k logKey) hashPrefix() string {
 // reflog, whose order is time's, not the graph's.
 func (k logKey) graphed() bool {
 	return k.message == "" && k.author == "" && k.path == "" && k.scope != LogScopeReflog
+}
+
+// worktreeRow is whether the list can have the working tree's row: a graph
+// HEAD is a tip of, so the row's place, above HEAD, is in it.
+func (k logKey) worktreeRow() bool {
+	return k.graphed() && (k.scope == LogScopeHead || k.scope == LogScopeAll)
 }
 
 // logKeyOf checks a query and names what it asks for. The repository is the

@@ -156,8 +156,9 @@ func (a *GitStatusAPI) HandleGitDiff(w http.ResponseWriter, r *http.Request) {
 // git client's reads (see gitview.Read — a place's contents, or the
 // repository's worktrees) of one repository of the tree the request names,
 // answered as the workspace reads it. A log read takes the rest of a
-// gitview.LogQuery as parameters of the same names (refresh=1 for Refresh),
-// a commit read its revision as commit=, a blame read its file as path=
+// gitview.LogQuery as parameters of the same names (refresh=1 for Refresh,
+// worktree=1 for Worktree), a commit read its revision as commit=, a blame
+// read its file as path=
 // and its revision as rev=, an attribution read amend=1 to score an amend
 // of HEAD and conv= for the conversation that breaks ties, a stranded read
 // its full ref name as ref=, and a
@@ -215,6 +216,7 @@ func logQueryOf(q url.Values) (gitview.LogQuery, error) {
 	lq := gitview.LogQuery{
 		Graph: q.Get("graph"), Scope: q.Get("scope"), Ref: q.Get("ref"), Message: q.Get("message"),
 		Author: q.Get("author"), Path: q.Get("path"), Refresh: q.Get("refresh") == "1", Find: q.Get("find"),
+		Worktree: q.Get("worktree") == "1",
 	}
 	for name, field := range map[string]*int{"offset": &lq.Offset, "limit": &lq.Limit} {
 		raw := q.Get(name)

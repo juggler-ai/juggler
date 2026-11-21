@@ -513,6 +513,101 @@ func TestLogEviction(t *testing.T) {
 	}
 }
 
+// worktreeAt is where the working tree's row is in rows, or -1.
+func worktreeAt(rows []LogRow) int {
+	return slices.IndexFunc(rows, func(r LogRow) bool { return r.Worktree })
+}
+
+// The working tree's changes are a row of the graph, laid out as a child of
+// HEAD and placed right above it — not at the top of the list, where commits
+// HEAD has not caught up with (an upstream not pulled) would sit under it. A
+// refresh moves it with HEAD, and takes it away or brings it back as asked.
+func TestLogWorktreeRow(t *testing.T) {
+	t.Parallel()
+	p := newGitProject(t)
+	day := int64(1_700_000_000)
+	for i := range 3 {
+		p.write("a.txt", fmt.Sprint(i))
+		commitAt(t, p, fmt.Sprintf("c%d", i), day+int64(i))
+	}
+	head := strings.TrimSpace(p.git("rev-parse", "HEAD"))
+	// Two commits on top of HEAD that HEAD is not on: an upstream not pulled.
+	p.git("switch", "-q", "-c", "upstream")
+	for i := range 2 {
+		p.write("a.txt", fmt.Sprint("u", i))
+		commitAt(t, p, fmt.Sprintf("u%d", i), day+10+int64(i))
+	}
+	p.git("switch", "-q", "-")
+	g := newGraphs(t)
+
+	all := readLog(t, g, p, LogQuery{Scope: LogScopeAll, Worktree: true, Limit: 50})
+	at := worktreeAt(all.Rows)
+	if got := subjects(all.Rows); at != 2 || len(got) != 6 || all.Rows[3].Sha != head || all.Total != 6 {
+		t.Fatalf("all refs = %q, the working tree at %d, total %d; want it at 2, above HEAD, total 6", got, at, all.Total)
+	}
+	wt, h := all.Rows[at], all.Rows[at+1]
+	if wt.Sha != "" || !slices.Equal(wt.Parents, []string{head}) || !slices.Equal(wt.Out, []int{h.Lane}) {
+		t.Errorf("the working tree's row = %+v, want no sha, HEAD its parent and its edge into HEAD's lane %d", wt, h.Lane)
+	}
+	if wt.Lane == h.Lane {
+		t.Errorf("the working tree shares HEAD's lane %d with the upstream above it", h.Lane)
+	}
+
+	// On a line of its own with nothing above HEAD, it is HEAD's lane, at the top.
+	mine := readLog(t, g, p, LogQuery{Worktree: true, Limit: 50})
+	if at := worktreeAt(mine.Rows); at != 0 || mine.Rows[0].Lane != mine.Rows[1].Lane || mine.Total != 4 {
+		t.Errorf("head scope: the working tree at %d, rows %+v, total %d", at, mine.Rows[:2], mine.Total)
+	}
+	if plain := readLog(t, g, p, LogQuery{Scope: LogScopeAll, Limit: 50}); worktreeAt(plain.Rows) >= 0 || plain.Total != 5 {
+		t.Errorf("not asked for: the working tree at %d, total %d", worktreeAt(plain.Rows), plain.Total)
+	}
+	if filtered := readLog(t, g, p, LogQuery{Worktree: true, Message: "c", Limit: 50}); worktreeAt(filtered.Rows) >= 0 {
+		t.Errorf("a filtered list has the working tree's row: %q", subjects(filtered.Rows))
+	}
+
+	// HEAD moves: the row moves with it, and the page still says where every lane is.
+	p.write("a.txt", "next")
+	next := commitAt(t, p, "c3", day+5)
+	moved := readLog(t, g, p, LogQuery{Graph: all.Graph, Scope: LogScopeAll, Worktree: true, Refresh: true, Limit: 50})
+	if at := worktreeAt(moved.Rows); moved.Gen != all.Gen+1 || at < 0 || at+1 >= len(moved.Rows) || moved.Rows[at+1].Sha != next ||
+		len(moved.Rows) != 7 || moved.Total != 7 {
+		t.Errorf("after a commit: gen %d, %q, the working tree at %d", moved.Gen, subjects(moved.Rows), at)
+	}
+	occ := []int{}
+	for _, r := range moved.Rows {
+		occ = advanceLanes(occ, r.Lane, r.Out)
+	}
+	if len(occ) != 0 {
+		t.Errorf("lanes left open below the last row: %v", occ)
+	}
+
+	// Asked for no more, it goes; asked again, it is back.
+	clean := readLog(t, g, p, LogQuery{Graph: all.Graph, Scope: LogScopeAll, Refresh: true, Limit: 50})
+	if clean.Gen != moved.Gen+1 || worktreeAt(clean.Rows) >= 0 || len(clean.Rows) != 6 || clean.Total != 6 {
+		t.Errorf("once clean: gen %d, %q, total %d", clean.Gen, subjects(clean.Rows), clean.Total)
+	}
+	dirty := readLog(t, g, p, LogQuery{Graph: all.Graph, Scope: LogScopeAll, Worktree: true, Refresh: true, Limit: 50})
+	if dirty.Gen != clean.Gen+1 || worktreeAt(dirty.Rows) < 0 || dirty.Total != 7 {
+		t.Errorf("dirty again: gen %d, %q, total %d", dirty.Gen, subjects(dirty.Rows), dirty.Total)
+	}
+	// A page read without a refresh leaves it as the session has it.
+	if page := readLog(t, g, p, LogQuery{Graph: all.Graph, Scope: LogScopeAll, Limit: 50}); page.Gen != dirty.Gen || worktreeAt(page.Rows) < 0 {
+		t.Errorf("a plain page read moved the working tree: gen %d, %q", page.Gen, subjects(page.Rows))
+	}
+}
+
+// A repository with no commits yet still has the working tree's changes: they
+// are the one row, the root of what is to come.
+func TestLogWorktreeRowOfAnUnbornRepository(t *testing.T) {
+	t.Parallel()
+	p := newGitProject(t)
+	g := newGraphs(t)
+	page := readLog(t, g, p, LogQuery{Worktree: true, Limit: 10})
+	if len(page.Rows) != 1 || !page.Rows[0].Worktree || len(page.Rows[0].Parents) != 0 || page.Total != 1 {
+		t.Errorf("unborn, with changes = %+v", page)
+	}
+}
+
 // A repository with no commits has an empty history, not an error.
 func TestLogOfAnUnbornRepository(t *testing.T) {
 	t.Parallel()

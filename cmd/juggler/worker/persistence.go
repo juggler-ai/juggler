@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"juggler/cmd/juggler/core"
+	"juggler/internal/atomicio"
 	"juggler/internal/logpaths"
 )
 
@@ -29,7 +30,10 @@ func (w *ConversationWorker) loadStateFromDisk(mustExist bool) error {
 		return nil // unknown conv = brand-new
 	}
 
-	data, err := os.ReadFile(statePath)
+	// Robust: on Windows a cold start finds the file briefly held by an
+	// antivirus scan or the indexer, and a plain read reports that as a failed
+	// load the user then has to retry by hand.
+	data, err := atomicio.RobustReadFile(statePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			if mustExist {

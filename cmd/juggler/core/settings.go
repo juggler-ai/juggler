@@ -264,6 +264,32 @@ type ProjectSettings struct {
 	// change applies the next time a project is opened. Under --test it is not
 	// read; projectpaths.StateDirEnv drives it there.
 	StateOutside bool `json:"stateOutside,omitempty"`
+
+	// TransactionMaxAgeDays deletes a conversation's transaction records — the
+	// per-round-trip files in its txns/ folder that the transaction panel shows —
+	// once they are this many days old; 0 (absent) keeps them. Each thread's
+	// newest record is kept whatever its age. Read by a conversation's worker
+	// each time it tidies its records, which it does when the conversation is
+	// opened and after each save, so only conversations that are opened are
+	// tidied. Within 0..MaxTransactionMaxAgeDays.
+	TransactionMaxAgeDays int `json:"transactionMaxAgeDays,omitempty"`
+}
+
+// MaxTransactionMaxAgeDays bounds ProjectSettings.TransactionMaxAgeDays: about
+// ten years, past which a limit is no different from none.
+const MaxTransactionMaxAgeDays = 3650
+
+// IsValidTransactionMaxAgeDays reports whether days is a value the transaction
+// records setting can hold: 0 (keep them) or a number of days up to
+// MaxTransactionMaxAgeDays.
+func IsValidTransactionMaxAgeDays(days int) bool {
+	return days >= 0 && days <= MaxTransactionMaxAgeDays
+}
+
+// normalizeProjectSettings brings a hand-edited transaction age into range: a
+// negative one keeps records, as 0 does, and one past the bound is the bound.
+func normalizeProjectSettings(ps *ProjectSettings) {
+	ps.TransactionMaxAgeDays = min(max(ps.TransactionMaxAgeDays, 0), MaxTransactionMaxAgeDays)
 }
 
 // WebSearchSettings holds how the WebSearch tool searches. The server never
@@ -491,6 +517,7 @@ func LoadGlobalSettings() (*GlobalSettings, error) {
 	gs.Network.Proxy.Mode = NormalizeProxyMode(gs.Network.Proxy.Mode)
 	gs.UILocale = NormalizeUILocale(gs.UILocale)
 	normalizeModelSettings(&gs.Models)
+	normalizeProjectSettings(&gs.Projects)
 	return gs, nil
 }
 
@@ -552,6 +579,7 @@ func writeSettings(gs *GlobalSettings) error {
 	gs.Network.Proxy.Mode = NormalizeProxyMode(gs.Network.Proxy.Mode)
 	gs.UILocale = NormalizeUILocale(gs.UILocale)
 	normalizeModelSettings(&gs.Models)
+	normalizeProjectSettings(&gs.Projects)
 
 	data, err := json.MarshalIndent(gs, "", "  ")
 	if err != nil {

@@ -11,6 +11,8 @@ the current release). The project follows semantic versioning.
 - Git pin: the mouse wheel scrolls its lists and panes on Windows
 - The Usage card shows usage for a second Codex, OpenRouter, DeepSeek or Z.AI account
 - Long conversations no longer fill the disk with old request records
+- Conversations no longer fail to load at startup on a slow disk
+- Settings → Project files can delete transaction records older than a chosen age
 
 ## [0.8.2] - 2026-11-20
 

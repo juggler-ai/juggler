@@ -149,6 +149,19 @@ func (s *Server) createKeepRecentResolver() worker.KeepRecentFunc {
 	return func() int { return int(min(resolve(), worker.MaxCompactKeepRecentPercent)) }
 }
 
+// createTxnMaxAgeResolver returns the resolver injected into every worker
+// (worker.TxnMaxAgeFunc): the transaction records setting, read from the
+// settings document as this server holds it — kept current by a PUT and by the
+// watcher for a write from elsewhere — so a change applies to the next tidy.
+func (s *Server) createTxnMaxAgeResolver() worker.TxnMaxAgeFunc {
+	return func() int {
+		if s.settings == nil {
+			return 0
+		}
+		return s.settings.get().Projects.TransactionMaxAgeDays
+	}
+}
+
 // tokenLimitResolver reads a token limit from a raw credentials-store key on
 // every call: blank, unparseable or negative means def, and 0 means no limit.
 func tokenLimitResolver(key, what string, def int64) func() int64 {

@@ -50,6 +50,7 @@ const (
 	mgrSetSpendLimit
 	mgrSetRunBudget
 	mgrSetKeepRecent
+	mgrSetTxnMaxAge
 	mgrConversationRestored
 	mgrRecordBackgroundTaskSnapshot
 )
@@ -109,6 +110,7 @@ type managerOp struct {
 	spendLimit      SpendLimitFunc
 	runBudget       RunBudgetFunc
 	keepRecent      KeepRecentFunc
+	txnMaxAge       TxnMaxAgeFunc
 	autoNameFunc    AutoNameFunc
 	turnSnapshot    TurnSnapshotFunc
 	engineCallback  func(convID string, msg []byte)
@@ -201,6 +203,7 @@ func (m *Manager) run() {
 	var spendLimit SpendLimitFunc
 	var runBudget RunBudgetFunc
 	var keepRecent KeepRecentFunc
+	var txnMaxAge TxnMaxAgeFunc
 	var autoNameFunc AutoNameFunc
 	var turnSnapshot TurnSnapshotFunc
 	var engineClientID string
@@ -260,6 +263,9 @@ func (m *Manager) run() {
 		}
 		if keepRecent != nil {
 			w.SetKeepRecent(keepRecent)
+		}
+		if txnMaxAge != nil {
+			w.SetTxnMaxAge(txnMaxAge)
 		}
 		if autoNameFunc != nil {
 			w.SetAutoNamer(autoNameFunc)
@@ -338,6 +344,12 @@ func (m *Manager) run() {
 			keepRecent = op.keepRecent
 			for _, w := range workers {
 				w.SetKeepRecent(keepRecent)
+			}
+
+		case mgrSetTxnMaxAge:
+			txnMaxAge = op.txnMaxAge
+			for _, w := range workers {
+				w.SetTxnMaxAge(txnMaxAge)
 			}
 
 		case mgrSetAutoNamer:
@@ -666,6 +678,12 @@ func (m *Manager) SetRunBudget(fn RunBudgetFunc) {
 // and any worker created later. See KeepRecentFunc.
 func (m *Manager) SetKeepRecent(fn KeepRecentFunc) {
 	m.ops <- managerOp{kind: mgrSetKeepRecent, keepRecent: fn}
+}
+
+// SetTxnMaxAge sets the transaction record age resolver applied to every
+// existing worker and any worker created later. See TxnMaxAgeFunc.
+func (m *Manager) SetTxnMaxAge(fn TxnMaxAgeFunc) {
+	m.ops <- managerOp{kind: mgrSetTxnMaxAge, txnMaxAge: fn}
 }
 
 // SetAutoNamer sets the out-of-band tab auto-naming callback applied to every

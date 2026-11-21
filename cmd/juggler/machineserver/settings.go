@@ -21,7 +21,8 @@ import (
 // (web/js/components/settings-panel.js, server scope): the parts of the
 // settings document that belong to this machine rather than to a project or a
 // session — the UI language, the update mode, the proxy, where new projects
-// keep their state, and the machine's UI preferences. Every project's server
+// keep their state and how long their transaction records are kept, and the
+// machine's UI preferences. Every project's server
 // watches the file and adopts what is saved here (server/settings_watcher.go).
 //
 // A session's own PUT /api/settings also writes models, web search and the
@@ -44,7 +45,8 @@ type serverSettingsPatch struct {
 		Proxy *core.ProxySettings `json:"proxy"`
 	} `json:"network"`
 	Projects *struct {
-		StateOutside *bool `json:"stateOutside"`
+		StateOutside          *bool `json:"stateOutside"`
+		TransactionMaxAgeDays *int  `json:"transactionMaxAgeDays"`
 	} `json:"projects"`
 	UI map[string]json.RawMessage `json:"ui"`
 }
@@ -105,8 +107,14 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	var stateOutside *bool
+	var txnMaxAge *int
 	if patch.Projects != nil {
 		stateOutside = patch.Projects.StateOutside
+		txnMaxAge = patch.Projects.TransactionMaxAgeDays
+	}
+	if txnMaxAge != nil && !core.IsValidTransactionMaxAgeDays(*txnMaxAge) {
+		writeMessageError(w, http.StatusBadRequest, msg.New("invalid transaction record age: {days}", "days", *txnMaxAge))
+		return
 	}
 
 	var mergeErr error
@@ -130,6 +138,9 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if stateOutside != nil {
 			gs.Projects.StateOutside = *stateOutside
+		}
+		if txnMaxAge != nil {
+			gs.Projects.TransactionMaxAgeDays = *txnMaxAge
 		}
 		return true
 	})

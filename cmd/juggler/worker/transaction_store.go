@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -147,6 +148,7 @@ type trimRunner struct {
 type trimRequest struct {
 	convID string
 	keep   map[string]bool
+	maxAge time.Duration
 }
 
 // NewTransactionStore returns a store backed by the given path provider.
@@ -287,25 +289,31 @@ func (s *TransactionStore) CopyAll(srcConvID, dstConvID string) error {
 // small multiple of the history while leaving a recent run's panel whole.
 const txnInputKeepNewest = 50
 
-// TrimInputs strips the input (core.StripTxnBlobInput) of every blob that is
-// neither among the newest txnInputKeepNewest, by id, nor named in keep. Ids
-// sort by age: the worker mints them as txn_<unix ms>_<sequence>.
+// TrimInputs tidies a conversation's records, sparing every one named in keep.
+// With maxAge above zero it deletes each record older than that (the user's
+// transaction records setting); of the rest, it strips the input
+// (core.StripTxnBlobInput) of every one not among the newest
+// txnInputKeepNewest, by id. Ids sort by age: the worker mints them as
+// txn_<unix ms>_<sequence>, and an id without that time is never deleted.
 //
-// Best-effort per blob: one that cannot be stripped is logged, left as it is,
-// and not tried again by this store. Only a failure to list the directory is
-// returned.
-func (s *TransactionStore) TrimInputs(convID string, keep map[string]bool) error {
-	return s.trimInputs(convID, keep, nil)
+// Best-effort per record: one that cannot be stripped or deleted is logged,
+// left as it is, and stripping is not tried again by this store. Only a
+// failure to list the directory is returned.
+func (s *TransactionStore) TrimInputs(convID string, keep map[string]bool, maxAge time.Duration) error {
+	return s.trimInputs(trimRequest{convID: convID, keep: keep, maxAge: maxAge}, nil)
 }
 
 // trimInputs is TrimInputs, returning early once stop is closed (nil: never).
-func (s *TransactionStore) trimInputs(convID string, keep map[string]bool, stop <-chan struct{}) error {
+func (s *TransactionStore) trimInputs(req trimRequest, stop <-chan struct{}) error {
+	convID, keep := req.convID, req.keep
 	ids, err := s.List(convID)
 	if err != nil {
 		return err
 	}
 	sort.Strings(ids)
-	for _, id := range ids[:max(0, len(ids)-txnInputKeepNewest)] {
+	cutoff := time.Now().Add(-req.maxAge)
+	stripBelow := len(ids) - txnInputKeepNewest
+	for i, id := range ids {
 		if keep[id] {
 			continue
 		}
@@ -314,9 +322,37 @@ func (s *TransactionStore) trimInputs(convID string, keep map[string]bool, stop 
 			return nil
 		default:
 		}
-		s.stripInput(convID, id)
+		if req.maxAge > 0 {
+			if minted, ok := txnMintedAt(id); ok && minted.Before(cutoff) {
+				if err := s.Delete(convID, id); err != nil {
+					jlog.Info("[txn] failed to delete old record %s of conv=%s: %v", id, convID, err)
+				}
+				continue
+			}
+		}
+		if i < stripBelow {
+			s.stripInput(convID, id)
+		}
 	}
 	return nil
+}
+
+// txnMintedAt reads when a record was made from its id, txn_<unix ms>_<seq>
+// (generateTransactionID). ok is false for an id of any other shape.
+func txnMintedAt(id string) (minted time.Time, ok bool) {
+	rest, found := strings.CutPrefix(id, "txn_")
+	if !found {
+		return time.Time{}, false
+	}
+	ms, _, found := strings.Cut(rest, "_")
+	if !found {
+		return time.Time{}, false
+	}
+	n, err := strconv.ParseInt(ms, 10, 64)
+	if err != nil || n <= 0 {
+		return time.Time{}, false
+	}
+	return time.UnixMilli(n), true
 }
 
 // stripInput strips one blob's input, unless this store already has.
@@ -348,7 +384,7 @@ func (s *TransactionStore) stripInput(convID, txnID string) {
 // blobs that have just aged out of the newest txnInputKeepNewest.
 //
 // A no-op once StopTrim has been called, and on a nil store.
-func (s *TransactionStore) RequestTrim(convID string, keep map[string]bool) {
+func (s *TransactionStore) RequestTrim(convID string, keep map[string]bool, maxAge time.Duration) {
 	if s == nil {
 		return
 	}
@@ -357,7 +393,7 @@ func (s *TransactionStore) RequestTrim(convID string, keep map[string]bool) {
 	if s.trim.stopped {
 		return
 	}
-	s.trim.pending = &trimRequest{convID: convID, keep: keep}
+	s.trim.pending = &trimRequest{convID: convID, keep: keep, maxAge: maxAge}
 	if s.trim.running {
 		return
 	}
@@ -379,7 +415,7 @@ func (s *TransactionStore) runTrims() {
 			return
 		}
 		<-s.trim.lock
-		if err := s.trimInputs(req.convID, req.keep, s.trim.stop); err != nil {
+		if err := s.trimInputs(*req, s.trim.stop); err != nil {
 			jlog.Info("[txn] failed to trim inputs of conv=%s: %v", req.convID, err)
 		}
 	}

@@ -71,6 +71,7 @@ func (s *Server) wireWorkerManager() {
 	s.workerManager.SetSpendLimit(s.createSpendLimitResolver())
 	s.workerManager.SetRunBudget(s.createRunBudgetResolver())
 	s.workerManager.SetKeepRecent(s.createKeepRecentResolver())
+	s.workerManager.SetTxnMaxAge(s.createTxnMaxAgeResolver())
 
 	// A background process is controlled by the process-local shell registry, but
 	// its bounded output and terminal result belong to the durable tool action.

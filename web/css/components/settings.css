@@ -1277,6 +1277,19 @@ settings-panel .proxy-status:empty {
     display: none;
 }
 
+/* Project files tab: the transaction records age. Its days field is revealed
+   only while Custom is picked (JS toggles [hidden]), under the picker; the
+   status line under both says why a save failed or a number was refused. */
+settings-panel .txn-age-custom-row {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+}
+
+settings-panel .txn-age-status:empty {
+    display: none;
+}
+
 /* The Connectivity form is one column of rows, evenly spaced: the LAN and
    tunnel sections are wrappers the layout looks through, so a row's spacing
    never depends on which wrapper it sits in or where. */

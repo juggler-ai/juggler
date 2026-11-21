@@ -7,6 +7,7 @@ package worker
 import (
 	"bytes"
 	"encoding/json"
+	"time"
 )
 
 // sweepTransactions deletes any transaction blob whose id is no longer
@@ -146,20 +147,34 @@ func collectTxnIDsFromItems(items []ConversationItem, dst map[string]bool) {
 	}
 }
 
-// requestTxnTrim asks the transaction store to strip the input of every blob
-// old enough to have lost it (TransactionStore.RequestTrim), keeping each
-// thread's newest round-trip whole however old: the tool-drift check reads the
-// tools that round-trip was offered from its input.
+// TxnMaxAgeFunc reports the user's transaction records setting: the age, in
+// days, past which a conversation's records are deleted, or 0 to keep them.
+// Nil ⇒ 0.
+type TxnMaxAgeFunc func() int
+
+// requestTxnTrim asks the transaction store to tidy this conversation's
+// records (TransactionStore.RequestTrim): delete those older than the
+// transaction records setting allows, and strip the input of every other one
+// old enough to have lost it. Each thread's newest round-trip is kept whole
+// however old: the footer meter reads its token counts, and the tool-drift
+// check the tools it was offered from its input.
 //
-// Run after every persisted save, alongside sweepTransactions. The strip runs
-// in the background; this only builds the keep set.
+// Run once a first load has finished, and after every persisted save alongside
+// sweepTransactions. The tidying runs in the background; this only builds the
+// keep set and reads the setting.
 func (w *ConversationWorker) requestTxnTrim() {
 	if w.txnStore == nil {
 		return
 	}
 	keep := make(map[string]bool)
 	collectLatestRoundTripTxnIDs(w.doc.GetItems(), keep)
-	w.txnStore.RequestTrim(w.conversationID, keep)
+	var maxAge time.Duration
+	if fn := w.deps().txnMaxAge; fn != nil {
+		if days := fn(); days > 0 {
+			maxAge = time.Duration(days) * 24 * time.Hour
+		}
+	}
+	w.txnStore.RequestTrim(w.conversationID, keep, maxAge)
 }
 
 // collectLatestRoundTripTxnIDs adds to dst the transactionId of each thread's

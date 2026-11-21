@@ -111,6 +111,11 @@ func (r *run) handleInit(payload json.RawMessage) {
 
 	initStart := time.Now()
 
+	// Everything from here to the ready is one silence to the client waiting for
+	// it, and on a slow disk a long one.
+	stopAnnouncing := r.announceWorking()
+	defer stopAnnouncing()
+
 	// Track whether we loaded from disk to determine what metadata to send
 	loadedFromDisk := false
 
@@ -262,6 +267,10 @@ func (r *run) handleInit(payload json.RawMessage) {
 	if msg.Conversation.LoadFromDisk && loadedFromDisk {
 		r.sendReadyWithDocMetadata()
 		r.log.Debug("[worker] loaded conv=%s in %v", r.conversationID, time.Since(initStart).Round(time.Millisecond))
+		// Tidy the transaction records now rather than at the first save, which
+		// a conversation that is only read never reaches. In the background, so
+		// it costs the load nothing.
+		r.requestTxnTrim()
 	} else {
 		r.sendReady()
 		r.log.Debug("[worker] created conv=%s in %v", r.conversationID, time.Since(initStart).Round(time.Millisecond))

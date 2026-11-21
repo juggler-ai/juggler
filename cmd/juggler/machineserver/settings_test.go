@@ -50,6 +50,7 @@ func TestSettingsAreThisMachines(t *testing.T) {
 		`{"updates":{"mode":"notify"}}`,
 		`{"network":{"proxy":{"mode":"manual","url":"http://proxy.example:3128"}}}`,
 		`{"projects":{"stateOutside":true}}`,
+		`{"projects":{"transactionMaxAgeDays":30}}`,
 		`{"ui":{"juggler-escape":"stop","kept":null}}`,
 	} {
 		code, body := lanCall(t, "PUT", local.URL+"/api/server/settings", put)
@@ -61,7 +62,7 @@ func TestSettingsAreThisMachines(t *testing.T) {
 	gs := onDisk()
 	if gs.UILocale != "fr" || gs.Updates.Mode != core.UpdateModeNotify ||
 		gs.Network.Proxy.Mode != core.ProxyModeManual || gs.Network.Proxy.URL != "http://proxy.example:3128" ||
-		!gs.Projects.StateOutside {
+		!gs.Projects.StateOutside || gs.Projects.TransactionMaxAgeDays != 30 {
 		t.Fatalf("after the saves: %+v; want each saved", gs)
 	}
 	if _, kept := gs.UI["kept"]; kept || string(gs.UI["juggler-escape"]) != `"stop"` {
@@ -87,6 +88,7 @@ func TestSettingsAreThisMachines(t *testing.T) {
 		{`{"updates":{"mode":"garbage"}}`, "an unknown update mode"},
 		{`{"network":{"proxy":{"mode":"manual","url":""}}}`, "a manual proxy with no URL"},
 		{`{"uiLocale":"not a tag"}`, "a UI language that is no language tag"},
+		{`{"projects":{"transactionMaxAgeDays":-1}}`, "a negative transaction record age"},
 		{`not json`, "a body that is not JSON"},
 	} {
 		if code, body := lanCall(t, "PUT", local.URL+"/api/server/settings", c.body); code != http.StatusBadRequest {
@@ -94,7 +96,8 @@ func TestSettingsAreThisMachines(t *testing.T) {
 		}
 	}
 	if after := onDisk(); after.Updates.Mode != core.UpdateModeNotify || len(after.Models.Hidden["anthropic"]) != 1 ||
-		after.Network.Proxy.URL != "http://proxy.example:3128" || after.UILocale != "fr" {
+		after.Network.Proxy.URL != "http://proxy.example:3128" || after.UILocale != "fr" ||
+		after.Projects.TransactionMaxAgeDays != 30 {
 		t.Fatalf("after refused saves: %+v; want nothing changed", after)
 	}
 

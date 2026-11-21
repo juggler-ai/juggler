@@ -334,6 +334,10 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		handlers.WriteMessageError(w, r, http.StatusBadRequest, msg.New("invalid web search order"))
 		return
 	}
+	if !core.IsValidTransactionMaxAgeDays(incoming.Projects.TransactionMaxAgeDays) {
+		handlers.WriteMessageError(w, r, http.StatusBadRequest, msg.New("invalid transaction record age: {days}", "days", incoming.Projects.TransactionMaxAgeDays))
+		return
+	}
 	// A non-empty proxy mode must be recognised; manual mode needs a usable URL.
 	if incoming.Network.Proxy.Mode != "" && !core.IsKnownProxyMode(incoming.Network.Proxy.Mode) {
 		handlers.WriteMessageError(w, r, http.StatusBadRequest, msg.New("invalid proxy mode"))

@@ -260,6 +260,47 @@ func TestHandlePutSettingsProjectStateOutside(t *testing.T) {
 	}
 }
 
+// TestHandlePutSettingsTransactionMaxAge: Settings → Project files saves the
+// age past which transaction records are deleted with
+// {"projects":{"transactionMaxAgeDays":…}}. A number of days within the bound,
+// or 0 for keeping them, is stored without disturbing the section's other
+// field; a negative one or one past the bound is refused and stores nothing.
+func TestHandlePutSettingsTransactionMaxAge(t *testing.T) {
+	userpathstest.Isolate(t)
+	s := &Server{settings: newSettingsStore()}
+	put := func(body string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		s.handlePutSettings(rec, httptest.NewRequest("PUT", "/api/settings", strings.NewReader(body)))
+		return rec
+	}
+	if rec := put(`{"projects":{"stateOutside":true}}`); rec.Code != http.StatusOK {
+		t.Fatalf("PUT stateOutside: %d %s", rec.Code, rec.Body.String())
+	}
+
+	for _, days := range []int{30, core.MaxTransactionMaxAgeDays, 0} {
+		rec := put(`{"projects":{"transactionMaxAgeDays":` + strconv.Itoa(days) + `}}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("PUT %d days: %d %s", days, rec.Code, rec.Body.String())
+		}
+		gs, _ := core.LoadGlobalSettings()
+		if gs.Projects.TransactionMaxAgeDays != days || !gs.Projects.StateOutside {
+			t.Fatalf("PUT %d days: on disk %+v, want %d days and stateOutside kept", days, gs.Projects, days)
+		}
+	}
+
+	if rec := put(`{"projects":{"transactionMaxAgeDays":7}}`); rec.Code != http.StatusOK {
+		t.Fatalf("PUT 7 days: %d %s", rec.Code, rec.Body.String())
+	}
+	for _, days := range []int{-1, core.MaxTransactionMaxAgeDays + 1} {
+		if rec := put(`{"projects":{"transactionMaxAgeDays":` + strconv.Itoa(days) + `}}`); rec.Code != http.StatusBadRequest {
+			t.Fatalf("PUT %d days: status %d, want 400", days, rec.Code)
+		}
+		if gs, _ := core.LoadGlobalSettings(); gs.Projects.TransactionMaxAgeDays != 7 {
+			t.Fatalf("refused PUT of %d days left %d on disk, want 7", days, gs.Projects.TransactionMaxAgeDays)
+		}
+	}
+}
+
 // TestSettingsPutLeavesLaunchChoicesToTheMachineServer: what opens whenever
 // Juggler starts is the machine server's to save (PUT /api/server/launch, which
 // a session reaches through /api/connectivity/launch). A session's settings PUT

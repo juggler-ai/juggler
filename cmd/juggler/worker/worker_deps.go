@@ -81,6 +81,10 @@ type workerDeps struct {
 	// runBudgetFn resolves the per-run budget for delegated children. Nil ⇒ the
 	// default applies. See run_budget.go.
 	runBudgetFn RunBudgetFunc
+
+	// txnMaxAge resolves the age past which transaction records are deleted.
+	// Nil ⇒ none are deleted for their age. See TxnMaxAgeFunc.
+	txnMaxAge TxnMaxAgeFunc
 }
 
 // deps returns the current snapshot. Never nil, and never changed in place.
@@ -183,4 +187,10 @@ func (w *ConversationWorker) SetSpendLimit(fn SpendLimitFunc) {
 // SetRunBudget installs the run budget resolver. See RunBudgetFunc.
 func (w *ConversationWorker) SetRunBudget(fn RunBudgetFunc) {
 	w.setDeps(func(d *workerDeps) { d.runBudgetFn = fn })
+}
+
+// SetTxnMaxAge installs the transaction record age resolver. See
+// TxnMaxAgeFunc.
+func (w *ConversationWorker) SetTxnMaxAge(fn TxnMaxAgeFunc) {
+	w.setDeps(func(d *workerDeps) { d.txnMaxAge = fn })
 }

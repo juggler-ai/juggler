@@ -64,6 +64,7 @@ func TestManagerSettersReachALiveWorkerWhileItsTurnsRead(t *testing.T) {
 			m.SetWindowResolver(func(ModelConfig) ContextWindowInfo { return ContextWindowInfo{} })
 			m.SetAutoCompactGate(func() bool { return true })
 			m.SetKeepRecent(func() int { return 30 })
+			m.SetTxnMaxAge(func() int { return 0 })
 			m.SetPathProvider(func(string) (string, bool) { return "", false })
 		}
 	}()

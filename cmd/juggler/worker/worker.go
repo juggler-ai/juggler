@@ -1127,6 +1127,37 @@ func (w *ConversationWorker) noteWorking(origin string) {
 	w.send(bareMessage{Type: msgWorking})
 }
 
+// announceWorking tells every client the worker is working, every workingEvery
+// it has broadcast nothing else, until the returned stop is called; stop
+// returns once the announcing goroutine has. For work done in one step that
+// sends nothing until it ends — a first load reads and applies the whole
+// doc.yjs before its sync and ready — whose length grows with the data and the
+// disk: a client's silence watch would otherwise give up on it while it still
+// runs.
+func (w *ConversationWorker) announceWorking() (stop func()) {
+	every := max(w.workingEvery, time.Millisecond)
+	done, finished := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(finished)
+		ticker := time.NewTicker(every)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				if time.Since(time.Unix(0, w.lastBroadcastAt.Load())) >= every {
+					w.send(bareMessage{Type: msgWorking})
+				}
+			}
+		}
+	}()
+	return func() {
+		close(done)
+		<-finished
+	}
+}
+
 // reply sends a request-scoped response (an ack) to only the client that
 // originated the message currently being dispatched. The doc mutations the
 // request caused are broadcast separately via Yjs sync, so peers stay

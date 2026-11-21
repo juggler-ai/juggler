@@ -13,15 +13,17 @@ import * as settingsApi from '../../services/settings-api.js';
 import { errorText } from '../../../sdk/lib/error-utils.js';
 import { t } from '../../../sdk/lib/i18n.js';
 import { buildToggleRow } from './notifications-tab.js';
+import { TransactionRecordsSetting } from './transaction-records-setting.js';
 
 /**
- * Project files tab: the one switch that keeps each project's local state —
+ * Project files tab: the switch that keeps each project's local state —
  * conversations, session, bash output, memory, sandboxes — outside the
  * project (`projects.stateOutside` in settings.json), and a line saying where
  * this project's state is. Placement only changes when a project's session
  * starts, so the line also says when the setting is waiting on a reopen. The
- * sessions page's Settings, which has no project, has the switch alone
- * (`project` false).
+ * sessions page's Settings, which has no project, has the switch without the
+ * line (`project` false). Below both, how long transaction records are kept
+ * (TransactionRecordsSetting).
  */
 export class ProjectFilesTab {
   /**
@@ -39,6 +41,8 @@ export class ProjectFilesTab {
     this._input = null;
     /** @type {{stateDir: string, outside: boolean, outsideDir: string, byEnv: boolean}|null} @private */
     this._state = null;
+    /** @private */
+    this._txnRecords = new TransactionRecordsSetting();
   }
 
   /** Build the static tab DOM and wire its listener. */
@@ -65,6 +69,8 @@ export class ProjectFilesTab {
     info.appendChild(desc);
     where.appendChild(info);
     container.appendChild(where);
+
+    this._txnRecords.render(container);
   }
 
   /** Tab became visible: fetch where this project's state is. */
@@ -83,6 +89,7 @@ export class ProjectFilesTab {
     this._wanted = !!(settings.projects && settings.projects.stateOutside);
     if (this._input) this._input.checked = this._wanted;
     this._renderWhere();
+    this._txnRecords.onSettingsChanged(settings);
   }
 
   /** @private */

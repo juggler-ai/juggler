@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"sort"
 	"testing"
+	"time"
 )
 
 // trimTestBlob is a blob as SaveBlob writes it, plus a key the trim has never
@@ -45,7 +47,7 @@ func TestTrimTransactionInputs(t *testing.T) {
 	}
 	keptOld := ids[1] // a sub-thread's newest round-trip, long since passed by the root
 
-	if err := s.TrimInputs(conv, map[string]bool{keptOld: true}); err != nil {
+	if err := s.TrimInputs(conv, map[string]bool{keptOld: true}, 0); err != nil {
 		t.Fatalf("TrimInputs: %v", err)
 	}
 
@@ -65,11 +67,47 @@ func TestTrimTransactionInputs(t *testing.T) {
 	}
 
 	// Repeating it changes nothing.
-	if err := s.TrimInputs(conv, map[string]bool{keptOld: true}); err != nil {
+	if err := s.TrimInputs(conv, map[string]bool{keptOld: true}, 0); err != nil {
 		t.Fatalf("second TrimInputs: %v", err)
 	}
 	if _, ok := loadBlobMap(t, s, conv, keptOld)["input"]; !ok {
 		t.Errorf("%s lost its input on a repeat trim", keptOld)
+	}
+}
+
+// With an age limit set, a record older than it is deleted outright — unless
+// the keep set names it, or its id carries no time to judge it by. Records
+// inside the limit are left to the input trim alone.
+func TestTrimTransactionRecordsByAge(t *testing.T) {
+	dir := t.TempDir()
+	s := NewTransactionStore(func(string) (string, bool) { return dir, true })
+	const conv = "conv-age"
+
+	now := time.Now()
+	stamp := func(age time.Duration, seq int) string {
+		return fmt.Sprintf("txn_%d_%09d", now.Add(-age).UnixMilli(), seq)
+	}
+	oldGone, oldKept, recent := stamp(10*24*time.Hour, 1), stamp(9*24*time.Hour, 2), stamp(time.Hour, 3)
+	const legacy = "txn-legacy" // an id with no timestamp in it
+	for _, id := range []string{oldGone, oldKept, recent, legacy} {
+		if err := s.Save(conv, id, []byte(trimTestBlob(id))); err != nil {
+			t.Fatalf("Save(%s): %v", id, err)
+		}
+	}
+
+	if err := s.TrimInputs(conv, map[string]bool{oldKept: true}, 7*24*time.Hour); err != nil {
+		t.Fatalf("TrimInputs: %v", err)
+	}
+
+	ids, err := s.List(conv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sort.Strings(ids)
+	want := []string{legacy, oldKept, recent}
+	sort.Strings(want)
+	if !reflect.DeepEqual(ids, want) {
+		t.Fatalf("records left = %v, want %v", ids, want)
 	}
 }
 

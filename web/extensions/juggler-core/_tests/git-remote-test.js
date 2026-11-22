@@ -161,7 +161,7 @@ export async function runTests(_ctx) {
     await waitFor(() => /Pushing 45%/.test(jobText(m)), () => `Pushing 45% (Refresh says: ${jobText(m)})`);
     assert(refreshButton(m).getAttribute('aria-busy') === 'true', 'Refresh is not busy while pushing');
     assert(/Writing objects 45% \(45\/100\)/.test(jobText(m)), `Refresh's title = ${jobText(m)}`);
-    assert(!m.body.querySelector('.git-pin__head [role="status"]'), 'the head grew a status beside the buttons');
+    assert(!m.body.querySelector('.git-pin__bar [role="status"]:not(.git-pin__toast)'), 'the head grew a status beside the buttons');
     assert(/^Push 2$/.test(primary(m).textContent || '') && primary(m).disabled
       && primary(m).classList.contains('git-pin__primary--spin'), `the Push pressed spins in place: ${primary(m).textContent}`);
     /** @type {HTMLElement|null} */ (m.body.querySelector('.git-pin__log-toggle'))?.click();

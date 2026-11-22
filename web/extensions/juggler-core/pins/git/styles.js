@@ -62,14 +62,24 @@ export function injectGitClientStyles() {
   outline: none;
 }
 
+/* The head: its line, and under it the switcher's row when the switcher does
+   not fit in the line (pins/git/head's fit) — one bar, with no rule between. */
 .git-pin__head {
   flex: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-4);
+  min-width: 0;
+  padding: var(--space-4) var(--pane-inset);
+  border-bottom: 1px solid var(--border-divider);
+}
+
+.git-pin__bar {
   display: flex;
   align-items: center;
   gap: var(--toolbar-gap);
   min-width: 0;
-  padding: var(--space-4) var(--pane-inset);
-  border-bottom: 1px solid var(--border-divider);
 }
 
 /* \`repo / branch\`: one name of two buttons, each answering a hover on its own
@@ -232,11 +242,24 @@ export function injectGitClientStyles() {
   color: var(--accent-yellow);
 }
 
-.git-pin__spacer {
+/* Either side of the switcher in the line, so it stands centred between the
+   two groups; the lead is shown only then. */
+.git-pin__spacer,
+.git-pin__lead {
   flex: 1;
 }
 
-/* The commands a wide pin has room for, each from a width (data-rank). */
+.git-pin__lead[hidden] {
+  display: none;
+}
+
+/* While the line is measured (pins/git/head's fit) nothing in it shrinks, so
+   each item reads at the width it wants. */
+.git-pin__bar.git-pin__bar--measure > * {
+  flex: none;
+}
+
+/* The commands the line has room for: head's fit drops them from the end. */
 .git-pin__commands {
   display: flex;
   gap: var(--space-2);
@@ -249,48 +272,12 @@ export function injectGitClientStyles() {
   white-space: nowrap;
 }
 
-.git-pin__command[hidden] {
+.git-pin__command:is([hidden], .git-pin__command--dropped) {
   display: none;
-}
-
-@container git-pin (width < 52rem) {
-  .git-pin__command[data-rank="1"] { display: none; }
-}
-
-@container git-pin (width < 58rem) {
-  .git-pin__command[data-rank="2"],
-  .git-pin__command[data-rank="3"] { display: none; }
-}
-
-@container git-pin (width < 64rem) {
-  .git-pin__command[data-rank="4"] { display: none; }
-}
-
-@container git-pin (width < 70rem) {
-  .git-pin__command[data-rank="5"] { display: none; }
 }
 
 @container git-pin (width < 40rem) {
   .git-pin__stat-word { display: none; }
-}
-
-/* With the switcher in the head line (a full pin), the commands give it room
-   sooner, in the same order. */
-@container git-pin (width < 66rem) {
-  .git-pin__head:has(> .git-pin__places) .git-pin__command[data-rank="1"] { display: none; }
-}
-
-@container git-pin (width < 72rem) {
-  .git-pin__head:has(> .git-pin__places) .git-pin__command[data-rank="2"],
-  .git-pin__head:has(> .git-pin__places) .git-pin__command[data-rank="3"] { display: none; }
-}
-
-@container git-pin (width < 78rem) {
-  .git-pin__head:has(> .git-pin__places) .git-pin__command[data-rank="4"] { display: none; }
-}
-
-@container git-pin (width < 84rem) {
-  .git-pin__head:has(> .git-pin__places) .git-pin__command[data-rank="5"] { display: none; }
 }
 
 /* Refresh ends the left group, its glyph at the size of the command buttons'
@@ -406,27 +393,25 @@ export function injectGitClientStyles() {
   color: var(--text-secondary);
 }
 
+/* The switcher: in the head line when it fits there, else the head's second
+   row (pins/git/head's fit). */
 .git-pin__places {
   position: relative;
   flex: none;
   display: flex;
   align-items: center;
-  padding: var(--space-4) var(--pane-inset);
-  border-bottom: 1px solid var(--border-divider);
 }
 
-/* A full pin has room for the switcher in the head line, after the branch and
-   its counts, so the pin has one bar above its places rather than two. */
-.git-pin__head > .git-pin__places {
-  padding: 0;
-  margin-left: var(--space-8);
-  border-bottom: 0;
+/* On its own row the toast ends at the row's end, as the line's buttons do. */
+.git-pin__head > .git-pin__places > .git-pin__toast {
+  right: 0;
 }
 
-/* There the toast floats in the head's gap between the switcher and the
-   commands (git-pin's toastHome), centred and no wider than the gap, so it
-   covers none of the head's buttons; a failure hangs down from it. */
-.git-pin__head > .git-pin__spacer {
+/* With the switcher in the line, the toast floats in the line's gap between
+   the switcher and the commands (git-pin's toastHome), centred and no wider
+   than the gap, so it covers none of the line's buttons; a failure hangs down
+   from it. */
+.git-pin__bar > .git-pin__spacer {
   position: relative;
   align-self: stretch;
   min-width: 0;
@@ -875,7 +860,8 @@ export function injectGitClientStyles() {
 
 /* Chip: a pin too short for anything else is its head line. It is height that
    makes one, so a narrow pin in a tall sidebar stays a stack. */
-.git-pin[data-mode="chip"] > :is(.git-pin__places, .git-op, .git-pin__main, .git-pin__log) {
+.git-pin[data-mode="chip"] > :is(.git-op, .git-pin__main, .git-pin__log),
+.git-pin[data-mode="chip"] .git-pin__places {
   display: none;
 }
 

@@ -698,6 +698,8 @@ class GitPin extends PinboardItemType {
     /** @returns {string} The tree's identity: the pinned workspace, or the one in view. */
     const treeKey = () => (isPinned(config) ? pinnedWorkspace(config) : status()?.workspace || '');
     const head = createHead();
+    /** Lays the head line out again; set once the switcher is built. */
+    let fitHead = () => {};
     const banner = createOperationBanner();
     /** Whether one of the banner's writes is out. */
     let operationBusy = false;
@@ -764,6 +766,7 @@ class GitPin extends PinboardItemType {
       const fetching = Boolean(first?.fetching) || [...netJobs.values()].some((j) => j.auto && (j.repo || '') === repo);
       current = primaryOf({ read, changed, staged, conflicts, committing, job: runningJobOf(repo), fetching });
       head.update({ repoName, read, changed, primary: current, fetching, offline: first?.offline || '' });
+      fitHead();
       banner.update({ stopped: stoppedOf(read), conflicts, head: read?.head?.sha || '', busy: operationBusy });
       const prompt = current.kind === 'answer' ? current.job?.prompt : null;
       if (promptSurface && (!promptSurface.isConnected || promptSurface.dataset.prompt !== prompt?.id)) {
@@ -1393,8 +1396,9 @@ class GitPin extends PinboardItemType {
       return true;
     };
 
-    // The switcher's row: the tabs, and at its right end the toast — one
-    // place for it whatever is shown, where it covers no action in any place.
+    // The switcher: the tabs, in the head line or on the head's second row
+    // (head.fit), and at the row's right end the toast — one place for it
+    // whatever is shown, where it covers no action in any place.
     const switcher = createElement('div', 'git-pin__places');
     const tabList = createElement('div', 'git-pin__tabs');
     tabList.setAttribute('role', 'tablist');
@@ -1417,8 +1421,11 @@ class GitPin extends PinboardItemType {
     tabs.changes?.append(changesCount);
     const drawCounts = () => {
       const count = shownRepo?.changed || 0;
+      const was = changesCount.textContent;
       changesCount.hidden = !count;
       changesCount.textContent = count ? formatNumber(count) : '';
+      // The count widens the tabs, which may then no longer fit in the line.
+      if (changesCount.textContent !== was) fitHead();
       tabs.changes?.setAttribute('aria-label', count
         ? t('Changes, {count, plural, one {# changed file} other {# changed files}}', { count })
         : t('Changes'));
@@ -1473,7 +1480,7 @@ class GitPin extends PinboardItemType {
     splitHandle(refs.element, 'sidebar', t('Resize the sidebar'));
     // The log is the tree's, under every place: History, Refs and the head run
     // git too, and the repository menu opens it from anywhere.
-    root.append(head.element, banner.element, switcher, main, log.element);
+    root.append(head.element, banner.element, main, log.element);
 
     /**
      * Write the mode the pin's size puts it in onto the root, where tests and
@@ -1501,19 +1508,14 @@ class GitPin extends PinboardItemType {
       const mode = measureMode(root);
       if (root.dataset.mode !== mode) root.dataset.mode = mode;
       markHeight(root);
-      // A full pin has room for the switcher in the head line, after the
-      // branch and its counts; anything narrower gives it a row of its own.
-      const spacer = /** @type {HTMLElement} */ (head.element.querySelector(':scope > .git-pin__spacer'));
-      if (mode === 'full') {
-        if (switcher.parentElement !== head.element) head.element.insertBefore(switcher, spacer);
-      } else if (switcher.parentElement !== root) {
-        root.insertBefore(switcher, main);
-      }
+      // The switcher stands in the head line when a split or full pin's line
+      // holds it with every command; otherwise it has the head's second row.
+      const inLine = head.fit(switcher, mode === 'split' || mode === 'full');
       // The toast's home is always the empty end of a row of controls, so it
       // covers no button anyone wants next: the switcher's row when it has one,
-      // over the head line in a chip, and the head's gap between the switcher
-      // and the commands when the switcher is in the head.
-      const toastHome = mode === 'chip' ? root : mode === 'full' ? spacer : switcher;
+      // over the head line in a chip, and the line's gap between the switcher
+      // and the commands when the switcher is in the line.
+      const toastHome = mode === 'chip' ? root : inLine ? head.spacer : switcher;
       if (toast.element.parentElement !== toastHome) toastHome.append(toast.element);
       // The sidebar is read as the place is, the first time it comes on
       // screen; after that the place's watch keeps it current.
@@ -1521,6 +1523,7 @@ class GitPin extends PinboardItemType {
       if (sidebar && !sidebarWasShown) refs.shown();
       sidebarWasShown = sidebar;
     };
+    fitHead = syncMode;
     const resizes = new ResizeObserver(() => {
       if (!live) return;
       // Refs, chosen, becomes the sidebar's neighbour as the pin widens to

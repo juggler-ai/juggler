@@ -10,10 +10,13 @@
  * branch (or the sha and "detached"), which opens the worktree switcher; then
  * how far the branch is from
  * its upstream — with a struck-through cloud when the fetch made unasked
- * failed — how many files are changed, and Refresh; then, at the right, the
- * commands a wide pin has room for (Fetch, Pull, Push, Stash, Branch), the
- * primary action — ahead of the commands when it is Fetch, so Fetch always
- * stands before Pull — and the ⋯ menu. A running write spins in the button that
+ * failed — how many files are changed, and Refresh; then, at the right, as
+ * many of the commands (Fetch, Pull, Push, Stash, Branch) as the line has
+ * room for, the primary action — ahead of the commands when it is Fetch, so
+ * Fetch always stands before Pull — and the ⋯ menu. The pin's place switcher
+ * stands in the line, centred between the two groups, when the line holds it
+ * and every command too; otherwise it wraps to a second row of the head
+ * ({@link Head.fit}). A running write spins in the button that
  * started it, which stays where it is. Refresh is the line's one spinner
  * besides: it turns for its own read, for the unasked fetch and for a running
  * write — which its tooltip describes, and a click on it then stops — so the
@@ -68,19 +71,29 @@ const SPIN_TURN_MS = 1200;
 
 /**
  * @typedef {object} Head
- * @property {HTMLElement} element - The line.
+ * @property {HTMLElement} element - The head: the line, and the switcher's row when it wraps.
+ * @property {HTMLElement} spacer - The line's gap before the commands, empty but for the toast.
  * @property {HTMLButtonElement} branchButton - What the switcher hangs off.
  * @property {HTMLButtonElement} moreButton - What the ⋯ menu hangs off.
  * @property {HTMLButtonElement} primaryButton - What the primary's popovers hang off.
  * @property {HeadHandlers} handlers - What the buttons do; set by the pin and the places.
  * @property {(repos: {value: string, label: string}[], value: string) => void} setRepos - The repository menu's choices, and which is shown.
  * @property {(state: HeadState) => void} update - Draw this.
+ * @property {(switcher: HTMLElement, inline: boolean) => boolean} fit - Lay the
+ *   line out for its width: the switcher (its `.git-pin__tabs` measured) in
+ *   the line when `inline` allows it and the line holds it with every command,
+ *   else on a row of its own under the line, and then as many commands as fit,
+ *   the most wanted first. Says whether the switcher is in the line. Synchronous
+ *   layout reads, so it is right the moment it returns.
  */
 
+/** The width, in rem, a branch name may claim from the commands; past it, it truncates before they go. */
+const BRANCH_CLAIM_REM = 16;
+
 /**
- * The commands a wide pin offers as buttons beside the primary, most wanted
- * first: the stylesheet shows each from a width (`data-rank`), and a command
- * the primary is already offering is not offered twice.
+ * The commands offered as buttons beside the primary, most wanted first: the
+ * line drops them from the end as it runs out of room ({@link Head.fit}), and
+ * a command the primary is already offering is not offered twice.
  */
 const COMMANDS = /** @type {const} */ ([
   { id: 'fetch', icon: 'fetch', label: markForTranslation('Fetch'), title: markForTranslation('Fetch from the remotes') },
@@ -95,6 +108,8 @@ const COMMANDS = /** @type {const} */ ([
  */
 export function createHead() {
   const element = createElement('div', 'git-pin__head');
+  const bar = createElement('div', 'git-pin__bar');
+  element.append(bar);
   /** @type {HeadHandlers} */
   const handlers = {
     branch: () => {}, more: () => {}, primary: () => {}, cancel: () => {}, repo: () => {}, action: () => {}, refresh: () => {},
@@ -137,17 +152,20 @@ export function createHead() {
   };
   const sync = createElement('span', 'git-pin__sync');
   const dirtyCount = createElement('span', 'git-pin__stat git-pin__dirty');
+  // The gaps either side of the switcher while it is in the line, so it stands
+  // centred between the two groups; the lead is hidden while it is not.
+  const lead = createElement('span', 'git-pin__lead');
+  lead.hidden = true;
   const spacer = createElement('span', 'git-pin__spacer');
   const commands = createElement('span', 'git-pin__commands');
   /** @type {Map<string, HTMLButtonElement>} */
   const commandButtons = new Map();
   /** @type {Map<string, {own: Element, spin: Element}>} Each command's glyph, and the spinner that stands in for it while it runs. */
   const commandGlyphs = new Map();
-  COMMANDS.forEach((command, index) => {
+  COMMANDS.forEach((command) => {
     const b = /** @type {HTMLButtonElement} */ (createElement('button', 'git-pin__command btn btn-sm btn-ghost'));
     b.type = 'button';
     b.dataset.command = command.id;
-    b.dataset.rank = String(index + 1);
     b.title = t(command.title);
     const own = icon(command.icon);
     commandGlyphs.set(command.id, { own, spin: icon('sync') });
@@ -165,7 +183,7 @@ export function createHead() {
   moreButton.type = 'button';
   moreButton.title = t('More');
   moreButton.setAttribute('aria-label', t('More'));
-  element.append(ref, sync, dirtyCount, refreshButton, spacer, commands, primary, moreButton);
+  bar.append(ref, sync, dirtyCount, refreshButton, lead, spacer, commands, primary, moreButton);
 
   branchButton.addEventListener('click', () => handlers.branch(branchButton));
   moreButton.addEventListener('click', () => handlers.more(moreButton));
@@ -247,8 +265,20 @@ export function createHead() {
     return el;
   };
 
+  /**
+   * The width the elements given span, edge to edge, ignoring any not drawn.
+   * @param {Element[]} els - Neighbours in the line.
+   * @returns {number} Their span, in pixels.
+   */
+  const spanOf = (els) => {
+    const rects = els.filter((e) => e.getClientRects().length).map((e) => e.getBoundingClientRect());
+    if (!rects.length) return 0;
+    return Math.max(...rects.map((r) => r.right)) - Math.min(...rects.map((r) => r.left));
+  };
+
   return {
     element,
+    spacer,
     branchButton,
     moreButton,
     primaryButton: primary,
@@ -362,6 +392,44 @@ export function createHead() {
       primary.dataset.kind = action.kind;
       primary.title = action.title || '';
       primary.replaceChildren(...(action.icon ? [icon(action.icon)] : []), document.createTextNode(action.label));
+    },
+    fit: (switcher, inline) => {
+      if (switcher.parentElement !== bar && switcher.parentElement !== element) element.append(switcher);
+      // Measured with every command shown and nothing in the line shrinking
+      // (git-pin__bar--measure), so each width read is the one it wants; the
+      // branch name claims no more than BRANCH_CLAIM_REM of it.
+      for (const b of commandButtons.values()) b.classList.remove('git-pin__command--dropped');
+      bar.classList.add('git-pin__bar--measure');
+      ref.style.maxWidth = `${BRANCH_CLAIM_REM}rem`;
+      const width = bar.clientWidth;
+      const gap = parseFloat(getComputedStyle(bar).columnGap) || 0;
+      const between = parseFloat(getComputedStyle(commands).columnGap) || 0;
+      const own = spanOf([ref, sync, dirtyCount, refreshButton]);
+      const actions = spanOf([commands, primary, moreButton]);
+      const tabs = switcher.querySelector('.git-pin__tabs')?.getBoundingClientRect().width || 0;
+      const offered = [...commandButtons.values()].filter((b) => !b.hidden).map((b) => ({ b, width: b.getBoundingClientRect().width }));
+      bar.classList.remove('git-pin__bar--measure');
+      ref.style.removeProperty('max-width');
+      // The two groups and the spacer between them; in the line, the lead and
+      // the switcher are two more items, and each side keeps a gap of air.
+      const needs = own + actions + 2 * gap;
+      const inLine = inline && width > 0 && tabs > 0 && needs + tabs + 4 * gap <= width;
+      if (inLine) {
+        if (switcher.parentElement !== bar) bar.insertBefore(switcher, spacer);
+      } else if (switcher.parentElement !== element) {
+        element.append(switcher);
+      }
+      lead.hidden = !inLine;
+      if (width > 0) {
+        let over = needs - width;
+        for (let i = offered.length - 1; i >= 0 && over > 0; i--) {
+          const dropped = offered[i];
+          if (!dropped) continue;
+          dropped.b.classList.add('git-pin__command--dropped');
+          over -= dropped.width + (i > 0 ? between : 0);
+        }
+      }
+      return inLine;
     },
   };
 }

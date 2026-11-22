@@ -52,6 +52,20 @@ func ConfigDir() string {
 	return resolveConfigDir(runtime.GOOS, home, os.Getenv)
 }
 
+// ServerDir returns the directory holding the machine server's lock and
+// discovery record (server.lock, server.json): one server runs per ServerDir,
+// and every client finds the server of its own.
+//
+// JUGGLER_SERVER_DIR overrides it when set, so several servers can run side by
+// side — each in its own sandbox, say — while sharing everything else in
+// ConfigDir. Otherwise it is ConfigDir.
+func ServerDir() string {
+	if dir := os.Getenv("JUGGLER_SERVER_DIR"); dir != "" {
+		return dir
+	}
+	return ConfigDir()
+}
+
 // resolveConfigDir computes the platform-conventional config directory from
 // injected inputs (GOOS, home, an env lookup), so every OS branch is unit-
 // testable from any host. Returns the OS temp dir as a last resort.

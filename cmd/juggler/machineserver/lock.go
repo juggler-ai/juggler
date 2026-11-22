@@ -34,9 +34,9 @@ type ServerInfo struct {
 	Implicit bool `json:"implicit,omitempty"`
 }
 
-// MachineLock enforces one machine server per machine via a flock under the
-// user config dir (~/.juggler/server.lock), with ServerInfo JSON alongside it
-// (server.json) as the discovery channel.
+// MachineLock enforces one machine server per server dir (userpaths.ServerDir,
+// normally the user config dir) via a flock (~/.juggler/server.lock), with
+// ServerInfo JSON alongside it (server.json) as the discovery channel.
 type MachineLock struct {
 	lockPath string
 	infoPath string
@@ -45,7 +45,7 @@ type MachineLock struct {
 }
 
 // NewMachineLock returns the lock manager rooted at configDir (normally
-// userpaths.ConfigDir(); tests pass a temp dir).
+// userpaths.ServerDir(); tests pass a temp dir).
 func NewMachineLock(configDir string) *MachineLock {
 	return &MachineLock{
 		lockPath: filepath.Join(configDir, "server.lock"),

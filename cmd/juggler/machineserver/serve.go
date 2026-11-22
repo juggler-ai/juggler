@@ -293,7 +293,7 @@ func Serve(opts ServeOptions) error {
 	}
 
 	token := mintToken()
-	lock := NewMachineLock(userpaths.ConfigDir())
+	lock := NewMachineLock(userpaths.ServerDir())
 	acquired, existing, err := lock.TryAcquire(ServerInfo{Version: core.Version, Token: token, Implicit: opts.Implicit})
 	if err != nil {
 		return err

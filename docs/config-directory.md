@@ -90,4 +90,5 @@ These move the other directories:
 |---|---|
 | `JUGGLER_CONFIG_DIR` | `~/.juggler` — credentials, default model, extensions |
 | `JUGGLER_LOG_DIR` | the log directory |
+| `JUGGLER_SERVER_DIR` | only the running server's `server.lock` and `server.json`. Each value gets a server of its own, sharing everything else — for running servers side by side, in separate sandboxes for example. Commands that talk to a server (`juggler open`, `juggler server …`) need the same value. |
 | `JUGGLER_STATE_DIR` | the folder that holds every project's outside state. Setting it also turns that placement on, whatever the setting says. |

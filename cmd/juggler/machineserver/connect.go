@@ -34,7 +34,7 @@ type Starter func() (pid int, exited <-chan struct{}, err error)
 // ConnectOptions says where Connect looks for the machine server, and whether
 // it may start one.
 type ConnectOptions struct {
-	// ConfigDir holds server.lock and server.json; "" is userpaths.ConfigDir().
+	// ConfigDir holds server.lock and server.json; "" is userpaths.ServerDir().
 	ConfigDir string
 	// Start, when set, is how Connect starts a server when none is running.
 	// Without it, no server running is ErrNoServer.
@@ -113,7 +113,7 @@ func DetachedStarter(bin string) Starter {
 func Connect(opts ConnectOptions) (*Client, error) {
 	dir := opts.ConfigDir
 	if dir == "" {
-		dir = userpaths.ConfigDir()
+		dir = userpaths.ServerDir()
 	}
 	lock := NewMachineLock(dir)
 	// The server this call started, and its channel that closes when it exits.

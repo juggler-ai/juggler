@@ -11,6 +11,7 @@ the current release). The project follows semantic versioning.
 - Git pin: the mouse wheel scrolls its lists and panes on Windows
 - Git pin opens on History; Git status card shows each repo's branch on one line, click to open it
 - The Usage card shows usage for a second Codex, OpenRouter, DeepSeek or Z.AI account
+- JUGGLER_SERVER_DIR runs a separate server, sharing config, e.g. one per sandbox
 - Long conversations no longer fill the disk with old request records
 - Conversations no longer fail to load at startup on a slow disk
 - A window onto another computer's server keeps trying at launch, then connects itself

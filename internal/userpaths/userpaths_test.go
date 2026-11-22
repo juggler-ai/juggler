@@ -140,6 +140,26 @@ func TestConfigDirEnvOverrideEmptyIgnored(t *testing.T) {
 	}
 }
 
+// ServerDir is ConfigDir unless JUGGLER_SERVER_DIR names another, which moves
+// the machine server's lock and record alone: the config dir stays put, so
+// servers in separate sandboxes still share credentials and settings.
+func TestServerDirEnvOverride(t *testing.T) {
+	withHome(t)
+	t.Setenv("JUGGLER_SERVER_DIR", "")
+	if got, want := ServerDir(), ConfigDir(); got != want {
+		t.Fatalf("ServerDir() with no override = %q, want ConfigDir %q", got, want)
+	}
+	cfg := ConfigDir()
+	override := filepath.Join(t.TempDir(), "server-a")
+	t.Setenv("JUGGLER_SERVER_DIR", override)
+	if got := ServerDir(); got != override {
+		t.Fatalf("ServerDir() = %q, want override %q", got, override)
+	}
+	if got := ConfigDir(); got != cfg {
+		t.Errorf("JUGGLER_SERVER_DIR moved ConfigDir to %q, want it left at %q", got, cfg)
+	}
+}
+
 // ConfigDir/CacheDir resolve under the isolated HOME on the host platform.
 func TestConfigAndCacheUnderHome(t *testing.T) {
 	home := withHome(t)

@@ -483,21 +483,23 @@ export async function runTests(_ctx) {
   });
 
   await test('a held arrow reads no commit until it is let go', async () => {
-    const m = mount();
-    await drawn(m, 12);
-    const root = /** @type {HTMLElement} */ (m.body.querySelector('.git-pin'));
-    press(root, 'j');
-    await waitFor(() => (detail(m).textContent || '').includes('Body of 0000'), 'row 0\u2019s commit');
-    const before = commitReads(m).length;
     // Losing focus lets a held key go (the keyup never comes), and a sibling
     // lane's focus() takes this frame's whenever it likes: so the hold is
     // shielded from it, and a steal is made mid-hold to show the shield holds.
-    // Capture on the window is ahead of the pin's own listeners, at the window
-    // as at its root.
+    // The shield goes on before the pin mounts. At the root, capture on the
+    // window runs first anyway; but at the window itself Chromium runs
+    // listeners in the order they were added, capture or not, so only a
+    // shield added before the pin's own `blur` runs ahead of it.
     const shield = (/** @type {Event} */ e) => e.stopImmediatePropagation();
     window.addEventListener('focusout', shield, true);
     window.addEventListener('blur', shield, true);
+    const m = mount();
     try {
+      await drawn(m, 12);
+      const root = /** @type {HTMLElement} */ (m.body.querySelector('.git-pin'));
+      press(root, 'j');
+      await waitFor(() => (detail(m).textContent || '').includes('Body of 0000'), 'row 0\u2019s commit');
+      const before = commitReads(m).length;
       for (let i = 0; i < 5; i++) {
         root.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', repeat: true, bubbles: true, cancelable: true }));
         if (i === 2) {
@@ -506,17 +508,17 @@ export async function runTests(_ctx) {
         }
         await nextTask();
       }
+      assert(isSelected(m, 5), 'the selection moved with the key');
+      assert(commitReads(m).length === before, `nothing read while it is held: ${JSON.stringify(commitReads(m).slice(before).map((r) => r.options.commit))}`);
+      root.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowDown', bubbles: true }));
+      await waitFor(() => (detail(m).textContent || '').includes('Body of 0005'), 'row 5\u2019s commit once let go');
+      const asked = commitReads(m).slice(before).map((/** @type {any} */ r) => r.options.commit);
+      assert(JSON.stringify(asked) === JSON.stringify([shaOf(5)]), `one read, for row 5: ${JSON.stringify(asked)}`);
     } finally {
+      m.teardown();
       window.removeEventListener('focusout', shield, true);
       window.removeEventListener('blur', shield, true);
     }
-    assert(isSelected(m, 5), 'the selection moved with the key');
-    assert(commitReads(m).length === before, `nothing read while it is held: ${JSON.stringify(commitReads(m).slice(before).map((r) => r.options.commit))}`);
-    root.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowDown', bubbles: true }));
-    await waitFor(() => (detail(m).textContent || '').includes('Body of 0005'), 'row 5\u2019s commit once let go');
-    const asked = commitReads(m).slice(before).map((/** @type {any} */ r) => r.options.commit);
-    assert(JSON.stringify(asked) === JSON.stringify([shaOf(5)]), `one read, for row 5: ${JSON.stringify(asked)}`);
-    m.teardown();
   });
 
   await test('one refs change redraws once both reads land, and only the rows with new chips', async () => {

@@ -14,6 +14,7 @@ import { buildPickerPanel, hasNativeHost, pickFile } from 'juggler/ui';
 import { smartTruncate } from 'juggler/ui';
 import { gitignoreDisabled } from './path-approval.js';
 import { fetchLiveFile, liveFileSource, liveFileInfo, renderLiveFileBody } from '../lib/live-file.js';
+import { cardFile } from '../lib/card-links.js';
 
 const t = translator('@juggler/core');
 
@@ -177,20 +178,20 @@ class FileContentContextItem extends ContextItem {
    * Status UI configuration.
    *
    * Sync only — no disk read here (called on every render). Shows just
-   * the filename / folder name; per-fetch details (line count, warnings)
-   * live in the properties panel, which is async.
+   * the filename / folder name, as a link that opens it on the Pinboard;
+   * per-fetch details (line count, warnings) live in the properties panel,
+   * which is async.
    * @returns {import('juggler/context-item').ResultStatusMessage} Status UI config
    */
   getStatusUI() {
     if (!this.data.path) {
       return { typeName: t('File Content'), summary: t('No file selected') };
     }
+    const { name, link } = cardFile(this, this.data.path);
     if (this.data.isDirectory) {
-      const displayPath = basename(this.data.path) || this.data.path;
-      return { typeName: t('Folder'), summary: `${displayPath}/`, status: 'success' };
+      return { typeName: t('Folder'), summary: link(`${name}/`), status: 'success' };
     }
-    const filename = basename(this.data.path) || this.data.path;
-    return { typeName: t('File Content'), summary: filename, status: 'success' };
+    return { typeName: t('File Content'), summary: link(), status: 'success' };
   }
 
   /**

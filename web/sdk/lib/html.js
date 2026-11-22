@@ -15,6 +15,8 @@
  * `document`, which is what lets the worker twin surface them for real.
  */
 
+import { messageParts } from './i18n.js';
+
 /**
  * Escape HTML special characters to prevent XSS.
  *
@@ -205,6 +207,23 @@ export function renderResultStatusMessage(config) {
   container.appendChild(statusRow);
 
   return container;
+}
+
+/**
+ * A translated message with elements in some of its placeholders, as one
+ * element: the element twin of `withHtml`, for a slot whose content is live —
+ * a file link that must keep its own attributes and listeners.
+ *
+ *     const nodes = { file: createFileRefLink(name, path) };
+ *     row.append(withNodes(t('Created {file}', htmlSlots(nodes)), nodes));
+ * @param {string} message - The result of `t(source, htmlSlots(nodes, …))`.
+ * @param {Record<string, string|Node>} nodes - The same values, by slot name.
+ * @returns {HTMLElement} A span holding the message's text and the nodes.
+ */
+export function withNodes(message, nodes) {
+  const span = document.createElement('span');
+  span.append(...messageParts(message, nodes));
+  return span;
 }
 
 /**

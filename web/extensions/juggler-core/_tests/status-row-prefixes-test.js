@@ -14,7 +14,7 @@
  * @module unit-tests/status-row-prefixes-test
  */
 
-import { underPseudoLocale } from '../../../js-tests/utilities/pseudo-locale.js';
+import { underPseudoLocale, summaryText } from '../../../js-tests/utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../../sdk/lib/i18n.js';
 import BatchContextItem from '../context-items/batch-context-item.js';
 import GlobContextItem from '../context-items/glob-context-item.js';
@@ -103,7 +103,7 @@ export async function runTests() {
        * @param {any} ui
        */
       const row = (name, ui) => {
-        shown[`${name} row`] = String(ui?.summary);
+        shown[`${name} row`] = summaryText(ui?.summary);
         shown[`${name} type name`] = String(ui?.typeName);
       };
 
@@ -165,7 +165,7 @@ export async function runTests() {
 
       // The failed row still carries the model's error as given.
       const failedRow = /** @type {any} */ (fetch.getStatusUI(failure, url));
-      if (!String(failedRow?.summary).includes('9')) throw new Error(`the error is missing: ${JSON.stringify(failedRow?.summary)}`);
+      if (!summaryText(failedRow?.summary).includes('9')) throw new Error(`the error is missing: ${JSON.stringify(failedRow?.summary)}`);
     }, { '@juggler/core': CORE_TEXT });
     passed++;
   } catch (e) {
@@ -207,7 +207,7 @@ export async function runTests() {
      */
     const row = (key, status, toolInput = input) => {
       const ui = /** @type {any} */ (read.getStatusUI(status, toolInput));
-      shown[`${key} row`] = String(ui?.summary);
+      shown[`${key} row`] = summaryText(ui?.summary);
       shown[`${key} type name`] = String(ui?.typeName);
     };
     row('pending, no path', pending, {});
@@ -219,7 +219,7 @@ export async function runTests() {
     row('line range', ok({ lineOffset: 2, lineCount: 3, totalLines: 1234 }));
     row('failed', failure);
     row('cancelled', cancelled);
-    const range = String(/** @type {any} */ (read.getStatusUI(ok({ lineOffset: 2, lineCount: 3, totalLines: 1234 }), input))?.summary);
+    const range = summaryText(/** @type {any} */ (read.getStatusUI(ok({ lineOffset: 2, lineCount: 3, totalLines: 1234 }), input))?.summary);
     if (!range.includes('1234') || !range.includes('3')) throw new Error(`the range lost its data: ${JSON.stringify(range)}`);
   });
 
@@ -232,7 +232,7 @@ export async function runTests() {
      */
     const row = (key, status, toolInput = { query: '1' }) => {
       const ui = /** @type {any} */ (search.getStatusUI(status, toolInput));
-      shown[`${key} row`] = String(ui?.summary);
+      shown[`${key} row`] = summaryText(ui?.summary);
       shown[`${key} type name`] = String(ui?.typeName);
     };
     row('pending', pending);
@@ -258,7 +258,7 @@ export async function runTests() {
        */
       const row = (key, status, toolInput = {}) => {
         const ui = /** @type {any} */ (agent.getStatusUI(status, toolInput));
-        shown[`${name} ${key} row`] = String(ui?.summary);
+        shown[`${name} ${key} row`] = summaryText(ui?.summary);
         shown[`${name} ${key} type name`] = String(ui?.typeName);
       };
       row('pending', pending);

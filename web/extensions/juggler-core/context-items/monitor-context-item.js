@@ -9,6 +9,7 @@ import { createSummaryWithSubtitle, renderLiveTaskOutput, renderTaskDeliveryCont
 import { isShellCommandPermitted, isShellCommandCatastrophic } from './execute/command-permission.js';
 import { translator, markUntranslated } from 'juggler/i18n';
 import { inputText } from '../lib/tool-action-result.js';
+import { commandLine } from '../lib/card-links.js';
 
 const t = translator('@juggler/core');
 
@@ -269,7 +270,7 @@ class MonitorContextItem extends ContextItem {
     const result = actionStatus;
 
     /** @type {string|HTMLElement} */
-    const summary = createSummaryWithSubtitle(command, description);
+    const summary = createSummaryWithSubtitle(commandLine(command), description);
     /** @type {import('juggler/context-item').ResultStatus|undefined} */
     let status = 'running';
     if (result?.cancelled) {

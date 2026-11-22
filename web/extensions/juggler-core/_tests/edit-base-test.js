@@ -15,7 +15,7 @@
  * @module unit-tests/edit-base-test
  */
 
-import { underPseudoLocale, assertPseudoLocalized } from '../../../js-tests/utilities/pseudo-locale.js';
+import { underPseudoLocale, assertPseudoLocalized, summaryText } from '../../../js-tests/utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../../sdk/lib/i18n.js';
 import { addSubsection } from '../../../js/utils/properties-panel-helpers.js';
 import ReplaceTextContextItem from '../context-items/replace-text-context-item.js';
@@ -71,7 +71,7 @@ export async function runTests() {
       ];
       for (const [name, status, toolInput] of states) {
         const ui = /** @type {any} */ (item.getStatusUI(status, toolInput));
-        shown[`row ${name}`] = String(ui?.summary);
+        shown[`row ${name}`] = summaryText(ui?.summary);
         shown[`type name ${name}`] = String(ui?.typeName);
       }
 

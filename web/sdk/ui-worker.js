@@ -102,6 +102,8 @@ export const createHighlightedCode = () => domUnavailable('createHighlightedCode
 export const createSummaryRow = () => domUnavailable('createSummaryRow');
 export const createSummaryWithSubtitle = () => domUnavailable('createSummaryWithSubtitle');
 export const createLlmDescription = () => domUnavailable('createLlmDescription');
+export const withNodes = () => domUnavailable('withNodes');
+export const createFileRefLink = () => domUnavailable('createFileRefLink');
 export const attachMenuKeyboard = () => domUnavailable('attachMenuKeyboard');
 export const focusMenuItem = () => domUnavailable('focusMenuItem');
 export const openMenuAt = () => domUnavailable('openMenuAt');

@@ -9,6 +9,7 @@ import { translator, markUntranslated } from 'juggler/i18n';
 import { toolInputPath, isPathAllowed, folderGrantSuggestions, stripInjectedApprovalFlags, gitignoreDisabled } from './path-approval.js';
 import { buildGitignoreSection } from './search-scope-section.js';
 import { inputText } from '../lib/tool-action-result.js';
+import { cardFile, inlineSummary, linkSlot } from '../lib/card-links.js';
 
 const t = translator('@juggler/core');
 
@@ -232,18 +233,21 @@ class GlobContextItem extends ContextItem {
     const pattern = /** @type {string} */ (toolInput?.pattern) || t('unknown');
     const searchPath = /** @type {string|undefined} */ (toolInput?.path);
     const projectPath = /** @type {any} */ (context?.session)?.projectPath || this.session?.projectPath;
-    const displayPattern = searchPath ? `${formatPathForStatus(searchPath, projectPath)}/${pattern}` : pattern;
+    // The searched folder, linked, ahead of the pattern.
+    const { link } = cardFile(this, searchPath || '', { label: searchPath ? formatPathForStatus(searchPath, projectPath) : '' });
+    const shown = () => (searchPath ? inlineSummary(link(), `/${pattern}`) : pattern);
+    const slot = linkSlot('pattern', shown);
 
     return this.buildStatusUI(actionStatus, {
       typeName: t('Glob'),
-      pending: `${displayPattern}...`,
+      pending: () => inlineSummary(shown(), '...'),
       success: () => {
         const result = /** @type {GlobResult} */ (actionStatus?.result);
         const count = result
           ? (result.count ?? /** @type {any} */ (result).filesCount ?? result.files?.length ?? 0)
           : 0;
-        return t('{count, plural, one {{count} file matching {pattern}} other {{count} files matching {pattern}}}',
-          { count, pattern: displayPattern });
+        return slot.fill(t('{count, plural, one {{count} file matching {pattern}} other {{count} files matching {pattern}}}',
+          { ...slot.params, count }));
       },
       failurePrefix: t('failed')
     });

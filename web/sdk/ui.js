@@ -22,6 +22,7 @@ export {
   createSummaryRow,
   createSummaryWithSubtitle,
   createLlmDescription,
+  withNodes,
 } from './lib/html.js';
 
 // One-shot stylesheet injection for modules that ship their own CSS
@@ -62,6 +63,9 @@ export {
   showPin,
   createShowPinControl,
   addDiffViewer,
+  // A file's name as a link that opens it on the Pinboard, as file references
+  // in replies are
+  createFileRefLink,
 } from '../js/utils/properties-panel-helpers.js';
 
 // The reader's place: the nearest context item of a type from the thread they

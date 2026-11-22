@@ -531,7 +531,8 @@ class EditBase extends ContextItem {
    * bare label when there is no net line change (or stats are unavailable), so a
    * whitespace-only or metadata edit doesn't render an empty `+0 -0`.
    * @protected
-   * @param {string} label - Primary text (e.g. `Updated foo.js`)
+   * @param {string|HTMLElement} label - Primary text (e.g. `Updated foo.js`), or
+   *   an element holding it with the filename linked
    * @param {{added: number, removed: number}|null} [stats] - Line diffstat
    * @returns {HTMLElement|string} Rich summary element, or the plain label
    */
@@ -561,7 +562,7 @@ class EditBase extends ContextItem {
 
     const nameEl = document.createElement('span');
     nameEl.className = 'action-edit-summary-name text-truncate';
-    nameEl.textContent = label;
+    nameEl.append(label);
     wrap.appendChild(nameEl);
 
     return wrap;

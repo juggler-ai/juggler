@@ -155,8 +155,8 @@
  * @property {string} typeName - Type label rendered as the lozenge badge
  * @property {StatusBranch|(() => StatusBranch)} [pending] - Shown while the action is running
  * @property {StatusBranch|(() => StatusBranch)} [success] - Shown when the action succeeded
- * @property {string} [failurePrefix] - Prefix for the error message on the failure branch
- * @property {string} [cancelledMessage] - Custom message for the cancelled branch
+ * @property {string|HTMLElement} [failurePrefix] - Prefix for the error message on the failure branch
+ * @property {string|HTMLElement} [cancelledMessage] - Custom message for the cancelled branch
  */
 
 /**

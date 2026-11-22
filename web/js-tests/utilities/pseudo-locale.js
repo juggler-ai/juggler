@@ -49,6 +49,18 @@ export async function underPseudoLocale(namespace, fn, extensionText = {}) {
 }
 
 /**
+ * The text a status row's summary shows, whether `getStatusUI` gave a string or
+ * an element (a row with a linked filename is one).
+ * @param {unknown} summary - The `summary` of a ResultStatusMessage.
+ * @returns {string} Its visible text.
+ */
+export function summaryText(summary) {
+  if (typeof summary === 'string') return summary;
+  if (typeof Node !== 'undefined' && summary instanceof Node) return summary.textContent || '';
+  return String(summary);
+}
+
+/**
  * Every block of text and aria-label/title/placeholder under `root`, minus the
  * elements `skip` matches (data the fixture cannot make letter-free). Text
  * split by inline markup (`<code>`, `<a>`, `<strong>`, `<em>`, `<b>`, `<i>`) is one message,

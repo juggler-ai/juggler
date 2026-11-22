@@ -10,6 +10,7 @@ import { toolInputPath, isPathAllowed, folderGrantSuggestions, stripInjectedAppr
 import { buildGitignoreSection } from './search-scope-section.js';
 import { formatGrepResults } from './search/grep-format.js';
 import { inputText } from '../lib/tool-action-result.js';
+import { cardFile } from '../lib/card-links.js';
 
 const t = translator('@juggler/core');
 
@@ -350,21 +351,23 @@ class SearchContextItem extends ContextItem {
    */
   getStatusUI(actionStatus, toolInput) {
     const pattern = String(toolInput?.pattern || t('unknown'));
-    const path = toolInput?.path ? String(toolInput.path) : null;
+    const path = toolInput?.path ? String(toolInput.path) : '';
     const shownPath = path ? formatPathForStatus(path, this.session?.projectPath) : '';
+    // The searched file or folder, linked where the row names it.
+    const { slot } = cardFile(this, path, { slotName: 'path', label: shownPath });
 
     return this.buildStatusUI(actionStatus, {
       typeName: t('Grep'),
-      pending: shownPath ? t('{pattern} in {path}...', { pattern, path: shownPath }) : `${pattern}...`,
+      pending: () => (shownPath ? slot.fill(t('{pattern} in {path}...', { ...slot.params, pattern })) : `${pattern}...`),
       success: () => {
         const result = /** @type {SearchResult|undefined} */ (actionStatus?.result);
-        if (!result) return shownPath ? t('{pattern} in {path}', { pattern, path: shownPath }) : pattern;
+        if (!result) return shownPath ? slot.fill(t('{pattern} in {path}', { ...slot.params, pattern })) : pattern;
         const counts = { pattern, matchCount: result.matchCount, fileCount: result.fileCount };
         return shownPath
-          ? t('{pattern} in {path} ({matchCount, plural, one {{matchCount} match} other {{matchCount} matches}} in {fileCount, plural, one {{fileCount} file} other {{fileCount} files}})', { ...counts, path: shownPath })
+          ? slot.fill(t('{pattern} in {path} ({matchCount, plural, one {{matchCount} match} other {{matchCount} matches}} in {fileCount, plural, one {{fileCount} file} other {{fileCount} files}})', { ...counts, ...slot.params }))
           : t('{pattern} ({matchCount, plural, one {{matchCount} match} other {{matchCount} matches}} in {fileCount, plural, one {{fileCount} file} other {{fileCount} files}})', counts);
       },
-      failurePrefix: shownPath ? t('failed in {path}', { path: shownPath }) : t('failed')
+      failurePrefix: shownPath ? slot.fill(t('failed in {path}', slot.params)) : t('failed')
     });
   }
 

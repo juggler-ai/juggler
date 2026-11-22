@@ -275,6 +275,22 @@ function markRef(code, ref) {
 }
 
 /**
+ * A reference for a surface that already knows the file it names — a tool
+ * card's filename — so nothing is scanned or asked: the same element a
+ * confirmed reference in a reply is, with the same click, keyboard and
+ * right-click handling. A folder's path is taken too; its pin shows a browser.
+ * @param {string|Node} label - What the reference shows.
+ * @param {string} path - The absolute path it names.
+ * @returns {HTMLElement} The reference.
+ */
+export function createFileRefLink(label, path) {
+  const span = document.createElement('span');
+  span.append(label);
+  markRef(span, { path });
+  return span;
+}
+
+/**
  * Make the inline code spans in freshly rendered markdown that name an existing
  * file inside `root` into references to it.
  *

@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import ContextItem from 'juggler/context-item';
-import { formatDisplayPath, formatFileSize, formatFileSizeForDisplay, formatFileContentForLLM, normalizeFilePath, injectFileContentStyles, basename } from 'juggler/item-utils';
+import { formatDisplayPath, formatFileSize, formatFileSizeForDisplay, formatFileContentForLLM, normalizeFilePath, injectFileContentStyles } from 'juggler/item-utils';
 import { addFilePath } from 'juggler/ui';
 import { fileSourceFromReadResult } from 'juggler/file-source';
 import { extractFileSource } from 'juggler/registry';
@@ -12,6 +12,7 @@ import { toolInputPath, dirname, isPathAllowed, folderGrantSuggestions, stripInj
 import { creditProgramRead } from './read-history.js';
 import { translator, markUntranslated } from 'juggler/i18n';
 import { inputText, toolActionResultField, toolActionResultValue } from '../lib/tool-action-result.js';
+import { cardFile, inlineSummary } from '../lib/card-links.js';
 
 const t = translator('@juggler/core');
 
@@ -405,39 +406,40 @@ class ReadFileContextItem extends ContextItem {
    * @returns {import('juggler/context-item').ResultStatusMessage|null} Status message config
    */
   getStatusUI(actionStatus, toolInput) {
-    const path = /** @type {string} */ (toolInput?.file_path || toolInput?.path) || t('unknown');
-    // Get just the filename for display
-    const filename = basename(path) || path;
+    const given = /** @type {string} */ (toolInput?.file_path || toolInput?.path) || '';
+    const path = given || t('unknown');
+    // The filename, and a link to the file built per branch: a node lives in one place.
+    const { name: filename, link: file, slot } = cardFile(this, given, { slotName: 'filename', fallback: path });
 
     return this.buildStatusUI(actionStatus, {
       typeName: t('Read'),
-      pending: `${filename}...`,
+      pending: () => inlineSummary(file(), '...'),
       success: () => {
         const result = /** @type {ReadFileResult} */ (actionStatus?.result);
-        if (!result) return filename;
+        if (!result) return file();
         // A missing file is a successful call with a failed read — the only
-        // success branch that styles itself as an error.
+        // success branch that styles itself as an error, and with no file to link.
         if (result.exists === false) {
           return { summary: t('File not found: {filename}', { filename }), status: /** @type {const} */ ('error') };
         }
         if (result.attachment) {
           const ref = result.attachment;
-          return (ref.width && ref.height)
-            ? t('{filename} ({width}×{height})', { filename, width: ref.width, height: ref.height })
-            : t('{filename} (image)', { filename });
+          return slot.fill((ref.width && ref.height)
+            ? t('{filename} ({width}×{height})', { ...slot.params, width: ref.width, height: ref.height })
+            : t('{filename} (image)', slot.params));
         }
         // The warning is the viewer layer's own text, shown as data.
         const warning = result.extracted?.warning || result.warning;
-        if (warning) return `${filename} (${warning})`;
+        if (warning) return inlineSummary(file(), ` (${warning})`);
 
         const lineOffset = result.lineOffset || 1;
         const endLine = lineOffset + (result.lineCount || 0) - 1;
         const isFullFile = lineOffset === 1 && endLine === result.totalLines;
-        return isFullFile
-          ? t('{filename} ({count, plural, one {{count} line} other {{count} lines}})', { filename, count: result.totalLines })
-          : t('{filename} (lines {start}-{end} of {total})', { filename, start: lineOffset, end: endLine, total: result.totalLines });
+        return slot.fill(isFullFile
+          ? t('{filename} ({count, plural, one {{count} line} other {{count} lines}})', { ...slot.params, count: result.totalLines })
+          : t('{filename} (lines {start}-{end} of {total})', { ...slot.params, start: lineOffset, end: endLine, total: result.totalLines }));
       },
-      failurePrefix: `'${path}'`
+      failurePrefix: inlineSummary('\'', file(path), '\'')
     });
   }
 

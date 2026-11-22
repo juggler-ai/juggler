@@ -4,13 +4,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import EditBase from './edit-base.js';
-import { formatDisplayPath, normalizeFilePath, basename } from 'juggler/item-utils';
+import { formatDisplayPath, normalizeFilePath } from 'juggler/item-utils';
 import { labeledSubsection } from 'juggler/ui';
 import { fileSourceFromText } from 'juggler/file-source';
 import { recordWrittenHash, restageBaseline, acquirePathLock } from './read-history.js';
 import { absolutePathKey } from './path-approval.js';
 import { translator, markUntranslated } from 'juggler/i18n';
 import { inputText, toolActionResult } from '../lib/tool-action-result.js';
+import { cardFile } from '../lib/card-links.js';
 
 const t = translator('@juggler/core');
 
@@ -373,20 +374,19 @@ class WriteFileContextItem extends EditBase {
 
     /** @type {any} */
     const result = actionStatus?.result || {};
-    const path = result.path || toolInput?.file_path || toolInput?.path || contentData?.path || diffData?.path || t('unknown');
-    // Get just the filename for display
-    const filename = basename(path) || path;
+    const given = result.path || toolInput?.file_path || toolInput?.path || contentData?.path || diffData?.path || '';
+    const { name: filename, link: file, slot } = cardFile(this, given, { fallback: t('unknown') });
 
     return this.buildStatusUI(actionStatus, {
       typeName: t('Write'),
       // Pending/approval state - use title from display data
-      pending: displayData?.title || `${filename}`,
+      pending: () => file(displayData?.title || filename),
       success: () => {
-        const label = result.created ? t('Created {file}', { file: filename }) : t('Updated {file}', { file: filename });
-        return EditBase._editStatSummary(label, EditBase._editStats(displayData, result));
+        const label = result.created ? t('Created {file}', slot.params) : t('Updated {file}', slot.params);
+        return EditBase._editStatSummary(slot.fill(label), EditBase._editStats(displayData, result));
       },
-      failurePrefix: filename,
-      cancelledMessage: t('cancelled: {file}', { file: filename })
+      failurePrefix: file(),
+      cancelledMessage: slot.fill(t('cancelled: {file}', slot.params))
     });
   }
 

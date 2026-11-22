@@ -9,6 +9,7 @@ import { checkFileFreshness, awaitsReadInTurn, recordWrittenHash, restageBaselin
 import { absolutePathKey } from './path-approval.js';
 import { translator, markUntranslated } from 'juggler/i18n';
 import { inputText, toolActionResultField } from '../lib/tool-action-result.js';
+import { cardFile } from '../lib/card-links.js';
 
 const t = translator('@juggler/core');
 
@@ -469,9 +470,8 @@ class ReplaceTextContextItem extends EditBase {
 
     /** @type {any} */
     const result = actionStatus.result || {};
-    const path = result.path || toolInput?.file_path || toolInput?.path || t('unknown');
-    // Get just the filename for display
-    const filename = basename(path) || path;
+    const given = result.path || toolInput?.file_path || toolInput?.path || '';
+    const { name: filename, link: file, slot } = cardFile(this, given, { fallback: t('unknown') });
 
     // Build summary
     let summary;
@@ -480,21 +480,20 @@ class ReplaceTextContextItem extends EditBase {
 
     if (actionStatus.pending) {
       // Pending/approval state - use title from display data
-      summary = displayData?.title || filename;
+      summary = file(displayData?.title || filename);
       status = 'running';
     } else if (actionStatus.success) {
-      summary = EditBase._editStatSummary(filename, EditBase._editStats(displayData, result));
+      summary = EditBase._editStatSummary(file(), EditBase._editStats(displayData, result));
       status = 'success';
     } else if (actionStatus.cancelled) {
-      summary = t('cancelled: {file}', { file: filename });
+      summary = slot.fill(t('cancelled: {file}', slot.params));
       status = 'cancelled';
     } else {
       // When no path is available (e.g. validation rejected the call
       // before it ran), `failed in unknown` hides the actual reason —
       // surface the raw error message instead.
-      const hasPath = result.path || toolInput?.file_path || toolInput?.path;
-      summary = hasPath
-        ? t('failed in {file}', { file: filename })
+      summary = given
+        ? slot.fill(t('failed in {file}', slot.params))
         : (actionStatus.error || /** @type {any} */ (actionStatus).content || t('failed'));
       status = 'error';
     }

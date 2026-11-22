@@ -353,7 +353,9 @@ const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\
  *
  *     const markup = { guide: `<a href="…">${escapeHtml(t('the setup guide'))}</a>` };
  *     el.innerHTML = withHtml(t('Read {guide} first.', htmlSlots(markup)), markup);
- * @param {Record<string, string>} markup - Placeholder name → HTML.
+ * Only the names are read, so the same call serves `withNodes` (lib/html.js),
+ * whose values are elements.
+ * @param {Record<string, unknown>} markup - Placeholder name → HTML (or element).
  * @param {Record<string, unknown>} [params] - Ordinary params, for the other placeholders.
  * @returns {Record<string, unknown>} Params to pass to `t()`.
  */
@@ -376,6 +378,29 @@ export function withHtml(message, markup) {
   const escaped = String(message).replace(/[&<>"']/g, (c) => HTML_ESCAPES[c] ?? c);
   return escaped.replace(/\uE000([^\uE000\uE001]*)\uE001/g,
     (_whole, name) => (Object.hasOwn(markup, name) ? markup[name] ?? '' : ''));
+}
+
+/**
+ * A message translated with {@link htmlSlots} params, split into its text and
+ * the values its slots stand for, in order — for a caller that puts elements
+ * rather than markup in them (`withNodes`, lib/html.js). Kept here, DOM-free,
+ * so the slot encoding has one owner.
+ * @template T
+ * @param {string} message - The result of `t(source, htmlSlots(values, …))`.
+ * @param {Record<string, T>} values - The same values, by slot name.
+ * @returns {Array<string|T>} The text runs and slot values; empty runs omitted.
+ */
+export function messageParts(message, values) {
+  /** @type {Array<string|T>} */
+  const out = [];
+  String(message).split(/\uE000([^\uE000\uE001]*)\uE001/).forEach((part, i) => {
+    if (i % 2 === 0) {
+      if (part) out.push(part);
+    } else if (Object.hasOwn(values, part)) {
+      out.push(/** @type {T} */ (values[part]));
+    }
+  });
+  return out;
 }
 
 /**

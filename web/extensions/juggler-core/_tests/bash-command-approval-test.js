@@ -24,7 +24,7 @@ import { isCommandAutoApproved, isCatastrophicDeletion, projectRootMove, suggest
 import { tokenize } from '../context-items/execute/shell-tokenizer.js';
 import { posixNormalize, isGrantableRoot, isPathInsideAllowedRoots } from 'juggler/utils/path-containment';
 import ExecuteContextItem, { describeTaskStatus } from '../context-items/execute-context-item.js';
-import { underPseudoLocale } from '../../../js-tests/utilities/pseudo-locale.js';
+import { underPseudoLocale, summaryText } from '../../../js-tests/utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../../sdk/lib/i18n.js';
 import TasksPin from '../pins/tasks-pin.js';
 import pinboardItemRegistry from '../../../js/registries/pinboard-item-registry.js';
@@ -2586,8 +2586,8 @@ export async function runTests() {
       shown['type name'] = ExecuteContextItem.getTypeName();
       shown['result section'] = ExecuteContextItem.getResultSectionLabel('bash');
       const row = (/** @type {any} */ status, /** @type {any} */ input) => item.getStatusUI(status, input);
-      shown['cancelled row'] = String(row({ cancelled: true }, { command: '1' })?.summary);
-      shown['failed row'] = String(row({ success: false, error: '2' }, { command: '1' })?.summary);
+      shown['cancelled row'] = summaryText(row({ cancelled: true }, { command: '1' })?.summary);
+      shown['failed row'] = summaryText(row({ success: false, error: '2' }, { command: '1' })?.summary);
       shown['row type name'] = String(row({ pending: true }, { command: '1' })?.typeName);
       const bg = /** @type {any} */ (row({ pending: true }, { command: '1', run_in_background: true })?.summary);
       shown['background tag'] = String(bg?.querySelector?.('.action-summary-background-tag')?.textContent);

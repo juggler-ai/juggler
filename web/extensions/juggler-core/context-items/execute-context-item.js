@@ -6,7 +6,7 @@
 import ContextItem from 'juggler/context-item';
 import { translator, markUntranslated } from 'juggler/i18n';
 import { shellKill, shellStopProcess, projectRelocate, MAX_EXEC_TIMEOUT_MS, DEFAULT_EXEC_TIMEOUT_MS } from 'juggler/ops';
-import { createHighlightedCode, createSummaryWithSubtitle, renderLiveTaskOutput, pinSource, canPinSource } from 'juggler/ui';
+import { createSummaryWithSubtitle, renderLiveTaskOutput, pinSource, canPinSource } from 'juggler/ui';
 import { resolveAgainstCwd, posixNormalize, canonicalRoot, isGrantableRoot } from 'juggler/utils/path-containment';
 import { isCommandAutoApproved, suggestApprovalPatterns, MAX_SUGGESTED_PATTERN_LENGTH } from './execute/command-approval.js';
 import { isShellCommandPermitted, isShellCommandCatastrophic, shellProjectMove, shellApprovalContext, workingRootOf } from './execute/command-permission.js';
@@ -14,6 +14,7 @@ import { renderExecutePermissionSection } from './execute/permission-section.js'
 import { homeBase, tildeify, untildeify } from './path-approval.js';
 import { inputText, toolActionDisplayData } from '../lib/tool-action-result.js';
 import { sessionStatePath } from '../lib/project-state.js';
+import { commandLine, linkSlot } from '../lib/card-links.js';
 
 const t = translator('@juggler/core');
 
@@ -194,18 +195,6 @@ function stripLeadingProjectCd(command, opts = {}) {
   if (!target || target.includes('$') || target.includes('`')) return command;
   const to = comparableDir(untildeify(target, home), cwd, platform);
   return to === comparableDir(cwd, cwd, platform) ? command.slice(match[0].length) : command;
-}
-
-/**
- * The tile's highlighted command line, opted in with `data-file-refs` so the
- * host turns the paths it names into links to the files.
- * @param {string} command - The command as the tile shows it
- * @returns {HTMLElement} The highlighted command
- */
-function commandLine(command) {
-  const el = createHighlightedCode(command, 'bash');
-  el.setAttribute('data-file-refs', '');
-  return el;
 }
 
 /**
@@ -1239,6 +1228,8 @@ class ExecuteContextItem extends ContextItem {
     // finished foreground run. The description is left untouched (shown as the
     // usual subtitle); the task id lives in the properties panel, not here.
     const backgroundRequested = Boolean(params.run_in_background);
+    // A cancelled or failed row names the command inside a message.
+    const slot = linkSlot('command', () => commandLine(tileCommand));
 
     if (result?.pending) {
       summary = backgroundRequested
@@ -1246,7 +1237,7 @@ class ExecuteContextItem extends ContextItem {
         : createSummaryWithSubtitle(commandLine(tileCommand), description);
       status = 'running';
     } else if (result?.cancelled) {
-      summary = t('Command cancelled: {command}', { command: tileCommand });
+      summary = slot.fill(t('Command cancelled: {command}', slot.params));
       status = 'cancelled';
     } else if (result?.success) {
       const rawResult = result.result || {};
@@ -1259,7 +1250,7 @@ class ExecuteContextItem extends ContextItem {
         status = exitCode === 0 ? 'success' : 'error';
       }
     } else if (result) {
-      summary = t('{command} — failed', { command: tileCommand });
+      summary = slot.fill(t('{command} — failed', slot.params));
       status = 'error';
     } else {
       summary = createSummaryWithSubtitle(commandLine(tileCommand), description);

@@ -34,6 +34,10 @@ import { FILE_REFS_ATTR } from './file-refs.js';
 // import path; the button itself is now a plugin-neutral primitive.
 export { createCopyButton };
 
+// A file's name as a link that pins it, beside the panel's other file
+// affordances, so `juggler/ui` binds it through this module.
+export { createFileRefLink } from './file-refs.js';
+
 /**
  * Create a copyable text container with inline copy button.
  * @param {string} text - Text to copy

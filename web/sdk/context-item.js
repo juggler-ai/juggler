@@ -10,7 +10,8 @@ import { coerceToolInputToSchema } from './coerce-schema-types.js';
 import { smartTruncate } from './lib/smart-truncate.js';
 import { validateManifest } from './lib/manifest.js';
 import { createBoundOps } from './ops.js';
-import { t, markUntranslated, markForTranslation } from './lib/i18n.js';
+import { t, markUntranslated, markForTranslation, htmlSlots } from './lib/i18n.js';
+import { withNodes } from './lib/html.js';
 
 /**
  * Fallback character budget for LLM-facing tool output (~7500 tokens). The live
@@ -1172,16 +1173,24 @@ class ContextItem {
   /**
    * Resolve terminal (cancelled/error) status from an action status object.
    * @param {import('../js/services/action-executor.js').ActionStatus} actionStatus - Action status
-   * @param {string} [failurePrefix] - Prefix for error messages
-   * @param {string} [cancelledMessage] - Custom cancelled message
-   * @returns {{summary: string, status: ResultStatus}} Terminal status config
+   * @param {string|HTMLElement} [failurePrefix] - Prefix for error messages; an
+   *   element (a link to the file that failed) is kept as it is
+   * @param {string|HTMLElement} [cancelledMessage] - Custom cancelled message
+   * @returns {{summary: string|HTMLElement, status: ResultStatus}} Terminal status config
    */
   resolveTerminalStatus(actionStatus, failurePrefix, cancelledMessage) {
     if (actionStatus.cancelled) {
       return { summary: cancelledMessage || t('Cancelled'), status: /** @type {ResultStatus} */ ('cancelled') };
     }
     const error = actionStatus.error || t('unknown error');
-    const summary = failurePrefix ? t('{prefix}: {error}', { prefix: failurePrefix, error }) : error;
+    /** @type {string|HTMLElement} */
+    let summary = error;
+    if (typeof failurePrefix === 'string' && failurePrefix) {
+      summary = t('{prefix}: {error}', { prefix: failurePrefix, error });
+    } else if (failurePrefix) {
+      const nodes = { prefix: failurePrefix };
+      summary = withNodes(t('{prefix}: {error}', htmlSlots(nodes, { error })), nodes);
+    }
     return { summary, status: /** @type {ResultStatus} */ ('error') };
   }
 

@@ -12,7 +12,7 @@
  * @module unit-tests/subsection-labels-test
  */
 
-import { underPseudoLocale } from '../../../js-tests/utilities/pseudo-locale.js';
+import { underPseudoLocale, summaryText } from '../../../js-tests/utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../../sdk/lib/i18n.js';
 import '../../../js/components/file-view.js';
 import BatchContextItem from '../context-items/batch-context-item.js';
@@ -148,7 +148,7 @@ export async function runTests() {
        * @param {string} name
        * @param {any} ui
        */
-      const row = (name, ui) => { shown[`${name} row`] = String(ui?.summary); };
+      const row = (name, ui) => { shown[`${name} row`] = summaryText(ui?.summary); };
       row('web fetch pending', make(WebFetchContextItem).getStatusUI(pending, {}));
       row('web fetch done', make(WebFetchContextItem).getStatusUI({ success: true, result: {} }, {}));
       row('search pending', make(SearchContextItem).getStatusUI(pending, {}));

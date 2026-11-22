@@ -424,12 +424,14 @@ func (r *runner) pushRefs(remote string, args ...string) error {
 }
 
 // refuseTrackedChanges refuses a rebase with tracked changes about, which git
-// would refuse anyway, unless they are to be set aside.
+// would refuse anyway, unless they are to be set aside. Submodules are left
+// out, as git's own check leaves them out: one checked out at another commit
+// than the recorded one is not in a rebase's way.
 func (r *runner) refuseTrackedChanges(op Op) error {
 	if op.Dirty == DirtyStash {
 		return nil
 	}
-	changes, _, err := r.ask("status", "--porcelain", "-uno")
+	changes, _, err := r.ask("status", "--porcelain", "-uno", "--ignore-submodules")
 	if err != nil {
 		return err
 	}

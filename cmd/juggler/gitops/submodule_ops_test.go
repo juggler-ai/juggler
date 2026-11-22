@@ -77,6 +77,75 @@ func TestSubmoduleUpdateChecksOutOneNeverCheckedOut(t *testing.T) {
 	}
 }
 
+// A submodule checked out at another commit than the one recorded is not a
+// change in a rebase's way — git's own check ignores submodules — so a pull
+// that rebases over it goes ahead. Here it is checked out at the commit the
+// upstream moved it to, the usual case after pulling the submodule first.
+func TestPullRebaseOverAMovedSubmodule(t *testing.T) {
+	t.Parallel()
+	super, first, _ := withSubmodule(t)
+	main := super.mainBranch()
+	bare := super.withRemote()
+	other := cloneOf(t, bare)
+	other.git("update-index", "--cacheinfo", "160000,"+first+",lib")
+	other.git("commit", "-qm", "lib back to one")
+	other.git("push", "-q", "origin", "HEAD:"+main)
+
+	super.write("mine.txt", "mine\n")
+	super.commit("mine")
+	sub := &repo{t: t, dir: filepath.Join(super.dir, "lib")}
+	sub.git("checkout", "-q", first)
+
+	if _, _, _, err := netOp(t, super.dir, Op{Kind: OpPull, Mode: PullRebase}); err != nil {
+		t.Fatal(err)
+	}
+	if super.out("log", "-1", "--format=%s") != "mine" || super.sha("HEAD~1") != other.sha("HEAD") {
+		t.Fatal("pull with rebase did not replay mine onto the upstream")
+	}
+	if status := super.out("status", "--porcelain"); status != "" {
+		t.Fatalf("after the rebase the tree is not clean: %q", status)
+	}
+}
+
+// TestResolveSubmodule takes each side of a submodule both branches moved:
+// the side's commit is what gets recorded, whatever the submodule has checked
+// out, and the submodule itself is left alone.
+func TestResolveSubmodule(t *testing.T) {
+	t.Parallel()
+	// Not a commit of lib's: git cannot merge the two moves, so they conflict.
+	const elsewhere = "1111111111111111111111111111111111111111"
+	for side, want := range map[string]string{"ours": elsewhere, "theirs": "first"} {
+		t.Run(side, func(t *testing.T) {
+			t.Parallel()
+			super, first, second := withSubmodule(t)
+			if want == "first" {
+				want = first
+			}
+			main := super.mainBranch()
+			super.git("switch", "-q", "-c", "topic")
+			super.git("update-index", "--cacheinfo", "160000,"+first+",lib")
+			super.git("commit", "-qm", "lib back to one")
+			super.git("switch", "-q", main)
+			super.git("update-index", "--cacheinfo", "160000,"+elsewhere+",lib")
+			super.git("commit", "-qm", "lib elsewhere")
+			_, err := op(t, super.dir, Op{Kind: OpMerge, Rev: "topic"})
+			mustFailAs[*ConflictsError](t, err, "the merge")
+
+			mustOp(t, super.dir, Op{Kind: OpResolve, Path: "lib", Mode: side})
+			if stages := super.unmergedStages("lib"); stages != "0" {
+				t.Fatalf("stages %q, want resolved", stages)
+			}
+			if got := strings.Fields(super.out("ls-files", "-s", "--", "lib")); len(got) < 2 || got[0] != "160000" || got[1] != want {
+				t.Fatalf("index records lib as %v, want 160000 %s", got, want)
+			}
+			sub := &repo{t: t, dir: filepath.Join(super.dir, "lib")}
+			if head := strings.TrimSpace(sub.git("rev-parse", "HEAD")); head != second {
+				t.Fatalf("the resolve moved lib to %s", head)
+			}
+		})
+	}
+}
+
 func TestSubmoduleUpdateRefusesAPlainDirectory(t *testing.T) {
 	t.Parallel()
 	r := committed(t)

@@ -489,9 +489,26 @@ export async function runTests(_ctx) {
     press(root, 'j');
     await waitFor(() => (detail(m).textContent || '').includes('Body of 0000'), 'row 0\u2019s commit');
     const before = commitReads(m).length;
-    for (let i = 0; i < 5; i++) {
-      root.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', repeat: true, bubbles: true, cancelable: true }));
-      await nextTask();
+    // Losing focus lets a held key go (the keyup never comes), and a sibling
+    // lane's focus() takes this frame's whenever it likes: so the hold is
+    // shielded from it, and a steal is made mid-hold to show the shield holds.
+    // Capture on the window is ahead of the pin's own listeners, at the window
+    // as at its root.
+    const shield = (/** @type {Event} */ e) => e.stopImmediatePropagation();
+    window.addEventListener('focusout', shield, true);
+    window.addEventListener('blur', shield, true);
+    try {
+      for (let i = 0; i < 5; i++) {
+        root.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', repeat: true, bubbles: true, cancelable: true }));
+        if (i === 2) {
+          root.dispatchEvent(new window.FocusEvent('focusout', { bubbles: true }));
+          window.dispatchEvent(new window.FocusEvent('blur'));
+        }
+        await nextTask();
+      }
+    } finally {
+      window.removeEventListener('focusout', shield, true);
+      window.removeEventListener('blur', shield, true);
     }
     assert(isSelected(m, 5), 'the selection moved with the key');
     assert(commitReads(m).length === before, `nothing read while it is held: ${JSON.stringify(commitReads(m).slice(before).map((r) => r.options.commit))}`);
@@ -699,6 +716,13 @@ export async function runTests(_ctx) {
     typeFilter(m, 'beef');
     press(filterOf(m), 'Enter');
     await waitFor(() => logReads(m).some((q) => q.message === 'beef'), 'hex that names no commit is a message filter');
+    m.teardown();
+  });
+
+  await test('a pin left on History over a scoped review opens on History again', async () => {
+    const m = mount({ config: { place: 'history', scope: `${shaOf(4)}..${shaOf(1)}` } });
+    const root = /** @type {HTMLElement} */ (m.body.querySelector('.git-pin'));
+    assert(root.dataset.place === 'history', `the place last chosen, not Review: ${root.dataset.place}`);
     m.teardown();
   });
 

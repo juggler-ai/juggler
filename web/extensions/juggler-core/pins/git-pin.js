@@ -153,15 +153,17 @@ function isPlace(value) {
 }
 
 /**
- * The place a config asks for: Review for a pin scoped to something other than
- * the working tree (how the agent opens it on a commit or a range), else the
- * place last chosen, else History, the place most visits are for.
+ * The place a config asks for: the place last chosen, else Review for a pin
+ * scoped to something other than the working tree (how the agent opens it on a
+ * commit or a range), else History, the place most visits are for. A scope
+ * chosen within the pin saves Review as the place too, so a saved place is
+ * never older than the scope beside it.
  * @param {Record<string, unknown>} config - The pin's config.
  * @returns {PlaceId} The place.
  */
 function placeOf(config) {
-  if (normalizeScope(config?.scope) !== DEFAULT_SCOPE) return 'review';
-  return isPlace(config?.place) ? config.place : 'history';
+  if (isPlace(config?.place)) return config.place;
+  return normalizeScope(config?.scope) !== DEFAULT_SCOPE ? 'review' : 'history';
 }
 
 /** The select's value for "type an expression". */

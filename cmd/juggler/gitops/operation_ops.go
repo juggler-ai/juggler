@@ -155,22 +155,38 @@ func (r *runner) ended() (Result, error) {
 	return res, nil
 }
 
+// stage is one side of a conflict as the index holds it.
+type conflictSide struct{ mode, sha string }
+
+// gitlinkMode is the index mode of a submodule.
+const gitlinkMode = "160000"
+
 // stages is the index stages a path is unmerged at ("1" base, "2" ours, "3"
 // theirs); none when it has no conflict.
-func (r *runner) stages(path string) (map[string]bool, error) {
+func (r *runner) stages(path string) (map[string]conflictSide, error) {
 	out, _, err := r.ask("ls-files", "-u", "--", path)
 	if err != nil {
 		return nil, err
 	}
-	stages := map[string]bool{}
+	stages := map[string]conflictSide{}
 	for _, line := range strings.Split(out, "\n") {
 		if meta, _, ok := strings.Cut(line, "\t"); ok {
 			if fields := strings.Fields(meta); len(fields) == 3 {
-				stages[fields[2]] = true
+				stages[fields[2]] = conflictSide{mode: fields[0], sha: fields[1]}
 			}
 		}
 	}
 	return stages, nil
+}
+
+// isGitlink reports whether any side of a conflict is a submodule.
+func isGitlink(stages map[string]conflictSide) bool {
+	for _, s := range stages {
+		if s.mode == gitlinkMode {
+			return true
+		}
+	}
+	return false
 }
 
 // resolve settles one conflicted file: with one side's version, which for a
@@ -186,12 +202,12 @@ func resolve(r *runner, op Op) (Result, error) {
 		return Result{}, err
 	}
 	path := paths[0]
-	var stage string
+	var side string
 	switch op.Mode {
 	case ResolveOurs:
-		stage = "2"
+		side = "2"
 	case ResolveTheirs:
-		stage = "3"
+		side = "3"
 	case ResolveMarked:
 	default:
 		return Result{}, refused(msg.NewError("Unknown way to resolve: {mode}", "mode", op.Mode))
@@ -202,6 +218,9 @@ func resolve(r *runner, op Op) (Result, error) {
 	}
 	if len(stages) == 0 {
 		return Result{}, &StaleError{Err: msg.NewError("{path} has no conflict to resolve any more.", "path", path)}
+	}
+	if isGitlink(stages) {
+		return Result{}, r.resolveSubmodule(path, side, stages)
 	}
 	if op.Mode == ResolveMarked && !op.Force {
 		if marked, err := r.hasMarkers(path); err != nil {
@@ -214,10 +233,11 @@ func resolve(r *runner, op Op) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	_, taken := stages[side]
 	switch {
-	case stage == "":
+	case side == "":
 		_, err = r.git("add", "-A", "--", path)
-	case stages[stage]:
+	case taken:
 		if _, err = r.git("checkout", "--"+op.Mode, "--", path); err == nil {
 			_, err = r.git("add", "--", path)
 		}
@@ -229,6 +249,25 @@ func resolve(r *runner, op Op) (Result, error) {
 	}
 	id, err := saved.finish()
 	return Result{Discard: id}, err
+}
+
+// resolveSubmodule settles a conflict over which commit a submodule records,
+// in the index alone: one side's commit (or no submodule, for a side that
+// removed it), or for side "" the commit the submodule has checked out. The
+// submodule's own checkout is left where it is, so there is nothing of the
+// user's to save and no Result.Discard; checking it out at the recorded commit
+// is a submodule update. `git checkout --ours` cannot do this: it writes no
+// gitlink, and the add after it would record the submodule's HEAD instead.
+func (r *runner) resolveSubmodule(path, side string, stages map[string]conflictSide) error {
+	var err error
+	if s, taken := stages[side]; side == "" {
+		_, err = r.git("add", "--", path)
+	} else if taken {
+		_, err = r.git("update-index", "--cacheinfo", s.mode+","+s.sha+","+path)
+	} else {
+		_, err = r.git("rm", "-q", "--cached", "--", path)
+	}
+	return err
 }
 
 // hasMarkers reports whether the working file still has a conflict's opening

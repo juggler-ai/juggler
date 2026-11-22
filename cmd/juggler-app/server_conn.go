@@ -230,6 +230,26 @@ func (a *appState) attachedClient() *machineserver.Client {
 	return c
 }
 
+// attachmentTo returns the app's attachment to the server process c reaches,
+// or nil when it holds none to it now.
+func (a *appState) attachmentTo(c *machineserver.Client) *machineserver.Attachment {
+	var att *machineserver.Attachment
+	a.withConn(func(st *connState) {
+		if st.live() && procOf(st.client) == procOf(c) {
+			att = st.att
+		}
+	})
+	return att
+}
+
+// openSessionFor opens the session for project on c for a window about to
+// load it, which the server then keeps for the window's first request for as
+// long as the app stays attached (machineserver.Client.OpenSessionFor).
+func (a *appState) openSessionFor(c *machineserver.Client, project string) (machineserver.Session, error) {
+	sess, _, err := c.OpenSessionFor(project, a.attachmentTo(c))
+	return sess, err
+}
+
 // attach is serverClient's flight, on its caller's goroutine. An attachment
 // that ended (ended, to prev's server) is settled first; then, with none, it
 // finds or (with start) starts a server and attaches to it. A server of

@@ -50,9 +50,11 @@ type stubMachineServer struct {
 	drop     atomic.Pointer[chan struct{}]
 	stopped  chan struct{}
 	stopOnce sync.Once
-	// list is what GET /sessions answers; opened records each POST /sessions.
-	list   atomic.Pointer[[]machineserver.Session]
-	opened chan string
+	// list is what GET /sessions answers; opened records each POST /sessions,
+	// and openedFor the attachment the latest one named ("" for none).
+	list      atomic.Pointer[[]machineserver.Session]
+	opened    chan string
+	openedFor atomic.Pointer[string]
 	// refuseOpen, set, refuses every open with it, with refuseStatus (zero is
 	// 400).
 	refuseOpen   atomic.Pointer[string]
@@ -221,8 +223,9 @@ func (s *stubMachineServer) serve(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && path == "/sessions":
 		writeJSON(w, http.StatusOK, *s.list.Load())
 	case r.Method == http.MethodPost && path == "/sessions":
-		var req struct{ Project string }
+		var req struct{ Project, Attachment string }
 		_ = json.Unmarshal(body, &req)
+		s.openedFor.Store(&req.Attachment)
 		s.opened <- req.Project
 		if msg := s.refuseOpen.Load(); msg != nil {
 			writeJSON(w, cmp.Or(int(s.refuseStatus.Load()), http.StatusBadRequest), map[string]string{"error": *msg})
@@ -829,7 +832,8 @@ func TestARestartStopsOnlyWhatTheUserWasShown(t *testing.T) {
 // TestAWindowResolvesToItsProjectsSessionOrTheServersPage: a project's window
 // loads that project's session on the server, and an empty one the server's
 // own page. A project the server will not open is the server's page instead,
-// with the reason.
+// with the reason. The open names the app's attachment, so the server keeps the
+// session for the window however slowly it loads.
 func TestAWindowResolvesToItsProjectsSessionOrTheServersPage(t *testing.T) {
 	a := newTestAppState(t)
 	srv := newStubMachineServer(t, a, core.Version)
@@ -843,6 +847,9 @@ func TestAWindowResolvesToItsProjectsSessionOrTheServersPage(t *testing.T) {
 	}
 	if p := <-srv.opened; p != proj {
 		t.Fatalf("opened %q, want %q", p, proj)
+	}
+	if att := *srv.openedFor.Load(); att != "att" {
+		t.Fatalf("the open named attachment %q, want the app's (att)", att)
 	}
 	if got, server, err := a.resolveWindow(windowSpec{}, true); err != nil || got != base || server != on {
 		t.Fatalf("resolve an empty window: %q on %+v, %v; want %s on %+v", got, server, err, base, on)

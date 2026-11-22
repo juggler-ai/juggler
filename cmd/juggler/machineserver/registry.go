@@ -108,6 +108,11 @@ type sessionEntry struct {
 	// the session's grace.
 	viewers       int
 	unviewedSince time.Time
+	// opener is the attachment of the client that opened the session for a
+	// window still to make its first request, closed as it ends; nil once that
+	// request or a viewer has arrived, or with no such opener
+	// (awaitFirstRequest). While it is open the grace does not run.
+	opener <-chan struct{}
 	// leave is told the project as the entry leaves the registry (end), on
 	// the actor, so it must neither block nor ask the registry; nil when
 	// nothing listens (registry.left).

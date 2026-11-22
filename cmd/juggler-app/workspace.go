@@ -134,7 +134,7 @@ func (a *appState) resolveWindow(spec windowSpec, start bool) (string, serverPro
 			return root, procOf(c), nil
 		}
 		project := expandProject(spec.project)
-		sess, _, err := c.OpenSession(project)
+		sess, err := a.openSessionFor(c, project)
 		if err == nil {
 			return strings.TrimSuffix(c.SessionURL(sess), "/"), procOf(c), nil
 		}

@@ -802,7 +802,7 @@ func (a *appState) followMove(e *winEntry, v windowView, c *machineserver.Client
 	if err != nil || !moved {
 		return false
 	}
-	sess, _, err := c.OpenSession(dest)
+	sess, err := a.openSessionFor(c, dest)
 	if err != nil {
 		logf("window %s: %s moved to %s, which could not be opened: %v", e.id, v.spec.project, dest, err)
 		return false

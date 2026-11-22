@@ -428,11 +428,15 @@ var awaitingSpawn = func(string) {}
 
 // handleOpenSession spawns (or reuses) the session child for a project (see
 // openSession). POST /api/server/sessions {"project": "/abs/path" or
-// "~/path", "wait": bool}.
+// "~/path", "wait": bool, "attachment": optional id}. An attachment names the
+// caller's, as one opening the session for a window it is loading: the session
+// it answers running is held for that window's first request while the
+// attachment stands (registry.awaitFirstRequest).
 func (s *Server) handleOpenSession(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Project string `json:"project"`
-		Wait    bool   `json:"wait"`
+		Project    string `json:"project"`
+		Wait       bool   `json:"wait"`
+		Attachment string `json:"attachment"`
 	}
 	body := http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(body).Decode(&req); err != nil {
@@ -452,6 +456,11 @@ func (s *Server) handleOpenSession(w http.ResponseWriter, r *http.Request) {
 		writeMessageError(w, res.status, *res.refusal)
 	default:
 		sess := res.sess
+		if req.Attachment != "" && sess.State == SessionRunning {
+			if ended := s.attachmentEnded(req.Attachment); ended != nil {
+				s.reg.awaitFirstRequest(sess.ID, ended)
+			}
+		}
 		sess.Link = linkUnder(s.requestBase(r), sess.Link)
 		writeJSON(w, res.status, sess)
 	}

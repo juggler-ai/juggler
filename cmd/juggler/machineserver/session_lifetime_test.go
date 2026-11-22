@@ -172,6 +172,55 @@ func TestSessionLifetimeOpenRenewsGrace(t *testing.T) {
 	}
 }
 
+// A session opened for a window is not retired before the window's first
+// request, however long that takes — a cold boot on a busy disk can keep a
+// WebView from making it for longer than the grace — while the client that
+// opened it stays attached. The first request hands it back to the grace, and
+// so does the opener going, from when that is seen.
+func TestSessionLifetimeOpenerHoldsUntilFirstRequest(t *testing.T) {
+	t.Run("first-request", func(t *testing.T) {
+		r, id, c, _, at := lifetimeSession(t)
+		r.awaitFirstRequest(id, make(chan struct{}))
+		if r.retireUnviewed(id, c, at.Add(100*sessionViewerGrace)) {
+			t.Fatal("retired a session whose opener's window had made no request")
+		}
+		r.renewUnviewed(id)
+		r.do(func(m map[string]*sessionEntry) { m[id].unviewedSince = at })
+		if !r.retireUnviewed(id, c, at.Add(sessionViewerGrace)) {
+			t.Fatal("the window's first request did not hand the session back to the grace")
+		}
+	})
+	t.Run("viewer", func(t *testing.T) {
+		r, id, c, _, at := lifetimeSession(t)
+		r.awaitFirstRequest(id, make(chan struct{}))
+		release, ok := r.holdViewer(id)
+		if !ok {
+			t.Fatal("viewer refused")
+		}
+		release()
+		r.do(func(m map[string]*sessionEntry) { m[id].unviewedSince = at })
+		if !r.retireUnviewed(id, c, at.Add(sessionViewerGrace)) {
+			t.Fatal("a viewer did not hand the session back to the grace")
+		}
+	})
+	t.Run("opener-gone", func(t *testing.T) {
+		r, id, c, _, at := lifetimeSession(t)
+		gone := make(chan struct{})
+		r.awaitFirstRequest(id, gone)
+		close(gone)
+		seen := at.Add(100 * sessionViewerGrace)
+		if r.retireUnviewed(id, c, seen) {
+			t.Fatal("retired at once as the opener went, with no grace")
+		}
+		if r.retireUnviewed(id, c, seen.Add(sessionViewerGrace-time.Nanosecond)) {
+			t.Fatal("retired before the grace from the opener going")
+		}
+		if !r.retireUnviewed(id, c, seen.Add(sessionViewerGrace)) {
+			t.Fatal("the grace never ran out after the opener went")
+		}
+	})
+}
+
 func TestSessionLifetimeUnavailableViewedOrNoClock(t *testing.T) {
 	for _, state := range []SessionState{SessionError, SessionRestarting} {
 		for _, viewed := range []bool{false, true} {

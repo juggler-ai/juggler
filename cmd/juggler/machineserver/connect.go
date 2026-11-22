@@ -248,8 +248,21 @@ func (c *Client) SessionURL(s Session) string {
 // within childStartTimeout). A server that dies meanwhile drops the
 // connection, which ends the call as ErrNoServer.
 func (c *Client) OpenSession(project string) (sess Session, opened bool, err error) {
+	return c.OpenSessionFor(project, nil)
+}
+
+// OpenSessionFor is OpenSession for a window this client is about to load
+// the session in, holding att, its attachment to the server: the server keeps
+// the session for the window's first request while att stands, however long a
+// slow machine takes to make it, where otherwise it would retire a session
+// nothing has viewed within its grace. A nil att is OpenSession.
+func (c *Client) OpenSessionFor(project string, att *Attachment) (sess Session, opened bool, err error) {
+	body := map[string]any{"project": project, "wait": true}
+	if att != nil && att.id != "" {
+		body["attachment"] = att.id
+	}
 	untimed := &http.Client{Transport: c.http.Transport}
-	status, err := c.sendWith(untimed, http.MethodPost, "/sessions", map[string]any{"project": project, "wait": true}, &sess)
+	status, err := c.sendWith(untimed, http.MethodPost, "/sessions", body, &sess)
 	if err != nil {
 		return Session{}, false, err
 	}

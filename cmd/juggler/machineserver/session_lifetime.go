@@ -9,8 +9,10 @@ import (
 	"time"
 )
 
-// sessionViewerGrace covers reloads, reconnects and opening a window before its
-// WebSocket is connected. A live turn holds the session beyond this grace.
+// sessionViewerGrace covers reloads, reconnects and a loading page between its
+// requests and its WebSocket. A window opened on the session has until its
+// first request however long that takes (awaitFirstRequest), and a live turn
+// holds the session beyond this grace.
 const sessionViewerGrace = 10 * time.Second
 
 // holdViewer counts one proxied socket or terminal, not a machine-server client,
@@ -25,6 +27,7 @@ func (r *registry) holdViewer(id string) (release func(), ok bool) {
 		}
 		e.viewers++
 		e.Viewers = e.viewers
+		e.opener = nil
 		now := time.Now()
 		e.LastViewed = &now
 		entry, ok = e, true
@@ -49,14 +52,32 @@ func (r *registry) holdViewer(id string) (release func(), ok bool) {
 	}, true
 }
 
+// awaitFirstRequest holds running session id for the window its opener is
+// loading: until a request for the session arrives (renewUnviewed) or a viewer
+// does (holdViewer), retireUnviewed does not claim it while gone — the
+// opener's attachment, closed as it ends — stays open, however long the window
+// takes to make its first request. Once gone closes, the grace runs from when
+// a check first sees it closed.
+func (r *registry) awaitFirstRequest(id string, gone <-chan struct{}) {
+	r.do(func(m map[string]*sessionEntry) {
+		if e := m[id]; e != nil && e.State == SessionRunning {
+			e.opener = gone
+		}
+	})
+}
+
 // renewUnviewed restarts the grace of running session id if it has no viewer:
 // a request through the proxy is a page loading it, whose socket is still to
 // come, so the grace is measured from its last request rather than from when
 // the child came up, and a load slower than the grace is not retired under it.
+// It is also the first request awaitFirstRequest waits for.
 func (r *registry) renewUnviewed(id string) {
 	r.do(func(m map[string]*sessionEntry) {
-		if e := m[id]; e != nil && e.State == SessionRunning && e.viewers == 0 {
-			e.unviewedSince = time.Now()
+		if e := m[id]; e != nil && e.State == SessionRunning {
+			e.opener = nil
+			if e.viewers == 0 {
+				e.unviewedSince = time.Now()
+			}
 		}
 	})
 }
@@ -71,8 +92,20 @@ func (r *registry) renewUnviewed(id string) {
 func (r *registry) retireUnviewed(id string, c *child, at time.Time) (claimed bool) {
 	r.do(func(m map[string]*sessionEntry) {
 		e := m[id]
-		if e == nil || e.child != c || e.State != SessionRunning || e.viewers != 0 ||
-			e.unviewedSince.IsZero() || at.Sub(e.unviewedSince) < sessionViewerGrace {
+		if e == nil || e.child != c || e.State != SessionRunning || e.viewers != 0 {
+			return
+		}
+		if e.opener != nil {
+			select {
+			case <-e.opener:
+				// The opener went with its window unloaded: the grace starts now.
+				e.opener = nil
+				e.unviewedSince = at
+			default:
+			}
+			return
+		}
+		if e.unviewedSince.IsZero() || at.Sub(e.unviewedSince) < sessionViewerGrace {
 			return
 		}
 		e.setState(SessionStopping)

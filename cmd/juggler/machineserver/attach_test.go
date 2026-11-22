@@ -325,3 +325,56 @@ func TestNamedAttachmentRefusesUnavailableSession(t *testing.T) {
 		}
 	}
 }
+
+// TestAnOpenForAWindowIsHeldWhileItsOpenerStaysAttached: an open naming the
+// caller's attachment (Client.OpenSessionFor) holds the session for the
+// window's first request for as long as the attachment stands, and the
+// attachment ending hands it back to the grace. A plain open holds nothing.
+func TestAnOpenForAWindowIsHeldWhileItsOpenerStaysAttached(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer backend.Close()
+	s := &Server{reg: newRegistry(), token: testToken}
+	front := httptest.NewServer(s.routes())
+	defer front.Close()
+	c := &Client{addr: front.Listener.Addr().String(), token: testToken, http: &http.Client{Timeout: 5 * time.Second}}
+
+	project, err := resolveProject(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, _ := s.reg.reserve(project)
+	stand := &child{addr: strings.TrimPrefix(backend.URL, "http://")}
+	s.reg.setRunning(sess.ID, stand, 1)
+	t.Cleanup(func() { s.reg.remove(sess.ID) })
+	opener := func() (ch <-chan struct{}) {
+		s.reg.do(func(m map[string]*sessionEntry) { ch = m[sess.ID].opener })
+		return ch
+	}
+
+	if _, _, err := c.OpenSession(project); err != nil {
+		t.Fatal(err)
+	}
+	if opener() != nil {
+		t.Fatal("a plain open held the session for a window")
+	}
+	a, err := c.Attach()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := c.OpenSessionFor(project, a); err != nil {
+		t.Fatal(err)
+	}
+	held := opener()
+	if held == nil {
+		t.Fatal("an open naming its attachment did not hold the session for its window")
+	}
+	far := time.Now().Add(100 * sessionViewerGrace)
+	if s.reg.retireUnviewed(sess.ID, stand, far) {
+		t.Fatal("retired while its opener was attached and its window had made no request")
+	}
+	a.Close()
+	<-held
+	if s.reg.retireUnviewed(sess.ID, stand, far) || !s.reg.retireUnviewed(sess.ID, stand, far.Add(sessionViewerGrace)) {
+		t.Fatal("the opener's attachment ending did not hand the session back to the grace")
+	}
+}

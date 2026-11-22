@@ -56,7 +56,9 @@ type attachment struct {
 	// named none.
 	pid int
 	// dropped closes when the server drops the attachment.
-	dropped  chan struct{}
+	dropped chan struct{}
+	// ended closes once the attachment has ended, however it ended.
+	ended    chan struct{}
 	dropOnce sync.Once
 	detach   func()
 }
@@ -147,8 +149,9 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 	if s.starter > 0 && req.PID == s.starter {
 		s.starterGone.Store(true)
 	}
-	a := &attachment{dropped: make(chan struct{}), detach: detach, pid: req.PID}
+	a := &attachment{dropped: make(chan struct{}), ended: make(chan struct{}), detach: detach, pid: req.PID}
 	s.attachments.Store(id, a)
+	defer close(a.ended)
 	defer s.attachments.Delete(id)
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	w.WriteHeader(http.StatusOK)
@@ -239,6 +242,17 @@ func mintAttachmentID() string {
 type Attachment struct {
 	body io.ReadCloser
 	done chan struct{}
+	// id is the server's name for it, which its beats and OpenSessionFor send.
+	id string
+}
+
+// attachmentEnded returns the channel that closes as the attachment the server
+// calls id ends, or nil when it holds none by that name.
+func (s *Server) attachmentEnded(id string) <-chan struct{} {
+	if v, ok := s.attachments.Load(id); ok {
+		return v.(*attachment).ended
+	}
+	return nil
 }
 
 // Attach holds this client attached to the server until Close, keeping an
@@ -297,7 +311,7 @@ func (c *Client) Attach(sessionIDs ...string) (*Attachment, error) {
 		return failed(fmt.Errorf("attach to the Juggler server at %s: %w", c.addr, err))
 	}
 	close(answered)
-	a := &Attachment{body: resp.Body, done: make(chan struct{})}
+	a := &Attachment{body: resp.Body, done: make(chan struct{}), id: st.Attachment}
 	go func() {
 		_, _ = io.Copy(io.Discard, br)
 		cancel()

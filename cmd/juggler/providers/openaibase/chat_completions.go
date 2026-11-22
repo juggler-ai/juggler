@@ -322,6 +322,9 @@ func (c *Client) streamMessageChatCompletions(ctx context.Context, req provider.
 
 	// Transform unified Message[] to OpenAI format
 	apiMessages := transformMessages(c.requestMessages(req), c.quirks.UseDeveloperRole, c.quirks.ReasoningReplay, c.reasoningProducer(), req.SystemPrompt)
+	if c.quirks.CacheBreakpoints {
+		markSystemCacheBreakpoint(apiMessages)
+	}
 
 	// Log the SDK request payload for debugging
 	jlog.Trace("[openai REQUEST] model=%s, messages=%d, tools=%d", c.model, len(apiMessages), len(req.Tools))
@@ -380,13 +383,18 @@ func (c *Client) streamMessageChatCompletions(ctx context.Context, req provider.
 	streamCtx, sawDone := withDoneSentinel(streamCtx)
 
 	opts := append(c.sessionHeaderOpts(req), option.WithJSONSet(c.quirks.MaxTokensParamName, maxTokens))
+	if c.quirks.CacheBreakpoints {
+		// The rolling breakpoint: the gateway places it on the last cacheable
+		// block, so each turn writes a longer prefix the next one reads.
+		opts = append(opts, option.WithJSONSet("cache_control", ephemeralCacheControl()))
+	}
 	stream := c.client.Chat.Completions.NewStreaming(streamCtx, params, opts...)
 
 	// Track tool calls being assembled (OpenAI streams them incrementally)
 	toolCallBuffers := make(map[int]*toolCallAccumulator)
 
 	var inputTokens, outputTokens, lastEmittedInput int
-	var cachedTokens *int
+	var cachedTokens, cacheWriteTokens *int
 	var lastFinishReason string
 	var textContent strings.Builder
 	var thinkingContent strings.Builder
@@ -450,6 +458,11 @@ func (c *Client) streamMessageChatCompletions(ctx context.Context, req provider.
 		// block leaves CachedTokens nil (unknown).
 		if chunk.Usage.JSON.PromptTokensDetails.Valid() {
 			cachedTokens = provider.Reported(int(chunk.Usage.PromptTokensDetails.CachedTokens))
+			// Writes are reported only by endpoints that bill them (OpenRouter,
+			// for models with explicit caching); absent stays unknown.
+			if chunk.Usage.PromptTokensDetails.JSON.CacheWriteTokens.Valid() {
+				cacheWriteTokens = provider.Reported(int(chunk.Usage.PromptTokensDetails.CacheWriteTokens))
+			}
 		}
 		// Re-emit authoritative per-call prompt usage as a transient chunk so the
 		// footer meter can anchor on it mid-turn (StreamsLiveUsage providers).
@@ -557,7 +570,34 @@ func (c *Client) streamMessageChatCompletions(ctx context.Context, req provider.
 		InputTokensApproximate: inputTokensApproximate,
 		OutputTokens:           outputTokens,
 		CachedTokens:           cachedTokens,
+		CacheWriteTokens:       cacheWriteTokens,
 	}, nil
+}
+
+// ephemeralCacheControl is the cache_control marker Anthropic's caching takes,
+// with its default five-minute lifetime — the TTL the conversation handle
+// assumes (see OpenConversation).
+func ephemeralCacheControl() map[string]any {
+	return map[string]any{"type": "ephemeral"}
+}
+
+// markSystemCacheBreakpoint rewrites a leading system message as a single text
+// part carrying a cache breakpoint (Quirks.CacheBreakpoints). A plain-string
+// system prompt has nowhere to put one. No-op when the request has no system
+// message first.
+func markSystemCacheBreakpoint(messages []openai.ChatCompletionMessageParamUnion) {
+	if len(messages) == 0 || messages[0].OfSystem == nil {
+		return
+	}
+	system := messages[0].OfSystem
+	if !system.Content.OfString.Valid() {
+		return
+	}
+	part := openai.ChatCompletionContentPartTextParam{Text: system.Content.OfString.Value}
+	part.SetExtraFields(map[string]any{"cache_control": ephemeralCacheControl()})
+	system.Content = openai.ChatCompletionSystemMessageParamContentUnion{
+		OfArrayOfContentParts: []openai.ChatCompletionContentPartTextParam{part},
+	}
 }
 
 // contentPart is one piece of a delta's array-form content: reasoning when

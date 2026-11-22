@@ -114,6 +114,11 @@ type Descriptor struct {
 	// template support varies by model).
 	ReasoningReplayFn func(modelID string) ReasoningReplay
 
+	// CacheBreakpointsFn decides per model whether the request carries
+	// explicit cache breakpoints, overriding Quirks.CacheBreakpoints, for a
+	// gateway whose vendors do not all cache on their own.
+	CacheBreakpointsFn func(modelID string) bool
+
 	// LimitDiscoveryUnsupported opts a provider OUT of reading the token limits
 	// its own model list publishes. Discovery is on by default because the
 	// endpoint describes the server that will serve the request, where a
@@ -295,6 +300,9 @@ func Build(d Descriptor) (provider.ProviderInfo, provider.ProviderInitializer) {
 		}
 		if d.ReasoningReplayFn != nil {
 			base.quirks.ReasoningReplay = d.ReasoningReplayFn(cfg.Model)
+		}
+		if d.CacheBreakpointsFn != nil {
+			base.quirks.CacheBreakpoints = d.CacheBreakpointsFn(cfg.Model)
 		}
 		// A model the descriptor declares text-only is never sent an image.
 		switch {

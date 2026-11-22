@@ -189,6 +189,18 @@ type Quirks struct {
 	// Descriptor.ReasoningReplayFn overrides it per model.
 	ReasoningReplay ReasoningReplay
 
+	// CacheBreakpoints marks the prompt for caching on a model that caches
+	// only where the request says so: Anthropic's, reached through a gateway
+	// that relays its cache_control (OpenRouter). Chat Completions then sends a
+	// top-level cache_control, which the gateway turns into a breakpoint on the
+	// request's last cacheable block — a rolling cache over the growing
+	// conversation — and a second breakpoint on the system prompt, so tools and
+	// system stay cached when the history behind them changes (compaction).
+	// Off by default: every other vendor caches prefixes on its own, and an
+	// endpoint that does not know the field may reject it.
+	// Descriptor.CacheBreakpointsFn overrides it per model.
+	CacheBreakpoints bool
+
 	// ForcedToolChoiceSupported opts this provider IN to sending a forced
 	// single-tool choice (ToolChoice{Mode: tool, Name: X}) as a named
 	// tool_choice on the wire. It defaults to false — i.e. forced tool choice is

@@ -1103,13 +1103,17 @@ export function injectGitClientStyles() {
 }
 
 /* Every place's detail has the same crumb: the way back to the list in a
-   stack, and in Changes and Refs the detail's title too. */
+   stack, and in Changes and Refs the detail's title too. It never shrinks:
+   its min-height replaces the flex item's min-content floor, so a tall file
+   under it would squeeze a wrapped crumb to one row and spill the rest over
+   the content. */
 .git-changes__crumb,
 .git-refs__crumb,
 .git-history__crumb {
   position: sticky;
   top: 0;
   z-index: var(--z-raised);
+  flex: none;
   display: flex;
   align-items: center;
   flex-wrap: wrap;

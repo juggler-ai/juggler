@@ -26,6 +26,7 @@ Juggler is for developers who want the context, model calls and tool execution v
 - **See what the model actually saw.** Open any recorded LLM transaction to inspect its system prompt, messages, tool definitions, output blocks, token use, cache use, stop reason and timing.
 - **Operate on context.** Fold selected history into a thread, move or copy items between branches, edit the prompt identity and undo structural changes. Context is part of the workspace, not plumbing hidden behind the chat box.
 - **Branch without polluting the main conversation.** Create nested threads for tangents, delegated research or competing approaches. A child thread does its work in isolation and returns the result to its parent, and you can open it to steer it yourself.
+- **A full git client beside the session.** The Git pin reviews the agent's changes as diffs you can comment on, and does the rest of git too: staging lines, commits, branches, rebases and pushes. It is an extension, like most of Juggler.
 - **Resume the session, not merely the chat log.** Conversations live on disk. Quit, reconnect or come back tomorrow and the document is still there, including approvals waiting for you.
 - **Stay vendor-neutral.** Every provider is a plug-in: hosted APIs, agent CLIs you already have installed, or a local model through Ollama. Juggler sells no tokens and no credits, so it has no stake in which you pick — change provider or model mid-conversation and the session, context and tooling are unchanged.
 - **Keep your code to yourself.** Model traffic goes direct from your machine to the provider you chose. Juggler puts no server in that path, inspects nothing that passes through it, and indexes no part of your repository into a cloud. Conversations and API keys stay on your own disk. The source is public, so none of that has to be taken on trust.
@@ -95,6 +96,23 @@ Select **System Prompt** to inspect the prompt and tool inventory being assemble
 
 This record helps separate an unexpected prompt, missing tool, stop condition or context limit from the model's own behaviour.
 
+## A full git client, beside the agent
+
+The Pinboard sits beside the conversation and holds live views of whatever you pin to it: a file, the plan, the todo list, project memory, running tasks — or Git.
+
+The Git pin is a full git client, for every repository under the project — the one you would otherwise switch to another app for. Stage whole files or just the lines you pick, and commit with a message the conversation can write from the staged diff. Browse history as a commit graph; branch, merge, rebase, cherry-pick and stash; reword, squash or drop commits; fetch, pull and push. Discards and resets can be undone, and merge conflicts can be handed to the conversation to resolve.
+
+Being beside the conversation, it closes the review loop. Its Review tab shows what changed — uncommitted, staged, on the branch, or any `git diff` range — side by side or unified. Comment on the lines of the agent's diff that need another look, and every comment goes into the prompt at once, as the agent's next instruction.
+
+Connected to Juggler on a dev box or server — from the desktop app, a browser or a phone — the Git pin is a git client for that machine.
+
+The Git pin is also an extension: a Pinboard tab from the bundled Juggler Core extension, written against the same public SDK as [your own](#extensions-not-a-sealed-product).
+
+<p align="center">
+  <img src="https://juggler.studio/assets/screenshot-git.webp" alt="The Git pin's Review tab beside a conversation, showing the agent's fix side by side with a comment drafted on a changed line" width="880">
+</p>
+<p align="center"><em>The agent's fix, under review, with a comment ready to paste into the prompt.</em></p>
+
 ## Extensions, not a sealed product
 
 Most capabilities that make up a Juggler conversation are JavaScript extensions using the same public SDK as the bundled ones:
@@ -102,7 +120,7 @@ Most capabilities that make up a Juggler conversation are JavaScript extensions 
 - **Context items** define tools such as `read`, `write` and `bash`, including their model schema, execution and UI.
 - **Strategies** define the LLM loop and which capabilities it can use.
 - **Commands** add slash-command workflows.
-- **Cards, Pinboard tabs and file viewers** add project-specific UI and visualisation.
+- **Cards, Pinboard tabs and file viewers** add project-specific UI and visualisation. The Git pin, a full git client, is one such Pinboard tab.
 
 MCP servers and skills enter through the same extension system. You can scaffold an extension from the CLI, link it into Juggler and see changes hot-reload without rebuilding the app. The SDK, bundled extensions and examples are Apache-2.0, so closed-source extensions are allowed without a copyleft obligation.
 

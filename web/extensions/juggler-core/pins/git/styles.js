@@ -408,8 +408,7 @@ export function injectGitClientStyles() {
 
 /* With the switcher in the line, the toast floats in the line's gap between
    the switcher and the commands (git-pin's toastHome), centred and no wider
-   than the gap, so it covers none of the line's buttons; a failure hangs down
-   from it. */
+   than the gap, so it covers none of the line's buttons. */
 .git-pin__bar > .git-pin__spacer {
   position: relative;
   align-self: stretch;
@@ -423,9 +422,25 @@ export function injectGitClientStyles() {
   transform: translate(-50%, -50%);
 }
 
+/* A warning or failure is a few lines, which the gap — often a few words
+   wide — would squeeze into a column of letters. It hangs from under the
+   head instead, at the commands' end and as wide as the pin allows, so it
+   still covers none of the line's buttons: the head, not the gap, is what it
+   is placed against. */
+.git-pin__head:has(> .git-pin__bar > .git-pin__spacer > :is(.git-pin__toast--error, .git-pin__toast--warn)) {
+  position: relative;
+}
+
+.git-pin__bar > .git-pin__spacer:has(> :is(.git-pin__toast--error, .git-pin__toast--warn)) {
+  position: static;
+}
+
 .git-pin__spacer > :is(.git-pin__toast--error, .git-pin__toast--warn) {
-  top: var(--space-2);
-  transform: translateX(-50%);
+  top: calc(100% + var(--space-2));
+  right: var(--pane-inset);
+  left: auto;
+  max-width: min(32rem, calc(100% - 2 * var(--pane-inset)));
+  transform: none;
 }
 
 /* A segmented control, not a row of pills: the pinboard's own tabs above it

@@ -52,6 +52,27 @@ type Provider interface {
 	Stop()
 }
 
+// Resumable is a Provider whose link a later process can go on serving: the
+// one a relaunch of the server starts, so a remote caller's link keeps working
+// across it. A provider that is not Resumable has its tunnel opened afresh by
+// that process, under a new link.
+type Resumable interface {
+	Provider
+	// Resume is what a provider of the same mode needs, in another process,
+	// to serve this tunnel's link (StartFrom); "" when it cannot. It may be
+	// the link's whole capability, so it is handed on only to the process that
+	// replaces this one. It may be called while Start or StartFrom is still
+	// running, from another goroutine, and is "" until the link is known.
+	Resume() string
+	// Release stops the tunnel as Stop does, and returns once the link is free
+	// for a provider started from Resume to take up.
+	Release()
+	// StartFrom is Start, serving the link resume names (Resume, from the
+	// provider of the tunnel this one replaces). One that fails leaves the
+	// provider as it was before, for Start to open afresh.
+	StartFrom(ctx context.Context, resume string) (Info, error)
+}
+
 // SessionDescription is one SDP offer or answer, as WebRTC's JSON spells it.
 type SessionDescription struct {
 	Type string `json:"type"`

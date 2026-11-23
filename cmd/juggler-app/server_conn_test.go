@@ -83,6 +83,50 @@ type stubMachineServer struct {
 	tunnel     atomic.Pointer[string]
 	// refusals counts the conditional shutdowns it refused (409).
 	refusals atomic.Int32
+	// relaunching, set as it goes, ends each attachment it holds saying so,
+	// as a server that stops to be relaunched does (relaunchStub).
+	relaunching atomic.Bool
+	// relaunchNeeded, set, refuses every open as a server does whose binary is
+	// another build now: 502, with the errored session's record saying so.
+	relaunchNeeded atomic.Bool
+	// installedBuild is what its status says is installed in its place.
+	installedBuild atomic.Pointer[string]
+	// running, set, is the work a quiet relaunch is refused for.
+	running atomic.Pointer[machineserver.BusyWork]
+	// relaunches counts the relaunches it began; each starts the stand-in
+	// that replaces it (relaunchStub), successor.
+	relaunches atomic.Int32
+	successor  atomic.Pointer[stubMachineServer]
+	// app is the app whose config directory it publishes itself in.
+	app *appState
+	// token is the control token it publishes and requires, stubToken until
+	// it plays an exec (reexec).
+	token atomic.Pointer[string]
+}
+
+// controlToken is the control token the stand-in requires now.
+func (s *stubMachineServer) controlToken() string {
+	if p := s.token.Load(); p != nil {
+		return *p
+	}
+	return stubToken
+}
+
+// reexec plays a relaunch on Unix, which execs: the process that replaces the
+// stand-in keeps its pid and address, and only its control token is new.
+func (s *stubMachineServer) reexec(token string) {
+	s.token.Store(&token)
+	s.publish()
+}
+
+// relaunchStub stops s as a server that relaunches does — each attachment
+// ending with its relaunching line — and starts the stand-in that replaces
+// it, another server process, published where a looks.
+func relaunchStub(t *testing.T, a *appState, s *stubMachineServer) *stubMachineServer {
+	t.Helper()
+	s.relaunching.Store(true)
+	s.gone()
+	return newStubMachineServerBuild(t, a, s.version, s.build)
 }
 
 // occupancy is what stopping the stand-in would end.
@@ -108,7 +152,7 @@ func newStubMachineServer(t *testing.T, a *appState, version string) *stubMachin
 // reports build as its build: one build from source of version among others.
 func newStubMachineServerBuild(t *testing.T, a *appState, version, build string) *stubMachineServer {
 	t.Helper()
-	s := &stubMachineServer{t: t, dir: a.connectOpts.ConfigDir, version: version, build: build, stopped: make(chan struct{}), opened: make(chan string, 16), shutdownAsked: make(chan struct{}, 16), attaching: make(chan struct{}, 16)}
+	s := &stubMachineServer{t: t, app: a, dir: a.connectOpts.ConfigDir, version: version, build: build, stopped: make(chan struct{}), opened: make(chan string, 16), shutdownAsked: make(chan struct{}, 16), attaching: make(chan struct{}, 16)}
 	d := make(chan struct{})
 	s.drop.Store(&d)
 	empty := []machineserver.Session{}
@@ -132,7 +176,7 @@ func (s *stubMachineServer) addr() string { return s.srv.Listener.Addr().String(
 // publish writes server.json naming the stand-in.
 func (s *stubMachineServer) publish() {
 	s.t.Helper()
-	data, _ := json.Marshal(machineserver.ServerInfo{PID: os.Getpid(), Addr: s.addr(), Version: s.version, Token: stubToken})
+	data, _ := json.Marshal(machineserver.ServerInfo{PID: os.Getpid(), Addr: s.addr(), Version: s.version, Token: s.controlToken()})
 	if err := os.WriteFile(filepath.Join(s.dir, "server.json"), data, 0o600); err != nil {
 		s.t.Fatal(err)
 	}
@@ -174,14 +218,18 @@ func (s *stubMachineServer) dropAttachments() {
 
 func (s *stubMachineServer) status() map[string]any {
 	o := s.occupancy()
-	return map[string]any{"status": "ok", "pid": os.Getpid(), "addr": s.addr(), "version": s.version, "build": s.build, "sessions": len(o.Sessions),
+	st := map[string]any{"status": "ok", "pid": os.Getpid(), "addr": s.addr(), "version": s.version, "build": s.build, "sessions": len(o.Sessions),
 		"implicit": !o.HandStarted, "appStarted": s.appStarted.Load(), "attached": o.Clients, "lan": o.LAN, "tunnel": o.Tunnel}
+	if b := s.installedBuild.Load(); b != nil {
+		st["installedBuild"] = *b
+	}
+	return st
 }
 
 func (s *stubMachineServer) serve(w http.ResponseWriter, r *http.Request) {
 	// Read the body to its end first, so the server notices a caller going.
 	body, _ := io.ReadAll(r.Body)
-	if r.Header.Get(machineserver.TokenHeader) != stubToken {
+	if r.Header.Get(machineserver.TokenHeader) != s.controlToken() {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
@@ -217,6 +265,10 @@ func (s *stubMachineServer) serve(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 		case <-drop:
 		case <-s.stopped:
+			if s.relaunching.Load() {
+				_, _ = io.WriteString(w, `{"relaunching":true}`+"\n")
+				_ = http.NewResponseController(w).Flush()
+			}
 		}
 	case r.Method == http.MethodPost && strings.HasSuffix(path, "/beat"):
 		w.WriteHeader(http.StatusNoContent)
@@ -229,6 +281,11 @@ func (s *stubMachineServer) serve(w http.ResponseWriter, r *http.Request) {
 		s.opened <- req.Project
 		if msg := s.refuseOpen.Load(); msg != nil {
 			writeJSON(w, cmp.Or(int(s.refuseStatus.Load()), http.StatusBadRequest), map[string]string{"error": *msg})
+			return
+		}
+		if s.relaunchNeeded.Load() {
+			writeJSON(w, http.StatusBadGateway, machineserver.Session{ID: "s1", Project: req.Project, Link: stubLink(req.Project), State: machineserver.SessionError,
+				Error: "Another build of Juggler is installed in place of the one this server runs.", RelaunchNeeded: true})
 			return
 		}
 		writeJSON(w, http.StatusCreated, machineserver.Session{ID: "s1", Project: req.Project, Link: stubLink(req.Project), State: machineserver.SessionRunning})
@@ -263,6 +320,24 @@ func (s *stubMachineServer) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		go s.gone()
+	case r.Method == http.MethodPost && path == "/relaunch":
+		var req struct {
+			Expect *machineserver.Occupancy `json:"expect"`
+			Quiet  bool                     `json:"quiet"`
+		}
+		_ = json.Unmarshal(body, &req)
+		if busy := s.running.Load(); req.Quiet && busy != nil && !busy.Quiet() {
+			writeJSON(w, http.StatusConflict, map[string]any{"error": "in use", "running": *busy})
+			return
+		}
+		if now := s.occupancy(); req.Expect != nil && !req.Expect.Covers(now) {
+			s.refusals.Add(1)
+			writeJSON(w, http.StatusConflict, map[string]any{"error": "in use", "occupancy": now})
+			return
+		}
+		s.relaunches.Add(1)
+		w.WriteHeader(http.StatusAccepted)
+		go func() { s.successor.Store(relaunchStub(s.t, s.app, s)) }()
 	default:
 		w.WriteHeader(http.StatusNotFound)
 	}
@@ -331,6 +406,86 @@ func TestTheAppAttachesOnceAndAgainWhenItsAttachmentIsDropped(t *testing.T) {
 	case id := <-lost:
 		t.Fatalf("window %s was replaced after a dropped attachment; the server is still up", id)
 	default:
+	}
+}
+
+// TestTheAppFollowsItsServerThroughARelaunch: a server that relaunches says so
+// as it ends the app's attachment, and comes back as another process. The app
+// waits for it, attaches to it, and shows each window that was on the old
+// process its session again on the new one, in place — no stand-in.
+func TestTheAppFollowsItsServerThroughARelaunch(t *testing.T) {
+	a := newTestAppState(t)
+	shown := viewsShown(t)
+	old := newStubMachineServer(t, a, core.Version)
+	c, err := a.serverClient(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := filepath.Abs("/p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: project}, serverURL: c.SessionURL(machineserver.Session{Link: stubLink(project)}), server: procOf(c)}})
+
+	next := relaunchStub(t, a, old)
+	// Bounded by the test's own deadline.
+	s := <-shown
+	if s.id != "w1" || s.view.standIn != nil {
+		t.Fatalf("after the relaunch, %s shows %+v; want w1 showing its session, not a stand-in", s.id, s.view)
+	}
+	if s.view.server.addr != next.addr() {
+		t.Fatalf("after the relaunch, w1 is on %s; want the server that replaced the old one, %s", s.view.server.addr, next.addr())
+	}
+	if opened := <-next.opened; opened != project {
+		t.Fatalf("the relaunched server was asked to open %q, want %q", opened, project)
+	}
+	if n := next.attaches.Load(); n != 1 {
+		t.Fatalf("%d attachments to the relaunched server, want 1", n)
+	}
+}
+
+// TestAPublishedAppRelaunchesWithItsServerIntoANewInstall: a published app
+// whose install is replaced under it — a release tarball unpacked over it, a
+// package upgrade — has its server relaunch into the new version by itself.
+// The app follows by relaunching too, from the binary now at its path, rather
+// than standing every window in for a server of a version it does not use. It
+// does so on what its binary reads now: the server may relaunch before the
+// app's own watcher has settled on the new build.
+func TestAPublishedAppRelaunchesWithItsServerIntoANewInstall(t *testing.T) {
+	savedSource, savedReplaced, savedRelaunch := builtFromSource, ownBinaryReplaced, relaunchWithServer
+	t.Cleanup(func() {
+		builtFromSource, ownBinaryReplaced, relaunchWithServer = savedSource, savedReplaced, savedRelaunch
+	})
+	builtFromSource = func() bool { return false }
+	ownBinaryReplaced = func() bool { return true }
+	relaunched := make(chan string, 1)
+	relaunchWithServer = func(_ *appState, c *machineserver.Client) error {
+		relaunched <- c.Addr()
+		return nil
+	}
+
+	a := newTestAppState(t)
+	a.serverBuild = "v0.0.1-old"
+	lost := lostWindows(t)
+	old := newStubMachineServer(t, a, "v0.0.1-old")
+	c, err := a.serverClient(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { a.reg(func(st *regState) { st.quitting, st.quittingInto = false, false }) })
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: c.SessionURL(machineserver.Session{Link: stubLink("/p")}), server: procOf(c)}})
+
+	old.relaunching.Store(true)
+	old.gone()
+	newStubMachineServer(t, a, "v0.0.2-new")
+	// Bounded by the test's own deadline.
+	select {
+	case addr := <-relaunched:
+		if addr != old.addr() {
+			t.Fatalf("relaunched with the server at %s, want the one that relaunched, %s", addr, old.addr())
+		}
+	case id := <-lost:
+		t.Fatalf("window %s stood in for the server, which relaunched into the version installed; want the app relaunched with it", id)
 	}
 }
 
@@ -605,6 +760,46 @@ func TestARebuiltServerIsAnotherVersion(t *testing.T) {
 	}
 }
 
+// TestAServerOfTheBuildNowInstalledIsUsedUntilTheAppRelaunches: a build from
+// source rebuilt under the running app finds, once its server has gone and
+// another has started from the new binary, a server of another build than its
+// own — but the one now installed, which a relaunch of the app is offered to
+// catch up with. It attaches to that server rather than standing every window
+// in for it, and leaves it running.
+func TestAServerOfTheBuildNowInstalledIsUsedUntilTheAppRelaunches(t *testing.T) {
+	saved := installedServerBuild
+	t.Cleanup(func() { installedServerBuild = saved })
+	const launched, installed = " (built 2026-11-23 10:00:00)", " (built 2026-11-23 11:00:00)"
+	installedServerBuild = func() string { return core.Version + installed }
+
+	a := newTestAppState(t)
+	a.serverBuild = core.Version + launched
+	srv := newStubMachineServerBuild(t, a, core.Version, core.Version+installed)
+	srv.list.Store(&[]machineserver.Session{{ID: "s1", Project: "/work/alpha", State: machineserver.SessionRunning}})
+	c, err := a.serverClient(true)
+	if err != nil {
+		t.Fatalf("serverClient: %v, want the server of the installed build", err)
+	}
+	if c.Addr() != srv.addr() || srv.attaches.Load() != 1 || srv.shutdowns.Load() != 0 {
+		t.Fatalf("attached to %s (%d attachments, %d shutdowns); want the installed build's server, attached once and left running", c.Addr(), srv.attaches.Load(), srv.shutdowns.Load())
+	}
+
+	// A published build keeps to its own version: what is installed beside it
+	// is for the next launch to use.
+	savedSource := builtFromSource
+	builtFromSource = func() bool { return false }
+	t.Cleanup(func() { builtFromSource = savedSource })
+	b := newTestAppState(t)
+	b.serverBuild = "v0.0.1-old"
+	installedServerBuild = func() string { return "v0.0.2-new" }
+	other := newStubMachineServer(t, b, "v0.0.2-new")
+	other.list.Store(&[]machineserver.Session{{ID: "s1", Project: "/work/alpha", State: machineserver.SessionRunning}})
+	var mismatch *versionMismatchError
+	if _, err := b.serverClient(true); !errors.As(err, &mismatch) {
+		t.Fatalf("published build: serverClient = %v, want a version mismatch", err)
+	}
+}
+
 // TestAStandInGoingLeavesItsSuccessorsRecord pins the stand-in's exit to a
 // server's: a server removes server.json only while it is still its own. The
 // app starts a successor as soon as the stand-in it shut down stops answering,
@@ -826,6 +1021,88 @@ func TestARestartStopsOnlyWhatTheUserWasShown(t *testing.T) {
 	}
 	if err := a.restartServer(again); err != nil || old.shutdowns.Load() != 1 {
 		t.Fatalf("restart as shown: %v, %d shutdowns; want the server stopped", err, old.shutdowns.Load())
+	}
+}
+
+// TestAnIdleServerNeedingARelaunchIsRelaunchedForTheWindow: a project the
+// server will not open because another build is installed in its place opens
+// once the server has relaunched into that build — which one with no work
+// running is, without asking — on the server that replaced it.
+func TestAnIdleServerNeedingARelaunchIsRelaunchedForTheWindow(t *testing.T) {
+	a := newTestAppState(t)
+	old := newStubMachineServer(t, a, core.Version)
+	old.relaunchNeeded.Store(true)
+	proj := t.TempDir()
+	got, _, err := a.resolveWindow(windowSpec{project: proj}, true)
+	next := old.successor.Load()
+	if err != nil || next == nil || old.relaunches.Load() != 1 {
+		t.Fatalf("resolve a project on an idle server needing a relaunch: %q, %v, %d relaunches; want it relaunched once", got, err, old.relaunches.Load())
+	}
+	if want := "http://" + next.addr() + strings.TrimSuffix(stubLink(proj), "/"); got != want {
+		t.Fatalf("resolved to %q, want the session on the relaunched server, %q", got, want)
+	}
+}
+
+// TestARelaunchStopsOnlyWhatTheUserWasShown: a project the server will not
+// open until it relaunches, on a server with work running, is the relaunch's
+// stand-in, saying which build is installed and what a relaunch stops; and
+// Relaunch server relaunches it only while it holds no more than that. One
+// that has gained a session since is left running, and the relaunch says what
+// it holds now, for the stand-in to be drawn again.
+func TestARelaunchStopsOnlyWhatTheUserWasShown(t *testing.T) {
+	a := newTestAppState(t)
+	old := newStubMachineServer(t, a, core.Version)
+	old.relaunchNeeded.Store(true)
+	old.running.Store(&machineserver.BusyWork{Conversations: 1})
+	installed := "v9.9.9"
+	old.installedBuild.Store(&installed)
+	old.list.Store(&[]machineserver.Session{{ID: "s1", Project: "/work/alpha", State: machineserver.SessionRunning, Busy: true}})
+	_, _, err := a.resolveWindow(windowSpec{project: t.TempDir()}, true)
+	need, ok := asRelaunchNeeded(err)
+	if !ok || need.installed != installed || len(need.occ.Sessions) != 1 || old.relaunches.Load() != 0 {
+		t.Fatalf("resolve a project on a busy server needing a relaunch: %v, %d relaunches; want the relaunch to ask, naming %s and the session", err, old.relaunches.Load(), installed)
+	}
+	if text := strings.Join((&appState{}).trParagraphs(standInFor(err).message), "\n\n"); !strings.Contains(text, installed) || !strings.Contains(text, "/work/alpha") {
+		t.Errorf("the stand-in %q does not name the build installed and the session a relaunch stops", text)
+	}
+	old.list.Store(&[]machineserver.Session{
+		{ID: "s1", Project: "/work/alpha", State: machineserver.SessionRunning, Busy: true},
+		{ID: "s2", Project: "/work/late", State: machineserver.SessionRunning},
+	})
+	err = a.relaunchServer(need)
+	again, ok := asRelaunchNeeded(err)
+	if !ok || len(again.occ.Sessions) != 2 || old.relaunches.Load() != 0 || old.refusals.Load() != 1 {
+		t.Fatalf("relaunch after a session opened: %v, %d relaunches, %d refused; want it asked once and refusing, saying it holds both", err, old.relaunches.Load(), old.refusals.Load())
+	}
+	if text := strings.Join((&appState{}).trParagraphs(relaunchStandIn(again).message), "\n\n"); !strings.Contains(text, "/work/late") {
+		t.Errorf("the redrawn page %q does not name the session that opened", text)
+	}
+	if err := a.relaunchServer(again); err != nil || old.relaunches.Load() != 1 {
+		t.Fatalf("relaunch as shown: %v, %d relaunches; want it relaunched", err, old.relaunches.Load())
+	}
+}
+
+// TestRelaunchServerLeavesAServerThatRelaunchedByItself: a server that needed
+// a relaunch, and has relaunched by itself since its work ended, is not
+// relaunched again when the user then clicks Relaunch server on the page shown
+// for it. On Unix the process that replaces it keeps its pid and address (it
+// execs), so only its control token tells it apart.
+func TestRelaunchServerLeavesAServerThatRelaunchedByItself(t *testing.T) {
+	a := newTestAppState(t)
+	srv := newStubMachineServer(t, a, core.Version)
+	srv.relaunchNeeded.Store(true)
+	srv.running.Store(&machineserver.BusyWork{Conversations: 1})
+	srv.list.Store(&[]machineserver.Session{{ID: "s1", Project: "/work/alpha", State: machineserver.SessionRunning, Busy: true}})
+	_, _, err := a.resolveWindow(windowSpec{project: t.TempDir()}, true)
+	need, ok := asRelaunchNeeded(err)
+	if !ok {
+		t.Fatalf("resolve a project on a busy server needing a relaunch: %v; want the relaunch to ask", err)
+	}
+	srv.reexec("stub-token-relaunched")
+	srv.relaunchNeeded.Store(false)
+	srv.running.Store(nil)
+	if err := a.relaunchServer(need); err != nil || srv.relaunches.Load() != 0 || srv.refusals.Load() != 0 {
+		t.Fatalf("relaunch of a server that has relaunched already: %v, %d relaunches, %d refused; want nothing asked of it", err, srv.relaunches.Load(), srv.refusals.Load())
 	}
 }
 

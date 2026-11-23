@@ -440,7 +440,8 @@ body {
     gap: var(--space-8);
 }
 
-.ms-exposure-controls .connectivity-launch {
+.ms-exposure-controls .connectivity-launch,
+.ms-exposure-controls .connectivity-setting {
     align-self: flex-end;
 }
 
@@ -448,9 +449,11 @@ body {
     overflow-wrap: anywhere;
 }
 
-/* Notices */
+/* Notices. The relaunch's — another build installed in the server's place —
+   wraps, its text over its buttons, on a narrow page. */
 
-.ms-unreachable {
+.ms-unreachable,
+.ms-relaunch {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -466,14 +469,30 @@ body {
    page's text and raised surface are near-white and dark grey in the dark
    theme, and neither reads on the yellow. An outline of the ink, and a tint of
    it on hover. */
-.ms-unreachable .btn {
+.ms-relaunch {
+    flex-wrap: wrap;
+}
+
+.ms-relaunch-text {
+    flex: 1 1 18rem;
+}
+
+.ms-relaunch-actions {
+    display: flex;
+    flex: none;
+    gap: var(--space-8);
+}
+
+.ms-unreachable .btn,
+.ms-relaunch .btn {
     flex: none;
     border-color: color-mix(in srgb, var(--notice-text) 45%, transparent);
     background: transparent;
     color: inherit;
 }
 
-.ms-unreachable .btn:hover:not(:disabled) {
+.ms-unreachable .btn:hover:not(:disabled),
+.ms-relaunch .btn:hover:not(:disabled) {
     border-color: var(--notice-text);
     background: color-mix(in srgb, var(--notice-text) 12%, transparent);
 }
@@ -698,7 +717,8 @@ body {
     }
 
     .ms-exposure-controls,
-    .ms-exposure-controls .connectivity-launch {
+    .ms-exposure-controls .connectivity-launch,
+    .ms-exposure-controls .connectivity-setting {
         align-items: flex-start;
         align-self: flex-start;
     }

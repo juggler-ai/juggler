@@ -13,6 +13,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"juggler/cmd/juggler/msg"
 )
 
 // SessionState is the lifecycle state of a session child in the registry.
@@ -44,11 +46,18 @@ type Session struct {
 	// Link is where the session is served, its project's link /p/<key>/
 	// (projectlink.go) — an address that outlives the session, and serves the
 	// project's next one.
-	Link      string       `json:"link"`
-	Addr      string       `json:"addr,omitempty"`
-	PID       int          `json:"pid,omitempty"`
-	State     SessionState `json:"state"`
-	Error     string       `json:"error,omitempty"`
+	Link  string       `json:"link"`
+	Addr  string       `json:"addr,omitempty"`
+	PID   int          `json:"pid,omitempty"`
+	State SessionState `json:"state"`
+	Error string       `json:"error,omitempty"`
+	// RelaunchNeeded marks an errored session whose child was another build
+	// than the server's (errOtherBuild): one installed at the server's path
+	// since it started, which only relaunching the server takes up.
+	RelaunchNeeded bool `json:"relaunchNeeded,omitempty"`
+	// Message is Error as a page can translate it, where the server has the
+	// words for it (errOtherBuild); absent otherwise.
+	Message   *msg.Message `json:"message,omitempty"`
 	StartedAt time.Time    `json:"startedAt"`
 	// Busy and LastActive come from polling the child (see pollActivity), so
 	// both trail the child by up to activityPollInterval, and a turn that
@@ -303,6 +312,32 @@ func (r *registry) snapshot() []Session {
 	return out
 }
 
+// runningChildren returns the live child of each running session, by ID.
+func (r *registry) runningChildren() map[string]*child {
+	out := map[string]*child{}
+	r.do(func(m map[string]*sessionEntry) {
+		for id, e := range m {
+			if e.State == SessionRunning && e.child != nil {
+				out[id] = e.child
+			}
+		}
+	})
+	return out
+}
+
+// busyWork counts the work the sessions run, as the latest polls found it
+// (Session.Busy, Session.BackgroundTasks). Call it on the actor.
+func busyWork(m map[string]*sessionEntry) BusyWork {
+	var b BusyWork
+	for _, e := range m {
+		if e.Busy {
+			b.Conversations++
+		}
+		b.Tasks += e.BackgroundTasks
+	}
+	return b
+}
+
 // get returns the public record for id.
 func (r *registry) get(id string) (Session, bool) {
 	var s Session
@@ -551,6 +586,22 @@ func (r *registry) failOwned(id string, c *child, msg string) {
 		if e, found := m[id]; found && e.owned(c) {
 			e.setState(SessionError)
 			e.Error = msg
+			e.NextRestartAt = nil
+			e.clearChild()
+		}
+	})
+}
+
+// failForBuild gives the session up as failOwned does, for a child of another
+// build (errOtherBuild), which only relaunching the server can open:
+// RelaunchNeeded says so.
+func (r *registry) failForBuild(id string, c *child) {
+	r.do(func(m map[string]*sessionEntry) {
+		if e, found := m[id]; found && e.owned(c) {
+			e.setState(SessionError)
+			e.Error = errOtherBuild.Error()
+			e.Message = &errOtherBuild.Message
+			e.RelaunchNeeded = true
 			e.NextRestartAt = nil
 			e.clearChild()
 		}

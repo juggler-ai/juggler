@@ -6,6 +6,7 @@ package machineserver
 
 import (
 	"os"
+	"sync"
 
 	"juggler/cmd/juggler/core"
 )
@@ -29,11 +30,15 @@ func BuildOf(bin string) string {
 	return core.Version + " (built " + st.ModTime().Format("2006-01-02 15:04:05") + ")"
 }
 
-// ownBuild is the build of this process's own binary (BuildOf).
-func ownBuild() string {
+// ownBuild is the build of this process's own binary (BuildOf), as it was when
+// first asked, which a server does as it starts. It is not asked again: the
+// file at the path this process was started from may since be another build
+// (a rebuild or an update renames it into place, and the running image carries
+// on), and this process is still the build it started as.
+var ownBuild = sync.OnceValue(func() string {
 	exe, err := os.Executable()
 	if err != nil {
 		return core.Version
 	}
 	return BuildOf(exe)
-}
+})

@@ -6,15 +6,17 @@ package app
 
 import (
 	"fmt"
+	"os"
 
 	"juggler/cmd/juggler/server"
+	"juggler/internal/binwatch"
 	"juggler/internal/ingress"
 )
 
 // spawnerEnv is what a session child's spawner hands it in its environment
 // (internal/ingress): the ingress secret, the API token it minted, and — for a
-// machine server's child — that server's address, control token and the
-// session's id there.
+// machine server's child — that server's address, control token, the
+// session's id there, and the build the child must be.
 type spawnerEnv struct {
 	// ingressSecret is handed to the server as Config.IngressSecret.
 	ingressSecret string
@@ -24,6 +26,9 @@ type spawnerEnv struct {
 	// supervisor is handed to the server as Config.Supervisor; zero for a
 	// child with no machine server.
 	supervisor server.Supervisor
+	// build is the Go build ID the machine server requires of its children
+	// (ingress.SupervisorBuildEnv); "" requires none.
+	build string
 }
 
 // takeSpawnerEnv takes every spawner variable out of this process's
@@ -31,7 +36,7 @@ type spawnerEnv struct {
 // login-shell probe — inherits them. Every launch calls it, before it spawns
 // anything; keep decides what the launch holds on to.
 func takeSpawnerEnv() spawnerEnv {
-	e := spawnerEnv{ingressSecret: ingress.TakeSecret(), apiToken: ingress.TakeToken()}
+	e := spawnerEnv{ingressSecret: ingress.TakeSecret(), apiToken: ingress.TakeToken(), build: ingress.TakeSupervisorBuild()}
 	if addr, token, session := ingress.TakeSupervisor(); addr != "" && token != "" {
 		e.supervisor = server.Supervisor{Addr: addr, Token: token, Session: session}
 	}
@@ -61,6 +66,9 @@ func (e spawnerEnv) environ() []string {
 	if e.apiToken != "" {
 		env = append(env, ingress.TokenEnv+"="+e.apiToken)
 	}
+	if e.build != "" {
+		env = append(env, ingress.SupervisorBuildEnv+"="+e.build)
+	}
 	if s := e.supervisor; s.Addr != "" {
 		env = append(env,
 			ingress.SupervisorAddrEnv+"="+s.Addr,
@@ -68,4 +76,22 @@ func (e spawnerEnv) environ() []string {
 			ingress.SupervisorSessionEnv+"="+s.Session)
 	}
 	return env
+}
+
+// otherBuild reports why this process is not the build e requires of it, or
+// "" when it is, when e requires none, or when its own build cannot be read:
+// a check that cannot be made never keeps a session from opening.
+func (e spawnerEnv) otherBuild() string {
+	if e.build == "" {
+		return ""
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	own, err := binwatch.ReadID(exe)
+	if err != nil || own == e.build {
+		return ""
+	}
+	return fmt.Sprintf("this session child is build %s, installed at %s since its machine server started from build %s; relaunch the machine server", own, exe, e.build)
 }

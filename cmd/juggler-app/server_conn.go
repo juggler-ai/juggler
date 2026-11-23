@@ -190,6 +190,23 @@ func (a *appState) wantBuild() string {
 	return cmp.Or(a.serverBuild, core.Version)
 }
 
+// installedServerBuild is the build of the server binary installed for this
+// app now (bundledServerBuild), which a rebuild under the running app makes
+// another than the one it launched with (serverBuild). A variable so tests can
+// play an install.
+var installedServerBuild = bundledServerBuild
+
+// isInstalledServerBuild is whether build, a server's that is not the one this
+// app launched with, is the one now installed beside it: the server binary was
+// rebuilt under the running app, a server has started from it since, and the
+// app is offered a relaunch to catch up (binary_watch.go). A build from source
+// uses that server meanwhile, as it uses its own; a published one keeps to its
+// version, since its windows' pages and the app's control protocol move
+// together only within one.
+func (a *appState) isInstalledServerBuild(build string) bool {
+	return builtFromSource() && build == installedServerBuild()
+}
+
 // connectAttempts bounds how often serverClient connects again to a server it
 // caught on its way out.
 const connectAttempts = 3
@@ -257,8 +274,13 @@ func (a *appState) openSessionFor(c *machineserver.Client, project string) (mach
 // user's.
 func (a *appState) attach(prev *machineserver.Client, ended *machineserver.Attachment, start bool) (*machineserver.Client, *machineserver.Attachment, error) {
 	if ended != nil {
-		if c, att := a.settle(prev); att != nil {
+		if c, att := a.settle(prev, ended.Relaunching()); att != nil {
 			return c, att, nil
+		}
+		// A settle that relaunched the app (follow) leaves it quitting: it
+		// starts no server, which its next launch finds.
+		if a.isQuitting() {
+			return nil, nil, errAppQuitting
 		}
 	}
 	opts := a.connectOpts
@@ -271,7 +293,9 @@ func (a *appState) attach(prev *machineserver.Client, ended *machineserver.Attac
 		if err != nil {
 			return nil, nil, err
 		}
-		if c.Build != a.wantBuild() {
+		if c.Build != a.wantBuild() && a.isInstalledServerBuild(c.Build) {
+			logf("server: %s at %s is the build installed since the app launched (%s); using it until the app relaunches", c.Build, c.Addr(), a.wantBuild())
+		} else if c.Build != a.wantBuild() {
 			var replaced bool
 			var occ machineserver.Occupancy
 			if restarted {
@@ -331,14 +355,17 @@ func (a *appState) attachmentEnded(att *machineserver.Attachment) {
 	if flight == nil {
 		return
 	}
-	again, next := a.settle(c)
+	again, next := a.settle(c, att.Relaunching())
 	a.landAttached(flight, again, next)
 }
 
 // serverProc is one process of this machine's server: its address and its
 // process ID. The address alone is not enough — a server started after
 // another has gone takes the same port — so a window records the process its
-// page is served by (windowView.server).
+// page is served by (windowView.server). Nor is the pid always: a relaunch on
+// Unix execs, so the process that replaces a server keeps its pid and usually
+// its address. What must tell two such servers apart compares their clients
+// (machineserver.Client.SameServer), as settle does.
 type serverProc struct {
 	addr string
 	pid  int
@@ -347,6 +374,13 @@ type serverProc struct {
 	// terminal. Read with the process, so it never tells apart two that addr
 	// and pid do not.
 	appStarted bool
+}
+
+// isQuitting is whether an app-wide quit has been authorised.
+func (a *appState) isQuitting() bool {
+	var quitting bool
+	a.reg(func(st *regState) { quitting = st.quitting })
+	return quitting
 }
 
 // procOf is the server process c reaches.
@@ -362,9 +396,21 @@ func procOf(c *machineserver.Client) serverProc {
 // onto it shows its stand-in. One that is still there but did not take the
 // attachment again keeps its windows, whose pages go on reaching it; the next
 // serverClient tries again. Either way settle returns none.
-func (a *appState) settle(c *machineserver.Client) (*machineserver.Client, *machineserver.Attachment) {
+//
+// A server that said, as it ended the attachment, that it is relaunching
+// (relaunching) is followed to the process that replaces it (follow) before
+// any of that.
+func (a *appState) settle(c *machineserver.Client, relaunching bool) (*machineserver.Client, *machineserver.Attachment) {
+	if relaunching {
+		next, att, handled := a.follow(c)
+		if handled {
+			return next, att
+		}
+	}
 	again, err := machineserver.Connect(machineserver.ConnectOptions{ConfigDir: a.connectOpts.ConfigDir})
-	if err == nil && procOf(again) == procOf(c) {
+	// The same process by its control token too: a relaunch on Unix is the same
+	// process (exec) at the same address, and another server all the same.
+	if err == nil && again.SameServer(c) {
 		next, err := again.Attach()
 		if err == nil {
 			logf("server: %s dropped this app's attachment; attached again", c.Addr())
@@ -381,6 +427,74 @@ func (a *appState) settle(c *machineserver.Client) (*machineserver.Client, *mach
 	logf("server: %s (pid %d) has gone", c.Addr(), c.PID)
 	a.serverLost(procOf(c))
 	return nil, nil
+}
+
+// follow follows the server c reached, which is relaunching, on settle's
+// flight. An app that is itself another build now (appIsAnotherBuild: built
+// with the server, as a rebuild does, or installed with it, as a release
+// unpacked over the old one or a package upgrade is) relaunches too, and the
+// next launch finds the server. Otherwise it waits for the server to come back — while the old
+// process lives, or the machine lock is held (Client.AwaitRelaunched), never
+// for a span of time — attaches to it, and shows each window that was on the
+// old process its session on the new one, in place. The relaunched server holds
+// itself up for this app until it attaches (machineserver's handoff), so
+// nothing races the wait. handled is false when there is nothing to follow —
+// the server did not come back, is a build this app does not use, or refused
+// the attachment — and settle goes on as for a server that went.
+func (a *appState) follow(c *machineserver.Client) (next *machineserver.Client, att *machineserver.Attachment, handled bool) {
+	if a.appIsAnotherBuild() {
+		logf("server: %s is relaunching, and this app is another build now too; relaunching it", c.Addr())
+		// A quit already authorised — the user's — wins: the app quits as
+		// asked, and is not relaunched in its place.
+		err := a.authoriseQuitIntoUnlessQuitting(func() error { return relaunchWithServer(a, c) })
+		switch {
+		case err == nil, errors.Is(err, errAppQuitting):
+			return nil, nil, true
+		}
+		logf("server: relaunching the app with its server: %v; following the server instead", err)
+	}
+	next, ok := c.AwaitRelaunched(machineserver.ConnectOptions{ConfigDir: a.connectOpts.ConfigDir})
+	switch {
+	case !ok:
+		logf("server: %s (pid %d) was relaunching, and no server came back", c.Addr(), c.PID)
+		return nil, nil, false
+	case next.Build != a.wantBuild() && !a.isInstalledServerBuild(next.Build):
+		logf("server: %s came back as %s, which this app (%s) does not use", next.Addr(), next.Build, a.wantBuild())
+		return nil, nil, false
+	}
+	att, err := next.Attach()
+	if err != nil {
+		logf("server: %s came back from its relaunch and refused the attachment: %v", next.Addr(), err)
+		return nil, nil, false
+	}
+	logf("server: followed %s (pid %d) through its relaunch to %s (pid %d)", c.Addr(), c.PID, next.Addr(), next.PID)
+	a.reshowAfterRelaunch(procOf(c))
+	return next, att, true
+}
+
+// reshowAfterRelaunch shows each main window onto old, a server process that
+// relaunched, its own window's spec again — its session, now on the process
+// that replaced old — in place. A board goes with the window that opened it.
+func (a *appState) reshowAfterRelaunch(old serverProc) {
+	type onOld struct {
+		e    *winEntry
+		spec windowSpec
+	}
+	var windows []onOld
+	a.reg(func(st *regState) {
+		if st.quitting {
+			return
+		}
+		for _, w := range sortedWindows(st) {
+			if !isBoardRole(w.role) && servedBy(old)(w.view) {
+				windows = append(windows, onOld{w, w.view.spec})
+			}
+		}
+	})
+	for _, w := range windows {
+		logf("window %s: its server relaunched; showing its session again", w.e.id)
+		a.retarget(w.e, servedBy(old), w.spec, windowOpts{})
+	}
 }
 
 // detachServer lets the server go, as the app quits. It waits for no flight:
@@ -436,6 +550,86 @@ func (a *appState) restartServer(shown *versionMismatchError) error {
 		return &versionMismatchError{app: a.wantBuild(), server: c.Build, occ: busy.Now}
 	}
 	return err
+}
+
+// relaunchNeededError is a session this machine's server will not open until
+// it is relaunched: another build is installed in its place
+// (machineserver.RelaunchNeeded), and the server has work running, so it is not
+// relaunched without asking. installed is that build ("" when the server has
+// not yet seen it), occ what a relaunch would stop, as the user is shown it,
+// and server a client of the server process asked — told from the process that
+// replaces it by its control token too (machineserver.Client.SameServer), since
+// on Unix that process keeps its pid and usually its address.
+type relaunchNeededError struct {
+	installed string
+	occ       machineserver.Occupancy
+	server    *machineserver.Client
+}
+
+func (e *relaunchNeededError) Error() string {
+	return "another build of Juggler is installed in place of the server running here, which opens no sessions until it is relaunched"
+}
+
+// asRelaunchNeeded finds a relaunchNeededError in err's chain.
+func asRelaunchNeeded(err error) (*relaunchNeededError, bool) {
+	var e *relaunchNeededError
+	ok := errors.As(err, &e)
+	return e, ok
+}
+
+// relaunchNeededOf is the relaunchNeededError for c's server, read from it now:
+// the build installed in its place and what a relaunch stops. A server that
+// cannot be read is err, which the window shows as it would any refusal.
+func relaunchNeededOf(c *machineserver.Client, err error) error {
+	occ, oerr := c.Occupancy()
+	if oerr != nil {
+		return err
+	}
+	installed, _ := c.InstalledBuild()
+	return &relaunchNeededError{installed: installed, occ: occ, server: c}
+}
+
+// relaunchQuietly relaunches c's server, which refused a session until it is
+// relaunched, if no work runs in it — as it is about to by itself — and
+// reports whether it did. The caller then finds the server that replaces it,
+// once the app has followed it there (awaitServerGone, serverClient).
+func (a *appState) relaunchQuietly(c *machineserver.Client) bool {
+	relaunched, _, err := c.RelaunchIfQuiet()
+	if err != nil || !relaunched {
+		return false
+	}
+	logf("server: %s needs relaunching for another build installed, and nothing runs in it; relaunching it", c.Addr())
+	a.awaitServerGone(c)
+	return true
+}
+
+// relaunchServer relaunches this machine's server, which refused a session
+// until it is, and waits for the server that replaces it — provided it holds
+// no more than shown said a relaunch would stop, which is what the user agreed
+// to. One that holds more is left running, and is a *relaunchNeededError saying
+// what it holds now. A server that is no longer the one shown has relaunched
+// already — by itself, once its work ended — or gone. The window that asked
+// then opens as usual.
+func (a *appState) relaunchServer(shown *relaunchNeededError) error {
+	c, err := machineserver.Connect(machineserver.ConnectOptions{ConfigDir: a.connectOpts.ConfigDir})
+	if errors.Is(err, machineserver.ErrNoServer) {
+		return nil
+	}
+	if err != nil || shown.server == nil || !c.SameServer(shown.server) {
+		return err
+	}
+	logf("server: relaunching %s at the user's word", c.Addr())
+	err = c.RelaunchIf(shown.occ)
+	var busy *machineserver.OccupiedError
+	if errors.As(err, &busy) {
+		logf("server: %s holds more than the user was shown; left running", c.Addr())
+		return &relaunchNeededError{installed: shown.installed, occ: busy.Now, server: c}
+	}
+	if err != nil {
+		return err
+	}
+	c.AwaitRelaunched(machineserver.ConnectOptions{ConfigDir: a.connectOpts.ConfigDir})
+	return nil
 }
 
 // whatAQuitStops is what a quit or an update restart would stop: the sessions

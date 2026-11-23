@@ -599,6 +599,24 @@ class APIService {
   }
 
   /**
+   * Relaunch this page's machine server into the build installed in its
+   * place, every session stopping with it, through this session, which passes
+   * it on — as a viewer off the machine's, when this page is one, which the
+   * machine refuses (403) unless it allows it.
+   * @param {{quiet?: boolean}} [options] - quiet: only if no work runs in it;
+   *   refused (409) otherwise, with the work that runs (services/relaunch-server.js).
+   * @returns {Promise<void>} Resolves once the machine server has begun.
+   * @throws {import('./http.js').HttpError} When the machine refuses, saying why.
+   */
+  async relaunchMachine({ quiet = false } = {}) {
+    await fetchJson(apiUrl('/machine/relaunch'), {
+      method: 'POST',
+      body: quiet ? { quiet } : undefined,
+      errorPrefix: t('The Juggler server could not be relaunched.'),
+    });
+  }
+
+  /**
    * Stop a session of this page's machine, or dismiss a failed one, through
    * this session. A stop of this page's own session is answered at once, and
    * carried out after.

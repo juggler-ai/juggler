@@ -11,7 +11,9 @@
  *
  * The stream is server-sent events, read with fetch rather than an
  * EventSource, which could carry a credential only in the address. Each
- * `sessions` event is a {@link Snapshot}; comments keep it alive.
+ * `sessions` event is a {@link Snapshot}; comments keep it alive. A stream
+ * the server ends to relaunch ends with a `relaunching` event, so its reader
+ * knows the server is coming back rather than gone.
  * @module services/sessions-feed
  */
 
@@ -25,6 +27,10 @@
  *   which outlives it and serves the project's next session.
  * @property {'starting'|'running'|'stopping'|'restarting'|'error'} state - Where its child is in its life.
  * @property {string} [error] - Why it failed, or how its child last ended.
+ * @property {{key?: unknown, params?: unknown}} [message] - The error as the
+ *   UI shows it translated (serverText), where the server has the words for it.
+ * @property {boolean} [relaunchNeeded] - It failed because another build is
+ *   installed in the server's place, which only relaunching the server takes up.
  * @property {string} startedAt - When it was opened.
  * @property {boolean} busy - A turn is running in it.
  * @property {string} [lastActive] - When it was last seen running a turn, or a
@@ -79,11 +85,20 @@
 
 /**
  * What the events stream sends whenever it changes: the sessions and the
- * recents, as GET /sessions and GET /recents answer them.
+ * recents, as GET /sessions and GET /recents answer them, and what a relaunch
+ * of the server would take up.
  * @typedef {object} Snapshot
  * @property {Session[]} sessions - Every session, oldest first.
  * @property {Recents} recents - The recent projects.
+ * @property {string} [installedBuild] - The build installed in the server's
+ *   place, which it opens no session from until it is relaunched; '' or absent
+ *   while it is the server's own.
+ * @property {boolean} [mayRelaunch] - Whether this reader may relaunch the
+ *   server: always on this machine, off it once this machine allows it.
  */
+
+/** What reading a stream to its end answers when the server ended it to relaunch. */
+export const RELAUNCHING = 'relaunching';
 
 /**
  * The wait before a feed is opened again after it failed or ended, doubling
@@ -103,12 +118,13 @@ export function asRecents(raw) {
 }
 
 /**
- * The snapshot a server-sent event carries, if it is a sessions event.
+ * What a server-sent event says: a snapshot, if it is a sessions event, or
+ * that the server is relaunching.
  * @param {string} block - One event's lines, without the blank line ending it.
- * @returns {Snapshot|null} Its snapshot; null for a comment, another event,
- *   or data that is not one.
+ * @returns {Snapshot|typeof RELAUNCHING|null} Its snapshot, or RELAUNCHING;
+ *   null for a comment, another event, or data that is not one.
  */
-function sessionsEvent(block) {
+function streamEvent(block) {
   let name = '';
   /** @type {string[]} */
   const data = [];
@@ -116,10 +132,16 @@ function sessionsEvent(block) {
     if (line.startsWith('event:')) name = line.slice(6).trim();
     else if (line.startsWith('data:')) data.push(line.slice(5).replace(/^ /, ''));
   }
+  if (name === RELAUNCHING) return RELAUNCHING;
   if (name !== 'sessions' || !data.length) return null;
   try {
     const body = JSON.parse(data.join('\n'));
-    return { sessions: Array.isArray(body?.sessions) ? body.sessions : [], recents: asRecents(body?.recents) };
+    return {
+      sessions: Array.isArray(body?.sessions) ? body.sessions : [],
+      recents: asRecents(body?.recents),
+      installedBuild: typeof body?.installedBuild === 'string' ? body.installedBuild : '',
+      mayRelaunch: body?.mayRelaunch === true,
+    };
   } catch {
     return null;
   }
@@ -131,22 +153,26 @@ function sessionsEvent(block) {
  * as the reader does.
  * @param {ReadableStream<Uint8Array>} body - The response's body.
  * @param {(snapshot: Snapshot) => void} onSnapshot - Takes each snapshot.
- * @returns {Promise<void>} Resolves when the stream ends.
+ * @returns {Promise<typeof RELAUNCHING|undefined>} Resolves when the stream
+ *   ends: RELAUNCHING when the server ended it to relaunch.
  */
 export async function readSessionsStream(body, onSnapshot) {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffered = '';
+  /** @type {typeof RELAUNCHING|undefined} */
+  let ended;
   for (;;) {
     const { value, done } = await reader.read();
-    if (done) return;
+    if (done) return ended;
     // The server ends its lines with \n alone (machineserver/events.go).
     buffered += decoder.decode(value, { stream: true });
     let end;
     while ((end = buffered.indexOf('\n\n')) >= 0) {
-      const snapshot = sessionsEvent(buffered.slice(0, end));
+      const event = streamEvent(buffered.slice(0, end));
       buffered = buffered.slice(end + 2);
-      if (snapshot) onSnapshot(snapshot);
+      if (event === RELAUNCHING) ended = RELAUNCHING;
+      else if (event) onSnapshot(event);
     }
   }
 }
@@ -155,12 +181,17 @@ export async function readSessionsStream(body, onSnapshot) {
  * Follow a feed until signal aborts: open it, hand onSnapshot each snapshot,
  * and when it fails or ends say so (onDown) and open it again after a wait —
  * FEED_RETRY_MIN, doubling to FEED_RETRY_MAX, back to the least once a
- * snapshot arrives.
+ * snapshot arrives. A stream the server ended to relaunch says that instead
+ * (onRelaunching), and is opened again after the least wait, as the server
+ * is coming back.
  * @param {object} options
- * @param {(onSnapshot: (snapshot: Snapshot) => void, signal: AbortSignal) => Promise<void>} options.open -
- *   Follows the stream once, until it ends (resolves) or breaks (rejects).
+ * @param {(onSnapshot: (snapshot: Snapshot) => void, signal: AbortSignal) => Promise<typeof RELAUNCHING|void>} options.open -
+ *   Follows the stream once, until it ends (resolves, with RELAUNCHING for a
+ *   relaunch) or breaks (rejects).
  * @param {(snapshot: Snapshot) => void} options.onSnapshot - Takes each snapshot.
  * @param {() => void} [options.onDown] - Told each time the stream has gone.
+ * @param {() => void} [options.onRelaunching] - Told when the server ended the
+ *   stream to relaunch; onDown by default.
  * @param {AbortSignal} options.signal - Stops following.
  * @param {(ms: number) => Promise<void>} [options.sleep] - Waits ms.
  * @returns {Promise<void>} Resolves once signal has aborted.
@@ -169,20 +200,27 @@ export async function followSessionsFeed({
   open,
   onSnapshot,
   onDown = () => {},
+  onRelaunching = onDown,
   signal,
   sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); }),
 }) {
   let wait = FEED_RETRY_MIN;
   while (!signal.aborted) {
+    let ended;
     try {
-      await open((snapshot) => {
+      ended = await open((snapshot) => {
         wait = FEED_RETRY_MIN;
         onSnapshot(snapshot);
       }, signal);
     } catch {
       // Opened again below.
     }
-    onDown();
+    if (ended === RELAUNCHING) {
+      onRelaunching();
+      wait = FEED_RETRY_MIN;
+    } else {
+      onDown();
+    }
     if (signal.aborted) return;
     await sleep(wait);
     wait = Math.min(wait * 2, FEED_RETRY_MAX);

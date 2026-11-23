@@ -18,6 +18,13 @@
  * asked, with the overlay's Stop trying ({@link giveUpOnServer}). The app
  * moves its local windows to their stand-ins itself, at once, when this
  * machine's server goes.
+ *
+ * A session that only relaunching its server opens again — another build is
+ * installed in the server's place — is gone for good too, and the proxy says
+ * so. A desktop window asks the app at once, which shows the relaunch's
+ * stand-in. A browser tab, with no stand-in to become, loads its project's
+ * link again: the server serves its page there while the project has no
+ * running session, and that page offers the relaunch, then opens the session.
  * @module services/server-lost
  */
 
@@ -58,21 +65,37 @@ async function reportServerLost(query = '') {
 }
 
 /**
- * Whether the server this page is mounted on has forgotten its session: the
- * machine server's proxy answers 404 for a project link with no session, as
- * it does for every one once that server has restarted. A page served directly
- * (no base path) has no proxy to say so, and no answer at all — the server
- * still down — is not that either.
- * @returns {Promise<boolean>} True when the server says the session is gone.
+ * Whether the server this page is mounted on has given its session up for
+ * good, and how: the machine server's proxy answers 404 for a project link
+ * with no session ('forgotten'), as it does for every one once that server has
+ * restarted, and 503 saying so for one that only relaunching the server opens
+ * again ('relaunch'). A page served directly (no base path) has no proxy to
+ * say so, and no answer at all — the server still down — is neither.
+ * @param {object} [options]
+ * @param {string} [options.base] - The page's base path, its project's link:
+ *   '' for a page with no proxy in front of it.
+ * @param {typeof fetch} [options.fetchImpl] - Fetch to ask with.
+ * @returns {Promise<'forgotten'|'relaunch'|null>} How the session is gone; null while it may come back.
  */
-async function sessionForgotten() {
-  if (!basePath()) return false;
+export async function sessionGone({ base = basePath(), fetchImpl = (input, init) => fetch(input, init) } = {}) {
+  if (!base) return null;
   try {
-    const res = await fetch(apiUrl('/health'), { cache: 'no-store', headers: withApiToken({}) });
-    return res.status === 404;
+    const res = await fetchImpl(apiUrl('/health'), { cache: 'no-store', headers: withApiToken({}) });
+    if (res.status === 404) return 'forgotten';
+    if (res.status !== 503) return null;
+    const body = JSON.parse(await res.text());
+    return body?.relaunchNeeded === true ? 'relaunch' : null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+/**
+ * Load this page's project link again, where the server serves its page while
+ * the project has no running session — the page that offers the relaunch.
+ */
+function reopenAtLink() {
+  window.location.assign(`${basePath()}/`);
 }
 
 /**
@@ -86,6 +109,39 @@ async function sessionForgotten() {
  */
 export function giveUpOnServer() {
   return reportServerLost('?now=1');
+}
+
+/**
+ * A browser tab's watch: no stand-in to ask for, so only a session that only a
+ * relaunch opens again is acted on — the project's link loaded again, once an
+ * outage. Every other outage is the socket's to wait out.
+ * @param {object} deps
+ * @param {{on: (name: import('./websocket.js').WSEventType, fn: (data: unknown) => void) => () => void}} deps.events - The connection's events.
+ * @param {() => Promise<boolean|'forgotten'|'relaunch'|null>} deps.probe - How the session is gone.
+ * @param {() => void} deps.reopen - Loads the project's link again.
+ * @returns {() => void} Stops watching.
+ */
+function watchForRelaunchNeeded({ events, probe, reopen }) {
+  let probing = false;
+  let spent = false;
+  const lost = () => {
+    if (probing || spent) return;
+    probing = true;
+    void probe().then((gone) => {
+      probing = false;
+      if (gone === 'relaunch' && !spent) {
+        spent = true;
+        reopen();
+      }
+    }, () => {
+      probing = false;
+    });
+  };
+  const ended = () => { spent = false; };
+  const unsubscribes = [events.on('close', lost), events.on('stable', ended)];
+  return () => {
+    for (const off of unsubscribes) off();
+  };
 }
 
 /**
@@ -110,7 +166,9 @@ export function giveUpOnServer() {
  * @param {{on: (name: import('./websocket.js').WSEventType, fn: (data: unknown) => void) => () => void}} [deps.events] - The connection's events.
  * @param {boolean} [deps.eligible] - Whether this window has a stand-in to become.
  * @param {() => Promise<boolean>} [deps.report] - Asks for the stand-in; true when it is coming.
- * @param {() => Promise<boolean>} [deps.probe] - Whether the server has forgotten this page's session.
+ * @param {() => Promise<boolean|'forgotten'|'relaunch'|null>} [deps.probe] - Whether, and how, the server
+ *   has given this page's session up for good ({@link sessionGone}).
+ * @param {() => void} [deps.reopen] - Loads this page's project link again.
  * @param {{setTimeout: (fn: () => void, ms: number) => any, clearTimeout: (id: any) => void}} [deps.timers] - The clock.
  * @returns {() => void} Stops watching.
  */
@@ -118,10 +176,11 @@ export function watchForLostServer({
   events = wsService,
   eligible = hasLostServerStandIn(),
   report = reportServerLost,
-  probe = sessionForgotten,
+  probe = () => sessionGone(),
+  reopen = reopenAtLink,
   timers = { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: (id) => clearTimeout(id) },
 } = {}) {
-  if (!eligible) return () => {};
+  if (!eligible) return watchForRelaunchNeeded({ events, probe, reopen });
 
   /** @type {any} */
   let timer = null;

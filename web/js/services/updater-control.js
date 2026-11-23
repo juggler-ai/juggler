@@ -37,6 +37,15 @@
  *   this snapshot: the app's last update never finished installing.
  * @property {boolean} [cancelling] - A cancelled update is finishing a step that
  *   can't be interrupted; what it staged is then discarded.
+ * @property {RelaunchOffer} [relaunch] - A relaunch on offer: the binaries the
+ *   app launched from are another build now. Absent when there is none.
+ */
+
+/**
+ * @typedef {object} RelaunchOffer
+ * @property {boolean} app - The app's own binary is another build now.
+ * @property {boolean} server - The server binary it starts is another build now.
+ * @property {string} [version] - The version the app's new binary carries.
  */
 
 import { windowControlURL } from '../../sdk/lib/window-control.js';
@@ -125,6 +134,31 @@ export async function cancelUpdate() {
  */
 export async function requestRestart({ force = false } = {}) {
   const url = windowControlURL('updater', force ? '?op=restart&force=1' : '?op=restart');
+  return postQuit(url, (status) => t('Restart failed (HTTP {status})', { status }));
+}
+
+/**
+ * Relaunch the app from the binary installed now, which the app offers (the
+ * `relaunch` field of {@link getUpdaterState}) once it is another build than
+ * the one running. Answers as {@link requestRestart} does: busy first, unless
+ * forced, while a conversation is working.
+ * @param {{force?: boolean}} [opts] - force=true skips the busy check.
+ * @returns {Promise<RestartResult>} The relaunch outcome.
+ */
+export async function requestRelaunch({ force = false } = {}) {
+  const url = windowControlURL('relaunch', force ? '?force=1' : '');
+  return postQuit(url, (status) => t('Relaunch failed (HTTP {status})', { status }));
+}
+
+/**
+ * POST a request that quits the app into whatever launches next, and read the
+ * app's answer: accepted, busy (409, with the prompt to confirm), or failed.
+ * @param {string|null} url - The control URL, null without a native host.
+ * @param {(status: number) => string} failed - The failure text for an HTTP
+ *   status that came with no reason.
+ * @returns {Promise<RestartResult>} The outcome.
+ */
+async function postQuit(url, failed) {
   if (!url) return { status: 'absent' };
   try {
     await fetchJson(url, { method: 'POST' });
@@ -139,6 +173,6 @@ export async function requestRestart({ force = false } = {}) {
       // message is its English.
       return { status: 'busy', busy: body.busy, message: serverText(bodyServerMessage({ message: body.messageText }), body.message) };
     }
-    return { status: 'error', message: serverText(bodyServerMessage(body), body.error) || t('Restart failed (HTTP {status})', { status: err.status }) };
+    return { status: 'error', message: serverText(bodyServerMessage(body), body.error) || failed(err.status) };
   }
 }

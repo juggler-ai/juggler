@@ -49,6 +49,13 @@ func (s *Server) handleProjectProxy(w http.ResponseWriter, r *http.Request) {
 			s.serveOpener(w, r, key, sess, ok)
 		case !ok:
 			http.Error(w, "this project has no session", http.StatusNotFound)
+		case sess.RelaunchNeeded:
+			// Said so a page that lost its session can tell the user why, and
+			// stop waiting for a session no reconnect brings back.
+			writeJSON(w, http.StatusServiceUnavailable, relaunchNeededBody{
+				errorBody:      errorBody{Error: sess.Error, Message: sess.Message},
+				RelaunchNeeded: true,
+			})
 		default:
 			http.Error(w, "session is not running (state: "+string(sess.State)+")", http.StatusServiceUnavailable)
 		}

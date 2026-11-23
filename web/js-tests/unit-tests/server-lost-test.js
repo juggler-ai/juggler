@@ -14,7 +14,7 @@
  */
 
 import { assert } from '../utilities/test-helpers.js';
-import { watchForLostServer, GIVE_UP_AFTER_MS } from '../../js/services/server-lost.js';
+import { watchForLostServer, sessionGone, GIVE_UP_AFTER_MS } from '../../js/services/server-lost.js';
 
 /**
  * An event source shaped like wsService's `on`.
@@ -106,23 +106,25 @@ export async function runTests(_ctx) {
   }
 
   /**
-   * A watcher on fakes, counting its reports and its probes.
-   * @param {{eligible?: boolean, answers?: boolean[], forgotten?: boolean[]}} [opts] - Whether the window may be replaced, what each report resolves to, and what each probe of the session finds (forgotten or not).
-   * @returns {{events: ReturnType<typeof fakeEvents>, clock: ReturnType<typeof fakeClock>, reports: () => number, probes: () => number, stop: () => void}} The rig.
+   * A watcher on fakes, counting its reports, its probes and its loads of the link again.
+   * @param {{eligible?: boolean, answers?: boolean[], forgotten?: Array<boolean|'forgotten'|'relaunch'|null>}} [opts] - Whether the window may be replaced, what each report resolves to, and what each probe of the session finds (gone or not, and how).
+   * @returns {{events: ReturnType<typeof fakeEvents>, clock: ReturnType<typeof fakeClock>, reports: () => number, probes: () => number, reopens: () => number, stop: () => void}} The rig.
    */
   function rig({ eligible = true, answers = [true], forgotten = [false] } = {}) {
     const events = fakeEvents();
     const clock = fakeClock();
     let reports = 0;
     let probes = 0;
+    let reopens = 0;
     const stop = watchForLostServer({
       events,
       eligible,
       timers: clock,
       report: async () => answers[Math.min(reports++, answers.length - 1)],
-      probe: async () => forgotten[Math.min(probes++, forgotten.length - 1)],
+      probe: async () => /** @type {any} */ (forgotten[Math.min(probes++, forgotten.length - 1)]),
+      reopen: () => { reopens++; },
     });
-    return { events, clock, reports: () => reports, probes: () => probes, stop };
+    return { events, clock, reports: () => reports, probes: () => probes, reopens: () => reopens, stop };
   }
 
   await test('a minute of reconnecting asks for the stand-in, once', async () => {
@@ -247,12 +249,36 @@ export async function runTests(_ctx) {
     r.stop();
   });
 
-  await test('a window with no stand-in to become watches nothing', () => {
-    const r = rig({ eligible: false });
-    assert(r.events.listeners() === 0, 'an ineligible window subscribed anyway');
+  // A browser tab has no stand-in to become, so it asks the app nothing. A
+  // session that only relaunching the server opens again is the one outage it
+  // does not wait out: it loads its link again, where the server's page offers
+  // the relaunch, and opens the session once it is done. Once an outage.
+  await test('a browser tab asks nothing of the app, and loads its link again for a session only a relaunch opens', async () => {
+    const r = rig({ eligible: false, forgotten: [true, 'relaunch'] });
     r.events.emit('close');
     r.clock.advance(2 * GIVE_UP_AFTER_MS);
-    assert(r.reports() === 0, 'an ineligible window reported');
+    await settle();
+    assert(r.reports() === 0, 'a browser tab asked the app');
+    assert(r.reopens() === 0, 'a tab loaded its link again for a session that is merely forgotten');
+    r.events.emit('close');
+    await settle();
+    assert(r.reopens() === 1, `a session only a relaunch opens: ${r.reopens()} loads of the link, want 1`);
+    r.events.emit('close');
+    await settle();
+    assert(r.reopens() === 1, 'the link was loaded again twice in one outage');
+    r.stop();
+    assert(r.events.listeners() === 0, 'listeners left behind');
+  });
+
+  // The proxy says a session is gone for good in two ways: none for the link
+  // (404), and one that only a relaunch of the server opens again (503, saying so).
+  await test('the probe tells a forgotten session from one only a relaunch opens', async () => {
+    const answering = (/** @type {number} */ status, /** @type {string} */ body) => async () => /** @type {any} */ ({ status, text: async () => body });
+    const gone = async (/** @type {number} */ status, /** @type {string} */ body) => sessionGone({ base: '/p/x-0000', fetchImpl: answering(status, body) });
+    assert(await gone(404, 'this project has no session') === 'forgotten', 'a 404 is not a forgotten session');
+    assert(await gone(503, JSON.stringify({ error: 'x', relaunchNeeded: true })) === 'relaunch', 'a 503 saying a relaunch is needed is not one');
+    assert(await gone(503, 'session is not running (state: restarting)') === null, 'a session between lives is taken for gone');
+    assert(await sessionGone({ base: '', fetchImpl: answering(404, '') }) === null, 'a page with no proxy is taken for gone');
   });
 
   await test('stopping leaves no listener or timer behind', () => {

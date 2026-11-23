@@ -243,19 +243,33 @@ WIN_BUILD_DIR := $(BUILD_DIR)/windows
 # of the source tree during normal dev, they are generated here and removed
 # again in the same shell (trap on EXIT, so a failed link still cleans up);
 # only build-windows needs them.
+#
+# Both binaries are built (or copied) into $(WIN_STAGE) and moved into place,
+# for go-build's reason and one of Windows' own: an app, server or session
+# running from bin/windows holds its .exe open as an image, and Windows refuses
+# to open such a file for writing ("Device or resource busy" from cp), but lets
+# it be renamed over or renamed away. win_place moves the new file in; where the
+# volume will not rename over a running image, it renames the old one aside to
+# <name>.old.<nanoseconds> first. Asides are removed at the start of the next
+# build, which fails quietly for any still running.
+WIN_STAGE := $(WIN_BUILD_DIR)/.stage
+win_place = { [ -f "$(1)" ] && { mv -f "$(1)" "$(2)" 2>/dev/null || { mv -f "$(2)" "$(2).old.$$(date +%s%N)" && mv -f "$(1)" "$(2)"; }; }; }
 build-windows: app-icon-embed wails-runtime-embed
 	@echo "Cross-building Windows binaries (amd64)..."
-	@mkdir -p $(WIN_BUILD_DIR)
+	@mkdir -p $(WIN_BUILD_DIR) $(WIN_STAGE)
+	@rm -f $(WIN_STAGE)/*.exe $(WIN_BUILD_DIR)/*.old.* $(WIN_BUILD_DIR)/*.exe~ 2>/dev/null || true
 	@$(MAKE) --no-print-directory win-icon
 	@trap 'rm -f cmd/juggler/rsrc_*.syso cmd/juggler-app/rsrc_*.syso' EXIT; \
 	if [ -n "$(SERVER_BIN)" ]; then \
 		echo "Using prebuilt server $(SERVER_BIN)"; \
-		cp "$(SERVER_BIN)" "$(WIN_BUILD_DIR)/$(BINARY_NAME).exe"; \
+		cp "$(SERVER_BIN)" "$(WIN_STAGE)/$(BINARY_NAME).exe"; \
 	else \
-		CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(GOBUILD) -ldflags "$(LDFLAGS_BASE)" -o $(WIN_BUILD_DIR)/$(BINARY_NAME).exe ./cmd/juggler; \
+		CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(GOBUILD) -ldflags "$(LDFLAGS_BASE)" -o $(WIN_STAGE)/$(BINARY_NAME).exe ./cmd/juggler; \
 	fi && \
 	echo "Building juggler-app.exe (windowsgui) $(VERSION_STAMP)..." && \
-	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(GOBUILD_RELEASE) $(APP_GOFLAGS) -ldflags "$(LDFLAGS_BASE) -H windowsgui" -o $(WIN_BUILD_DIR)/juggler-app.exe ./cmd/juggler-app
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(GOBUILD_RELEASE) $(APP_GOFLAGS) -ldflags "$(LDFLAGS_BASE) -H windowsgui" -o $(WIN_STAGE)/juggler-app.exe ./cmd/juggler-app && \
+	$(call win_place,$(WIN_STAGE)/$(BINARY_NAME).exe,$(WIN_BUILD_DIR)/$(BINARY_NAME).exe) && \
+	$(call win_place,$(WIN_STAGE)/juggler-app.exe,$(WIN_BUILD_DIR)/juggler-app.exe)
 	@echo "→ $(WIN_BUILD_DIR)/$(BINARY_NAME).exe (console), $(WIN_BUILD_DIR)/juggler-app.exe (GUI)"
 
 # ── Distribution: one indivisible unit per platform ─────────────────────────

@@ -151,11 +151,12 @@ func TestAReplacedRemotePageKeepsOnlyItsOwnReach(t *testing.T) {
 // are TestARemoteWindowOpensWindowsOnlyOntoItsOwnServer's.
 func TestARemoteWindowsSecretReachesOnlyItsOwnWindow(t *testing.T) {
 	userpathstest.Isolate(t)
-	savedQuit, savedRestart := startQuit, updaterRestart
+	savedQuit, savedRestart, savedRelaunch := startQuit, updaterRestart, relaunchApp
 	quits, restarts := 0, 0
 	startQuit = func(*appState) { quits++ }
 	updaterRestart = func() error { restarts++; return nil }
-	t.Cleanup(func() { startQuit, updaterRestart = savedQuit, savedRestart })
+	relaunchApp = func(*appState) error { restarts++; return nil }
+	t.Cleanup(func() { startQuit, updaterRestart, relaunchApp = savedQuit, savedRestart, savedRelaunch })
 
 	a := newTestAppState(t)
 	a.workspace = newWorkspaceStoreAt(workspacePath(t))
@@ -167,6 +168,7 @@ func TestARemoteWindowsSecretReachesOnlyItsOwnWindow(t *testing.T) {
 		"discover",
 		"updater?op=restart&force=1",
 		"updater?op=state",
+		"relaunch?force=1",
 		"folder-dropped?path=%2Fno%2Fsuch%2Fplace",
 		"locale?locale=en",
 		"restart-server",

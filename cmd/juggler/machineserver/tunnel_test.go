@@ -5,6 +5,7 @@
 package machineserver
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"io"
@@ -32,7 +33,12 @@ const (
 	fwdMode   tunnel.Mode = "fwd-test"   // forwards a private listener, as a relay does
 	offerMode tunnel.Mode = "offer-test" // answers offers, as a rendezvous does
 	goneMode  tunnel.Mode = "gone-test"  // never available
-	fwdHost               = "fwd.example"
+	// resumeMode's tunnels a relaunch hands on (fakeResumable).
+	resumeMode tunnel.Mode = "resume-test"
+)
+
+const (
+	fwdHost = "fwd.example"
 )
 
 // lastForward and lastOfferHost are the most recent fake tunnel's insides, for
@@ -72,6 +78,13 @@ func TestMain(m *testing.M) {
 		UnavailableHint: msg.New("Requires the fake helper."),
 		Available:       func() bool { return false },
 		New:             func(tunnel.Host) tunnel.Provider { return nil },
+	})
+	tunnel.RegisterMode(tunnel.ModeSpec{
+		Mode:  resumeMode,
+		Title: msg.New("Fake resumable"),
+		New: func(h tunnel.Host) tunnel.Provider {
+			return &fakeResumable{fakeOffers: fakeOffers{host: h, done: make(chan struct{})}}
+		},
 	})
 	os.Exit(m.Run())
 }
@@ -114,6 +127,30 @@ func (f *fakeOffers) Start(context.Context) (tunnel.Info, error) {
 	lastOfferHost.Store(&f.host)
 	return tunnel.Info{URL: "https://rendezvous.example/c/abcdefghijklmnop"}, nil
 }
+
+// fakeResumable is a tunnel a relaunch hands on (tunnel.Resumable): its link
+// is "https://resume.example/<token>", the token Resume says. Each is recorded
+// in lastResumable, with the token it was started from and whether it was
+// released rather than stopped.
+type fakeResumable struct {
+	fakeOffers
+	token       string
+	startedFrom string
+	released    atomic.Bool
+}
+
+var lastResumable atomic.Pointer[fakeResumable]
+
+func (f *fakeResumable) Start(ctx context.Context) (tunnel.Info, error) {
+	return f.StartFrom(ctx, "")
+}
+func (f *fakeResumable) StartFrom(_ context.Context, resume string) (tunnel.Info, error) {
+	f.startedFrom, f.token = resume, cmp.Or(resume, "fresh-token")
+	lastResumable.Store(f)
+	return tunnel.Info{URL: "https://resume.example/" + f.token}, nil
+}
+func (f *fakeResumable) Resume() string { return f.token }
+func (f *fakeResumable) Release()       { f.released.Store(true); f.Stop() }
 
 // fakePeer stands in for tunnel/peer: it keeps what it was asked to bridge.
 type fakePeer struct {
@@ -205,8 +242,8 @@ func TestTunnelIsSwitchedFromThisMachineOnly(t *testing.T) {
 	}
 	var raw struct{ Modes []map[string]any }
 	_ = json.Unmarshal([]byte(body), &raw)
-	if len(raw.Modes) != 3 {
-		t.Fatalf("modes: %s; want the three registered", body)
+	if len(raw.Modes) != 4 {
+		t.Fatalf("modes: %s; want the four registered", body)
 	}
 	fwd := raw.Modes[0]
 	if fwd["mode"] != string(fwdMode) || fwd["available"] != true || fwd["title"] != "Fake relay" ||

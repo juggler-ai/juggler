@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"juggler/cmd/juggler/childcontain"
+	"juggler/cmd/juggler/msg"
 	"juggler/internal/ingress"
 	"juggler/internal/jlog"
 	"juggler/internal/logpaths"
@@ -28,6 +29,18 @@ const childStartTimeout = 20 * time.Second
 // childStopGrace is how long a child gets to exit after a graceful interrupt
 // before its process tree is killed.
 const childStopGrace = 3 * time.Second
+
+// ExitOtherBuild is the status a session child exits with, before its
+// handshake, when it is not the build its machine server spawns children from
+// (ingress.SupervisorBuildEnv): the binary at the server's path has been
+// replaced since the server started, and only relaunching the server takes
+// the new build up.
+const ExitOtherBuild = 75
+
+// errOtherBuild is spawnChild's answer for a child that exited with
+// ExitOtherBuild. Respawning cannot help, so it ends a session at once; the
+// session's record carries its message (failForBuild) for a page to show.
+var errOtherBuild = msg.NewError("Another build of Juggler is installed in place of the one this server runs. Relaunch the Juggler server to open sessions.")
 
 // child is one live session-child process: today's per-project server, spawned
 // with --session-child and contained via childcontain for tree-kill. That flag
@@ -84,12 +97,17 @@ func isLaunchIdentity(kv string) bool {
 }
 
 // isSupervisorLink reports whether kv, a NAME=value environment entry, tells a
-// child how to reach a machine server, or which session it is there. Only the
+// child how to reach a machine server, which session it is there, or which
+// build it must be to serve it. Only the
 // server spawning the child may say that (childEnv); one its own environment
 // carried is dropped.
 func isSupervisorLink(kv string) bool {
 	name, _, _ := strings.Cut(kv, "=")
-	return name == ingress.SupervisorAddrEnv || name == ingress.SupervisorTokenEnv || name == ingress.SupervisorSessionEnv
+	switch name {
+	case ingress.SupervisorAddrEnv, ingress.SupervisorTokenEnv, ingress.SupervisorSessionEnv, ingress.SupervisorBuildEnv:
+		return true
+	}
+	return false
 }
 
 // spawnChild starts a session child for project and waits for its ready
@@ -171,6 +189,9 @@ func spawnChild(ctx context.Context, bin, project string, extra, env []string) (
 		c.addr = addr
 		return c, nil
 	case <-c.exited:
+		if c.exit != nil && c.exit.ExitCode() == ExitOtherBuild {
+			return nil, fmt.Errorf("session child for %s: %w", project, errOtherBuild)
+		}
 		return nil, fmt.Errorf("session child for %s exited before reporting its address (see %s)",
 			project, logpaths.StderrLogPath(project))
 	case <-ctx.Done():

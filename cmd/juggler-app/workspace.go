@@ -119,7 +119,8 @@ func (e *openFailedError) notice(a *appState) string {
 // It also returns which process of this machine's server that is (zero for a
 // server by URL). Without start, this machine's server is only found, never
 // started (serverClient). A server that cannot be had is the serverClient's
-// error; a session it will not open is an *openFailedError.
+// error; a session it will not open is an *openFailedError, or, until it is
+// relaunched into the build installed in its place, a *relaunchNeededError.
 func (a *appState) resolveWindow(spec windowSpec, start bool) (string, serverProc, error) {
 	if spec.isURL() {
 		return normalizeURL(spec.url), serverProc{}, nil
@@ -144,7 +145,17 @@ func (a *appState) resolveWindow(spec windowSpec, start bool) (string, serverPro
 			a.awaitServerGone(c)
 			continue
 		}
-		return "", serverProc{}, &openFailedError{project: project, serverURL: root, server: procOf(c), err: err}
+		failed := &openFailedError{project: project, serverURL: root, server: procOf(c), err: err}
+		if machineserver.RelaunchNeeded(err) {
+			// Another build is installed in the server's place: one with no
+			// work running is relaunched into it, and the next serverClient
+			// finds the server that replaced it; any other is the user's.
+			if attempt < connectAttempts && a.relaunchQuietly(c) {
+				continue
+			}
+			return "", serverProc{}, relaunchNeededOf(c, failed)
+		}
+		return "", serverProc{}, failed
 	}
 }
 

@@ -275,6 +275,11 @@ type regState struct {
 	// guarding, so teardown doesn't re-prompt window by window.
 	quitting bool
 
+	// quittingInto is set once a quit into what comes next — the staged update,
+	// or this app relaunched — has started what comes next and is quitting
+	// (authoriseQuitInto); a second is then answered as under way.
+	quittingInto bool
+
 	// confirmingQuit is set while a quit is being decided (confirmThenQuit):
 	// its busy tally and, with work running, its dialog. A quit asked for
 	// meanwhile is that one.
@@ -330,6 +335,9 @@ type appState struct {
 	// launched is set once the app has started, before which there is no main
 	// thread to relabel the menus on (relabelMenus).
 	launched atomic.Bool
+	// relaunchOffer is the relaunch on offer, while the binaries the app launched
+	// from are another build now (binary_watch.go), or nil.
+	relaunchOffer atomic.Pointer[relaunchOffer]
 
 	// finder finds the servers other computers announce (discover.go).
 	finder *lanFinder
@@ -582,6 +590,7 @@ func (a *appState) run(specs []windowSpec) error {
 	// the loop returns to distinguish a real exit from a silent never-showed one.
 	windowUp := make(chan struct{})
 	go a.watchWindowStartup(initial, windowUp)
+	a.watchBinaries()
 
 	a.app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(_ *application.ApplicationEvent) {
 		// A language adopted before launch has not reached the menus yet.

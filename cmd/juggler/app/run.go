@@ -104,6 +104,8 @@ func Run(cfg Config) int {
 	// and session children look tools up on it (cloudflared), so it repairs
 	// PATH as a GUI launch does.
 	if len(os.Args) > 1 && os.Args[1] == "serve" {
+		// Before the PATH probe's login shell, which inherits the environment.
+		machineserver.TakeRelaunchHandoff()
 		repairPathForServe()
 		var notes []string
 		if pathRepairReport != "" {
@@ -157,6 +159,14 @@ func Run(cfg Config) int {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "juggler: %v\n", err)
 		return 2
+	}
+	// A machine server spawns its children from the binary at its own path,
+	// which a rebuild or an update may since have replaced: such a child
+	// leaves before it starts anything, and its server reports the session
+	// as needing a relaunch.
+	if why := spawner.otherBuild(); why != "" {
+		fmt.Fprintf(os.Stderr, "juggler: %s\n", why)
+		return machineserver.ExitOtherBuild
 	}
 
 	// A GUI launch inherits a stripped PATH that omits everything the user's

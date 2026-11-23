@@ -589,6 +589,7 @@
 			"layer": "components",
 			"owns": [
 				"connectivity-launch",
+				"connectivity-setting",
 				"connectivity-warning",
 				"connectivity-addresses",
 				"connectivity-address",

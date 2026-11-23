@@ -149,6 +149,56 @@ func TestRepeatedCrashesEndInError(t *testing.T) {
 	}
 }
 
+// TestRespawnIntoAnotherBuildNeedsARelaunch: a crashed session whose respawn
+// finds another build at the server's path is given up at once, as needing a
+// relaunch, not respawned again into the same build until the limit.
+func TestRespawnIntoAnotherBuildNeedsARelaunch(t *testing.T) {
+	s, front := restartServer(t, restartPolicy{base: 10 * time.Millisecond, max: 10 * time.Millisecond, limit: 3, stable: time.Hour})
+	var spawns atomic.Int64
+	helper := newChildCommand
+	newChildCommand = func(bin, project string, extra []string) *exec.Cmd {
+		cmd := helper(bin, project, extra)
+		if spawns.Add(1) > 1 {
+			cmd.Env = append(cmd.Env, helperOtherBuildEnv+"=1")
+		}
+		return cmd
+	}
+	sess := openStandIn(t, front)
+	exitChild(t, sess, "1")
+	failed := waitForRecord(t, s, sess.ID, "error", 5*time.Second, func(r Session, found bool) bool {
+		return found && r.State == SessionError
+	})
+	supervisorsEnded(t, s, "after a respawn into another build")
+	if !failed.RelaunchNeeded || failed.Restarts != 1 || spawns.Load() != 2 {
+		t.Fatalf("record = %+v after %d spawns; want relaunchNeeded after the one respawn", failed, spawns.Load())
+	}
+}
+
+// TestARefusedOpenSaysARelaunchIsNeeded: an open whose child is another build
+// is refused with a record that says a relaunch takes it up, in words a page
+// can translate, and a client of the server can tell so from the refusal.
+func TestARefusedOpenSaysARelaunchIsNeeded(t *testing.T) {
+	s, front := restartServer(t, sleepless)
+	helper := newChildCommand
+	newChildCommand = func(bin, project string, extra []string) *exec.Cmd {
+		cmd := helper(bin, project, extra)
+		cmd.Env = append(cmd.Env, helperOtherBuildEnv+"=1")
+		return cmd
+	}
+	c := &Client{addr: front.Listener.Addr().String(), token: testToken, http: &http.Client{Timeout: 10 * time.Second}}
+	_, _, err := c.OpenSession(t.TempDir())
+	if err == nil || !RelaunchNeeded(err) {
+		t.Fatalf("open into another build: err = %v, want one that says a relaunch is needed", err)
+	}
+	list := s.reg.snapshot()
+	if len(list) != 1 || list[0].Message == nil || list[0].Message.Key != errOtherBuild.Message.Key {
+		t.Fatalf("refused record = %+v, want the translatable errOtherBuild message", list)
+	}
+	if other := errors.New("it broke"); RelaunchNeeded(other) {
+		t.Fatal("RelaunchNeeded said yes to an unrelated error")
+	}
+}
+
 // sleepless is a restart policy whose backoff no test can sleep out, so a
 // supervisor that returns during it was cancelled.
 var sleepless = restartPolicy{base: time.Hour, max: time.Hour, limit: 3, stable: time.Hour}

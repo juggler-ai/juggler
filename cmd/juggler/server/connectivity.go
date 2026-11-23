@@ -15,6 +15,7 @@ import (
 	"juggler/cmd/juggler/server/handlers"
 	"juggler/cmd/juggler/tunnel"
 	"juggler/internal/basepath"
+	"juggler/internal/ingress"
 	"juggler/internal/jlog"
 
 	"github.com/gorilla/mux"
@@ -48,8 +49,9 @@ const maxExposureBody = 64 << 10
 // GET /api/connectivity/server, the machine server's status: which process it
 // is, and whether the desktop app started it or someone at a terminal. And
 // GET /api/machine/events relays the machine server's events to the page
-// (handleMachineEvents), and /api/machine/sessions and /api/machine/folders
-// pass on the page's switcher's opens, stops and new folders (machineRoute).
+// (handleMachineEvents), /api/machine/sessions and /api/machine/folders
+// pass on the page's switcher's opens, stops and new folders (machineRoute),
+// and /api/machine/relaunch its relaunch (handleMachineRelaunch).
 func (s *Server) setupConnectivityRoutes() {
 	api := s.router.PathPrefix("/api").Subrouter()
 	api.HandleFunc("/connectivity", s.handleGetConnectivity).Methods("GET")
@@ -64,7 +66,44 @@ func (s *Server) setupConnectivityRoutes() {
 	api.Handle("/machine/sessions", s.machineRoute(func(*http.Request) string { return "/api/server/sessions" })).Methods("POST")
 	api.Handle("/machine/sessions/{id}", s.machineStopRoute()).Methods("DELETE")
 	api.Handle("/machine/folders", s.machineRoute(func(*http.Request) string { return "/api/server/folders" })).Methods("POST")
+	api.HandleFunc("/machine/relaunch", s.handleMachineRelaunch).Methods("POST")
 	api.HandleFunc("/machine/events", s.handleMachineEvents).Methods("GET")
+}
+
+// handleMachineRelaunch passes a page's relaunch of the machine server on, as
+// machineRoute passes its other calls, with the body as sent ({"expect"}). For
+// a viewer off this machine it says so (ingress.ForRemoteViewerHeader): the
+// machine server lets one relaunch it only if this machine allows that, and
+// every call from here reaches it from loopback. POST /api/machine/relaunch.
+func (s *Server) handleMachineRelaunch(w http.ResponseWriter, r *http.Request) {
+	if s.supervisor.Addr == "" {
+		http.NotFound(w, r)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), supervisorCallTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+s.supervisor.Addr+"/api/server/relaunch",
+		http.MaxBytesReader(w, r.Body, maxExposureBody))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	req.Header.Set("X-Juggler-Token", s.supervisor.Token)
+	req.Header.Set("Content-Type", "application/json")
+	if !isLocalDirect(r) {
+		req.Header.Set(ingress.ForRemoteViewerHeader, "1")
+	}
+	resp, err := http.DefaultClient.Do(req) //nolint:gosec // loopback machine server named by our spawner
+	if err != nil {
+		http.Error(w, "The machine server could not be reached.", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	if ct := resp.Header.Get("Content-Type"); ct != "" {
+		w.Header().Set("Content-Type", ct)
+	}
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
 }
 
 // machineRoute passes a call of the page's switcher — open a session, make a
@@ -174,6 +213,11 @@ func (s *Server) handleMachineEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Header.Set("X-Juggler-Token", s.supervisor.Token)
 	req.Header.Set("Accept", "text/event-stream")
+	// So the stream says whether this viewer may relaunch the server as one
+	// off this machine (ingress.ForRemoteViewerHeader), as its relaunch is judged.
+	if !isLocalDirect(r) {
+		req.Header.Set(ingress.ForRemoteViewerHeader, "1")
+	}
 	withMachineBase(req, basepath.MachineFromRequest(r))
 	resp, err := http.DefaultClient.Do(req) //nolint:gosec // loopback machine server named by our spawner
 	if err != nil {

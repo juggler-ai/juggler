@@ -57,6 +57,13 @@
  * a desktop window on this computer, for a newcomer, and under a line of
  * introduction anywhere else, for a visitor who came by address and knows why.
  *
+ * A build installed in the server's place, which it opens no session from
+ * until it is relaunched, is said at the top of the page, with Relaunch server
+ * for a viewer that may relaunch it (relaunch-server.js), and where it may be
+ * relaunched for one that may not. A session that failed for it offers the
+ * relaunch in place of a retry. A server relaunching — asked here or anywhere
+ * — is waited for, and the page loads again from the server that replaces it.
+ *
  * A viewer on this machine (`config.local`) also gets the server itself —
  * whether the desktop app or a terminal started it — and the machine's ways in:
  * LAN access and each tunnel mode, with Start and Stop, the address cards and
@@ -79,6 +86,7 @@ import { ExposureView } from '../js/components/connectivity/exposure-view.js';
 import { presentPopup, POPUP_REVEALED_EVENT } from '../js/utils/popup-surface.js';
 import { createCopyButton } from '../sdk/lib/copy-button.js';
 import { followSessionsFeed } from '../js/services/sessions-feed.js';
+import { relaunchMachineServer } from '../js/services/relaunch-server.js';
 import { baseName } from '../js/utils/session-attention.js';
 import { SessionSwitcher } from '../js/components/session-switcher.js';
 import { isMac } from '../js/services/key-shortcut-manager.js';
@@ -104,7 +112,8 @@ import { markDialog } from '../js/utils/dialog-a11y.js';
  *   getLaunch?: () => Promise<import('./control-api.js').LaunchState>,
  *   setLaunch?: (change: Partial<import('./control-api.js').LaunchState>) => Promise<unknown>,
  *   getStatus?: () => Promise<import('../js/components/connectivity/exposure-view.js').ServerStatus>,
- *   events?: (onSnapshot: (snapshot: import('./control-api.js').Snapshot) => void, signal: AbortSignal) => Promise<void>,
+ *   relaunch?: (options?: {quiet?: boolean}) => Promise<void>,
+ *   events?: (onSnapshot: (snapshot: import('./control-api.js').Snapshot) => void, signal: AbortSignal) => Promise<'relaunching'|void>,
  *   request?: (method: string, path: string, body?: unknown) => Promise<unknown>,
  * }} ControlApi
  * @typedef {{
@@ -570,6 +579,20 @@ export function mountSessionsPage(root, {
   let streaming = false;
   /** @type {AbortController|null} Stops following the events stream. */
   let stream = null;
+  /** The build installed in the server's place, as the events stream last said ('' for none). */
+  let installedBuild = '';
+  /** Whether this page may relaunch the server: on this machine always, off it as the stream says. */
+  let mayRelaunch = config.local === true;
+  /** An open was refused until the server is relaunched, which the stream may not have said yet. */
+  let refusedForRelaunch = false;
+  /** The server is relaunching: the page waits, and loads again from the one that replaces it. */
+  let relaunching = false;
+  /** A relaunch asked for here is in flight. */
+  let relaunchAsked = false;
+  /** @type {{warning: string, answer: (yes: boolean) => void}|null} What a relaunch would stop, while the user is asked. */
+  let relaunchAsk = null;
+  /** The page has been loaded again, from the server that replaced this one. */
+  let reloaded = false;
 
   root.replaceChildren();
   const banner = el('div', { className: 'ms-banner-slot', attrs: { role: 'status' } });
@@ -593,7 +616,7 @@ export function mountSessionsPage(root, {
         }
         return launch(r.path);
       },
-      retry: (s) => launch(s.project),
+      retry: (s) => (s.relaunchNeeded ? relaunchNow() : launch(s.project)),
       stop: (s) => stop(s),
       pickFolder: host?.pickDirectory,
       openPath: (path, { create }) => {
@@ -1106,6 +1129,7 @@ export function mountSessionsPage(root, {
       const sess = await api.openSession(make ? await make() : project);
       return await attach(sess.id, sess.project || project, sess.link, report);
     } catch (err) {
+      noteRefusal(err);
       report(err instanceof Error ? errorText(err) : t('The session could not be started.'));
       return false;
     }
@@ -1152,6 +1176,7 @@ export function mountSessionsPage(root, {
       await refresh();
       return true;
     } catch (err) {
+      noteRefusal(err);
       report(err instanceof Error ? errorText(err) : t('The session could not be started.'));
       return false;
     }
@@ -1200,6 +1225,7 @@ export function mountSessionsPage(root, {
         sess = await api.openSession(project, { wait: true });
       } catch (err) {
         if (disposed) return;
+        noteRefusal(err);
         opening.hidden = true;
         showLaunchError(err instanceof Error ? errorText(err) : t('The session could not be started.'));
         return;
@@ -1219,6 +1245,90 @@ export function mountSessionsPage(root, {
       await sleep(Number.isFinite(due) && due > 0 ? due : 1000);
       if (disposed) return;
     }
+  }
+
+  /**
+   * Take note of an open the server refused until it is relaunched, so the
+   * page offers the relaunch even before the events stream says what is
+   * installed.
+   * @param {unknown} err - What the open threw.
+   */
+  function noteRefusal(err) {
+    if (!(err instanceof ControlApiError) || !err.relaunchNeeded) return;
+    refusedForRelaunch = true;
+    if (!disposed) render();
+  }
+
+  /**
+   * Relaunch the server into the build installed in its place: at once if no
+   * work runs in it, and otherwise once the user, asked on the banner, agrees
+   * to what it stops. A viewer that may not relaunch it is told where it may.
+   * @returns {Promise<void>} Resolves once the server is relaunching, or was kept.
+   */
+  async function relaunchNow() {
+    if (relaunchAsked || relaunching || !api.relaunch) return;
+    if (!mayRelaunch) {
+      showLaunchError(t('Relaunching Juggler from another device is off. Allow it in Settings on the machine it runs on.'));
+      return;
+    }
+    const relaunch = api.relaunch;
+    relaunchAsked = true;
+    showLaunchError('');
+    render();
+    try {
+      const going = await relaunchMachineServer({
+        relaunch: (options) => relaunch(options),
+        confirm: (warning) => new Promise((resolve) => {
+          relaunchAsk = { warning, answer: (yes) => { relaunchAsk = null; resolve(yes); } };
+          if (!disposed) render();
+        }),
+      });
+      if (going) relaunching = true;
+    } catch (err) {
+      showLaunchError(err instanceof Error ? errorText(err) : t('Juggler could not relaunch.'));
+    } finally {
+      relaunchAsked = false;
+      relaunchAsk = null;
+      if (!disposed) render();
+    }
+  }
+
+  /**
+   * Load the page again, once, from the server that replaced the one that
+   * relaunched: that one mints a new token, so it refuses this page's (401).
+   */
+  function loadAgain() {
+    if (reloaded || disposed) return;
+    reloaded = true;
+    reload();
+  }
+
+  /**
+   * The banner saying another build is installed in the server's place, with
+   * its relaunch: offered, asked about, or where it may be done.
+   * @returns {HTMLElement} The banner.
+   */
+  function relaunchBanner() {
+    const text = installedBuild
+      ? t('Juggler {build} is installed. This server still runs the build before it, and opens no sessions until it is relaunched.', { build: installedBuild })
+      : t('Another build of Juggler is installed. This server still runs the build before it, and opens no sessions until it is relaunched.');
+    /** @type {(HTMLElement|null)[]} */
+    let rest;
+    if (relaunchAsk) {
+      const ask = relaunchAsk;
+      rest = [
+        el('span', { className: 'ms-relaunch-text', text: ask.warning }),
+        el('span', { className: 'ms-relaunch-actions' }, [
+          button(t('Relaunch anyway'), 'btn-secondary ms-relaunch-anyway', () => ask.answer(true)),
+          button(t('Keep working'), 'btn-secondary ms-relaunch-keep', () => ask.answer(false)),
+        ]),
+      ];
+    } else if (mayRelaunch) {
+      rest = [button(t('Relaunch server'), 'btn-secondary ms-relaunch-go', () => { void relaunchNow(); }, relaunchAsked)];
+    } else {
+      rest = [el('span', { className: 'ms-relaunch-text', text: t('Relaunching Juggler from another device is off. Allow it in Settings on the machine it runs on.') })];
+    }
+    return el('div', { className: 'ms-relaunch' }, [el('span', { className: 'ms-relaunch-text', text }), ...rest]);
   }
 
   /**
@@ -1321,7 +1431,11 @@ export function mountSessionsPage(root, {
 
   /** Redraw the lists and notices from the last answers. */
   function render() {
-    if (unreachable) {
+    if (relaunching) {
+      banner.replaceChildren(el('div', { className: 'ms-unreachable' }, [
+        el('span', { text: t('Relaunching the Juggler server…') }),
+      ]));
+    } else if (unreachable) {
       const outOfDate = unreachable.status === 401;
       banner.replaceChildren(el('div', { className: 'ms-unreachable' }, [
         el('span', {
@@ -1331,6 +1445,8 @@ export function mountSessionsPage(root, {
         }),
         outOfDate ? button(t('Reload'), 'btn-secondary', () => window.location.reload()) : null,
       ]));
+    } else if (installedBuild || refusedForRelaunch || sessions.some((s) => s.relaunchNeeded)) {
+      banner.replaceChildren(relaunchBanner());
     } else {
       banner.replaceChildren();
     }
@@ -1370,6 +1486,7 @@ export function mountSessionsPage(root, {
       takeSnapshot({ sessions: list, recents: known });
     } catch (err) {
       unreachable = err instanceof ControlApiError ? err : new ControlApiError(0, extractErrorMessage(err));
+      if (relaunching && unreachable.status === 401) loadAgain();
       if (!disposed) render();
     }
   }
@@ -1377,10 +1494,13 @@ export function mountSessionsPage(root, {
   /**
    * Show the sessions and recents of a snapshot, as asked for or as the
    * events stream pushed it.
-   * @param {{sessions?: Session[]|null, recents?: Partial<import('./control-api.js').Recents>|null}} snapshot
+   * @param {{sessions?: Session[]|null, recents?: Partial<import('./control-api.js').Recents>|null, installedBuild?: string, mayRelaunch?: boolean}} snapshot
    */
   function takeSnapshot(snapshot) {
     sessions = snapshot.sessions || [];
+    // Only the stream says these; a snapshot asked for leaves them as said.
+    if (typeof snapshot.installedBuild === 'string') installedBuild = snapshot.installedBuild;
+    if (typeof snapshot.mayRelaunch === 'boolean') mayRelaunch = snapshot.mayRelaunch || config.local === true;
     recents = {
       paths: snapshot.recents?.paths || [],
       links: snapshot.recents?.links || {},
@@ -1396,20 +1516,35 @@ export function mountSessionsPage(root, {
    * Follow the server's events stream while the page is up, drawing each
    * snapshot it pushes. One that fails or ends is opened again after a wait
    * (EVENTS_RETRY_MIN, doubling to EVENTS_RETRY_MAX), and until it is the
-   * poll asks for the sessions as it always has. A page framing another
-   * computer's server follows nothing of this one's.
+   * poll asks for the sessions as it always has. One the server ended to
+   * relaunch has the page wait for it, and load again once the server that
+   * replaced it refuses this one's token. A page framing another computer's
+   * server follows nothing of this one's.
    */
   async function follow() {
     if (framed || !api.events) return;
+    const events = api.events;
     stream = new AbortController();
     await followSessionsFeed({
-      open: api.events,
+      open: async (onSnapshot, signal) => {
+        try {
+          return await events(onSnapshot, signal);
+        } catch (err) {
+          if (relaunching && err instanceof ControlApiError && err.status === 401) loadAgain();
+          throw err;
+        }
+      },
       onSnapshot: (snapshot) => {
         streaming = true;
         takeSnapshot(snapshot);
       },
       // The poll covers the sessions until the stream is back.
       onDown: () => { streaming = false; },
+      onRelaunching: () => {
+        streaming = false;
+        relaunching = true;
+        if (!disposed) render();
+      },
       signal: stream.signal,
       sleep,
     });

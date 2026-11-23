@@ -43,6 +43,8 @@ Commands:
   status                 Show the running server: address, version, sessions.
   sessions [--json]      List its sessions.
   stop [<id|project>]    Stop one session, or with no argument the whole server.
+  relaunch               Stop the server and every session, and start it again
+                         from the build installed now, as it was run.
   lan [on|off]           Show LAN access, or switch it. While it is on, other
                          devices on this network can use the server, with no
                          password. A server starts with it off, unless serve
@@ -81,6 +83,12 @@ func RunServerCommand(args []string, env CLIEnv) int {
 			return cliShutdown(env)
 		}
 		return cliStopSession(env, rest[0])
+	case "relaunch":
+		if len(rest) > 0 {
+			fmt.Fprint(env.Stderr, serverUsage)
+			return 2
+		}
+		return cliRelaunch(env)
 	case "lan":
 		if len(rest) > 1 || (len(rest) == 1 && rest[0] != "on" && rest[0] != "off") {
 			fmt.Fprint(env.Stderr, serverUsage)
@@ -132,6 +140,11 @@ func RunOpenCommand(args []string, env CLIEnv) int {
 		return cliFail(env, "open", err)
 	}
 	sess, _, err := c.OpenSession(project)
+	if RelaunchNeeded(err) {
+		fmt.Fprintf(env.Stderr, "juggler open: another build of Juggler is installed in place of the server running here, which opens no sessions until it is relaunched. "+
+			"Relaunch it with `juggler server relaunch`%s", relaunchStops(c))
+		return 1
+	}
 	if err != nil {
 		return cliFail(env, "open", err)
 	}
@@ -165,6 +178,39 @@ func cliStatus(env CLIEnv) int {
 	}
 	fmt.Fprintf(env.Stdout, "Juggler server %s at http://%s/\npid %d, up %s, %d %s\nLAN access: %s\n",
 		st.Version, st.Addr, st.PID, time.Since(st.StartedAt).Round(time.Second), st.Sessions, noun, lan)
+	if st.InstalledBuild != "" {
+		fmt.Fprintf(env.Stdout, "Another build is installed (%s); juggler server relaunch takes it up.\n", st.InstalledBuild)
+	}
+	return 0
+}
+
+// cliRelaunch relaunches the server, held to what it holds as it is asked
+// (RelaunchIf), as a restart the user agreed to is, and waits for it to answer
+// again.
+func cliRelaunch(env CLIEnv) int {
+	c, err := Connect(ConnectOptions{})
+	if err != nil {
+		return cliFail(env, "server relaunch", err)
+	}
+	occ, err := c.Occupancy()
+	if err != nil {
+		return cliFail(env, "server relaunch", err)
+	}
+	var busy *OccupiedError
+	switch err := c.RelaunchIf(occ); {
+	case errors.As(err, &busy):
+		fmt.Fprintf(env.Stderr, "juggler server relaunch: the server took on more while it was asked (%s); nothing was stopped. Run it again to relaunch it as it is now.\n", describeStops(busy.Now))
+		return 1
+	case err != nil:
+		return cliFail(env, "server relaunch", err)
+	}
+	fmt.Fprintf(env.Stdout, "Relaunching the Juggler server at http://%s/ and stopping its sessions.\n", c.addr)
+	next, ok := c.AwaitRelaunched(ConnectOptions{})
+	if !ok {
+		fmt.Fprintf(env.Stderr, "juggler server relaunch: the server stopped and did not come back; see %s\n", serveLogPath())
+		return 1
+	}
+	fmt.Fprintf(env.Stdout, "The Juggler server is back at http://%s/ (%s).\n", next.addr, next.Build)
 	return 0
 }
 
@@ -200,11 +246,25 @@ func cliSessions(env CLIEnv, asJSON bool) int {
 		if s.Error != "" {
 			fmt.Fprintf(tw, "\t\t\t  %s\n", s.Error)
 		}
+		if s.RelaunchNeeded {
+			fmt.Fprintf(tw, "\t\t\t  %s\n", "`juggler server relaunch` relaunches it, stopping every session.")
+		}
 	}
 	if err := tw.Flush(); err != nil {
 		return cliFail(env, "server sessions", err)
 	}
 	return 0
+}
+
+// relaunchStops ends a sentence offering `juggler server relaunch`: what
+// relaunching c's server stops, a line each, or a full stop when it cannot
+// say.
+func relaunchStops(c *Client) string {
+	occ, err := c.Occupancy()
+	if stops := describeStops(occ); err == nil && stops != "" {
+		return ", which stops:\n" + stops
+	}
+	return ".\n"
 }
 
 // cliState is what a session is doing, as the sessions page says it: a

@@ -70,6 +70,10 @@ const (
 	// this computer is itself broken: its server binary is another version, or
 	// cannot be run (brokenInstallStandIn, brokenBinaryStandIn).
 	standInBroken = "broken"
+	// standInRelaunch stands in for a local window whose session this
+	// machine's server will not open until it is relaunched into the build
+	// installed in its place (relaunchStandIn).
+	standInRelaunch = "relaunch"
 )
 
 // appDownloadURL is where Juggler can be downloaded and installed again: the
@@ -100,6 +104,10 @@ var (
 	brokenPageTitle         = msg.New("This Juggler installation needs to be installed again")
 	downloadAppLabel        = msg.New("Download Juggler")
 	reinstallKeepsData      = msg.New("Download Juggler and run its installer to repair it. Your conversations and settings are kept.")
+	relaunchWindowTitle     = msg.New("Relaunch needed — Juggler")
+	relaunchPageTitle       = msg.New("The Juggler server needs relaunching")
+	relaunchServerLabel     = msg.New("Relaunch server")
+	relaunchingLabel        = msg.New("Relaunching…")
 )
 
 // standInButton is one of a stand-in page's buttons: a form post to this
@@ -130,6 +138,9 @@ type standIn struct {
 	// mismatch is a version mismatch's: the servers, and what the page says a
 	// restart stops — all the restart may stop (restartServer).
 	mismatch *versionMismatchError
+	// relaunch is a relaunch's: the build installed, and what the page says a
+	// relaunch stops — all it may stop (relaunchServer).
+	relaunch *relaunchNeededError
 	// startedElsewhere is a stand-in for a window onto a server this app did
 	// not start — one run in a terminal. Its Try again only looks for that
 	// server (windowOpts.noStart); starting one is the page's other button.
@@ -296,6 +307,34 @@ func mismatchStandIn(e *versionMismatchError) *standIn {
 	}
 }
 
+// relaunchStandIn stands in for a local window whose session this machine's
+// server will not open until it is relaunched into the build installed in its
+// place, while work runs in it: it says which build, and everything a relaunch
+// stops, and offers the relaunch.
+func relaunchStandIn(e *relaunchNeededError) *standIn {
+	first := msg.New("Another build of Juggler is installed, and the Juggler server running on this computer is still the build before it. It opens no sessions until it is relaunched.")
+	if e.installed != "" {
+		first = msg.New("Juggler {version} is installed, and the Juggler server running on this computer is still the build before it. It opens no sessions until it is relaunched.",
+			"version", e.installed)
+	}
+	message := []msg.Message{first}
+	if stops := e.occ.Stops(); len(stops) > 0 {
+		message = append(message, msg.New("Relaunching the server stops:"))
+		message = append(message, stops...)
+	}
+	return &standIn{
+		kind:        standInRelaunch,
+		windowTitle: relaunchWindowTitle,
+		title:       relaunchPageTitle,
+		message:     message,
+		buttons: []standInButton{
+			{label: relaunchServerLabel, action: "relaunch-server", primary: true, busy: &relaunchingLabel},
+			{label: quitLabel, action: "quit"},
+		},
+		relaunch: e,
+	}
+}
+
 // incompatibleStandIn stands in for a window on the server by URL at origin
 // whose pages and this app do not fit (serverFit), saying which wants
 // updating; nil when they fit.
@@ -361,6 +400,9 @@ func (a *appState) controlOpenInBrowser(w http.ResponseWriter, _ *http.Request, 
 // had: a version mismatch's when that is what err is, and otherwise a failed
 // start's. Every failure gets one, so no window ever fails to open in silence.
 func standInFor(err error) *standIn {
+	if r, ok := asRelaunchNeeded(err); ok {
+		return relaunchStandIn(r)
+	}
 	if m, ok := asVersionMismatch(err); ok {
 		if m.ownBinary {
 			logf("this Juggler installation is broken: its server binary is %s, the app %s; offering the download", m.server, m.app)
@@ -693,6 +735,40 @@ func (a *appState) controlRestartServer(w http.ResponseWriter, _ *http.Request, 
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// controlRelaunchServer is the relaunch stand-in's "Relaunch server": this
+// machine's server is relaunched into the build installed in its place, every
+// session stopping with it, and the window shows its session in the
+// stand-in's place, on the server that replaced it — and the rest of the
+// windows the stand-in held the place of open. A server that has come to hold
+// more than the page said a relaunch would stop is left running, and the page
+// is drawn again saying what it holds now.
+func (a *appState) controlRelaunchServer(w http.ResponseWriter, _ *http.Request, e *winEntry) {
+	v := a.viewOf(e)
+	si := v.standIn
+	if si == nil || si.kind != standInRelaunch || si.relaunch == nil {
+		w.WriteHeader(http.StatusConflict)
+		return
+	}
+	theme := a.windowTheme(e)
+	go func() {
+		err := a.relaunchServer(si.relaunch)
+		if now, ok := asRelaunchNeeded(err); ok {
+			again := relaunchStandIn(now)
+			again.held = si.held
+			a.showView(e, standingIn(si), standInView(v.spec, again), windowOpts{})
+			return
+		}
+		if err != nil {
+			logf("relaunch server: %v", err)
+		}
+		a.retarget(e, standingIn(si), v.spec, windowOpts{})
+		for _, h := range si.held {
+			a.openWindow(h, windowOpts{theme: theme})
+		}
+	}()
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // controlServerLost is a window's page saying it has been reconnecting for
 // long enough to stop (see web/js/services/server-lost.js). The page's word is
 // not taken for it, and the window moves on only when what it shows has
@@ -766,11 +842,17 @@ func (a *appState) controlServerLost(w http.ResponseWriter, r *http.Request, e *
 		lost = lostServerStandInFor(v.server)
 		c, gone := a.serverOfWindow(v.server)
 		if !gone {
-			running, answered := a.sessionRunning(c, v.serverURL)
+			running, answered, relaunch := a.sessionRunning(c, v.serverURL)
 			switch {
 			case answered && !running && a.followMove(e, v, c):
 				writeJSON(w, http.StatusOK, map[string]bool{"replaced": true})
 				return
+			case relaunch:
+				if r, ok := asRelaunchNeeded(relaunchNeededOf(c, nil)); ok {
+					lost = relaunchStandIn(r)
+				} else {
+					lost = lostSessionStandIn(spec.project, !v.server.appStarted)
+				}
 			case answered && !running:
 				lost = lostSessionStandIn(spec.project, !v.server.appStarted)
 			case !now:
@@ -839,25 +921,27 @@ func (a *appState) serverOfWindow(proc serverProc) (c *machineserver.Client, gon
 // link) is running on c's server, and whether the server answered (never, for
 // a nil c). The server's own page is always there while the server is. The
 // session is whichever the project has: one opened since the window's was is
-// the window's too, as its page will find when it reconnects.
-func (a *appState) sessionRunning(c *machineserver.Client, serverURL string) (running, answered bool) {
+// the window's too, as its page will find when it reconnects. relaunch is a
+// session that stopped and opens again only once the server is relaunched
+// (machineserver.Session.RelaunchNeeded).
+func (a *appState) sessionRunning(c *machineserver.Client, serverURL string) (running, answered, relaunch bool) {
 	mount, ok := sessionMountOf(serverURL)
 	if !ok {
-		return true, true
+		return true, true, false
 	}
 	if c == nil {
-		return false, false
+		return false, false, false
 	}
 	list, err := c.ListSessions()
 	if err != nil {
-		return false, false
+		return false, false, false
 	}
 	for _, s := range list {
 		if strings.TrimSuffix(s.Link, "/") == mount {
-			return s.State == machineserver.SessionRunning || s.State == machineserver.SessionRestarting, true
+			return s.State == machineserver.SessionRunning || s.State == machineserver.SessionRestarting, true, s.RelaunchNeeded
 		}
 	}
-	return false, true
+	return false, true, false
 }
 
 // sessionMountPath matches the end of a window's server URL that shows a

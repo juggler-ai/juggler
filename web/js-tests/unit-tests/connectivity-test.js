@@ -639,6 +639,27 @@ export async function runTests(_ctx) {
     });
   });
 
+  // Whether a viewer off this machine may relaunch the server is this
+  // machine's to say, beside the server, saved as what opens at start is; a
+  // viewer off it is shown none of it (a viewer that may not switch exposure…).
+  await run('on this machine relaunching from other devices can be allowed, beside the server', async () => {
+    await withRoutes({ exposure: true, lan: { enabled: false, urls: [] }, tunnel: tunnelModes() }, async (api) => {
+      const { el, tab } = await mountWith({ clientCount: 1, clients: [], exposure: true });
+      try {
+        const allow = () => /** @type {HTMLInputElement|null} */ (el.querySelector('#connectivity-server-section input[data-setting="allowRemoteRelaunch"]'));
+        assert(!!allow() && !allow()?.checked, 'no unticked Allow relaunching from other devices beside the server');
+        assert((allow()?.closest('label')?.textContent || '').includes('Allow relaunching from other devices'), 'the switch does not say what it does');
+        /** @type {HTMLInputElement} */ (allow()).click();
+        await tab.pending;
+        const put = api.calls.filter((c) => c.method === 'PUT').at(-1);
+        assert(put?.url === '/api/connectivity/launch' && JSON.stringify(put.body) === '{"allowRemoteRelaunch":true}', `the switch sent ${JSON.stringify(put)}`);
+        assert(!!allow()?.checked, 'the switch did not stay on');
+      } finally {
+        el.remove();
+      }
+    });
+  });
+
   await run('a refused start-with-Juggler choice says why and shows what is saved', async () => {
     await withRoutes({ exposure: true, lan: { enabled: false, urls: [] }, tunnel: tunnelModes(), fail: '/api/connectivity/launch' }, async () => {
       const { el, tab } = await mountWith({ clientCount: 1, clients: [], exposure: true });

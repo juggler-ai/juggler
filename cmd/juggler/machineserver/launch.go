@@ -16,9 +16,11 @@ import (
 )
 
 // What opens whenever Juggler starts: the saved connectivity.lanOnLaunch and
-// connectivity.wanOnLaunch, which every start reads (launchExposure). The
-// sessions page shows and saves them here, beside its switches for LAN access
-// and tunnels, and so does every session's Settings → Connectivity, whose
+// connectivity.wanOnLaunch, which every start reads (launchExposure) — and,
+// beside them, connectivity.allowRemoteRelaunch, whether another device may
+// relaunch the server (relaunch.go), read at each request. The sessions page
+// shows and saves them here, beside its switches for LAN access and tunnels,
+// and so does every session's Settings → Connectivity, whose
 // /api/connectivity/launch passes the call on. This is their one writer: it
 // changes only these keys of the settings document (core.UpdateGlobalSettings),
 // and a session's own PUT /api/settings never writes them. Only a caller on
@@ -27,12 +29,17 @@ import (
 
 // launchResponse is the GET/PUT /api/server/launch payload.
 type launchResponse struct {
-	LANOnLaunch bool   `json:"lanOnLaunch"`
-	WANOnLaunch string `json:"wanOnLaunch"`
+	LANOnLaunch         bool   `json:"lanOnLaunch"`
+	WANOnLaunch         string `json:"wanOnLaunch"`
+	AllowRemoteRelaunch bool   `json:"allowRemoteRelaunch"`
 }
 
 func launchOf(gs *core.GlobalSettings) launchResponse {
-	return launchResponse{LANOnLaunch: gs.Connectivity.LANOnLaunch, WANOnLaunch: gs.Connectivity.WANOnLaunch}
+	return launchResponse{
+		LANOnLaunch:         gs.Connectivity.LANOnLaunch,
+		WANOnLaunch:         gs.Connectivity.WANOnLaunch,
+		AllowRemoteRelaunch: gs.Connectivity.AllowRemoteRelaunch,
+	}
 }
 
 // handleGetLaunch serves what opens whenever Juggler starts.
@@ -46,17 +53,18 @@ func (s *Server) handleGetLaunch(w http.ResponseWriter, _ *http.Request) {
 }
 
 // handleSetLaunch saves the keys it is sent of what opens whenever Juggler
-// starts, and answers with both as saved. A tunnel mode must be one this
-// build has; "" saves none. PUT /api/server/launch {"lanOnLaunch": bool,
-// "wanOnLaunch": "<mode>" | ""}, either or both; this machine only
-// (localOnly).
+// starts, and of whether another device may relaunch it, and answers with all
+// of them as saved. A tunnel mode must be one this build has; "" saves none.
+// PUT /api/server/launch {"lanOnLaunch": bool, "wanOnLaunch": "<mode>" | "",
+// "allowRemoteRelaunch": bool}, any of them; this machine only (localOnly).
 func (s *Server) handleSetLaunch(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		LANOnLaunch *bool   `json:"lanOnLaunch"`
-		WANOnLaunch *string `json:"wanOnLaunch"`
+		LANOnLaunch         *bool   `json:"lanOnLaunch"`
+		WANOnLaunch         *string `json:"wanOnLaunch"`
+		AllowRemoteRelaunch *bool   `json:"allowRemoteRelaunch"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&req); err != nil ||
-		(req.LANOnLaunch == nil && req.WANOnLaunch == nil) {
+		(req.LANOnLaunch == nil && req.WANOnLaunch == nil && req.AllowRemoteRelaunch == nil) {
 		writeMessageError(w, http.StatusBadRequest, msg.New("say what opens when Juggler starts: lanOnLaunch, true or false, or wanOnLaunch, a tunnel mode or \"\""))
 		return
 	}
@@ -75,6 +83,9 @@ func (s *Server) handleSetLaunch(w http.ResponseWriter, r *http.Request) {
 		if req.WANOnLaunch != nil {
 			gs.Connectivity.WANOnLaunch = *req.WANOnLaunch
 		}
+		if req.AllowRemoteRelaunch != nil {
+			gs.Connectivity.AllowRemoteRelaunch = *req.AllowRemoteRelaunch
+		}
 		return true
 	})
 	if err != nil {
@@ -87,6 +98,10 @@ func (s *Server) handleSetLaunch(w http.ResponseWriter, r *http.Request) {
 	// are here.
 	if lanTicked {
 		requestLocalNetwork()
+	}
+	// The events streams carry whether another device may relaunch the server.
+	if req.AllowRemoteRelaunch != nil {
+		s.reg.touch()
 	}
 	writeJSON(w, http.StatusOK, launchOf(gs))
 }

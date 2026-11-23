@@ -46,13 +46,35 @@ import (
 
 // Server is the machine server: registry, control API, and session proxy.
 type Server struct {
-	reg         *registry
-	lock        *MachineLock
-	childBin    string
+	reg      *registry
+	lock     *MachineLock
+	childBin string
+	// childBuild is the Go build ID of childBin as the server started, which
+	// every child it spawns is told (ingress.SupervisorBuildEnv) and must be;
+	// "" when it could not be read, and then no child checks.
+	childBuild  string
 	addr        string
 	startedAt   time.Time
 	httpSrv     *http.Server
 	shutdownReq chan struct{} // control-API shutdown signal (buffered, len 1)
+	// ending is whether the shutdown decided on is a relaunch or a stop
+	// (relaunch.go): decided before the lifetime ends, and read once it has.
+	ending ending
+	// installed is the build installed at the server's path while it is
+	// another than the one running, or "" (watchInstalledBuild); nil until
+	// first looked.
+	installed atomic.Pointer[string]
+	// autoRelaunchLooked, when set, is called each time autoRelaunch has looked
+	// at what is installed and what runs, before it waits for a change. Tests
+	// step it with this.
+	autoRelaunchLooked func()
+	// autoRelaunching is that the relaunch decided on is the server's own
+	// (autoRelaunch), not one a client asked for, for what a foreground
+	// server says as it goes.
+	autoRelaunching atomic.Bool
+	// notice is where a server run in a terminal's foreground tells its user
+	// what it does by itself (Foreground.Out); nil for any other.
+	notice io.Writer
 	// token is the control API's credential, minted per process and published
 	// only in server.json (see tokenGuard). Empty refuses every caller.
 	token string
@@ -86,6 +108,11 @@ type Server struct {
 	lifeOnce sync.Once
 	life     context.Context
 	endLife  context.CancelFunc
+	// opening is the context every session derives from (see sessionLife),
+	// and endOpening its cancel.
+	openingOnce sync.Once
+	opening     context.Context
+	endOpening  context.CancelFunc
 	// work counts the claims on sessions (registry.open) not yet released:
 	// every spawn in flight and every supervisor. Shutdown waits for it.
 	work sync.WaitGroup
@@ -111,9 +138,16 @@ type Server struct {
 	// starter holds startup until this pid attaches or dies; zero holds nothing.
 	starter     int
 	starterGone atomic.Bool
+	// appStarted is a relaunched server that replaced one the desktop app
+	// started (handoff.AppStarted); it has no starter of its own.
+	appStarted bool
+	// holders hold startup, as the starter does, for the clients of the server
+	// this one replaced (holdFor): each pid still awaited, and how many.
+	holders sync.Map // int → struct{}
+	holding atomic.Int32
 	// attached counts the clients holding the server up (see attach).
 	attached atomic.Int64
-	// closing is raised while a conditional shutdown decides (shutdownIf);
+	// closing is raised while a conditional shutdown decides (endIf);
 	// an attach that sees it refuses.
 	closing atomic.Bool
 	// attachments are the held POST /api/server/attach requests, by id
@@ -157,6 +191,21 @@ func (s *Server) endLifetime() {
 	s.endLife()
 }
 
+// sessionLife is the context every session derives from: the lifetime, or
+// less of it. A relaunch ends it first (endSessions), so nothing opens while
+// the server hands on what the lifetime still holds open (stopToRelaunch).
+func (s *Server) sessionLife() context.Context {
+	s.openingOnce.Do(func() { s.opening, s.endOpening = context.WithCancel(s.lifetime()) })
+	return s.opening
+}
+
+// endSessions ends sessionLife: no session opens again, and every one is
+// stopping, as at the end of the lifetime.
+func (s *Server) endSessions() {
+	s.sessionLife()
+	s.endOpening()
+}
+
 // childExtraArgs returns the flags a session child gets beyond the fixed
 // ones: this server's developer flags, and under --test the test harness, in
 // a window pointed at the child's own session here — link, its project's
@@ -182,16 +231,20 @@ func (s *Server) childExtraArgs(link string) []string {
 // the session's id (SupervisorSessionEnv), by which it asks for the links that
 // open it. It widens nothing: server.json already gives both to any process
 // of this user, and the token reads every session's id from the control API.
-// A server with no address or token yet tells nothing.
+// A server with no address or token yet tells none of those. The child is also
+// told the build it must be (childBuild, ingress.SupervisorBuildEnv).
 func (s *Server) childEnv(id string) []string {
+	var env []string
+	if s.childBuild != "" {
+		env = append(env, ingress.SupervisorBuildEnv+"="+s.childBuild)
+	}
 	if s.addr == "" || s.token == "" {
-		return nil
+		return env
 	}
-	return []string{
-		ingress.SupervisorAddrEnv + "=" + s.addr,
-		ingress.SupervisorTokenEnv + "=" + s.token,
-		ingress.SupervisorSessionEnv + "=" + id,
-	}
+	return append(env,
+		ingress.SupervisorAddrEnv+"="+s.addr,
+		ingress.SupervisorTokenEnv+"="+s.token,
+		ingress.SupervisorSessionEnv+"="+id)
 }
 
 // routes builds the machine server's handler: the sessions page at / and the
@@ -216,6 +269,9 @@ func (s *Server) routes() http.Handler {
 	api.HandleFunc("/events", s.handleEvents).Methods("GET")
 	api.HandleFunc("/folders", s.handleCreateFolder).Methods("POST")
 	api.HandleFunc("/shutdown", s.localOnly(s.handleShutdown)).Methods("POST")
+	// A relaunch from off this machine is the machine's to allow (mayRelaunch).
+	api.HandleFunc("/relaunch", s.handleRelaunch).Methods("POST")
+	api.HandleFunc("/hold", s.localOnly(s.handleHold)).Methods("POST")
 	// Reading the ways in is this machine's alone, as switching them is: a
 	// LAN viewer who could read the running tunnel's link would carry its
 	// grant off the network.
@@ -357,6 +413,13 @@ type statusResponse struct {
 	AppStarted bool `json:"appStarted,omitempty"`
 	// Build is which build of Version the server is (BuildOf).
 	Build string `json:"build,omitempty"`
+	// InstalledBuild is the build installed at the server's path (BuildOf),
+	// while it is another than the one running, which a relaunch takes up
+	// (relaunch.go); empty otherwise.
+	InstalledBuild string `json:"installedBuild,omitempty"`
+	// RemoteRelaunch is whether a caller off this machine may relaunch the
+	// server (connectivity.allowRemoteRelaunch); one on it always may.
+	RemoteRelaunch bool `json:"remoteRelaunch,omitempty"`
 	// LAN is whether LAN access is on (lan.go).
 	LAN bool `json:"lan"`
 	// Tunnel is the mode of the running tunnel, if any (tunnel.go).
@@ -386,9 +449,12 @@ func (s *Server) status() statusResponse {
 		Attached:  int(s.attached.Load()),
 		Build:     cmp.Or(s.build, core.Version),
 		LAN:       s.lan.Load(),
+		// The build a relaunch would take up, while there is another.
+		InstalledBuild: s.installedBuild(),
+		RemoteRelaunch: remoteRelaunchAllowed(),
 		// The same reading of the hold as heldUp's.
 		AwaitingStarter: s.starter > 0 && !s.starterGone.Load(),
-		AppStarted:      s.starter > 0,
+		AppStarted:      s.starter > 0 || s.appStarted,
 	}
 	// The peer identity is named while a tunnel is open, the only time a peer
 	// can reach this machine. Asking for it reads or mints it, which every
@@ -483,7 +549,7 @@ type openResult struct {
 // would (see awaitStarted). A wait ends early when caller ends. The server
 // shutting down refuses with 503.
 func (s *Server) openSession(caller context.Context, project string, wait bool) openResult {
-	sess, cl, err := s.reg.open(s.lifetime(), project, &s.work)
+	sess, cl, err := s.reg.open(s.sessionLife(), project, &s.work)
 	if err != nil {
 		return refused(http.StatusServiceUnavailable, msg.New("the machine server is shutting down"))
 	}
@@ -516,7 +582,11 @@ func (s *Server) openSession(caller context.Context, project string, wait bool) 
 			return refused(http.StatusConflict, msg.New("session was removed during spawn"))
 		}
 		jlog.Error("[machineserver] spawn failed for %s: %v", project, err)
-		s.reg.setError(sess.ID, err.Error())
+		if errors.Is(err, errOtherBuild) {
+			s.reg.failForBuild(sess.ID, nil)
+		} else {
+			s.reg.setError(sess.ID, err.Error())
+		}
 		cl.release()
 		errSess, _ := s.reg.get(sess.ID)
 		return openResult{sess: errSess, status: http.StatusBadGateway}
@@ -704,9 +774,10 @@ func (s *Server) stopSession(id string) bool {
 // handleShutdown asks the whole machine server to shut down gracefully.
 // Responds 202 first; the run loop drains children after. With "expect"
 // (shutdownRequest) the shutdown happens only if the server holds no more
-// than that (shutdownIf), and is otherwise refused 409 with what it holds.
+// than that (endIf), and is otherwise refused 409 with what it holds.
 // This machine only (localOnly): a viewer on the LAN stops sessions, not the
-// server. POST /api/server/shutdown [{"expect": Occupancy}].
+// server — though it may relaunch it, once this machine allows that
+// (handleRelaunch). POST /api/server/shutdown [{"expect": Occupancy}].
 func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
 	var req shutdownRequest
 	body, _ := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
@@ -717,7 +788,7 @@ func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if req.Expect != nil {
-		if now, ok := s.shutdownIf(*req.Expect); !ok {
+		if now, ok := s.endIf(*req.Expect, false); !ok {
 			m := msg.New("the Juggler server is in use, so it was not stopped")
 			writeJSON(w, http.StatusConflict, shutdownRefusal{errorBody: errorBody{Error: m.English(), Message: &m}, Occupancy: now})
 			return
@@ -726,6 +797,7 @@ func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
 		jlog.Info("[machineserver] conditional shutdown requested via control API")
 		return
 	}
+	s.ending.stop()
 	w.WriteHeader(http.StatusAccepted)
 	jlog.Info("[machineserver] shutdown requested via control API")
 	s.requestShutdown()
@@ -737,14 +809,17 @@ type shutdownRefusal struct {
 	Occupancy Occupancy `json:"occupancy"`
 }
 
-// shutdownIf begins the shutdown if the server holds no more than expect
-// (Occupancy.Covers), and returns what it holds. The decision and the end of
-// the lifetime are one step on the registry actor, so no session opens (open
-// checks the lifetime on the actor) between them. An attach is not on the
-// actor: closing is raised before the client count is read, and an attach
-// counts itself before it reads closing (handleAttach), so of the two at least
-// one sees the other and refuses.
-func (s *Server) shutdownIf(expect Occupancy) (Occupancy, bool) {
+// endIf begins the shutdown — a relaunch, with relaunch — if the server holds
+// no more than expect (Occupancy.Covers), and returns what it holds. The
+// decision and the end of sessionLife are one step on the registry actor, so
+// no session opens (open checks it on the actor) between them. A shutdown ends
+// the whole lifetime there; a relaunch only sessionLife, and leaves the rest
+// to stopToRelaunch, which hands on the attachments and tunnel the lifetime
+// holds open first. An attach is not on the actor: closing is raised before
+// the client count is read, and an attach counts itself before it reads
+// closing (handleAttach), so of the two at least one sees the other and
+// refuses.
+func (s *Server) endIf(expect Occupancy, relaunch bool) (Occupancy, bool) {
 	var now Occupancy
 	ok := false
 	s.reg.do(func(m map[string]*sessionEntry) {
@@ -762,10 +837,21 @@ func (s *Server) shutdownIf(expect Occupancy) (Occupancy, bool) {
 			now.TunnelTitle = modeTitle(now.Tunnel)
 		}
 		if !expect.Covers(now) {
-			s.closing.Store(false)
+			// Attaching opens again — unless a shutdown has been decided on
+			// meanwhile, which keeps it closed.
+			if !s.ending.decided() {
+				s.closing.Store(false)
+			}
 			return
 		}
-		s.endLifetime()
+		// A relaunch asked for once a stop is decided on is that stop: a stop
+		// is final (ending).
+		if relaunch && s.ending.relaunch() {
+			s.endSessions()
+		} else {
+			s.ending.stop()
+			s.endLifetime()
+		}
 		ok = true
 	})
 	if ok {
@@ -852,6 +938,13 @@ func childBinPath() (string, error) {
 type errorBody struct {
 	Error   string       `json:"error"`
 	Message *msg.Message `json:"message,omitempty"`
+}
+
+// relaunchNeededBody is the error envelope for a session that only relaunching
+// the server can open again (Session.RelaunchNeeded), saying so.
+type relaunchNeededBody struct {
+	errorBody
+	RelaunchNeeded bool `json:"relaunchNeeded"`
 }
 
 // writeMessageError sends the error envelope for m.

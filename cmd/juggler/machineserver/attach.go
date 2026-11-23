@@ -128,31 +128,34 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 	}
 	id := mintAttachmentID()
 	letServerGo := s.attach()
-	// Counted first, then closing read: see shutdownIf.
-	if s.closing.Load() || s.lifetime().Err() != nil {
-		if release != nil {
-			release()
-		}
-		letServerGo()
-		writeMessageError(w, http.StatusServiceUnavailable, msg.New("the machine server is shutting down"))
-		return
-	}
 	detach := func() {
 		if release != nil {
 			release()
 		}
 		letServerGo()
 	}
+	// Counted and recorded first, then closing read: see endIf. Recorded
+	// before the read, so a relaunch's handoff (taken once closing is set)
+	// finds this client among the attachments if it got past the read, and
+	// it is told the server is going if it did not.
+	a := &attachment{dropped: make(chan struct{}), ended: make(chan struct{}), detach: detach, pid: req.PID}
+	s.attachments.Store(id, a)
+	if s.closing.Load() || s.lifetime().Err() != nil {
+		s.attachments.Delete(id)
+		detach()
+		writeMessageError(w, http.StatusServiceUnavailable, msg.New("the machine server is shutting down"))
+		return
+	}
 	defer detach()
-	// Count the attachment before releasing the starter hold. Other clients
-	// attaching do not release the starter process's hold.
+	defer close(a.ended)
+	defer s.attachments.Delete(id)
+	// Count the attachment before releasing the starter's hold, or a holder's
+	// (holdFor), and record it before too, so a handoff sees the process as one
+	// or the other. Other clients attaching do not release a process's hold.
 	if s.starter > 0 && req.PID == s.starter {
 		s.starterGone.Store(true)
 	}
-	a := &attachment{dropped: make(chan struct{}), ended: make(chan struct{}), detach: detach, pid: req.PID}
-	s.attachments.Store(id, a)
-	defer close(a.ended)
-	defer s.attachments.Delete(id)
+	s.releaseHolder(req.PID)
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(attachStatus{statusResponse: s.status(), Attachment: id}); err != nil {
@@ -165,6 +168,13 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 	case <-r.Context().Done():
 	case <-a.dropped:
 	case <-s.lifetime().Done():
+		// A relaunch is said, so the client can follow the server to the
+		// process that replaces it (Attachment.Relaunching).
+		if s.ending.relaunching() {
+			if err := json.NewEncoder(w).Encode(attachEnd{Relaunching: true}); err == nil {
+				_ = http.NewResponseController(w).Flush()
+			}
+		}
 	}
 }
 
@@ -242,6 +252,9 @@ func mintAttachmentID() string {
 type Attachment struct {
 	body io.ReadCloser
 	done chan struct{}
+	// relaunching is set when the server said it ended the attachment to
+	// relaunch (attachEnd), before done closes.
+	relaunching atomic.Bool
 	// id is the server's name for it, which its beats and OpenSessionFor send.
 	id string
 }
@@ -313,7 +326,16 @@ func (c *Client) Attach(sessionIDs ...string) (*Attachment, error) {
 	close(answered)
 	a := &Attachment{body: resp.Body, done: make(chan struct{}), id: st.Attachment}
 	go func() {
-		_, _ = io.Copy(io.Discard, br)
+		for {
+			line, err := br.ReadBytes('\n')
+			var end attachEnd
+			if len(line) > 0 && json.Unmarshal(line, &end) == nil && end.Relaunching {
+				a.relaunching.Store(true)
+			}
+			if err != nil {
+				break
+			}
+		}
 		cancel()
 		close(a.done)
 	}()
@@ -374,6 +396,11 @@ func (c *Client) beat(a *Attachment, id string) {
 // Done closes when the attachment has ended: Close was called, or the server
 // ended it — it shut down, dropped it, or the connection to it was lost.
 func (a *Attachment) Done() <-chan struct{} { return a.done }
+
+// Relaunching reports, once Done has closed, whether the server ended the
+// attachment to relaunch (relaunch.go): a server will be back, from the binary
+// now installed, which Client.AwaitRelaunched waits for.
+func (a *Attachment) Relaunching() bool { return a.relaunching.Load() }
 
 // Close lets the server go, and returns once the attachment has ended.
 func (a *Attachment) Close() {

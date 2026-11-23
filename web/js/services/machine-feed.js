@@ -37,6 +37,10 @@ import { needsAcross } from '../utils/session-attention.js';
  * @property {Session[]} others - Every other session, in the machine's order.
  * @property {Need[]} needs - What needs the user, across every session.
  * @property {Recents} recents - The machine's recent projects.
+ * @property {string} installedBuild - The build installed in the machine
+ *   server's place, which it opens no session from until it is relaunched; ''
+ *   while it is the server's own.
+ * @property {boolean} mayRelaunch - Whether this page may relaunch the server.
  */
 
 /** A relay that answered no machine server: nothing to follow. */
@@ -47,7 +51,7 @@ class NoMachineServer extends Error {}
  * @param {object} [options]
  * @param {string} [options.link] - This project's link, /p/<key>/; the page's
  *   base path by default.
- * @param {(onSnapshot: (snapshot: Snapshot) => void, signal: AbortSignal) => Promise<void>} [options.open] -
+ * @param {(onSnapshot: (snapshot: Snapshot) => void, signal: AbortSignal) => Promise<'relaunching'|void>} [options.open] -
  *   Follows the stream once; by default it asks this session for the relay.
  * @param {typeof fetch} [options.fetchImpl] - Fetch for the default open.
  * @param {(ms: number) => Promise<void>} [options.sleep] - Waits ms between tries.
@@ -82,7 +86,7 @@ export function createMachineFeed({
    * session with no machine server answers 404.
    * @param {(snapshot: Snapshot) => void} onSnapshot
    * @param {AbortSignal} signal
-   * @returns {Promise<void>} Settles when the stream ends.
+   * @returns {Promise<'relaunching'|void>} Settles when the stream ends.
    */
   const relay = async (onSnapshot, signal) => {
     const resp = await fetchImpl(apiUrl('/machine/events'), {
@@ -93,22 +97,22 @@ export function createMachineFeed({
     });
     if (resp.status === 404) throw new NoMachineServer();
     if (!resp.ok || !resp.body) throw new Error(`machine events: ${resp.status}`);
-    await readSessionsStream(resp.body, onSnapshot);
+    return await readSessionsStream(resp.body, onSnapshot);
   };
   const openOnce = open || relay;
 
   /**
    * @param {(snapshot: Snapshot) => void} onSnapshot
    * @param {AbortSignal} signal
-   * @returns {Promise<void>} Settles when the stream ends.
+   * @returns {Promise<'relaunching'|void>} Settles when the stream ends.
    */
   const openOrGiveUp = async (onSnapshot, signal) => {
     try {
-      await openOnce(onSnapshot, signal);
+      return await openOnce(onSnapshot, signal);
     } catch (err) {
       if (err instanceof NoMachineServer || /** @type {{status?: unknown}} */ (err)?.status === 404) {
         following?.abort();
-        return;
+        return undefined;
       }
       throw err;
     }
@@ -165,6 +169,12 @@ export function createMachineFeed({
     },
     get recents() {
       return snapshot?.recents ?? asRecents(null);
+    },
+    get installedBuild() {
+      return snapshot?.installedBuild || '';
+    },
+    get mayRelaunch() {
+      return snapshot?.mayRelaunch === true;
     },
   };
 }

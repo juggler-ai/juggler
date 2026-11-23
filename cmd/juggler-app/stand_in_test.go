@@ -197,6 +197,29 @@ func TestALocalWindowWhoseSessionIsLostBecomesItsStandIn(t *testing.T) {
 	}
 }
 
+// TestALocalWindowWhoseSessionNeedsARelaunchSaysSo: a local window whose
+// session stopped and could not start again because another build is installed
+// in the server's place becomes the relaunch's stand-in, not one offering a
+// Try again that only fails the same way.
+func TestALocalWindowWhoseSessionNeedsARelaunchSaysSo(t *testing.T) {
+	a := newTestAppState(t)
+	shown := viewsShown(t)
+	srv := newStubMachineServer(t, a, core.Version)
+	base := "http://" + srv.addr()
+	srv.list.Store(&[]machineserver.Session{{ID: "s9", Project: "/p", Link: stubLink("/p"), State: machineserver.SessionError, RelaunchNeeded: true}})
+	c, err := a.serverClient(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: base + strings.TrimSuffix(stubLink("/p"), "/"), server: procOf(c)}})
+	if !replaced(t, controlRequest(a, http.MethodPost, "/win/w1/server-lost")) {
+		t.Fatal("a window whose session needs a relaunch was not replaced")
+	}
+	if v := <-shown; v.id != "w1" || v.view.standIn == nil || v.view.standIn.kind != standInRelaunch {
+		t.Fatalf("w1 shows %+v, want the relaunch's stand-in", v.view.standIn)
+	}
+}
+
 // TestALocalWindowWhoseProjectMovedFollowsIt: a window whose session went
 // because its project's folder was moved (machineserver/relocate.go) is not
 // given its stand-in but shown the project where it went, on the session the
@@ -360,6 +383,7 @@ func TestStandInActionsBelongToStandIns(t *testing.T) {
 		{"w1", "retry-server"}, {"w1", "open-local"}, {"w1", "restart-server"}, {"w2", "restart-server"},
 		{"w1", "start-server"}, {"w2", "start-server"},
 		{"w1", "download-app"}, {"w2", "download-app"},
+		{"w1", "relaunch-server"}, {"w2", "relaunch-server"},
 	} {
 		if rec := controlRequest(a, http.MethodPost, "/win/"+c.id+"/"+c.action); rec.Code != http.StatusConflict {
 			t.Errorf("%s on %s: status = %d, want 409", c.action, c.id, rec.Code)
@@ -385,6 +409,7 @@ func TestEachStandInOffersItsWayOn(t *testing.T) {
 		{mismatchStandIn(&versionMismatchError{server: "v0.0.1"}), []string{"restart-server", "quit"}},
 		{brokenInstallStandIn(&versionMismatchError{server: "v0.0.1"}), []string{"download-app", "quit"}},
 		{brokenBinaryStandIn(errors.New("exec format error")), []string{"download-app", "retry-server", "quit"}},
+		{relaunchStandIn(&relaunchNeededError{}), []string{"relaunch-server", "quit"}},
 	} {
 		registerStandIn(a, "w7", windowSpec{project: "/p"}, c.si)
 		_, doc := standInPageOf(t, a, "w7")

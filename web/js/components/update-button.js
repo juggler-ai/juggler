@@ -3,7 +3,8 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 import wsService from '../services/websocket.js';
-import { getUpdaterState, startInstall } from '../services/updater-control.js';
+import { getUpdaterState, startInstall, requestRelaunch } from '../services/updater-control.js';
+import { showAlert, showConfirm } from './modal-dialog.js';
 import { fetchJson, bodyServerMessage } from '../services/http.js';
 import JugglerElement from './juggler-element.js';
 import { apiUrl } from '../utils/api-url.js';
@@ -17,10 +18,10 @@ import { escapeHtml } from '../../sdk/lib/html.js';
  *   1. The server-side version notice (`/api/update-status` + WS `update-status`)
  *      — present in every build, tells us an update exists and carries the
  *      notice content (title/html/actions) and latest version.
- *   2. The in-app auto-updater (macOS official builds only), reached over the
- *      loopback control endpoint (seed via op=state, live via the pushed
- *      `juggler:updater-status` event) — tells us downloading/verifying/ready
- *      state, progress, and the restart action.
+ *   2. The in-app auto-updater (published macOS and Windows builds), reached
+ *      over the loopback control endpoint (seed via op=state, live via the
+ *      pushed `juggler:updater-status` event) — tells us downloading/verifying/
+ *      ready state, progress, and the restart action.
  *
  * The button is hidden until one of the sources says an update matters, styles
  * itself to the live state (Update → Downloading… n% → Restart to update), and
@@ -28,8 +29,16 @@ import { escapeHtml } from '../../sdk/lib/html.js';
  * It never auto-opens the dialog — the only non-click opener is the app's
  * "Check for Updates…" menu, which fires `juggler:open-update-dialog`.
  *
- * In a browser tab, a free build, or a non-macOS build there is no updater, so
- * the button degrades to the server notice alone and never shows progress.
+ * In a browser tab, a free build, or a build with no updater, the button
+ * degrades to the server notice alone and never shows progress.
+ *
+ * When neither source has anything to show, the button can still offer a
+ * relaunch: the app found another build installed in place of the one it
+ * runs — a rebuild, or a release or package installed over it outside the
+ * updater (op=state's `relaunch`, re-read on the pushed
+ * `juggler:relaunch-offer` event). A click then relaunches the app straight
+ * away, confirming first if a conversation is working; there is no dialog,
+ * since nothing is downloaded or installed.
  */
 
 /** Updater states in which the button should be visible. */
@@ -48,6 +57,10 @@ class UpdateButton extends JugglerElement {
     this._wasVisible = false;
     /** @type {boolean} @private — proactively kicked the updater once already */
     this._autoKicked = false;
+    /** @type {import('../services/updater-control.js').RelaunchOffer|null} @private — the app's relaunch on offer */
+    this._relaunch = null;
+    /** @type {boolean} @private — a relaunch request is in flight */
+    this._relaunching = false;
     /** @type {number} @private — pending rAF handle for throttled renders */
     this._raf = 0;
     /** @type {HTMLButtonElement} @private — the pill (set in connectedCallback) */
@@ -68,7 +81,10 @@ class UpdateButton extends JugglerElement {
     this._btn = /** @type {HTMLButtonElement} */ (this.querySelector('.update-btn'));
     this._labelEl = /** @type {HTMLElement} */ (this.querySelector('.update-btn__label'));
     this._pctEl = /** @type {HTMLElement} */ (this.querySelector('.update-btn__pct'));
-    this.on(this._btn, 'click', () => this._openDialog());
+    this.on(this._btn, 'click', () => {
+      if (this._offersRelaunch(this._viewModel())) void this._doRelaunch();
+      else this._openDialog();
+    });
 
     // Source 1 — server version notice. Seed now and re-seed on every (re)connect.
     this._onWS('update-status', (data) => { this._server = data; this._scheduleRender(); });
@@ -83,6 +99,8 @@ class UpdateButton extends JugglerElement {
       if (detail && typeof detail === 'object') { this._updater = detail; this._scheduleRender(); }
     });
     this.onWindow('juggler:open-update-dialog', () => this._openDialog(true));
+    // The app's relaunch offer changed; it carries nothing, so read it again.
+    this.onWindow('juggler:relaunch-offer', () => { void this._seedUpdater(); });
 
     this._scheduleRender();
   }
@@ -127,6 +145,7 @@ class UpdateButton extends JugglerElement {
   _takeUpdater(state) {
     this._updater = state;
     if (typeof state.appManagedServer === 'boolean') this._appManagedServer = state.appManagedServer;
+    this._relaunch = state.relaunch || null;
     this._scheduleRender();
     if (state.openDialog) this._openDialog();
   }
@@ -183,6 +202,47 @@ class UpdateButton extends JugglerElement {
    */
   _isRelevant(vm) {
     return vm.serverUpdateAvailable || VISIBLE_STATES.has(vm.updaterState || '');
+  }
+
+  /**
+   * Whether the button offers the app's relaunch: there is one on offer, and
+   * no update to show, which comes first.
+   * @private
+   * @param {import('./update-notice.js').UpdateViewModel} vm
+   * @returns {boolean} True when a click relaunches the app.
+   */
+  _offersRelaunch(vm) {
+    return !!this._relaunch && !this._isRelevant(vm);
+  }
+
+  /**
+   * Relaunch the app, confirming first when the app answers that a
+   * conversation is working, and saying why when it could not. Once the app
+   * has taken the relaunch, the button stays inert while the app quits: a
+   * second click would ask for a second relaunch.
+   * @private
+   */
+  async _doRelaunch() {
+    if (this._relaunching) return;
+    this._relaunching = true;
+    let accepted = false;
+    try {
+      let res = await requestRelaunch({ force: false });
+      if (res.status === 'busy') {
+        const proceed = await showConfirm(
+          res.message || t('A conversation is still working. Relaunching will stop and discard it.'),
+          t('Relaunch Juggler?'),
+          { confirmText: t('Relaunch anyway'), cancelText: t('Keep working'), danger: true },
+        );
+        if (!proceed) return;
+        res = await requestRelaunch({ force: true });
+      }
+      if (res.status === 'error') await showAlert(res.message || t('Juggler could not relaunch.'), t('Relaunch failed'));
+      // status 'ok' quits the app; nothing more to do.
+      accepted = res.status === 'ok';
+    } finally {
+      if (!accepted) this._relaunching = false;
+    }
   }
 
   /**
@@ -250,10 +310,25 @@ class UpdateButton extends JugglerElement {
   render() {
     const vm = this._viewModel();
     this._maybeAutoKick(vm);
-    const visible = this._isRelevant(vm);
+    const relaunch = this._offersRelaunch(vm);
+    const visible = this._isRelevant(vm) || relaunch;
     this.hidden = !visible;
 
-    if (visible) {
+    if (relaunch) {
+      this._labelEl.textContent = t('Relaunch');
+      this._pctEl.textContent = '';
+      this._btn.classList.add('update-btn--ready');
+      this._btn.classList.remove('update-btn--progress', 'update-btn--error');
+      this._btn.style.setProperty('--update-pct', '0%');
+      this._btn.title = this._relaunch?.version
+        ? t('Juggler {version} is installed. Relaunch to use it.', { version: this._relaunch.version })
+        : t('A new build of Juggler is installed. Relaunch to use it.');
+      if (!this._wasVisible) {
+        this._btn.classList.add('update-btn--attention');
+        const clear = () => this._btn.classList.remove('update-btn--attention');
+        this._btn.addEventListener('animationend', clear, { once: true });
+      }
+    } else if (visible) {
       this._labelEl.textContent = this._label(vm);
       this._pctEl.textContent = this._pctText(vm);
       const st = vm.updaterState;

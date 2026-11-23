@@ -81,6 +81,8 @@ func RunTerminal(opts TerminalOptions) int {
 		switch {
 		case err == nil:
 			return 0
+		case errors.Is(err, ErrRelaunch):
+			return relaunch(opts.Stderr, false, relaunchHandoff(err))
 		case errors.As(err, new(badFlagError)):
 			fmt.Fprintf(opts.Stderr, "juggler: %v\n", err)
 			return 2
@@ -140,6 +142,9 @@ func attachTo(c *Client, opts TerminalOptions, in *bufio.Reader) (code int, agai
 			if ServerGoing(err) {
 				return 0, true
 			}
+			if RelaunchNeeded(err) {
+				return offerRelaunch(c, opts, in)
+			}
 			fmt.Fprintf(opts.Stderr, "juggler: %v\n", err)
 			return 1, false
 		}
@@ -188,6 +193,14 @@ func attachTo(c *Client, opts TerminalOptions, in *bufio.Reader) (code int, agai
 
 	select {
 	case <-a.Done():
+		// A server that relaunched is another build now, which this run,
+		// the same binary, is too once it relaunches after it.
+		if a.Relaunching() {
+			fmt.Fprintf(opts.Stdout, "The Juggler server at %s is relaunching from the build installed now; this terminal follows it.\n", page)
+			if _, ok := c.AwaitRelaunched(ConnectOptions{}); ok {
+				return relaunch(opts.Stderr, false, nil), false
+			}
+		}
 		fmt.Fprintf(opts.Stdout, "The Juggler server at %s has stopped.\n", page)
 		return 0, false
 	case <-opts.Signals:
@@ -249,6 +262,67 @@ func offerRestart(c *Client, opts TerminalOptions, in *bufio.Reader) (code int, 
 	fmt.Fprintf(opts.Stderr, "juggler: the Juggler server running here is %s; this is %s. "+
 		"Stop it with `juggler server stop`, then run juggler again. That stops:\n%s",
 		c.Build, ownBuild(), describeStops(occ))
+	return 1, false
+}
+
+// offerRelaunch answers a server that refused this run's session because
+// another build is installed in place of its own (RelaunchNeeded), which only
+// relaunching it takes up. One with no work running is relaunched without
+// asking (RelaunchIfQuiet), as it is about to relaunch itself. Any other is the
+// user's, as in offerRestart: a person at the terminal is told what a relaunch
+// stops and asked, and a yes relaunches it — unless it has come to hold more
+// meanwhile, when they are asked again. Otherwise the run is refused with the
+// way out. A server relaunched is followed as attachTo follows one: this run,
+// the build the server was, relaunches after it from the binary now
+// installed.
+func offerRelaunch(c *Client, opts TerminalOptions, in *bufio.Reader) (code int, again bool) {
+	failed := func(err error) (int, bool) {
+		if ServerGoing(err) {
+			return 0, true
+		}
+		fmt.Fprintf(opts.Stderr, "juggler: %v\n", err)
+		return 1, false
+	}
+	follow := func() (int, bool) {
+		fmt.Fprintf(opts.Stdout, "Relaunching the Juggler server at http://%s/ from the build installed now; this terminal follows it.\n", c.Addr())
+		if _, ok := c.AwaitRelaunched(ConnectOptions{}); !ok {
+			fmt.Fprintf(opts.Stderr, "juggler: the Juggler server stopped and did not come back; see %s\n", serveLogPath())
+			return 1, false
+		}
+		return relaunch(opts.Stderr, false, nil), false
+	}
+	relaunched, _, err := c.RelaunchIfQuiet()
+	switch {
+	case err != nil:
+		return failed(err)
+	case relaunched:
+		return follow()
+	}
+	occ, err := c.Occupancy()
+	if err != nil {
+		return failed(err)
+	}
+	for in != nil {
+		fmt.Fprintf(opts.Stdout, "Another build of Juggler is installed in place of the server running here, which opens no sessions until it is relaunched.\nRelaunching it stops:\n%sRelaunch it? [y/N]: ",
+			describeStops(occ))
+		answer, _ := in.ReadString('\n')
+		if a := strings.ToLower(strings.TrimSpace(answer)); a != "y" && a != "yes" {
+			break
+		}
+		var busy *OccupiedError
+		err := c.RelaunchIf(occ)
+		if errors.As(err, &busy) {
+			fmt.Fprintln(opts.Stdout, "It is in use beyond that now, so it was not relaunched.")
+			occ = busy.Now
+			continue
+		}
+		if err != nil {
+			return failed(err)
+		}
+		return follow()
+	}
+	fmt.Fprintf(opts.Stderr, "juggler: another build of Juggler is installed in place of the server running here, which opens no sessions until it is relaunched. "+
+		"Relaunch it with `juggler server relaunch`, then run juggler again. That stops:\n%s", describeStops(occ))
 	return 1, false
 }
 

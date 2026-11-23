@@ -1045,6 +1045,163 @@ export async function runTests() {
     }, { 'machine-sessions-stub': [template] });
   });
 
+  /**
+   * Give a stand-in control API a relaunch, which a quiet ask refuses while
+   * `running` says work runs, and an events stream the test pushes snapshots
+   * down (`push`).
+   * @param {any} api - From stubApi.
+   * @param {{conversations: number, tasks: number}|null} running - The work running.
+   * @returns {any} The same stand-in.
+   */
+  function withRelaunch(api, running) {
+    api.relaunch = async (/** @type {{quiet?: boolean}} */ o = {}) => {
+      api.calls.push(['relaunch', o.quiet === true]);
+      if (o.quiet && running) {
+        throw new ControlApiError(409, 'the Juggler server is in use, so it was not relaunched', null, { error: 'in use', running });
+      }
+    };
+    api.push = null;
+    api.events = async (/** @type {(snap: any) => void} */ onSnapshot, /** @type {AbortSignal} */ signal) => {
+      api.push = onSnapshot;
+      await new Promise((resolve) => { signal.addEventListener('abort', resolve); });
+    };
+    return api;
+  }
+
+  const local = { token: 't', version: 'v1.2.3', host: 'studio', local: true };
+  const banner = (/** @type {Element} */ root) => root.querySelector('.ms-banner-slot')?.textContent || '';
+
+  // A build installed in the server's place is said at the top of the page,
+  // with Relaunch server; a server with work running says what a relaunch
+  // stops, and relaunches only once the user agrees.
+  await test('another build installed is said, and relaunched once the user agrees to what it stops', async () => {
+    const api = withRelaunch(stubApi(sessions), { conversations: 1, tasks: 0 });
+    const m = await mount(api, { config: local });
+    try {
+      await waitFor(() => !!api.push, { description: 'the events stream followed' });
+      api.push({ sessions, recents: { paths: [], links: {}, waiting: {} }, installedBuild: 'v9.9.9', mayRelaunch: true });
+      await waitFor(() => banner(m.root).includes('v9.9.9'), { description: 'the build installed said' });
+      const go = /** @type {HTMLButtonElement|null} */ (m.root.querySelector('.ms-relaunch-go'));
+      assert(!!go, 'no Relaunch server on the banner');
+      go?.click();
+      await waitFor(() => !!m.root.querySelector('.ms-relaunch-anyway'), { description: 'what a relaunch stops, asked about' });
+      assert(banner(m.root).includes('A conversation is still working'), `the ask says ${JSON.stringify(banner(m.root))}`);
+      assert(JSON.stringify(api.calls.filter((c) => c[0] === 'relaunch')) === '[["relaunch",true]]', `relaunches asked ${JSON.stringify(api.calls)}`);
+      /** @type {HTMLButtonElement} */ (m.root.querySelector('.ms-relaunch-anyway')).click();
+      await waitFor(() => api.calls.some((c) => c[0] === 'relaunch' && c[1] === false), { description: 'the relaunch, whatever runs' });
+      await waitFor(() => banner(m.root).includes('Relaunching'), { description: 'the page says the server is relaunching' });
+    } finally {
+      m.dispose();
+    }
+  });
+
+  // A viewer that may not relaunch the server is told where it can be.
+  await test('a viewer that may not relaunch the server is told where it can be', async () => {
+    const api = withRelaunch(stubApi(sessions), null);
+    const m = await mount(api);
+    try {
+      await waitFor(() => !!api.push, { description: 'the events stream followed' });
+      api.push({ sessions, recents: { paths: [], links: {}, waiting: {} }, installedBuild: 'v9.9.9', mayRelaunch: false });
+      await waitFor(() => banner(m.root).includes('v9.9.9'), { description: 'the build installed said' });
+      assert(!m.root.querySelector('.ms-relaunch-go'), 'a viewer that may not relaunch was offered it');
+      assert(banner(m.root).includes('Allow it in Settings on the machine it runs on'), `the banner says ${JSON.stringify(banner(m.root))}`);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  const needing = {
+    id: 'eee', project: '/work/epsilon', link: '/p/epsilon-0123abcd/', state: 'error', busy: false, startedAt: '', relaunchNeeded: true,
+    error: 'Another build of Juggler is installed in place of the one this server runs. Relaunch the Juggler server to open sessions.',
+    message: { key: 'Another build of Juggler is installed in place of the one this server runs. Relaunch the Juggler server to open sessions.' },
+  };
+
+  // A session that failed for the build installed is opened again only by a
+  // relaunch, which its row offers instead of a retry that fails the same way.
+  await test('a session that needs a relaunch offers it, not a retry', async () => {
+    const api = withRelaunch(stubApi([needing]), null);
+    const m = await mount(api, { config: local });
+    try {
+      assert(parts(row(m.root, 'eee')).some((p) => p.includes('to relaunch')), `the row says ${JSON.stringify(parts(row(m.root, 'eee')))}`);
+      clickRow(row(m.root, 'eee'));
+      await waitFor(() => api.calls.some((c) => c[0] === 'relaunch'), { description: 'the relaunch asked for' });
+      assert(!api.calls.some((c) => c[0] === 'open'), `the project was opened again: ${JSON.stringify(api.calls)}`);
+      await waitFor(() => banner(m.root).includes('Relaunching'), { description: 'the page says the server is relaunching' });
+    } finally {
+      m.dispose();
+    }
+  });
+
+  // The server ends the stream saying it relaunches: the page says so, keeps
+  // saying it while the server is down, and loads again once the server that
+  // replaced it answers — which, minting a new token, refuses this page's.
+  await test('a relaunching server is waited for, and the page loads again from the one that replaced it', async () => {
+    const api = stubApi(sessions);
+    let tries = 0;
+    api.events = async (/** @type {(snap: any) => void} */ onSnapshot) => {
+      tries++;
+      if (tries === 1) {
+        onSnapshot({ sessions, recents: { paths: [], links: {}, waiting: {} } });
+        return 'relaunching';
+      }
+      if (tries === 2) throw new ControlApiError(0, 'Failed to fetch');
+      throw new ControlApiError(401, 'Unauthorized');
+    };
+    /** @type {(() => void)|null} */
+    let wake = null;
+    const sleep = () => new Promise((resolve) => { wake = () => resolve(undefined); });
+    let reloads = 0;
+    const m = await mount(api, { sleep, reload: () => { reloads++; } });
+    try {
+      await waitFor(() => tries === 1 && !!wake, { description: 'the stream ended for the relaunch' });
+      assert(banner(m.root).includes('Relaunching'), `the banner says ${JSON.stringify(banner(m.root))}`);
+      /** @type {() => void} */ (/** @type {unknown} */ (wake))();
+      await waitFor(() => tries === 2, { description: 'a try while the server is down' });
+      await nextTask();
+      assert(banner(m.root).includes('Relaunching') && !banner(m.root).includes('Can’t reach'), `while it is down the banner says ${JSON.stringify(banner(m.root))}`);
+      assert(reloads === 0, 'the page loaded again before the new server answered');
+      /** @type {() => void} */ (/** @type {unknown} */ (wake))();
+      await waitFor(() => reloads === 1, { description: 'the page loaded again from the new server' });
+    } finally {
+      m.dispose();
+    }
+  });
+
+  // A refused open's record says whether only a relaunch opens it.
+  await test('a refused open says when only a relaunch opens it', async () => {
+    const api = createControlApi({
+      token: 't',
+      fetchImpl: async () => /** @type {any} */ ({ ok: false, status: 502, statusText: 'Bad Gateway', text: async () => JSON.stringify(needing) }),
+    });
+    /** @type {any} */
+    let thrown = null;
+    try {
+      await api.openSession('/work/epsilon');
+    } catch (err) {
+      thrown = err;
+    }
+    assert(thrown instanceof ControlApiError && thrown.relaunchNeeded, `threw ${thrown}, relaunchNeeded ${thrown?.relaunchNeeded}`);
+    assert(thrown.serverMessage?.key === needing.message.key, `serverMessage ${JSON.stringify(thrown.serverMessage)}`);
+  });
+
+  await test('under en-XA the relaunch offer and its session speak the pseudo-locale', async () => {
+    await underPseudoLocale('machine-sessions-relaunch', async () => {
+      const api = withRelaunch(stubApi([needing]), null);
+      const m = await mount(api, { config: local });
+      try {
+        await waitFor(() => !!api.push, { description: 'the events stream followed' });
+        api.push({ sessions: [needing], recents: { paths: [], links: {}, waiting: {} }, installedBuild: '9.9', mayRelaunch: true });
+        await waitFor(() => banner(m.root).includes('9.9'), { description: 'the build installed said' });
+        const notice = m.root.querySelector('.ms-relaunch-text')?.textContent || '';
+        assert(isPseudoLocalized(notice), `the banner is not translated: ${JSON.stringify(notice)}`);
+        const status = parts(row(m.root, 'eee'))[0] || '';
+        assert(isPseudoLocalized(status), `the session's failure is not translated: ${JSON.stringify(status)}`);
+      } finally {
+        m.dispose();
+      }
+    });
+  });
+
   await test('recent projects open a session', async () => {
     const api = stubApi(sessions, ['/work/zeta']);
     const nav = stubNavigate();

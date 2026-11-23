@@ -55,6 +55,9 @@ type runningTunnel struct {
 	info     atomic.Pointer[tunnel.Info]
 	ready    chan struct{}
 	err      error
+	// resume is what the tunnel is started from (startTunnelFrom), "" for a
+	// fresh start: the link it serves until its provider says otherwise.
+	resume string
 }
 
 // publicHost is the Host its callers name: the host of its public URL.
@@ -96,6 +99,15 @@ func ingressOf(r *http.Request) (ingressTag, bool) {
 // so concurrent switches each act on what they saw, and starts of one mode
 // share one tunnel.
 func (s *Server) startTunnel(mode tunnel.Mode) (tunnel.Info, error) {
+	return s.startTunnelFrom(mode, "")
+}
+
+// startTunnelFrom is startTunnel for a relaunched server, whose previous
+// process handed on what served its tunnel's link (handoff.TunnelResume): a
+// provider of mode that can serve that link again (tunnel.Resumable) is
+// started from it, so a remote caller's link keeps working. One that cannot,
+// or fails to, opens afresh under a new link. "" is startTunnel.
+func (s *Server) startTunnelFrom(mode tunnel.Mode, resume string) (tunnel.Info, error) {
 	spec, err := startableMode(mode)
 	if err != nil {
 		return tunnel.Info{}, err
@@ -110,13 +122,13 @@ func (s *Server) startTunnel(mode tunnel.Mode) (tunnel.Info, error) {
 			continue
 		}
 		life, end := context.WithCancel(s.lifetime())
-		t := &runningTunnel{mode: mode, life: life, end: end, ready: make(chan struct{})}
+		t := &runningTunnel{mode: mode, life: life, end: end, ready: make(chan struct{}), resume: resume}
 		t.provider = spec.New(tunnelHost{s: s, t: t})
 		if !s.tunnel.CompareAndSwap(nil, t) {
 			end()
 			continue
 		}
-		info, err := t.provider.Start(life)
+		info, err := startProvider(t.provider, life, resume)
 		if err != nil {
 			s.tunnel.CompareAndSwap(t, nil)
 			end()
@@ -150,6 +162,57 @@ func (s *Server) startTunnel(mode tunnel.Mode) (tunnel.Info, error) {
 			}
 		}()
 		return info, nil
+	}
+}
+
+// startProvider starts p, from resume when it is given and p can serve the
+// link it names (startTunnelFrom), else afresh.
+func startProvider(p tunnel.Provider, ctx context.Context, resume string) (tunnel.Info, error) {
+	r, ok := p.(tunnel.Resumable)
+	if !ok || resume == "" {
+		return p.Start(ctx)
+	}
+	info, err := r.StartFrom(ctx, resume)
+	if err == nil {
+		return info, nil
+	}
+	if ctx.Err() != nil {
+		// Switched off, or the server is going: nothing to open afresh.
+		return tunnel.Info{}, err
+	}
+	jlog.Error("Tunnel: could not open it again under its link (%v); opening it under a new one", err)
+	return p.Start(ctx)
+}
+
+// releaseTunnel closes the running tunnel, if any, for a relaunch, and
+// returns its mode and what serves its link (tunnel.Resumable.Resume), for
+// the next process to open it from. A Resumable tunnel is released before its
+// life ends, since the end of its life closes it at once, and a release is a
+// clean close the link's far end acknowledges; any other is stopped.
+func (s *Server) releaseTunnel() (tunnel.Mode, string) {
+	for {
+		t := s.tunnel.Load()
+		if t == nil {
+			return "", ""
+		}
+		if !s.tunnel.CompareAndSwap(t, nil) {
+			continue
+		}
+		var resume string
+		if r, ok := t.provider.(tunnel.Resumable); ok {
+			// A tunnel released while it is still starting has no link of its
+			// provider's yet; the one it is being started from is still its own.
+			if resume = r.Resume(); resume == "" {
+				resume = t.resume
+			}
+			r.Release()
+		}
+		t.end()
+		t.provider.Stop()
+		if spec, ok := tunnel.Find(t.mode); ok {
+			jlog.Info("🔒 %s closed for the relaunch", spec.Title.English())
+		}
+		return t.mode, resume
 	}
 }
 

@@ -17,7 +17,7 @@
  * @module components/session-switcher
  */
 
-import { t } from '../../sdk/lib/i18n.js';
+import { serverText, t } from '../../sdk/lib/i18n.js';
 import {
   attentionCounts, baseName, initials, inLifecycle, lifecycleText, relative,
 } from '../utils/session-attention.js';
@@ -57,7 +57,8 @@ function chord(key) {
  * @property {(s: Session, o: {newWindow: boolean}) => void|Promise<unknown>} goSession - Go to an open session.
  * @property {(r: RecentItem, o: {newWindow: boolean}) => void|Promise<unknown>} openRecent - Open a recent project.
  * @property {(s: Session) => void|Promise<unknown>} stop - Stop a session, or dismiss a failed one.
- * @property {(s: Session) => void|Promise<unknown>} retry - Open a failed session's project again.
+ * @property {(s: Session) => void|Promise<unknown>} retry - Open a failed session's project again, or
+ *   relaunch the server for one that only a relaunch opens (Session.relaunchNeeded).
  * @property {() => Promise<string|null>} [pickFolder] - The host's folder chooser,
  *   which can make a folder too; the path picked, or null.
  * @property {(path: string, o: {create: boolean}) => void|Promise<unknown>} openPath - Open
@@ -179,12 +180,20 @@ export function cycleOrder(items) {
  * A session's status line, in parts: a running one's waits and failures in
  * their colours, whether it works (on what, where known) or idles, and how many
  * conversations it has; one between lives says which; a failed one says how,
- * and that ↵ retries it (a touch is told to tap). Dismissing it is the
- * footer's ⌘⌫, or on the server page the row's own button.
+ * and that ↵ retries it (a touch is told to tap) — or, for one that only a
+ * relaunch of the server opens again, that ↵ relaunches it. Dismissing it is
+ * the footer's ⌘⌫, or on the server page the row's own button.
  * @param {Session} s - The session.
  * @returns {StatusPart[]} The parts, in order.
  */
 export function statusParts(s) {
+  if (s.state === 'error' && s.relaunchNeeded) {
+    return [
+      { text: serverText(s.message, s.error || t('Stopped')), tone: 'failed' },
+      { text: t('↵ to relaunch'), only: 'desk' },
+      { text: t('tap to relaunch'), only: 'touch' },
+    ];
+  }
   if (s.state === 'error') {
     return [
       { text: s.error || t('Stopped'), tone: 'failed' },
@@ -1010,7 +1019,7 @@ export class SessionSwitcher {
     const parts = [];
     if (it?.kind === 'session') {
       if (this._confirmKey === it.key) parts.push(hint('↵', t('stop')), hint('esc', t('keep it')));
-      else if (it.session.state === 'error') parts.push(hint('↵', t('retry')), hint(chord('Backspace'), t('dismiss')));
+      else if (it.session.state === 'error') parts.push(hint('↵', it.session.relaunchNeeded ? t('relaunch') : t('retry')), hint(chord('Backspace'), t('dismiss')));
       else if (it.here) parts.push(hint('↵', t('stay here')), hint(chord('Backspace'), t('stop')));
       else if (it.elsewhere && this._inApp) parts.push(hint('↵', t('raise its window')), hint(chord('Backspace'), t('stop')));
       else parts.push(hint('↵', page ? t('open') : t('switch here')), hint(chord('Enter'), elsewhere), hint(chord('Backspace'), t('stop')));

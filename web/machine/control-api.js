@@ -93,12 +93,25 @@ export class ControlApiError extends Error {
    * @param {{key?: unknown, params?: unknown}|null} [serverMessage] - The
    *   message the server rendered `message` from, which errorText() shows
    *   translated; absent when the server sent text alone.
+   * @param {Record<string, unknown>|null} [body] - The refusal's JSON body, for
+   *   what else it says: a refused open's session record, a refused quiet
+   *   relaunch's work running; null for text.
    */
-  constructor(status, message, serverMessage = null) {
+  constructor(status, message, serverMessage = null, body = null) {
     super(message);
     this.name = 'ControlApiError';
     this.status = status;
     this.serverMessage = serverMessage;
+    this.body = body;
+  }
+
+  /**
+   * Whether the refusal is an open the server makes only once it is
+   * relaunched, into the build installed in its place.
+   * @returns {boolean} Whether a relaunch is needed.
+   */
+  get relaunchNeeded() {
+    return this.body?.relaunchNeeded === true;
   }
 }
 
@@ -122,7 +135,8 @@ export class ControlApiError extends Error {
  *   getLaunch: () => Promise<LaunchState>,
  *   setLaunch: (change: Partial<LaunchState>) => Promise<LaunchState>,
  *   getStatus: () => Promise<import('../js/components/connectivity/exposure-view.js').ServerStatus>,
- *   events: (onSnapshot: (snapshot: Snapshot) => void, signal: AbortSignal) => Promise<void>,
+ *   relaunch: (options?: {quiet?: boolean}) => Promise<void>,
+ *   events: (onSnapshot: (snapshot: Snapshot) => void, signal: AbortSignal) => Promise<'relaunching'|void>,
  *   request: (method: string, path: string, body?: unknown) => Promise<unknown>,
  * }} The calls the sessions page makes, and request, any other call under
  *   /api/server — a distribution's own routes there (sdk/lib/page-panels.js).
@@ -161,14 +175,17 @@ export function createControlApi({ token, base = '', fetchImpl = (input, init) =
       let message = text.trim();
       /** @type {{key?: unknown, params?: unknown}|null} */
       let serverMessage = null;
+      /** @type {Record<string, unknown>|null} */
+      let body = null;
       try {
         const parsed = JSON.parse(text);
+        if (parsed && typeof parsed === 'object') body = parsed;
         if (parsed && typeof parsed.error === 'string') message = parsed.error;
         if (parsed && parsed.message && typeof parsed.message === 'object') serverMessage = parsed.message;
       } catch {
         // plain text
       }
-      throw new ControlApiError(resp.status, message || resp.statusText, serverMessage);
+      throw new ControlApiError(resp.status, message || resp.statusText, serverMessage, body);
     }
     return text ? JSON.parse(text) : null;
   }
@@ -197,14 +214,19 @@ export function createControlApi({ token, base = '', fetchImpl = (input, init) =
     // The server's own status: its process, and whether the desktop app
     // started it.
     getStatus: async () => /** @type {import('../js/components/connectivity/exposure-view.js').ServerStatus} */ (await request('GET', '/status')),
+    // Relaunches the server into the build installed in its place, every
+    // session stopping with it; with quiet, only if no work runs in it, and
+    // refused (409) otherwise with the work that runs (relaunch-server.js).
+    relaunch: async ({ quiet = false } = {}) => { await request('POST', '/relaunch', quiet ? { quiet } : undefined); },
     // Any other call: path under /api/server, answered with the decoded JSON
     // body (null for none), refused with a ControlApiError as the rest are.
     request,
     // Follows the server's events stream, handing onSnapshot each snapshot
     // of the sessions and recents it sends, until the stream ends — which
-    // resolves — or signal aborts it. One that cannot be opened, or that
-    // breaks, rejects with a ControlApiError. Read with fetch rather than an
-    // EventSource, which could carry the token only in the address.
+    // resolves, with 'relaunching' when the server ended it to relaunch — or
+    // signal aborts it. One that cannot be opened, or that breaks, rejects
+    // with a ControlApiError. Read with fetch rather than an EventSource,
+    // which could carry the token only in the address.
     events: async (onSnapshot, signal) => {
       let resp;
       try {
@@ -216,14 +238,14 @@ export function createControlApi({ token, base = '', fetchImpl = (input, init) =
           signal,
         });
       } catch (err) {
-        if (signal.aborted) return;
+        if (signal.aborted) return undefined;
         throw new ControlApiError(0, extractErrorMessage(err));
       }
       if (!resp.ok || !resp.body) throw new ControlApiError(resp.status, resp.statusText);
       try {
-        await readSessionsStream(resp.body, onSnapshot);
+        return await readSessionsStream(resp.body, onSnapshot);
       } catch (err) {
-        if (signal.aborted) return;
+        if (signal.aborted) return undefined;
         throw new ControlApiError(0, extractErrorMessage(err));
       }
     },

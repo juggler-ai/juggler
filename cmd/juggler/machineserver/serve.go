@@ -16,12 +16,14 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/parentwatch"
 	"juggler/cmd/juggler/tunnel"
+	"juggler/internal/binwatch"
 	"juggler/internal/jlog"
 	"juggler/internal/portbind"
 	"juggler/internal/userpaths"
@@ -123,7 +125,8 @@ func RunCommand(args []string, assets fs.FS, peer Peer, extra ExtraRoutes, start
 		}
 	}
 
-	defer InitLogging(*verbose)()
+	closeLog := sync.OnceFunc(InitLogging(*verbose))
+	defer closeLog()
 	for _, note := range startupNotes {
 		jlog.Info("%s", note)
 	}
@@ -134,6 +137,11 @@ func RunCommand(args []string, assets fs.FS, peer Peer, extra ExtraRoutes, start
 	switch {
 	case err == nil:
 		return 0
+	case errors.Is(err, ErrRelaunch):
+		// The lock is let go by now; the log is closed here, since an exec
+		// runs no deferred call.
+		closeLog()
+		return relaunch(os.Stderr, *exitWithParent, relaunchHandoff(err))
 	case errors.As(err, &held):
 		if held.Existing != nil {
 			fmt.Fprintf(os.Stderr, "A machine server is already running: pid %d at %s (version %s).\n",
@@ -181,6 +189,9 @@ type ServeOptions struct {
 	Implicit bool
 	// StartedBy holds startup while this pid lives, until it attaches.
 	StartedBy int
+	// handoff is what the server this one replaces handed on, when this start
+	// is a relaunch (takeRelaunchHandoff); nil otherwise.
+	handoff *handoff
 	// TestChildren spawns every child as a test server (see Server.testChildren).
 	TestChildren bool
 	// ExitWithParent stops the server, as a signal would, once the process
@@ -239,7 +250,13 @@ type Foreground struct {
 // --test, so the harness never picks up a developer's real settings.json. A
 // saved mode this build lacks, or that cannot start here, opens nothing; it
 // stays saved, for the build or the helper that brings it back.
+//
+// A relaunched server opens instead what the server it replaced had open as
+// it stopped (opts.handoff), whatever the flags and settings say.
 func launchExposure(opts ServeOptions) (lan bool, mode tunnel.Mode) {
+	if h := opts.handoff; h != nil {
+		return h.LAN, h.Tunnel
+	}
 	lan, mode = opts.LAN, opts.Tunnel
 	if opts.TestChildren {
 		return lan, mode
@@ -280,6 +297,11 @@ func (e badFlagError) Unwrap() error { return e.err }
 func Serve(opts ServeOptions) error {
 	// From here the tunnel registry is read from request handlers.
 	tunnel.Seal()
+	// Taken before anything is spawned, so nothing inherits it, if the launch
+	// has not taken it already (TakeRelaunchHandoff).
+	if opts.handoff == nil {
+		opts.handoff = processHandoff()
+	}
 	allowed, err := resolveAllowedHosts(opts.AllowHosts, opts.TestChildren)
 	if err != nil {
 		return badFlagError{err}
@@ -311,6 +333,13 @@ func Serve(opts ServeOptions) error {
 	if err != nil {
 		return err
 	}
+	// Read once: the children are checked against it, and when they come from
+	// this server's own binary, watchInstalledBuild watches for another build
+	// than it — so the two can never disagree over a swap between two reads.
+	childBuild, err := binwatch.ReadID(bin)
+	if err != nil {
+		jlog.Info("[machineserver] session children go unchecked for their build: %v", err)
+	}
 
 	recents, err := core.NewRecentsStore()
 	if err != nil {
@@ -325,6 +354,7 @@ func Serve(opts ServeOptions) error {
 		themeMode:           settingsThemeMode,
 		lock:                lock,
 		childBin:            bin,
+		childBuild:          childBuild,
 		startedAt:           time.Now(),
 		shutdownReq:         make(chan struct{}, 1),
 		token:               token,
@@ -341,6 +371,10 @@ func Serve(opts ServeOptions) error {
 	}
 
 	s.rememberLeaving()
+	if h := opts.handoff; h != nil {
+		s.appStarted = h.AppStarted
+		s.holdFor(h.Holders)
+	}
 
 	// Listen for stop requests before anything can take long, so a Ctrl-C
 	// while the first session spawns is a stop, not lost.
@@ -368,6 +402,9 @@ func Serve(opts ServeOptions) error {
 	s.httpSrv = &http.Server{Handler: s.routes(), ReadHeaderTimeout: 10 * time.Second}
 
 	fg := opts.Foreground
+	if fg != nil {
+		s.notice = fg.Out
+	}
 	if fg == nil {
 		// Same startup handshake as a session child, so anything that can read
 		// a spawned juggler's address can read the machine server's too.
@@ -389,8 +426,14 @@ func Serve(opts ServeOptions) error {
 	go func() { errCh <- s.httpSrv.Serve(ln) }()
 	if openMode != "" {
 		// Off the startup path: a tunnel can take seconds to come up, and the
-		// server serves this machine meanwhile. A failure is logged.
-		go func() { _, _ = s.startTunnel(openMode) }()
+		// server serves this machine meanwhile. A failure is logged. A
+		// relaunched server opens it under the link the previous process's
+		// had, when it can (startTunnelFrom).
+		var resume string
+		if h := opts.handoff; h != nil && h.Tunnel == openMode {
+			resume = h.TunnelResume
+		}
+		go func() { _, _ = s.startTunnelFrom(openMode, resume) }()
 	}
 
 	// Why a foreground server's open for its terminal failed, if it did.
@@ -415,33 +458,39 @@ func Serve(opts ServeOptions) error {
 	}
 
 	serveListening(s)
+	go s.watchInstalledBuild()
+	go s.autoRelaunch()
 
 	beats := time.NewTicker(attachCheckEvery)
 	defer beats.Stop()
 	go s.watchAttachments(beats.C)
 
 	var failed error
+	// Whether this shutdown is a relaunch: decided once, here, and final but
+	// for a stop that overrides it during the drain (stopDuringRelaunch).
+	relaunch := false
 	select {
 	case got := <-sig:
-		jlog.Info("serve: received %v — shutting down", got)
-		if fg != nil {
-			fmt.Fprintln(fg.Out, s.stopNotice(fg.Project))
-		}
+		// A stop wins over a relaunch asked for but not yet begun.
+		s.ending.stop()
+		s.stopOnSignal(got, fg)
 		go forceQuitOnThirdSignal(sig)
 	case <-parentGone:
-		jlog.Info("serve: the process that started this server is gone — shutting down")
-		// Nobody is left to send a second signal, so a stop that wedges ends
-		// the process instead; the children die with it (childcontain).
-		time.AfterFunc(parentGoneStopLimit, func() {
-			jlog.Error("serve: stop did not finish within %v of the parent's exit — exiting anyway", parentGoneStopLimit)
-			os.Exit(1)
-		})
+		s.ending.stop()
+		s.stopOnParentGone()
 	case <-s.shutdownReq:
 		jlog.Info("serve: shutting down")
+		relaunch = s.ending.settle()
 		select {
 		case failed = <-fgErr:
 		default:
-			if fg != nil {
+			switch {
+			case fg == nil:
+			case relaunch && s.autoRelaunching.Load():
+				fmt.Fprintln(fg.Out, "Relaunching the Juggler server from the build installed now: nothing was running in it.")
+			case relaunch:
+				fmt.Fprintln(fg.Out, "Relaunching the Juggler server from the build installed now: another client asked it to.")
+			default:
 				fmt.Fprintln(fg.Out, "Stopping the Juggler server: another client asked it to stop.")
 			}
 		}
@@ -456,6 +505,14 @@ func Serve(opts ServeOptions) error {
 	// open whose child is in its handshake gives up rather than holding the
 	// drain; stop accepting; drain the children and wait for their
 	// supervisors; release the machine lock last (the deferred Release above).
+	// A relaunch hands on what it holds first (stopToRelaunch).
+	var carry handoff
+	if relaunch {
+		drained := make(chan struct{})
+		defer close(drained)
+		go s.stopDuringRelaunch(sig, parentGone, fg, drained)
+		carry = s.stopToRelaunch()
+	}
 	s.endLifetime()
 	s.stopTunnel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -465,8 +522,49 @@ func Serve(opts ServeOptions) error {
 	}
 	s.closeIngress()
 	s.stopAllChildren()
+	if failed == nil && relaunch && s.ending.relaunching() {
+		jlog.Info("serve: all sessions stopped — relaunching")
+		return &relaunchError{handoff: carry}
+	}
 	jlog.Info("serve: all sessions stopped — bye")
 	return failed
+}
+
+// stopOnSignal begins the stop a signal asks for.
+func (s *Server) stopOnSignal(got os.Signal, fg *Foreground) {
+	jlog.Info("serve: received %v — shutting down", got)
+	if fg != nil {
+		fmt.Fprintln(fg.Out, s.stopNotice(fg.Project))
+	}
+}
+
+// stopOnParentGone begins the stop serve --exit-with-parent makes once the
+// process that started the server is gone. Nobody is left to send a second
+// signal, so a stop that wedges ends the process instead; the children die
+// with it (childcontain).
+func (s *Server) stopOnParentGone() {
+	jlog.Info("serve: the process that started this server is gone — shutting down")
+	time.AfterFunc(parentGoneStopLimit, func() {
+		jlog.Error("serve: stop did not finish within %v of the parent's exit — exiting anyway", parentGoneStopLimit)
+		os.Exit(1)
+	})
+}
+
+// stopDuringRelaunch turns a relaunch under way into a stop when a signal or
+// the parent's exit (serve --exit-with-parent) comes before it has drained,
+// as either would have stopped the server before; the drain goes on, and
+// Serve ends it as a stop. It returns once drained closes.
+func (s *Server) stopDuringRelaunch(sig <-chan os.Signal, parentGone <-chan struct{}, fg *Foreground, drained <-chan struct{}) {
+	select {
+	case got := <-sig:
+		s.ending.stop()
+		s.stopOnSignal(got, fg)
+		go forceQuitOnThirdSignal(sig)
+	case <-parentGone:
+		s.ending.stop()
+		s.stopOnParentGone()
+	case <-drained:
+	}
 }
 
 // parentGoneStopLimit bounds the stop that serve --exit-with-parent begins when

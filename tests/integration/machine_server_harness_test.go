@@ -110,8 +110,13 @@ func configDirUnder(home string) string {
 // and enforce the per-instance API token.
 func startMachineServer(t *testing.T, serveArgs ...string) (*machineServer, func()) {
 	t.Helper()
-	iso := newIsolatedRun(t)
+	return startMachineServerIn(t, newIsolatedRun(t), serveArgs...)
+}
 
+// startMachineServerIn is startMachineServer under iso, whose binary the
+// caller may have pointed elsewhere (a copy it goes on to replace).
+func startMachineServerIn(t *testing.T, iso isolatedRun, serveArgs ...string) (*machineServer, func()) {
+	t.Helper()
 	cmd := exec.Command(iso.binary, append([]string{"serve", "--port", "0", "--exit-with-parent"}, serveArgs...)...)
 	cmd.Env = iso.env
 	helpers.SetProcGroupAttr(cmd)

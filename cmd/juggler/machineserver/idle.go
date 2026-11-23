@@ -23,11 +23,13 @@ func (s *Server) attach() (detach func()) {
 }
 
 // heldUp counts only local client processes, including the starter until that
-// process attaches or dies. Network exposure, viewers and turns hold nothing.
+// process attaches or dies, and likewise the clients of the server this one
+// replaced in a relaunch (holdFor). Network exposure, viewers and turns hold
+// nothing.
 func (s *Server) heldUp() bool {
-	// Read the startup hold first: its transfer increments attached before
-	// releasing starterGone, so a check sees at least one side of the hold.
-	return (s.starter > 0 && !s.starterGone.Load()) || s.attached.Load() > 0
+	// Read the startup holds first: their transfer increments attached before
+	// releasing them, so a check sees at least one side of the hold.
+	return (s.starter > 0 && !s.starterGone.Load()) || s.holding.Load() > 0 || s.attached.Load() > 0
 }
 
 func (s *Server) shutdownIfUnheld() {
@@ -36,12 +38,14 @@ func (s *Server) shutdownIfUnheld() {
 	}
 }
 
-// check follows attachments and the starter's liveness on each server tick.
+// check follows attachments and the startup holds' liveness on each server
+// tick.
 func (s *Server) check() {
 	s.checkAttachments()
 	s.expireUnavailable(time.Now())
 	if s.starter > 0 && !s.starterGone.Load() && !processAlive(s.starter) {
 		s.starterGone.Store(true)
 	}
+	s.releaseExitedHolders()
 	s.shutdownIfUnheld()
 }

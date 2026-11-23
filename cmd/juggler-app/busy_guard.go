@@ -152,6 +152,19 @@ func restartBusyMessage(q quitStops) msg.Message {
 	}
 }
 
+// relaunchBusyMessage is the relaunch prompt's body for what relaunching into
+// the build now installed would stop; the page shows it (controlRelaunch).
+func relaunchBusyMessage(q quitStops) msg.Message {
+	switch {
+	case q.tasks == 0:
+		return msg.New("{n, plural, one {A conversation is still working. Relaunching will stop and discard it.} other {# conversations are still working. Relaunching will stop and discard them.}}", "n", q.conversations)
+	case q.conversations == 0:
+		return msg.New("{n, plural, one {A background task is still running. Relaunching will stop it.} other {# background tasks are still running. Relaunching will stop them.}}", "n", q.tasks)
+	default:
+		return msg.New("{conversations, plural, one {A conversation is still working} other {# conversations are still working}} and {tasks, plural, one {a background task is running} other {# background tasks are running}}. Relaunching will stop them all.", "conversations", q.conversations, "tasks", q.tasks)
+	}
+}
+
 // confirmDiscard shows a modal question dialog and blocks (on its own goroutine)
 // until the user answers. The safe choice ("Keep working") is both the default
 // and the cancel action, so an accidental Return or Escape never discards work.

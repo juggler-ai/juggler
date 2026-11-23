@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -40,6 +41,10 @@ const helperHangEnv = "JUGGLER_MACHINESERVER_HELPER_HANG"
 // retirement request is answered like any other, which refuses it.
 const helperRetireEnv = "JUGGLER_MACHINESERVER_HELPER_RETIRE"
 
+// helperOtherBuildEnv, set to 1, makes the stand-in child exit at once with
+// ExitOtherBuild, as a child of another build than its server's does.
+const helperOtherBuildEnv = "JUGGLER_MACHINESERVER_HELPER_OTHER_BUILD"
+
 // TestHelperSessionChild is not a test: it is the session child that
 // spawnHelperChildren execs, this test binary run again with helperChildEnv
 // set. It does what a child must for spawnChild — prints JUGGLER_ADDR= once it
@@ -47,10 +52,13 @@ const helperRetireEnv = "JUGGLER_MACHINESERVER_HELPER_RETIRE"
 // environment gave it and the ingress header the request carried. GET
 // /exit/<code> makes it answer, then exit with that code, as a crash (non-zero)
 // or a deliberate shutdown (0) would. With helperHangEnv set it never gets as
-// far as listening.
+// far as listening, and with helperOtherBuildEnv it exits before it starts.
 func TestHelperSessionChild(t *testing.T) {
 	if os.Getenv(helperChildEnv) != "1" {
 		t.Skip("run only as the stand-in session child")
+	}
+	if os.Getenv(helperOtherBuildEnv) == "1" {
+		os.Exit(ExitOtherBuild)
 	}
 	if addr := os.Getenv(helperHangEnv); addr != "" {
 		conn, err := net.Dial("tcp", addr) //nolint:gosec // the test's own loopback listener
@@ -66,7 +74,29 @@ func TestHelperSessionChild(t *testing.T) {
 		os.Exit(1)
 	}
 	fmt.Printf("JUGGLER_ADDR=%s\n", ln.Addr())
-	_ = http.Serve(ln, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// An exit asked for over a connection happens once this server has closed
+	// that connection, after the whole answer: exiting sooner resets it, and
+	// on Windows a reset discards what the caller has not read yet — the
+	// answer itself, on a busy machine.
+	var exitOn sync.Map // net.Conn -> exit code
+	exitAfterAnswer := func(w http.ResponseWriter, r *http.Request, code int) {
+		exitOn.Store(r.Context().Value(helperConnKey{}), code)
+		w.Header().Set("Connection", "close")
+		w.Header().Set("Content-Length", "0")
+		w.WriteHeader(http.StatusAccepted)
+	}
+	srv := &http.Server{
+		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
+			return context.WithValue(ctx, helperConnKey{}, c)
+		},
+		ConnState: func(c net.Conn, state http.ConnState) {
+			if code, ok := exitOn.Load(c); ok && state == http.StateClosed {
+				os.Exit(code.(int))
+			}
+		},
+		ReadHeaderTimeout: time.Minute,
+	}
+	srv.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if hold := os.Getenv(helperRetireEnv); hold != "" && r.URL.Path == apipaths.HealthRetire {
 			if f, err := os.OpenFile(hold, os.O_APPEND|os.O_WRONLY, 0); err == nil {
 				_, _ = f.WriteString("asked\n")
@@ -74,22 +104,12 @@ func TestHelperSessionChild(t *testing.T) {
 				w.WriteHeader(http.StatusConflict)
 				return
 			}
-			w.WriteHeader(http.StatusAccepted)
-			w.(http.Flusher).Flush()
-			go func() {
-				time.Sleep(20 * time.Millisecond)
-				os.Exit(0)
-			}()
+			exitAfterAnswer(w, r, 0)
 			return
 		}
 		if code, ok := strings.CutPrefix(r.URL.Path, "/exit/"); ok {
 			n, _ := strconv.Atoi(code)
-			w.WriteHeader(http.StatusAccepted)
-			w.(http.Flusher).Flush()
-			go func() {
-				time.Sleep(20 * time.Millisecond)
-				os.Exit(n)
-			}()
+			exitAfterAnswer(w, r, n)
 			return
 		}
 		_ = json.NewEncoder(w).Encode(helperReport{
@@ -103,9 +123,13 @@ func TestHelperSessionChild(t *testing.T) {
 			BundleID:           os.Getenv("__CFBundleIdentifier"),
 			XPCJob:             os.Getenv("XPC_SERVICE_NAME"),
 		})
-	}))
+	})
+	_ = srv.Serve(ln)
 	os.Exit(0)
 }
+
+// helperConnKey keys the stand-in child's connection in its requests' context.
+type helperConnKey struct{}
 
 // helperReport is what the stand-in child answers.
 type helperReport struct {

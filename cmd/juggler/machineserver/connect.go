@@ -366,27 +366,42 @@ func (c *Client) sendWith(hc *http.Client, method, path string, body, out any) (
 }
 
 // refusalError is a control-API refusal: its status, and what it says. A
-// refused conditional shutdown also says what the server holds (occupancy).
+// refused conditional shutdown also says what the server holds (occupancy); a
+// refused quiet relaunch, the work that runs (busy); a refused open, whether
+// only a relaunch can open it (relaunchNeeded).
 type refusalError struct {
-	status    int
-	text      string
-	occupancy *Occupancy
+	status         int
+	text           string
+	occupancy      *Occupancy
+	busy           *BusyWork
+	relaunchNeeded bool
 }
 
 func (e *refusalError) Error() string { return e.text }
 
 // responseError is the error a control-API refusal says: the error field of
-// its JSON body, or the body itself.
+// its JSON body, or the body itself. A refused open's body is the session's
+// record, whose error field says why.
 func responseError(resp *http.Response) error {
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	var body struct {
-		Error     string     `json:"error"`
-		Occupancy *Occupancy `json:"occupancy"`
+		Error          string     `json:"error"`
+		Occupancy      *Occupancy `json:"occupancy"`
+		Running        *BusyWork  `json:"running"`
+		RelaunchNeeded bool       `json:"relaunchNeeded"`
 	}
 	if json.Unmarshal(data, &body) == nil && body.Error != "" {
-		return &refusalError{status: resp.StatusCode, text: body.Error, occupancy: body.Occupancy}
+		return &refusalError{status: resp.StatusCode, text: body.Error, occupancy: body.Occupancy, busy: body.Running, relaunchNeeded: body.RelaunchNeeded}
 	}
 	return &refusalError{status: resp.StatusCode, text: strings.TrimSpace(string(data))}
+}
+
+// RelaunchNeeded reports whether err is the server's refusal to open a
+// session whose child is another build than the server's: one only relaunching
+// the server takes up.
+func RelaunchNeeded(err error) bool {
+	var r *refusalError
+	return errors.As(err, &r) && r.relaunchNeeded
 }
 
 // ErrServerSlow is a call the server did not answer within the client's

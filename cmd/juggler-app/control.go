@@ -326,11 +326,11 @@ func anyRequest(*http.Request) bool { return true }
 //
 // Refused it, as app-wide or on this machine's files: locale (the app's
 // language and menus), zoom (the next window's zoom), folder-dropped,
-// pick-directory and pick-file (they answer with a local path), updater,
-// switch-server and discover (choosing another server to show), and the
-// stand-in actions retry-server, check-server, start-server,
-// restart-server, open-local, open-in-browser and download-app, which no page
-// of another server shows.
+// pick-directory and pick-file (they answer with a local path), updater and
+// relaunch (they quit the app), switch-server and discover (choosing another
+// server to show), and the stand-in actions retry-server, check-server,
+// start-server, restart-server, open-local, open-in-browser and download-app,
+// which no page of another server shows.
 var windowActions = map[string]controlAction{
 	"theme":          {handle: (*appState).controlTheme, remote: anyRequest},
 	"title":          {handle: (*appState).controlTitle, remote: anyRequest},
@@ -354,6 +354,7 @@ var windowActions = map[string]controlAction{
 		a.controlPickPath(w, r, e, "pick-file")
 	}},
 	"updater":         {handle: (*appState).handleUpdaterControl},
+	"relaunch":        {handle: (*appState).controlRelaunch},
 	"switch-server":   {handle: (*appState).controlSwitchServer, refusal: &connectFromURLWindowRefusal},
 	"discover":        {handle: (*appState).controlDiscover, refusal: &connectFromURLWindowRefusal},
 	"quit":            {handle: (*appState).controlQuit, remote: anyRequest},
@@ -361,6 +362,7 @@ var windowActions = map[string]controlAction{
 	"check-server":    {handle: (*appState).controlCheckServer},
 	"start-server":    {handle: (*appState).controlStartServer},
 	"restart-server":  {handle: (*appState).controlRestartServer},
+	"relaunch-server": {handle: (*appState).controlRelaunchServer},
 	"open-local":      {handle: (*appState).controlOpenLocal},
 	"open-in-browser": {handle: (*appState).controlOpenInBrowser},
 	"download-app":    {handle: (*appState).controlDownloadApp},
@@ -1160,6 +1162,10 @@ type updaterStateResponse struct {
 	// — restarting the app won't update it, and the page scopes its messaging
 	// accordingly (edge case 18).
 	AppManagedServer bool `json:"appManagedServer"`
+	// Relaunch is the relaunch on offer, when the binaries this app launched
+	// from are another build now (binary_watch.go); the page offers it unless
+	// the updater has something of its own to show.
+	Relaunch *relaunchOffer `json:"relaunch,omitempty"`
 }
 
 // handleUpdaterControl serves /win/<id>/updater?op=state|install|check|cancel|restart.
@@ -1174,7 +1180,7 @@ func (a *appState) handleUpdaterControl(w http.ResponseWriter, r *http.Request, 
 		snap := updaterSnapshot()
 		v := a.viewOf(e)
 		managed := v.standIn == nil && (!v.spec.isURL() || v.framed != "")
-		writeJSON(w, http.StatusOK, updaterStateResponse{UpdaterSnapshot: snap, AppManagedServer: managed})
+		writeJSON(w, http.StatusOK, updaterStateResponse{UpdaterSnapshot: snap, AppManagedServer: managed, Relaunch: a.relaunchOffer.Load()})
 	case "install":
 		// Fire-and-forget; the overlay guards against a double-start itself. The
 		// page learns the outcome from the pushed snapshot, not this response.
@@ -1203,48 +1209,103 @@ func (a *appState) handleUpdaterControl(w http.ResponseWriter, r *http.Request, 
 	}
 }
 
-// handleUpdaterRestart relaunches into the staged update. It first re-checks
-// the sessions running a turn and the background tasks running, which the
-// restart will stop (the exact tally confirmThenQuit does) and, unless force=1,
-// returns 409 with both counts so the page can confirm the discard and re-POST
-// with force=1.
+// handleUpdaterRestart relaunches into the staged update, as quitInto.
+func (a *appState) handleUpdaterRestart(w http.ResponseWriter, r *http.Request) {
+	a.quitInto(w, r, "updater: restart", restartBusyMessage, updaterRestart)
+}
+
+// controlRelaunch serves /win/<id>/relaunch: it quits this app and starts it
+// again from the binary now at its path (relaunchApp), as quitInto. The page
+// offers it when that binary is another build than the one running.
+func (a *appState) controlRelaunch(w http.ResponseWriter, r *http.Request, _ *winEntry) {
+	a.quitInto(w, r, "relaunch", relaunchBusyMessage, func() error { return relaunchApp(a) })
+}
+
+// quitInto quits the app into whatever start launches next: the staged update,
+// or this app again. It first re-checks the sessions running a turn and the
+// background tasks running, which the quit will stop (the exact tally
+// confirmThenQuit does) and, unless force=1, returns 409 with both counts and
+// busy's wording of them, so the page can confirm the discard and re-POST with
+// force=1.
 //
 // CRITICAL sequencing: it authorises the quit (st.quitting + notify pages)
-// BEFORE calling updaterRestart(). updaterRestart spawns the swap helper and
-// then dispatches Host.Quit(); without a pre-authorised quit the
+// BEFORE calling start. start launches what comes next — the updater's swap
+// helper, or the next launch of this app, which waits for this one to exit —
+// and then dispatches Host.Quit(); without a pre-authorised quit the
 // shouldQuitLater hook would hold that quit and show its own native confirm —
-// double-prompting, and
-// worse, leaving the already-spawned helper alive to swap the bundle at whatever
-// later moment the app eventually quits. On failure it un-authorises the quit so
-// the app keeps running and the page can surface the reason.
-func (a *appState) handleUpdaterRestart(w http.ResponseWriter, r *http.Request) {
+// double-prompting, and worse, leaving what start launched waiting for
+// whatever later moment the app eventually quits. On failure it un-authorises
+// the quit so the app keeps running and the page can surface the reason.
+func (a *appState) quitInto(w http.ResponseWriter, r *http.Request, what string, busy func(quitStops) msg.Message, start func() error) {
 	if r.URL.Query().Get("force") != "1" {
 		if stops := a.whatAQuitStops(); stops.any() {
 			writeJSON(w, http.StatusConflict, map[string]any{
 				"busy":            stops.conversations,
 				"backgroundTasks": stops.tasks,
-				"message":         restartBusyMessage(stops).English(),
-				"messageText":     restartBusyMessage(stops),
+				"message":         busy(stops).English(),
+				"messageText":     busy(stops),
 			})
 			return
 		}
 	}
 
-	// Authorise the quit before the updater dispatches it (see the doc comment).
-	// notifyAllWindowsCloseRequested also flushes page-owned workspace state so
-	// windows/projects restore after the relaunch.
-	a.reg(func(st *regState) { st.quitting = true })
-	a.notifyAllWindowsCloseRequested()
-
-	if err := updaterRestart(); err != nil {
-		// Restart failed — nothing was relaunched. Roll back the authorisation so
-		// the app stays runnable and hand the reason to the page.
-		a.reg(func(st *regState) { st.quitting = false })
-		logf("updater: restart: %v", err)
+	if err := a.authoriseQuitInto(start); err != nil {
+		logf("%s: %v", what, err)
 		writeMessageErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// authoriseQuitInto authorises the app's quit, then has start dispatch it
+// (see quitInto). A start that fails launched nothing: the authorisation it
+// gave is rolled back, so the app stays runnable, and its error returned — but
+// not one given before it, by a quit the user had begun (confirmThenQuit).
+//
+// One start at a time: while one is under way — it succeeded, and the app is
+// on its way out into what it launched — another is answered as begun without
+// running, so a second click launches nothing more, and cannot withdraw the
+// authorisation the first one's quit relies on.
+func (a *appState) authoriseQuitInto(start func() error) error {
+	return a.quitIntoOnce(start, false)
+}
+
+// authoriseQuitIntoUnlessQuitting is authoriseQuitInto for a start the app
+// makes on its own (follow): a quit already authorised — the user's, or another
+// start's — wins, and it runs nothing (errAppQuitting).
+func (a *appState) authoriseQuitIntoUnlessQuitting(start func() error) error {
+	return a.quitIntoOnce(start, true)
+}
+
+func (a *appState) quitIntoOnce(start func() error, unlessQuitting bool) error {
+	var underWay, refused, before bool
+	a.reg(func(st *regState) {
+		underWay = st.quittingInto
+		refused = !underWay && unlessQuitting && st.quitting
+		if underWay || refused {
+			return
+		}
+		before = st.quitting
+		// Authorise the quit before start dispatches it.
+		st.quitting, st.quittingInto = true, true
+	})
+	switch {
+	case underWay:
+		return nil
+	case refused:
+		return errAppQuitting
+	}
+	// notifyAllWindowsCloseRequested also flushes page-owned workspace state so
+	// windows/projects restore after the relaunch.
+	a.notifyAllWindowsCloseRequested()
+	if err := start(); err != nil {
+		a.reg(func(st *regState) {
+			st.quittingInto = false
+			st.quitting = before
+		})
+		return err
+	}
+	return nil
 }
 
 // writeMessageErr writes the error envelope the page decodes

@@ -34,6 +34,7 @@ func main() {
 	project := flag.String("project", "", "Project folder whose session the first window shows (ignored when --url is given).")
 	verbose := flag.Bool("verbose", false, "Verbose logging and the dev View menu (reload, devtools).")
 	dev := flag.Bool("dev", false, "Enable dev mode: web inspector + the full right-click menu, and the dev View menu.")
+	after := flag.Int("after", 0, "Wait for the process with this id to exit before starting: a relaunch names the launch it replaces.")
 	flag.Parse()
 
 	devMode := 0
@@ -43,6 +44,14 @@ func main() {
 	initAppLogging()
 	defer jlog.Close()
 	logf("start: version=%s window-protocol=%d url=%q project=%q args=%v", core.Version, windowProtocol, *urlFlag, *project, os.Args)
+	// A relaunch (relaunch.go): the launch it replaces still holds the
+	// single-instance lock until it exits, and initApplication below would hand
+	// this launch's argv to it and exit.
+	if *after > 0 {
+		logf("start: waiting for pid %d, the launch this one replaces, to exit", *after)
+		waitForExit(*after)
+		logf("start: pid %d has exited", *after)
+	}
 	// Before any GTK/WebKit init: on a Linux host that blocks the unprivileged
 	// user namespaces WebKitGTK's bwrap sandbox needs, disable that sandbox so
 	// the window can come up instead of aborting with a cgo SIGTRAP. No-op off

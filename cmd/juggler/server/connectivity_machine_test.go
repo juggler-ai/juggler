@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"juggler/internal/basepath"
+	"juggler/internal/ingress"
 )
 
 // TestSessionRelaysOpenStopAndFolders: a project page's switcher opens and
@@ -86,6 +87,48 @@ func TestStoppingItsOwnSessionAnswersAtOnce(t *testing.T) {
 	}
 }
 
+// TestARelaunchIsRelayedForWhoAsked: a project page asks for the machine
+// server's relaunch through its child, which passes it on with the control
+// token — and, for a viewer off this machine, says so, since the machine
+// server sees every call from here as this machine's and would otherwise let a
+// remote viewer relaunch it whether or not this machine allows that. The
+// answer comes back as it stands.
+func TestARelaunchIsRelayedForWhoAsked(t *testing.T) {
+	type asked struct{ path, token, body, forRemote string }
+	got := make(chan asked, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		got <- asked{r.URL.Path, r.Header.Get("X-Juggler-Token"), string(b), r.Header.Get(ingress.ForRemoteViewerHeader)}
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, `{"error":"off"}`)
+	}))
+	t.Cleanup(srv.Close)
+	s := connectivityServer(t, strings.TrimPrefix(srv.URL, "http://"))
+	for _, c := range []struct {
+		name      string
+		req       *http.Request
+		forRemote string
+	}{
+		{"a viewer on this machine", localRequest(http.MethodPost, "/api/machine/relaunch", `{"expect":{}}`), ""},
+		{"a viewer off it", remoteRequest(http.MethodPost, "/api/machine/relaunch", `{"expect":{}}`), "1"},
+	} {
+		rec := httptest.NewRecorder()
+		s.router.ServeHTTP(rec, c.req)
+		if rec.Code != http.StatusForbidden || rec.Body.String() != `{"error":"off"}` {
+			t.Errorf("%s: %d %s, want the machine server's answer as it stands", c.name, rec.Code, rec.Body.String())
+		}
+		select {
+		case a := <-got:
+			want := asked{"/api/server/relaunch", "control-token", `{"expect":{}}`, c.forRemote}
+			if a != want {
+				t.Errorf("%s: machine server got %+v, want %+v", c.name, a, want)
+			}
+		default:
+			t.Errorf("%s: the relaunch never reached the machine server", c.name)
+		}
+	}
+}
+
 // TestTheRelayIsAbsentWithoutAMachineServer: a session run on its own has no
 // machine to open or stop sessions on.
 func TestTheRelayIsAbsentWithoutAMachineServer(t *testing.T) {
@@ -94,6 +137,7 @@ func TestTheRelayIsAbsentWithoutAMachineServer(t *testing.T) {
 		{http.MethodPost, "/api/machine/sessions"},
 		{http.MethodDelete, "/api/machine/sessions/sess-1"},
 		{http.MethodPost, "/api/machine/folders"},
+		{http.MethodPost, "/api/machine/relaunch"},
 	} {
 		rec := httptest.NewRecorder()
 		s.router.ServeHTTP(rec, localRequest(c.method, c.path, "{}"))

@@ -23,13 +23,23 @@ const eventsKeepAlive = 25 * time.Second
 type eventsPayload struct {
 	Sessions []Session       `json:"sessions"`
 	Recents  recentsResponse `json:"recents"`
+	// InstalledBuild is statusResponse.InstalledBuild: the build a relaunch
+	// would take up, while there is another.
+	InstalledBuild string `json:"installedBuild,omitempty"`
+	// RemoteRelaunch is statusResponse.RemoteRelaunch: whether a caller off
+	// this machine may take that build up.
+	RemoteRelaunch bool `json:"remoteRelaunch,omitempty"`
+	// MayRelaunch is whether the page reading the stream may take it up
+	// (mayRelaunch): always on this machine, off it once RemoteRelaunch.
+	MayRelaunch bool `json:"mayRelaunch,omitempty"`
 }
 
 // handleEvents streams the sessions page's state as server-sent events: a
 // sessions event at once, then another whenever what it carries has changed
 // (registry.changes), never the same one twice running. It ends when the
 // caller goes or the server's lifetime does, so a shutdown is never held by
-// it. GET /api/server/events.
+// it; a lifetime ended to relaunch sends a last relaunching event, so
+// a page knows the server is coming back. GET /api/server/events.
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -51,7 +61,13 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	for {
 		// Watched before reading, so a change between the two is not missed.
 		changed := s.reg.changes()
-		data, err := json.Marshal(eventsPayload{Sessions: sessionsUnder(base, s.reg.snapshot()), Recents: s.recentsNow().under(base)})
+		data, err := json.Marshal(eventsPayload{
+			Sessions:       sessionsUnder(base, s.reg.snapshot()),
+			Recents:        s.recentsNow().under(base),
+			InstalledBuild: s.installedBuild(),
+			RemoteRelaunch: remoteRelaunchAllowed(),
+			MayRelaunch:    s.mayRelaunch(r),
+		})
 		if err != nil {
 			jlog.Error("[machineserver] encoding a sessions event: %v", err)
 			return
@@ -67,6 +83,10 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case <-life.Done():
+			if s.ending.relaunching() {
+				_, _ = fmt.Fprint(w, "event: relaunching\ndata: {}\n\n")
+				flusher.Flush()
+			}
 			return
 		case <-changed:
 		case <-keepAlive.C:

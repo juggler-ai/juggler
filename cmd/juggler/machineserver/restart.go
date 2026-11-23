@@ -5,6 +5,7 @@
 package machineserver
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -62,6 +63,9 @@ func (s *Server) startSupervising(id string, c *child, cl *claim) {
 //     links — keep it. A respawn that fails counts as another crash.
 //   - Past restartPolicy.limit crashes in a row, the session is given up and
 //     turns to error.
+//   - A respawn that finds another build at the server's path (errOtherBuild)
+//     gives the session up at once, as needing a relaunch: every further
+//     respawn would find the same.
 //
 // A stop or shutdown that claims the session ends supervision: every registry
 // transition here applies only while the session is still this child's (see
@@ -119,6 +123,11 @@ func (s *Server) supervise(id string, c *child, cl *claim) {
 			spawned, err := spawnChild(cl.ctx, s.childBin, project, s.childExtraArgs(projectLink(project)), s.childEnv(id))
 			if err != nil {
 				if cl.ctx.Err() != nil {
+					return
+				}
+				if errors.Is(err, errOtherBuild) {
+					jlog.Error("[machineserver] session %s: %v", id, err)
+					s.reg.failForBuild(id, nil)
 					return
 				}
 				reason = err.Error()

@@ -48,7 +48,10 @@ import {
 } from '../services/project-navigation.js';
 import { pickDirectory } from '../../sdk/lib/window-control.js';
 import { uiPort } from '../services/ui-port.js';
-import { t } from '../../sdk/lib/i18n.js';
+import { serverText, t } from '../../sdk/lib/i18n.js';
+import { errorText } from '../../sdk/lib/error-utils.js';
+import { relaunchMachineServer } from '../services/relaunch-server.js';
+import { showConfirm } from './modal-dialog.js';
 import { SessionSwitcher } from './session-switcher.js';
 
 /** The popup id the popover registers under, and its gesture allows. */
@@ -78,7 +81,8 @@ export function placePopover({ chipLeft, chipBottom, viewportWidth }) {
  * What the popover works with: the page's own by default (createSessionPopover).
  * @typedef {object} PopoverDeps
  * @property {HTMLElement} chip - The project chip, which is its button.
- * @property {{sessions: any[], recents: any, subscribe: (fn: () => void) => () => void}} feed - The machine's sessions.
+ * @property {{sessions: any[], recents: any, mayRelaunch?: boolean, subscribe: (fn: () => void) => () => void}} feed - The
+ *   machine's sessions, and whether this page may relaunch the machine server.
  * @property {string} ownLink - This window's session's link.
  * @property {'tab'|'url'|'local'} surface - Where the page is (project-navigation's).
  * @property {(to: import('../services/project-navigation.js').Destination) => Promise<void>} go - Moves this window.
@@ -88,6 +92,10 @@ export function placePopover({ chipLeft, chipBottom, viewportWidth }) {
  * @property {() => Promise<string|null>} pickFolder - The app's folder chooser.
  * @property {() => Promise<void>} toServerPage - Moves this window to its server's page.
  * @property {(message: string) => void} showError - Says why something failed.
+ * @property {(options?: {quiet?: boolean}) => Promise<void>} [relaunch] - Relaunches the machine
+ *   server; with quiet, only if no work runs in it (services/relaunch-server.js).
+ * @property {(warning: string) => Promise<boolean>} [confirm] - Asks whether to relaunch
+ *   anyway, saying what would stop.
  * @property {() => Promise<void>} [flushDrafts] - Puts the drafts typed here on disk.
  */
 
@@ -266,7 +274,7 @@ export class SessionPopover {
         return d.go({ link: s.link, project: s.project, sessionId: s.id, conversation: '', newWindow });
       },
       openRecent: (r, { newWindow }) => this._openThenGo(r.path, r.link, newWindow),
-      retry: (s) => this._openThenGo(s.project, s.link, false),
+      retry: (s) => (s.relaunchNeeded ? this._relaunch() : this._openThenGo(s.project, s.link, false)),
       stop: (s) => this._stop(s),
       pickFolder: d.surface === 'local' ? d.pickFolder : undefined,
       openPath: async (path, { create }) => {
@@ -316,17 +324,45 @@ export class SessionPopover {
     try {
       s = await d.open(project);
     } catch (err) {
-      if (this._move === move) d.showError(err instanceof Error ? err.message : t('The session could not be started.'));
+      if (this._move !== move) return;
+      if (/** @type {{body?: {relaunchNeeded?: unknown}}} */ (err)?.body?.relaunchNeeded === true) {
+        await this._relaunch();
+        return;
+      }
+      d.showError(err instanceof Error ? errorText(err) : t('The session could not be started.'));
       return;
     }
     if (this._move !== move) return;
     if (s?.state === 'error') {
-      d.showError(s.error || t('The session could not be started.'));
+      d.showError(serverText(s.message, s.error || t('The session could not be started.')));
       return;
     }
     this.close({ keepMove: true });
     this._move = null;
     await d.go({ link: s.link, project: s.project || project, sessionId: s.id, conversation: '', newWindow });
+  }
+
+  /**
+   * Relaunch the machine server, for a session that opens again only once it
+   * is relaunched into the build installed in its place: at once if no work
+   * runs in it, and otherwise once the user agrees to what it stops. A page
+   * that may not relaunch it — a viewer off the machine it has not allowed —
+   * is told where it may be done.
+   * @returns {Promise<void>} Resolves once asked, or given up.
+   * @private
+   */
+  async _relaunch() {
+    const d = this._deps;
+    if (!d.feed.mayRelaunch || !d.relaunch || !d.confirm) {
+      d.showError(t('Relaunching Juggler from another device is off. Allow it in Settings on the machine it runs on.'));
+      return;
+    }
+    this.close();
+    try {
+      await relaunchMachineServer({ relaunch: d.relaunch, confirm: d.confirm });
+    } catch (err) {
+      d.showError(err instanceof Error ? errorText(err) : t('Juggler could not relaunch.'));
+    }
   }
 
   /**
@@ -378,6 +414,10 @@ export function createSessionPopover(chip) {
       if (port) port.notice(message);
       else console.warn(message);
     },
+    relaunch: async (options) => { await (await api()).relaunchMachine(options); },
+    confirm: (warning) => showConfirm(warning, t('Relaunch Juggler?'), {
+      confirmText: t('Relaunch anyway'), cancelText: t('Keep working'), danger: true,
+    }),
   });
   popover.init();
   return popover;

@@ -198,6 +198,7 @@
   "Couldn't make a group: the session has no project.": "그룹을 만들 수 없습니다: 세션에 프로젝트가 없습니다.",
   "Couldn't make a worktree at {location}: it is not on the same drive as {repoRoot}.": "{location}에 워크트리를 만들 수 없습니다: {repoRoot}와(과) 같은 드라이브에 있지 않습니다.",
   "Couldn't make a worktree at {location}: there is already something there.": "{location}에 워크트리를 만들 수 없습니다: 이미 무언가가 있습니다.",
+  "Couldn't make a worktree: git isn't installed.": "워크트리를 만들 수 없습니다: git이 설치되어 있지 않습니다.",
   "Couldn't make a worktree: no branch was named.": "워크트리를 만들 수 없습니다: 브랜치 이름이 지정되지 않았습니다.",
   "Couldn't make a worktree: the base workspace has no root.": "워크트리를 만들 수 없습니다: 기본 워크스페이스에 루트가 없습니다.",
   "Couldn't make a worktree: {repoRoot} is not a git repository.": "워크트리를 만들 수 없습니다: {repoRoot}은(는) git 저장소가 아닙니다.",

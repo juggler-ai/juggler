@@ -365,6 +365,7 @@ function asReview(data) {
     root: String(data?.root || ''),
     ...(data?.workspace ? { workspace: String(data.workspace) } : {}),
     ...(data?.scope ? { scope: data.scope } : {}),
+    ...(data?.gitMissing ? { gitMissing: data.gitMissing } : {}),
     complete: data?.complete === true,
     warnings: Array.isArray(data?.warnings) ? data.warnings.map(String) : [],
     repos: repos.map((/** @type {any} */ repo) => ({
@@ -697,6 +698,10 @@ export function __scriptGitClients(factory) {
  * @property {{key: string, params?: Record<string, unknown>, context?: string}[]} [warningMessages] -
  *   The same warnings, in the same order, as server messages for `serverText()`
  * @property {GitScope} [scope] - What was compared
+ * @property {{key: string, params?: Record<string, unknown>, context?: string}} [gitMissing] -
+ *   Set when repositories were found but the machine has no git to read them:
+ *   what to install, as a server message for `serverText()`. Each repository is
+ *   still listed, unread, with its `error`
  * @property {GitReviewRepo[]} repos - Every repository found, root repo first
  */
 

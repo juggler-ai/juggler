@@ -242,5 +242,25 @@ export async function runTests(_ctx) {
     assert(running.value?.state === 'done', 'and it resolved');
   });
 
+  await test('a review read on a machine without git keeps the server\'s reason', async () => {
+    // The pin's tests hand it a manifest directly, so only this sees what the
+    // client lets through from the server.
+    const gitMissing = { key: "Git isn't installed", params: { platform: 'darwin' } };
+    const originalFetch = window.fetch;
+    window.fetch = /** @type {any} */ (async (/** @type {any} */ input, /** @type {any} */ init) => {
+      const url = typeof input === 'string' ? input : input?.url || '';
+      const call = url.includes('/api/ops/client') ? JSON.parse(init?.body || '{}') : null;
+      if (call?.toolId === 'git' && call.operation === 'review') {
+        const data = { root: '/p', complete: false, warnings: [], gitMissing, repos: [{ path: '', error: 'git is not installed' }] };
+        return new window.Response(JSON.stringify({ success: true, data }), { status: 200 });
+      }
+      return originalFetch(input, init);
+    });
+    owed.push(() => { window.fetch = originalFetch; });
+    const review = await client.review({ scope: '@uncommitted' });
+    assert(JSON.stringify(review.gitMissing) === JSON.stringify(gitMissing),
+      `the review came back as ${JSON.stringify(review)}`);
+  });
+
   return { passed, failed, errors };
 }

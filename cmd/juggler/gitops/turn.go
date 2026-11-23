@@ -12,8 +12,9 @@ import (
 
 // SnapshotTurn records the working tree of the repository dir is in as conv's
 // turn snapshot (refs/juggler/turns/<conv>), which the @turn scope compares the
-// working tree against, and returns the tree. A dir in no repository has no
-// snapshot and is ok=false with no error.
+// working tree against, and returns the tree. A dir in no repository, or on a
+// machine without git (gitcmd.Available), has no snapshot and is ok=false with
+// no error; without git, nothing is run to find that out.
 //
 // Writing the tree touches only a private index and the object store, so it
 // runs outside the queue; the ref update waits its turn on the repository's

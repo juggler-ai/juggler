@@ -144,10 +144,11 @@ func WriteTurnSnapshot(ctx context.Context, dir, conv, tree string) error {
 // DropTurnSnapshot deletes conv's turn ref, if it has one, so the tree it
 // kept is gc's to collect. A conversation's going is final, so nothing waits
 // on the write queue for it: the ref is the conversation's alone and git's own
-// ref lock is all that guards it.
+// ref lock is all that guards it. Without git there is nothing it could drop,
+// and nothing to say about that.
 func DropTurnSnapshot(ctx context.Context, dir, conv string) error {
 	ref, ok := TurnRef(conv)
-	if !ok {
+	if !ok || gitcmd.Available() != nil {
 		return nil
 	}
 	if _, found, err := gitResolve(ctx, dir, time.Minute, "rev-parse", "--verify", "-q", "--end-of-options", ref); err != nil || !found {

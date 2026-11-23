@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"juggler/cmd/juggler/gitcmd"
 	"juggler/cmd/juggler/msg"
 
 	"juggler/cmd/juggler/gitview/internal/clocks"
@@ -64,10 +65,17 @@ type gitReviewRepo struct {
 // Warnings are English; WarningMessages are the same warnings, in the same
 // order, as messages for the client to show translated. What git said and the
 // names of repositories are data inside them, shown as they came.
+//
+// GitMissing is set when repositories were found but this machine has no git
+// to read them with (gitcmd.Available): the one failure that is every
+// repository's at once, and the one the user fixes outside the app, so it is
+// said once, with what to install, rather than once per repository in git's
+// absent words.
 type Manifest struct {
 	Complete        bool            `json:"complete"`
 	Warnings        []string        `json:"warnings"`
 	WarningMessages []msg.Message   `json:"warningMessages,omitempty"`
+	GitMissing      *msg.Message    `json:"gitMissing,omitempty"`
 	Scope           ScopeInfo       `json:"scope"`
 	Repos           []gitReviewRepo `json:"repos"`
 }
@@ -118,6 +126,19 @@ func Review(ctx context.Context, root string, scope Scope) Manifest {
 	scan := scanRepos(ctx, root, reviewScanLimits())
 	for _, reason := range scan.Cut {
 		resp.warn(reason)
+	}
+	if err := gitcmd.Available(); err != nil && len(scan.Repos) > 0 {
+		// Each repository is still listed, unread, so a manifest never says
+		// there is nothing here when there is something it cannot read.
+		missing := gitcmd.MissingMessage()
+		resp.GitMissing = &missing
+		resp.Complete = false
+		for _, dir := range scan.Repos {
+			rel := repoRelativePath(root, dir)
+			resp.Repos = append(resp.Repos, gitReviewRepo{RepoStatus: RepoStatus{Path: rel, Files: []gitFileStatus{}}, Error: err.Error()})
+		}
+		sort.SliceStable(resp.Repos, func(i, j int) bool { return resp.Repos[i].Path < resp.Repos[j].Path })
+		return resp
 	}
 	budget := gitReviewMaxFiles
 	for _, dir := range scan.Repos {

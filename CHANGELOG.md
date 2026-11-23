@@ -10,6 +10,7 @@ the current release). The project follows semantic versioning.
 - Git pin: add, edit and remove remotes, and push every tag at once
 - Git pin: the mouse wheel scrolls its lists and panes on Windows
 - Git pin: rebasing no longer refuses when only a submodule has moved
+- Without git, the Git pin says what to install; macOS no longer prompts for Xcode tools
 - Git pin opens on History; Git status card shows each repo's branch on one line, click to open it
 - The Usage card shows usage for a second Codex, OpenRouter, DeepSeek or Z.AI account
 - JUGGLER_SERVER_DIR runs a separate server, sharing config, e.g. one per sandbox

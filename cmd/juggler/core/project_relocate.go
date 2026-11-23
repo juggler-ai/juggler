@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"juggler/cmd/juggler/gitcmd"
 	"juggler/internal/jlog"
 	"juggler/internal/projectpaths"
 )
@@ -159,6 +160,10 @@ func RelocateProject(project, dest string) error {
 // git that predates the setting ignores it.
 func repairWorktrees(project, sessionPath string) {
 	if _, err := os.Stat(filepath.Join(project, ".git")); err != nil {
+		return
+	}
+	if err := gitcmd.Available(); err != nil {
+		jlog.Info("[relocate] not repairing worktrees in %s: %v", project, err)
 		return
 	}
 	args := []string{"-c", "worktree.useRelativePaths=true", "-C", project, "worktree", "repair"}

@@ -605,7 +605,7 @@ class GitPin extends PinboardItemType {
       // With a review on screen the control sits in the panel's scope row,
       // beside the words describing what it chose; without one there is no row,
       // and it sits above the message it may have caused.
-      const inPanel = Boolean(review && (review.repos || []).length > 0);
+      const inPanel = Boolean(review && !review.gitMissing && (review.repos || []).length > 0);
       bar.classList.toggle('git-pin__scope-bar--in-panel', inPanel);
       if (inPanel) {
         body.replaceChildren(content);
@@ -625,6 +625,15 @@ class GitPin extends PinboardItemType {
             : t("Couldn't compare {scope}. {error}", { scope: scopeName(scope), error }), () => { void refresh(); }));
         }
         content.replaceChildren(...parts);
+        return;
+      }
+
+      if (review.gitMissing) {
+        // Every repository fails the same way, for a reason fixed outside the
+        // app: one sentence saying what to install, not a panel of repositories
+        // each quoting the missing executable.
+        content.replaceChildren(pinEmpty(serverText(review.gitMissing)));
+        if (error) content.append(inlineError('git-pin__error', t("Couldn't refresh. {error}", { error }), () => { void refresh(); }));
         return;
       }
 

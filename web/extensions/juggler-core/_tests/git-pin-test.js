@@ -447,6 +447,26 @@ export async function runTests(_ctx) {
     m.teardown();
   });
 
+  await test('a machine without git says what to install, once', async () => {
+    // What no developer's machine will ever show them: the server found the
+    // repository but has no git to read it with.
+    const m = await mounted({
+      manifest: {
+        root: '/tmp/proj',
+        complete: false,
+        warnings: [],
+        gitMissing: { key: "Git isn't installed, so this project's repositories can't be read. {platform, select, darwin {Install the Xcode Command Line Tools.} other {Install git.}}", params: { platform: 'darwin' } },
+        repos: [repo({ path: '', complete: false, error: 'git is not installed: no git on PATH' })],
+      },
+    });
+    const text = m.text();
+    assert(text.includes("Git isn't installed") && text.includes('Xcode Command Line Tools'),
+      `expected the server's message, rendered for its platform:\n${text}`);
+    assert(!text.includes('no git on PATH') && !text.includes('No git repository'),
+      `not each repository's raw error, and not a claim that there is none:\n${text}`);
+    m.teardown();
+  });
+
   // --- keyboard -------------------------------------------------------------
 
   await test('the file rail moves under the arrow keys', async () => {

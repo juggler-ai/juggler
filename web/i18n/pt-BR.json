@@ -662,6 +662,7 @@
   "Gamelan": "Gamelão",
   "Generate text with a language model (uses your provider credits)": "Gerar texto com um modelo de linguagem (usa os créditos do seu provedor)",
   "Get API Key →": "Obter chave de API →",
+  "Git isn't installed, so this project's repositories can't be read. {platform, select, darwin {Install the Xcode Command Line Tools (run xcode-select --install in Terminal) or git from git-scm.com, then refresh.} other {Install git from git-scm.com or your package manager, then refresh.}}": "O git não está instalado, então os repositórios deste projeto não podem ser lidos. {platform, select, darwin {Instale as Xcode Command Line Tools (execute xcode-select --install no Terminal) ou o git pelo git-scm.com e depois atualize.} other {Instale o git pelo git-scm.com ou pelo seu gerenciador de pacotes e depois atualize.}}",
   "Git no longer has a record of {path}'s conflict, so the resolve can't be undone.": "O Git não tem mais registro do conflito de {path}, então a resolução não pode ser desfeita.",
   "GitHub Copilot has a free plan, and it is the only one Juggler can sign you into without leaving this window. Model choice is limited on it.": "O GitHub Copilot tem um plano gratuito, e é o único em que o Juggler consegue fazer seu login sem sair desta janela. A escolha de modelos nele é limitada.",
   "GitHub host": "Host do GitHub",

@@ -37,7 +37,8 @@ const (
 // test sets it before any command is built (in TestMain) and leaves it set.
 var Observe func(ctx context.Context, args []string)
 
-// Command builds one git invocation with the flags every command here carries.
+// Command builds one git invocation with the flags every command here carries;
+// on a machine without git it is one that fails to start with ErrMissing.
 // core.quotePath=false stops git escaping non-ASCII paths into \303\251.
 // diff.external is emptied for the same reason --no-ext-diff and --no-textconv
 // are passed to the commands that accept them: working in a project is not
@@ -77,6 +78,12 @@ func command(ctx context.Context, dir string, mode Mode, literal bool, args []st
 	}
 	cmd := exec.CommandContext(ctx, "git", append(flags, args...)...)
 	cmd.Dir = dir
+	// With no git that can run (see Available), the command is never started:
+	// Start, Run and Output all return the error that says so, and on macOS the
+	// stub that would open the Command Line Tools dialog is never touched.
+	if err := Available(); err != nil {
+		cmd.Err = err
+	}
 	return cmd
 }
 

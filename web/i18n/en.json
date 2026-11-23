@@ -662,6 +662,7 @@
   "Gamelan": "Gamelan",
   "Generate text with a language model (uses your provider credits)": "Generate text with a language model (uses your provider credits)",
   "Get API Key →": "Get API Key →",
+  "Git isn't installed, so this project's repositories can't be read. {platform, select, darwin {Install the Xcode Command Line Tools (run xcode-select --install in Terminal) or git from git-scm.com, then refresh.} other {Install git from git-scm.com or your package manager, then refresh.}}": "Git isn't installed, so this project's repositories can't be read. {platform, select, darwin {Install the Xcode Command Line Tools (run xcode-select --install in Terminal) or git from git-scm.com, then refresh.} other {Install git from git-scm.com or your package manager, then refresh.}}",
   "Git no longer has a record of {path}'s conflict, so the resolve can't be undone.": "Git no longer has a record of {path}'s conflict, so the resolve can't be undone.",
   "GitHub Copilot has a free plan, and it is the only one Juggler can sign you into without leaving this window. Model choice is limited on it.": "GitHub Copilot has a free plan, and it is the only one Juggler can sign you into without leaving this window. Model choice is limited on it.",
   "GitHub host": "GitHub host",

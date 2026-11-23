@@ -156,6 +156,20 @@ function singleQuoted(value) {
 }
 
 /**
+ * Whether a git command failed because there is no git to run, rather than
+ * because git refused: the shell's "command not found" (exit 127), Windows'
+ * "not recognized", or macOS's stand-in /usr/bin/git complaining that the
+ * Command Line Tools it forwards to are not installed.
+ * @param {any} result - A shell result.
+ * @returns {boolean} True when git itself is missing.
+ */
+function gitMissing(result) {
+  if (result?.exitCode === 127) return true;
+  const said = `${result?.stderr ?? ''}\n${result?.error ?? ''}`;
+  return /git: (command )?not found|'git' is not recognized|xcrun: error: invalid active developer path/i.test(said);
+}
+
+/**
  * What git said about a command that refused, to go under a plain lead.
  *
  * Under rather than instead of: the lead says which command refused, which is
@@ -1205,6 +1219,7 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
 
     const isRepo = await this._inRepo(ctx, repoRel, 'git rev-parse --git-dir');
     if (!isRepo?.success) {
+      if (gitMissing(isRepo)) throw new Error(t("Couldn't make a worktree: git isn't installed."));
       throw new Error(t("Couldn't make a worktree: {repoRoot} is not a git repository.", { repoRoot }));
     }
 

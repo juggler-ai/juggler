@@ -662,6 +662,7 @@
   "Gamelan": "[Ĝåɱéļåñ ··]",
   "Generate text with a language model (uses your provider credits)": "[Ĝéñéŕåţé ţéẋţ ŵîţĥ å ļåñĝûåĝé ɱöðéļ (ûšéš ýöûŕ þŕöṽîðéŕ çŕéðîţš) ···················]",
   "Get API Key →": "[Ĝéţ ÅÞÎ Ķéý → ···]",
+  "Git isn't installed, so this project's repositories can't be read. {platform, select, darwin {Install the Xcode Command Line Tools (run xcode-select --install in Terminal) or git from git-scm.com, then refresh.} other {Install git from git-scm.com or your package manager, then refresh.}}": "[Ĝîţ îšñ''ţ îñšţåļļéð, šö ţĥîš þŕöĵéçţ''š ŕéþöšîţöŕîéš çåñ''ţ ƀé ŕéåð. {platform, select, darwin {Îñšţåļļ ţĥé Ẋçöðé Çöɱɱåñð Ļîñé Ţööļš (ŕûñ ẋçöðé-šéļéçţ --îñšţåļļ îñ Ţéŕɱîñåļ) öŕ ĝîţ ƒŕöɱ ĝîţ-šçɱ.çöɱ, ţĥéñ ŕéƒŕéšĥ.} other {Îñšţåļļ ĝîţ ƒŕöɱ ĝîţ-šçɱ.çöɱ öŕ ýöûŕ þåçķåĝé ɱåñåĝéŕ, ţĥéñ ŕéƒŕéšĥ.}} ··················································]",
   "Git no longer has a record of {path}'s conflict, so the resolve can't be undone.": "[Ĝîţ ñö ļöñĝéŕ ĥåš å ŕéçöŕð öƒ {path}''š çöñƒļîçţ, šö ţĥé ŕéšöļṽé çåñ''ţ ƀé ûñðöñé. ····················]",
   "GitHub Copilot has a free plan, and it is the only one Juggler can sign you into without leaving this window. Model choice is limited on it.": "[ĜîţĤûƀ Çöþîļöţ ĥåš å ƒŕéé þļåñ, åñð îţ îš ţĥé öñļý öñé Ĵûĝĝļéŕ çåñ šîĝñ ýöû îñţö ŵîţĥöûţ ļéåṽîñĝ ţĥîš ŵîñðöŵ. Ṁöðéļ çĥöîçé îš ļîɱîţéð öñ îţ. ·······································]",
   "GitHub host": "[ĜîţĤûƀ ĥöšţ ····]",

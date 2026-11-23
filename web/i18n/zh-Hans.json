@@ -662,6 +662,7 @@
   "Gamelan": "甘美兰",
   "Generate text with a language model (uses your provider credits)": "使用语言模型生成文本（消耗你的提供方额度）",
   "Get API Key →": "获取 API 密钥 →",
+  "Git isn't installed, so this project's repositories can't be read. {platform, select, darwin {Install the Xcode Command Line Tools (run xcode-select --install in Terminal) or git from git-scm.com, then refresh.} other {Install git from git-scm.com or your package manager, then refresh.}}": "未安装 git，因此无法读取此项目的仓库。{platform, select, darwin {请安装 Xcode Command Line Tools（在终端中运行 xcode-select --install），或从 git-scm.com 安装 git，然后刷新。} other {请从 git-scm.com 或通过包管理器安装 git，然后刷新。}}",
   "Git no longer has a record of {path}'s conflict, so the resolve can't be undone.": "Git 已没有 {path} 冲突的记录，因此无法撤销解决。",
   "GitHub Copilot has a free plan, and it is the only one Juggler can sign you into without leaving this window. Model choice is limited on it.": "GitHub Copilot 有免费方案，也是 Juggler 唯一无需离开此窗口就能为你登录的方案。其模型选择有限。",
   "GitHub host": "GitHub 主机",

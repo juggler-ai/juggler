@@ -662,6 +662,7 @@
   "Gamelan": "가믈란",
   "Generate text with a language model (uses your provider credits)": "언어 모델로 텍스트 생성(공급자 크레딧 사용)",
   "Get API Key →": "API 키 받기 →",
+  "Git isn't installed, so this project's repositories can't be read. {platform, select, darwin {Install the Xcode Command Line Tools (run xcode-select --install in Terminal) or git from git-scm.com, then refresh.} other {Install git from git-scm.com or your package manager, then refresh.}}": "git이 설치되어 있지 않아 이 프로젝트의 저장소를 읽을 수 없습니다. {platform, select, darwin {Xcode Command Line Tools를 설치하거나(터미널에서 xcode-select --install 실행) git-scm.com에서 git을 설치한 다음 새로 고치세요.} other {git-scm.com 또는 패키지 관리자로 git을 설치한 다음 새로 고치세요.}}",
   "Git no longer has a record of {path}'s conflict, so the resolve can't be undone.": "Git에 {path}의 충돌 기록이 더 이상 없어 해결을 되돌릴 수 없습니다.",
   "GitHub Copilot has a free plan, and it is the only one Juggler can sign you into without leaving this window. Model choice is limited on it.": "GitHub Copilot에는 무료 요금제가 있으며, Juggler가 이 창을 벗어나지 않고 로그인할 수 있는 유일한 요금제입니다. 이 요금제에서는 모델 선택이 제한됩니다.",
   "GitHub host": "GitHub 호스트",

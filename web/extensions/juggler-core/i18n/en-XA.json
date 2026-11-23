@@ -198,6 +198,7 @@
   "Couldn't make a group: the session has no project.": "[Çöûļðñ''ţ ɱåķé å ĝŕöûþ: ţĥé šéššîöñ ĥåš ñö þŕöĵéçţ. ··············]",
   "Couldn't make a worktree at {location}: it is not on the same drive as {repoRoot}.": "[Çöûļðñ''ţ ɱåķé å ŵöŕķţŕéé åţ {location}: îţ îš ñöţ öñ ţĥé šåɱé ðŕîṽé åš {repoRoot}. ················]",
   "Couldn't make a worktree at {location}: there is already something there.": "[Çöûļðñ''ţ ɱåķé å ŵöŕķţŕéé åţ {location}: ţĥéŕé îš åļŕéåðý šöɱéţĥîñĝ ţĥéŕé. ··················]",
+  "Couldn't make a worktree: git isn't installed.": "[Çöûļðñ''ţ ɱåķé å ŵöŕķţŕéé: ĝîţ îšñ''ţ îñšţåļļéð. ·············]",
   "Couldn't make a worktree: no branch was named.": "[Çöûļðñ''ţ ɱåķé å ŵöŕķţŕéé: ñö ƀŕåñçĥ ŵåš ñåɱéð. ·············]",
   "Couldn't make a worktree: the base workspace has no root.": "[Çöûļðñ''ţ ɱåķé å ŵöŕķţŕéé: ţĥé ƀåšé ŵöŕķšþåçé ĥåš ñö ŕööţ. ················]",
   "Couldn't make a worktree: {repoRoot} is not a git repository.": "[Çöûļðñ''ţ ɱåķé å ŵöŕķţŕéé: {repoRoot} îš ñöţ å ĝîţ ŕéþöšîţöŕý. ··············]",

@@ -198,6 +198,7 @@
   "Couldn't make a group: the session has no project.": "Impossible de créer un groupe : la session n’a pas de projet.",
   "Couldn't make a worktree at {location}: it is not on the same drive as {repoRoot}.": "Impossible de créer un worktree dans {location} : il n’est pas sur le même disque que {repoRoot}.",
   "Couldn't make a worktree at {location}: there is already something there.": "Impossible de créer un worktree dans {location} : quelque chose s’y trouve déjà.",
+  "Couldn't make a worktree: git isn't installed.": "Impossible de créer le worktree : git n’est pas installé.",
   "Couldn't make a worktree: no branch was named.": "Impossible de créer un worktree : aucune branche n’a été indiquée.",
   "Couldn't make a worktree: the base workspace has no root.": "Impossible de créer un worktree : l’espace de travail de base n’a pas de racine.",
   "Couldn't make a worktree: {repoRoot} is not a git repository.": "Impossible de créer un worktree : {repoRoot} n’est pas un dépôt git.",

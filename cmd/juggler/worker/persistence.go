@@ -157,16 +157,17 @@ func (r *run) saveStateToDisk() error {
 		return err
 	}
 
-	if err := r.sweepTransactions(); err != nil {
+	refs := r.liveRefs()
+	if err := r.sweepTransactions(refs); err != nil {
 		r.log.Error("Failed to sweep transaction blobs: %v", err)
 	}
-	r.requestTxnTrim()
+	r.requestTxnTrim(refs)
 
-	if err := r.sweepAssets(); err != nil {
+	if err := r.sweepAssets(refs); err != nil {
 		r.log.Error("Failed to sweep assets: %v", err)
 	}
 
-	if err := r.sweepPrograms(); err != nil {
+	if err := r.sweepPrograms(refs); err != nil {
 		r.log.Error("Failed to sweep program snapshots: %v", err)
 	}
 

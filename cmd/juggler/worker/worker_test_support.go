@@ -139,7 +139,7 @@ func (w *ConversationWorker) handleQueueMocksForName(payload json.RawMessage) {
 // use this to assert the live-set + undoLog contract without waiting for the
 // debounce timer.
 func (w *ConversationWorker) SweepTransactionsForTest() error {
-	return w.sweepTransactions()
+	return w.sweepTransactions(w.liveRefs())
 }
 
 // HasPendingItems reports whether the thread ("" => root) has any queued

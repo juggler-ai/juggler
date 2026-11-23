@@ -190,61 +190,6 @@ func (r *run) promotePendingItems(threadItemID string, pc promoteCtx) int {
 	return turnAskingCount(pending)
 }
 
-// collectPendingAssetIDsLocked adds every asset id referenced by a QUEUED
-// (pending) user message — the root queue and every thread container's queue —
-// to dst. A queued message lives in a `pendingItems` sibling array, NOT in
-// `items`, so the committed-item walk in collectAssetIDsFromItems never sees it;
-// without this a queued attachment's bytes could be reclaimed by the asset sweep
-// before the message is promoted, landing a broken image. Mirrors
-// collectDraftAssetIDsLocked. Caller MUST hold ycrdtMu.
-func (cd *ConversationDocument) collectPendingAssetIDsLocked(dst map[string]bool) {
-	collectPendingAssetIDsFromMap(cd.root, dst)
-	if arr := cd.getItems(); arr != nil {
-		collectPendingAssetIDsFromArray(arr, dst)
-	}
-}
-
-// collectPendingAssetIDsFromMap adds the attachment ids of every queued user
-// item in the parent map's pendingItems array to dst. Callers MUST hold ycrdtMu.
-func collectPendingAssetIDsFromMap(parent *ycrdt.YMap, dst map[string]bool) {
-	if parent == nil {
-		return
-	}
-	arr, ok := yMapArray(parent, keyPendingItems)
-	if !ok {
-		return
-	}
-	length := int(arr.GetLength())
-	for i := 0; i < length; i++ {
-		m, ok := arr.Get(ycrdt.Number(i)).(*ycrdt.YMap)
-		if !ok {
-			continue
-		}
-		for _, att := range yMapToConversationItem(m).Attachments {
-			if att.ID != "" {
-				dst[att.ID] = true
-			}
-		}
-	}
-}
-
-// collectPendingAssetIDsFromArray walks an items Y.Array (recursing into each
-// thread's nested "items") collecting each thread container's queued-attachment
-// ids. Callers MUST hold ycrdtMu.
-func collectPendingAssetIDsFromArray(arr *ycrdt.YArray, dst map[string]bool) {
-	length := int(arr.GetLength())
-	for i := 0; i < length; i++ {
-		m, ok := arr.Get(ycrdt.Number(i)).(*ycrdt.YMap)
-		if !ok {
-			continue
-		}
-		collectPendingAssetIDsFromMap(m, dst)
-		if nested, ok := yMapArray(m, keyItems); ok {
-			collectPendingAssetIDsFromArray(nested, dst)
-		}
-	}
-}
-
 // clearPendingItems empties the thread's pending queue without promoting. Used
 // by /clear, the one thread-wide mutator that must remember the staging array.
 func (w *ConversationWorker) clearPendingItems(threadItemID string) {

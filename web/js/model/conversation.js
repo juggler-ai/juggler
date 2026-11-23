@@ -3031,7 +3031,7 @@ class Conversation {
    * text and images together, since that is what the user sent and the box was
    * cleared of both. Restoring the images is also what keeps their bytes alive:
    * a bounced send wrote no item, so the persisted draft becomes the only thing
-   * referencing them (see the worker's CollectDraftAssetIDs).
+   * referencing them (see the worker's collectRefs).
    *
    * A send that never took the box (`consumeComposer: false`) is dropped here
    * instead: there is nothing to give back, and the box is busy holding

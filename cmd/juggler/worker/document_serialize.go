@@ -217,57 +217,6 @@ func yMapRawJSON(m *ycrdt.YMap, key string) json.RawMessage {
 	return data
 }
 
-// collectDraftAssetIDsLocked adds every asset id referenced by an UNSENT draft —
-// the root draft (conversation metadata) and each thread container's draft — to
-// dst. A draft's attachments live on container/metadata state, NOT on a
-// committed item, so the item walk in collectAssetIDsFromItems never sees them;
-// without this a staged-but-unsent attachment's bytes would be reclaimed by the
-// asset sweep and the persisted draft ref would dangle after a restart. Mirrors
-// the JS `draft` accessor in web/js/model/message-thread.js. Caller MUST hold
-// ycrdtMu.
-func (cd *ConversationDocument) collectDraftAssetIDsLocked(dst map[string]bool) {
-	addDraftAssetIDs(yMapRawJSON(cd.metadata, keyDraft), dst)
-	if arr := cd.getItems(); arr != nil {
-		collectDraftAssetIDsFromArray(arr, dst)
-	}
-}
-
-// collectDraftAssetIDsFromArray walks an items Y.Array (recursing into each
-// thread's nested "items") collecting draft attachment ids. Callers MUST hold
-// ycrdtMu.
-func collectDraftAssetIDsFromArray(arr *ycrdt.YArray, dst map[string]bool) {
-	length := int(arr.GetLength())
-	for i := 0; i < length; i++ {
-		m, ok := arr.Get(ycrdt.Number(i)).(*ycrdt.YMap)
-		if !ok {
-			continue
-		}
-		addDraftAssetIDs(yMapRawJSON(m, keyDraft), dst)
-		if nested, ok := yMapArray(m, keyItems); ok {
-			collectDraftAssetIDsFromArray(nested, dst)
-		}
-	}
-}
-
-// addDraftAssetIDs parses a draft record's attachment ids out of its raw JSON
-// ({text, attachments}) and adds the non-empty ones to dst.
-func addDraftAssetIDs(raw json.RawMessage, dst map[string]bool) {
-	if len(raw) == 0 {
-		return
-	}
-	var d struct {
-		Attachments []AssetRef `json:"attachments"`
-	}
-	if json.Unmarshal(raw, &d) != nil {
-		return
-	}
-	for _, a := range d.Attachments {
-		if a.ID != "" {
-			dst[a.ID] = true
-		}
-	}
-}
-
 // threadResultString extracts the plain string from a thread item's Result field.
 // Thread results are stored as JSON-encoded strings in ConversationItem.Result.
 func threadResultString(item ConversationItem) string {

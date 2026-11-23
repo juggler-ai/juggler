@@ -270,7 +270,7 @@ func (r *run) handleInit(payload json.RawMessage) {
 		// Tidy the transaction records now rather than at the first save, which
 		// a conversation that is only read never reaches. In the background, so
 		// it costs the load nothing.
-		r.requestTxnTrim()
+		r.requestTxnTrim(r.doc.collectRefs())
 	} else {
 		r.sendReady()
 		r.log.Debug("[worker] created conv=%s in %v", r.conversationID, time.Since(initStart).Round(time.Millisecond))

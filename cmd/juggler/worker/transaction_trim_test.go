@@ -115,7 +115,7 @@ func TestTrimTransactionRecordsByAge(t *testing.T) {
 // check reads the offered tools from — at the root and in every nested thread,
 // counting only the items a round-trip produced, not the user message that
 // opened it.
-func TestCollectLatestRoundTripTxnIDs(t *testing.T) {
+func TestCollectRefsLatestRoundTrips(t *testing.T) {
 	nested, err := json.Marshal([]ConversationItem{
 		{Type: ItemTypeAssistant, TransactionID: "sub-old"},
 		{Type: ItemTypeToolAction, TransactionID: "sub-new"},
@@ -123,15 +123,18 @@ func TestCollectLatestRoundTripTxnIDs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	items := []ConversationItem{
-		{Type: ItemTypeAssistant, TransactionID: "root-old"},
-		{Type: ItemTypeThread, Items: nested},
-		{Type: ItemTypeThinking, TransactionID: "root-new"},
-		{Type: "user", TransactionID: "root-input-side"},
+	doc := NewConversationDocument("conv-trim-keep", "user:test")
+	defer doc.Destroy()
+	for _, it := range []ConversationItem{
+		{Type: ItemTypeAssistant, ItemID: "a1", TransactionID: "root-old"},
+		{Type: ItemTypeThread, ItemID: "t1", Items: nested},
+		{Type: ItemTypeThinking, ItemID: "k1", TransactionID: "root-new"},
+		{Type: "user", ItemID: "u1", TransactionID: "root-input-side"},
+	} {
+		doc.AppendMessage(it)
 	}
 
-	got := map[string]bool{}
-	collectLatestRoundTripTxnIDs(items, got)
+	got := doc.collectRefs().latestTxns
 	want := map[string]bool{"root-new": true, "sub-new": true}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)

@@ -22,8 +22,8 @@ import (
 
 // TestPendingMovesAreOneHold pins the two sides of the race to one hold each:
 // promotePendingItems moves the queue through a single tracker call and takes
-// no lock of its own, and collectLiveAssetIDs reads the whole document through
-// a single call.
+// no lock of its own, and liveRefs reads the whole document through a single
+// call.
 func TestPendingMovesAreOneHold(t *testing.T) {
 	fset := token.NewFileSet()
 	fn := func(file, name string) *ast.FuncDecl {
@@ -53,9 +53,9 @@ func TestPendingMovesAreOneHold(t *testing.T) {
 		t.Errorf("promotePendingItems makes %d tracker calls, want exactly 1 (the whole move)", got)
 	}
 
-	collect := fn("transaction_gc.go", "collectLiveAssetIDs")
+	collect := fn("transaction_gc.go", "liveRefs")
 	if got := callsOn(collect, "w", "doc"); got != 1 {
-		t.Errorf("collectLiveAssetIDs reads the document in %d calls, want 1: a message moving between "+
+		t.Errorf("liveRefs reads the document in %d calls, want 1: a message moving between "+
 			"pendingItems and items can be missed by reads either side of it", got)
 	}
 }

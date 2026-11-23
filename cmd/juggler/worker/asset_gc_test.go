@@ -34,7 +34,7 @@ func testAssetStore(t *testing.T) (*AssetStore, string) {
 
 // TestSweepAssets_ReclaimsOnlyUnreferenced is B3: an asset referenced by a live
 // user item survives the sweep; an asset with no live reference is reclaimed.
-// Drives the real GC logic — collectAssetIDsFromItems builds the live set, and
+// Drives the real GC logic — collectRefs builds the live set, and
 // AssetStore.Sweep deletes everything outside it.
 func TestSweepAssets_ReclaimsOnlyUnreferenced(t *testing.T) {
 	store, _ := testAssetStore(t)
@@ -61,18 +61,17 @@ func TestSweepAssets_ReclaimsOnlyUnreferenced(t *testing.T) {
 	nested, _ := json.Marshal([]ConversationItem{
 		{Type: ItemTypeUser, ItemID: "nested-user", Attachments: []AssetRef{kept}},
 	})
-	items := []ConversationItem{
-		{Type: ItemTypeUser, ItemID: "u1", Attachments: []AssetRef{kept}},
-		{Type: ItemTypeThread, ItemID: "t1", Items: nested},
-	}
+	doc := NewConversationDocument(convID, "user:test")
+	defer doc.Destroy()
+	doc.AppendMessage(ConversationItem{Type: ItemTypeUser, ItemID: "u1", Attachments: []AssetRef{kept}})
+	doc.AppendMessage(ConversationItem{Type: ItemTypeThread, ItemID: "t1", Items: nested})
 
-	live := make(map[string]bool)
-	collectAssetIDsFromItems(items, live)
+	live := doc.collectRefs().assets
 	if !live[kept.ID] {
-		t.Fatalf("collectAssetIDsFromItems missed the referenced asset; live=%v", live)
+		t.Fatalf("collectRefs missed the referenced asset; live=%v", live)
 	}
 	if live[orphan.ID] {
-		t.Fatalf("collectAssetIDsFromItems wrongly marked the orphan live; live=%v", live)
+		t.Fatalf("collectRefs wrongly marked the orphan live; live=%v", live)
 	}
 
 	if err := store.Sweep(convID, live, 0); err != nil {
@@ -153,16 +152,16 @@ func TestSweepAssets_GraceProtectsFreshlyStaged(t *testing.T) {
 	}
 }
 
-// TestCollectLiveAssetIDs_IncludesDraftAttachments is the regression for the
+// TestLiveRefs_IncludesDraftAttachments is the regression for the
 // lost-draft-attachment bug: an image staged on an UNSENT draft (text +
 // attachments) must keep its bytes alive across sweeps. A draft's attachments
 // live on container/metadata state, not on a committed item, so the item walk
-// in collectAssetIDsFromItems never sees them — without draft-awareness the
+// in collectRefs never sees them — without draft-awareness the
 // staged bytes are reclaimed and the persisted draft ref dangles after restart.
 //
 // Covers both draft locations: the root draft (conversation metadata) and a
 // thread container's draft.
-func TestCollectLiveAssetIDs_IncludesDraftAttachments(t *testing.T) {
+func TestLiveRefs_IncludesDraftAttachments(t *testing.T) {
 	w := NewConversationWorker("conv-draft-gc", "user:test")
 
 	const rootAsset = "root-draft-sha"
@@ -187,10 +186,7 @@ func TestCollectLiveAssetIDs_IncludesDraftAttachments(t *testing.T) {
 		t.Fatalf("set thread draft: %v", err)
 	}
 
-	live, keepAll := w.collectLiveAssetIDs()
-	if keepAll {
-		t.Fatal("collectLiveAssetIDs returned keepAll=true; want a concrete live set")
-	}
+	live := w.liveRefs().assets
 	if !live[rootAsset] {
 		t.Errorf("root draft attachment missing from live set; live=%v", live)
 	}
@@ -199,14 +195,14 @@ func TestCollectLiveAssetIDs_IncludesDraftAttachments(t *testing.T) {
 	}
 }
 
-// TestCollectLiveAssetIDs_IncludesPendingAttachments is the regression for the
+// TestLiveRefs_IncludesPendingAttachments is the regression for the
 // lost-queued-attachment bug: an image attached to a message sent WHILE THE
 // WORKER IS BUSY is parked in a `pendingItems` sibling array, not in `items`,
 // so the committed-item walk never sees it. Without queue-awareness the staged
 // bytes are reclaimed and the message promotes to a broken image.
 //
 // Covers both queue locations: the root queue and a thread container's queue.
-func TestCollectLiveAssetIDs_IncludesPendingAttachments(t *testing.T) {
+func TestLiveRefs_IncludesPendingAttachments(t *testing.T) {
 	w := NewConversationWorker("conv-pending-gc", "user:test")
 
 	const rootAsset = "root-pending-sha"
@@ -225,10 +221,7 @@ func TestCollectLiveAssetIDs_IncludesPendingAttachments(t *testing.T) {
 		Attachments: []AssetRef{{ID: threadAsset, Mime: "image/png", Filename: "t.png", Bytes: 20, Width: 1, Height: 1}},
 	})
 
-	live, keepAll := w.collectLiveAssetIDs()
-	if keepAll {
-		t.Fatal("collectLiveAssetIDs returned keepAll=true; want a concrete live set")
-	}
+	live := w.liveRefs().assets
 	if !live[rootAsset] {
 		t.Errorf("root pending attachment missing from live set; live=%v", live)
 	}
@@ -237,13 +230,13 @@ func TestCollectLiveAssetIDs_IncludesPendingAttachments(t *testing.T) {
 	}
 }
 
-// TestCollectLiveAssetIDs_IncludesHeldAssets pins that an item still at work
+// TestLiveRefs_IncludesHeldAssets pins that an item still at work
 // can keep an asset alive that nothing yet attaches: a tool that has stored an
 // image it may attach once it finishes names it in `heldAssets`, which the
 // sweep counts like an attachment. Without it, a tool that waits on the user
 // for longer than the staging grace finds its image reclaimed. Covers an item
 // at root and one inside a thread.
-func TestCollectLiveAssetIDs_IncludesHeldAssets(t *testing.T) {
+func TestLiveRefs_IncludesHeldAssets(t *testing.T) {
 	w := NewConversationWorker("conv-held-gc", "user:test")
 
 	const rootAsset = "root-held-sha"
@@ -258,10 +251,7 @@ func TestCollectLiveAssetIDs_IncludesHeldAssets(t *testing.T) {
 	}})
 	w.doc.AppendMessage(ConversationItem{Type: ItemTypeThread, ItemID: "t1", Items: nested})
 
-	live, keepAll := w.collectLiveAssetIDs()
-	if keepAll {
-		t.Fatal("collectLiveAssetIDs returned keepAll=true; want a concrete live set")
-	}
+	live := w.liveRefs().assets
 	if !live[rootAsset] {
 		t.Errorf("root held asset missing from live set; live=%v", live)
 	}
@@ -270,13 +260,13 @@ func TestCollectLiveAssetIDs_IncludesHeldAssets(t *testing.T) {
 	}
 }
 
-// TestCollectLiveAssetIDs_SettledItemHoldsNothing pins that `heldAssets` keeps
+// TestLiveRefs_SettledItemHoldsNothing pins that `heldAssets` keeps
 // an asset only while its item is at work. An item that settled without being
 // run again to clear the field (a denial cancels it from outside the tool)
 // would otherwise keep what it held for good; what a settled item does show is
 // in its own attachments. Covers both settled states, at root and in a thread,
 // beside a pending item whose hold still counts.
-func TestCollectLiveAssetIDs_SettledItemHoldsNothing(t *testing.T) {
+func TestLiveRefs_SettledItemHoldsNothing(t *testing.T) {
 	w := NewConversationWorker("conv-held-settled", "user:test")
 
 	w.doc.AppendMessage(ConversationItem{Type: ItemTypeToolAction, ItemID: "a1", ToolUseID: "call_1", State: StateCancelled})
@@ -293,7 +283,7 @@ func TestCollectLiveAssetIDs_SettledItemHoldsNothing(t *testing.T) {
 	}})
 	w.doc.AppendMessage(ConversationItem{Type: ItemTypeThread, ItemID: "t1", Items: nested})
 
-	live, _ := w.collectLiveAssetIDs()
+	live := w.liveRefs().assets
 	for _, id := range []string{"denied-sha", "completed-sha"} {
 		if live[id] {
 			t.Errorf("%s is held by a settled item but was kept; live=%v", id, live)
@@ -368,13 +358,12 @@ func TestSweepAssets_KeepsDiffSnapshotRefs(t *testing.T) {
 		Type: ItemTypeToolAction, ItemID: "e2", ToolUseID: "call_2", State: StateCompleted,
 		DisplayData: diffRefDisplayData(nestedBefore.ID, nestedAfter.ID),
 	}})
-	items := []ConversationItem{
-		{Type: ItemTypeToolAction, ItemID: "e1", ToolUseID: "call_1", State: StateCompleted, DisplayData: diffRefDisplayData(before.ID, after.ID)},
-		{Type: ItemTypeThread, ItemID: "t1", Items: nested},
-	}
+	doc := NewConversationDocument(convID, "user:test")
+	defer doc.Destroy()
+	doc.AppendMessage(ConversationItem{Type: ItemTypeToolAction, ItemID: "e1", ToolUseID: "call_1", State: StateCompleted, DisplayData: diffRefDisplayData(before.ID, after.ID)})
+	doc.AppendMessage(ConversationItem{Type: ItemTypeThread, ItemID: "t1", Items: nested})
 
-	live := make(map[string]bool)
-	collectAssetIDsFromItems(items, live)
+	live := doc.collectRefs().assets
 	for name, ref := range map[string]AssetRef{"before": before, "after": after, "nested before": nestedBefore, "nested after": nestedAfter} {
 		if !live[ref.ID] {
 			t.Errorf("the %s side of a diff is missing from the live set; live=%v", name, live)
@@ -402,10 +391,10 @@ func TestSweepAssets_KeepsDiffSnapshotRefs(t *testing.T) {
 	}
 }
 
-// TestCollectLiveAssetIDs_KeepsDiffRefsOfUndoableEdits pins that deleting an
+// TestLiveRefs_KeepsDiffRefsOfUndoableEdits pins that deleting an
 // edit's tool-action does not orphan its diff while undo can bring it back: the
 // sides it names stay live from the undo stack.
-func TestCollectLiveAssetIDs_KeepsDiffRefsOfUndoableEdits(t *testing.T) {
+func TestLiveRefs_KeepsDiffRefsOfUndoableEdits(t *testing.T) {
 	w := NewConversationWorker("conv-diff-undo", "user:test")
 	w.tracker.AppendMessage(ConversationItem{
 		Type: ItemTypeToolAction, ItemID: "e1", ToolUseID: "call_1", State: StateCompleted,
@@ -415,7 +404,7 @@ func TestCollectLiveAssetIDs_KeepsDiffRefsOfUndoableEdits(t *testing.T) {
 	w.tracker.DeleteMessages([]int{0})
 	w.tracker.StopCapturing()
 
-	live, _ := w.collectLiveAssetIDs()
+	live := w.liveRefs().assets
 	for _, id := range []string{"old-side-sha", "new-side-sha"} {
 		if !live[id] {
 			t.Errorf("%s is named by an undoable edit but is missing from the live set; live=%v", id, live)

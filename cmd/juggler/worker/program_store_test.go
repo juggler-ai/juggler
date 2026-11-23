@@ -116,7 +116,7 @@ func TestSweepPrograms_KeepsOnlyUnsettledItems(t *testing.T) {
 			t.Fatalf("Save(%s): %v", id, err)
 		}
 	}
-	if err := w.sweepPrograms(); err != nil {
+	if err := w.sweepPrograms(w.liveRefs()); err != nil {
 		t.Fatalf("sweepPrograms: %v", err)
 	}
 	left, err := store.List(w.conversationID)
@@ -259,7 +259,7 @@ func TestSweepPrograms_UnreadableThreadKeepsAll(t *testing.T) {
 		m.Set("items", "not an array")
 		w.doc.ensureItems().Push(ycrdt.ArrayAny{m})
 	}, w.doc.authorID)
-	if !collectUnsettledToolUseIDs(w.doc.GetItems(), map[string]bool{}) {
+	if !w.doc.collectRefs().unreadable {
 		t.Fatal("fixture: the thread's items must read back unreadable")
 	}
 
@@ -268,7 +268,7 @@ func TestSweepPrograms_UnreadableThreadKeepsAll(t *testing.T) {
 			t.Fatalf("Save(%s): %v", id, err)
 		}
 	}
-	if err := w.sweepPrograms(); err != nil {
+	if err := w.sweepPrograms(w.liveRefs()); err != nil {
 		t.Fatalf("sweepPrograms: %v", err)
 	}
 	left, err := store.List(w.conversationID)

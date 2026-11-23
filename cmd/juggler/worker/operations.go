@@ -1275,7 +1275,7 @@ func (t *OperationTracker) emitUndoState() {
 // restorable via the active undo/redo stacks. These blobs must not be GC'd.
 //
 // Walks each StackItem's Deletions (items deleted during a tracked transaction
-// that can be restored by undo/redo). Live items are handled by collectTxnIDsFromItems.
+// that can be restored by undo/redo). Live items are handled by collectRefs.
 // This avoids false positives from items whose redo entry was cleared but whose
 // Keep flag was never reset (y-crdt sets RedoStack=nil without calling KeepItem(false)).
 func (t *OperationTracker) undoableTransactionIDs() []string {

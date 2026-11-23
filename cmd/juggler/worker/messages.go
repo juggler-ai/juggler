@@ -1238,7 +1238,7 @@ type ConversationItem struct {
 
 	// HeldAssets names assets (by sha id) that an item still at work has stored
 	// and may attach once it finishes, so the asset sweep keeps them alive
-	// meanwhile (collectAssetIDsFromItems) — until the item settles, however it
+	// meanwhile (docRefs.addItems) — until the item settles, however it
 	// settles, after which the field is inert. Written by the engine; never sent
 	// to a model.
 	HeldAssets []string `json:"heldAssets,omitempty"`

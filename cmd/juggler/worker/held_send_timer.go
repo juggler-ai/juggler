@@ -278,8 +278,8 @@ func (r *run) publishHeld(s heldSchedule) {
 }
 
 // walkThreadContainersLocked calls visit for every item map in arr and, through
-// each thread's nested items, below it, with the map's item id — the same walk
-// collectPendingAssetIDsFromArray makes. Caller MUST hold ycrdtMu.
+// each thread's nested items, below it, with the map's item id. Caller MUST hold
+// ycrdtMu.
 func walkThreadContainersLocked(arr *ycrdt.YArray, visit func(threadItemID string, m *ycrdt.YMap)) {
 	length := int(arr.GetLength())
 	for i := 0; i < length; i++ {

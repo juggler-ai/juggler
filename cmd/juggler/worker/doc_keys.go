@@ -202,9 +202,18 @@ const (
 	keyEdits       = "edits"
 )
 
-// Keys the worker writes into a tool action's displayData (docKeys.displayData).
+// Keys the worker reads or writes in a tool action's displayData
+// (docKeys.displayData).
 const (
 	keyBackgroundTask = "backgroundTask"
+	keyDiffData       = "diffData"
+)
+
+// Keys of an edit's diffData naming the two sides it stores as assets
+// (docKeys.diffData).
+const (
+	keyOldRef = "oldRef"
+	keyNewRef = "newRef"
 )
 
 // Keys of a model configuration map (docKeys.modelConfig).

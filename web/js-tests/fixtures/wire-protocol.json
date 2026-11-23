@@ -132,7 +132,8 @@
         "cachedTokens", "cacheWriteTokens"
       ],
       "undoState": ["canUndo", "canRedo", "seq"],
-      "displayData": ["backgroundTask"],
+      "displayData": ["backgroundTask", "diffData"],
+      "diffData": ["oldRef", "newRef"],
       "droppedFile": ["hidden"],
       "systemPromptData": ["text", "selectedPresetId", "isModified"],
       "importedFrom": ["kind", "id", "digest"]

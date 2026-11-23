@@ -131,12 +131,16 @@ A few conventions you'll be held to in review; full rationale is in
 - **The server stays windowless**: `cmd/juggler` creates only the hidden engine
   WebView in production. Visible windows belong to `cmd/juggler-app`.
 
-## Vendored fork (`3rdparty/wails`)
+## Vendored forks (`3rdparty/`)
 
 The Wails fork is a git submodule wired in through a `go.mod` `replace`
 directive; the submodule pointer is the source of truth. Its local patches,
 their upstream status and the rebase procedure are in
 [`docs/wails-fork.md`](docs/wails-fork.md).
+
+`3rdparty/fsnotify` is a plain copy of an fsnotify release with one fix, also
+wired in by a `replace`. [`docs/fsnotify-fork.md`](docs/fsnotify-fork.md) says
+what the fix is and when to drop the copy.
 
 ## Licensing and contributor agreements
 

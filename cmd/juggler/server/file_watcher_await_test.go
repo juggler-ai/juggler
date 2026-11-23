@@ -19,8 +19,7 @@ import (
 // one go, before the watch on the level above could see it.
 func TestAwaitedDirStepsDownWithoutCreating(t *testing.T) {
 	// The directories come first so their cleanup runs after the watcher's
-	// Close: removing a watched directory on Windows makes the reader report
-	// errors, and fsnotify's Windows Close can hang when one races it.
+	// Close, and removes directories nothing watches any more.
 	project := t.TempDir()
 	project2 := t.TempDir()
 	w, err := fsnotify.NewWatcher()
@@ -28,9 +27,10 @@ func TestAwaitedDirStepsDownWithoutCreating(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = w.Close() })
-	// The test drives handle itself, so nothing reads the watcher's channels;
-	// drain them, or the reader blocks on an unread event or error and Close
-	// waits on it forever. Both channels close when Close returns.
+	// The test drives handle itself, so nothing reads the watcher's channels.
+	// Drain them: the reader blocked on an unread event or error serves no Add,
+	// and the next step's watch waits on it forever. Both channels close when
+	// Close returns.
 	go func() {
 		for range w.Events {
 		}

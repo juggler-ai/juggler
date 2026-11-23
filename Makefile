@@ -807,6 +807,9 @@ models-sync:
 ## The Windows-only packages compile and run on Windows; elsewhere they are
 ## cross-vetted for windows/amd64, so a patch that breaks the Windows build is
 ## caught on every OS. ~20s; ~45s under -race.
+## It also runs the fsnotify fork's regression test (docs/fsnotify-fork.md) the
+## same way: its own module, run on Windows, cross-vetted elsewhere.
+FSNOTIFY_FORK=3rdparty/fsnotify
 WAILS_PATCH_PKGS=./pkg/application ./pkg/updater
 WAILS_PATCH_PKGS_WINDOWS=./pkg/w32 ./internal/webview2/pkg/edge
 ifeq ($(OS),Windows_NT)
@@ -825,6 +828,15 @@ ifneq ($(OS),Windows_NT)
 		|| { echo "✗ the Wails fork's patched packages don't compile for windows/amd64"; exit 1; }
 endif
 	@echo "✓ Wails fork patch tests passed"
+	@echo "── fsnotify fork patch test ──"
+	@bash -c 'set -o pipefail; cd $(FSNOTIFY_FORK) && \
+		GOTOOLCHAIN=local $(GOTEST) -count=1 $(RACE) -timeout 5m $(GOTEST_RUN) . 2>&1 $(QUIET_UNMATCHED) $(if $(RUN),| tee -a $(abspath $(BUILD_DIR))/test-wails-run.log)' \
+		|| { echo "✗ the fsnotify fork patch test failed — its output is above"; exit 1; }
+ifneq ($(OS),Windows_NT)
+	@cd $(FSNOTIFY_FORK) && GOTOOLCHAIN=local GOOS=windows GOARCH=amd64 $(GOCMD) vet -unsafeptr=false . \
+		|| { echo "✗ the fsnotify fork doesn't compile for windows/amd64"; exit 1; }
+endif
+	@echo "✓ fsnotify fork patch test passed"
 
 ## test-full: Run lint + all tests (pre-PR target).
 test-full: lint test

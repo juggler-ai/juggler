@@ -339,3 +339,7 @@ patch ledger and the full procedure. In short, to rebase:
    the bundle is stale: `make wails-runtime-build` and commit it in the fork.
 5. Update the ledger. Tag the old `juggler-changes` tip before force-pushing
    over it — older checkouts still fetch it by SHA.
+
+`3rdparty/fsnotify` is a plain copy of fsnotify v1.10.1 with one fix (Windows
+`Close` hanging), also wired in by a `replace`. Never edit it except to carry
+an upstream fix; `docs/fsnotify-fork.md` says when to drop it.

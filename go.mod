@@ -92,3 +92,8 @@ require (
 )
 
 replace github.com/wailsapp/wails/v3 => ./3rdparty/wails/v3
+
+// fsnotify v1.10.1 plus one fix: on Windows, Close can wait forever when an
+// error is being delivered as it arrives. docs/fsnotify-fork.md has the patch
+// and when to drop it.
+replace github.com/fsnotify/fsnotify => ./3rdparty/fsnotify

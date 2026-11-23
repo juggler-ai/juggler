@@ -96,6 +96,12 @@ and licence in [`web/js/vendor/README.md`](web/js/vendor/README.md). Apache-2.0
 code sitting inside the AGPL tree is compatible in that direction; it is stated
 here rather than left implied.
 
+`3rdparty/fsnotify/` is [fsnotify](https://github.com/fsnotify/fsnotify)
+v1.10.1 with one local fix, built in place of the published module by a
+`replace` in `go.mod`. It keeps its own [BSD-3-Clause](3rdparty/fsnotify/LICENSE)
+licence, which covers the fix too; [`docs/fsnotify-fork.md`](docs/fsnotify-fork.md)
+records what was changed.
+
 ## Official binaries and the pro tier
 
 Official Juggler binaries are built and distributed from a separate private

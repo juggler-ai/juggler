@@ -369,6 +369,7 @@ func NewConversationWorker(conversationID, authorID string) *ConversationWorker 
 		sched:          newRunScheduler(done),
 		baselines:      newReconcileBaselines(),
 		saver:          newDocSaver(),
+		liveness:       newLivenessClock(),
 		// Unbounded, order-preserving intake, its pump's lifetime tied to the
 		// worker's; Send enqueues here so it never drops.
 		inbox:        newWorkerInbox(done),
@@ -702,20 +703,21 @@ const (
 // process was actually running. Clients render the digit as (now - startedAt) against
 // one shared anchor, so any span the machine spent frozen — system sleep, hibernation,
 // a suspended VM, a stop-the-world pause — would otherwise inflate it even though no
-// work happened. There is no event for "the wall clock jumped", so we poll: the
-// liveness clock ticks ~every livenessInterval while run() executes, and a tick that
-// lands far later than that interval measures how long we were frozen. We push the
-// anchor forward by that excess (the same exclusion the approval-wait path applies via
+// work happened. There is no event for "the wall clock jumped", so the liveness
+// clock's sampler polls, and reports each wake that landed far later than its
+// interval as a freeze. We push the anchor forward by the part of each freeze the turn
+// lived through (the same exclusion the approval-wait path applies via
 // advanceElapsedAnchor), so the digit resumes with the dead time removed.
 //
-// Deliberately not sleep-specific: it corrects for ANY cause of missed ticks, which is
-// why it doesn't hook the sleep/wake notification. Runs only on the run() goroutine;
-// the anchor it corrects belongs to the turn that is streaming, which is why that
-// field is atomic.
+// Deliberately not sleep-specific: it corrects for ANY cause of a stopped process,
+// which is why it doesn't hook the sleep/wake notification. A busy run loop is not
+// one: the sampler runs on its own goroutine. Runs only on the run() goroutine; the
+// anchor it corrects belongs to the turn that is streaming, which is why that field
+// is atomic.
 func (r *run) detectFrozenGap() {
-	excess := r.liveness.frozenFor(time.Now().UnixMilli())
-	if excess == 0 {
-		return // first tick, normal cadence or a backward clock step — not a freeze
+	freezes := r.liveness.takeFreezes()
+	if len(freezes) == 0 {
+		return
 	}
 	// Only meaningful while a turn's timer is actively running. Idle has no anchor;
 	// while parked on an approval the wait mechanism already excludes the entire park
@@ -724,18 +726,36 @@ func (r *run) detectFrozenGap() {
 	if len(targets) == 0 {
 		targets = []liveRunEntry{{t: r.t}}
 	}
-	advanced := false
 	for _, live := range targets {
 		target := r.runFor(live.t)
-		if target.t.processingStartedAt.Load() == 0 || target.t.approvalWaitStartedAt.Load() != 0 {
+		anchor := target.t.processingStartedAt.Load()
+		if anchor == 0 || target.t.approvalWaitStartedAt.Load() != 0 {
 			continue
 		}
-		target.advanceElapsedAnchor(excess)
-		advanced = true
+		excluded := frozenAfter(anchor, freezes)
+		if excluded == 0 {
+			continue
+		}
+		target.advanceElapsedAnchor(excluded)
+		r.log.Info("⏱️ excluding %ds of frozen time from elapsed (process was suspended) conv=%s", excluded/1000, r.conversationID)
 	}
-	if advanced {
-		r.log.Info("⏱️ excluding %ds of frozen time from elapsed (process was suspended) conv=%s", excess/1000, r.conversationID)
+}
+
+// frozenAfter returns how much of freezes an elapsed anchor at anchorMs should
+// shed: of each freeze, only the part after the anchor. A turn that began while
+// the process was catching up after a freeze — its message waited out the freeze
+// in the inbox — lived through none of it, and shedding the whole span would put
+// the anchor in the future, where every client's digit reads negative. The same
+// cut drops a freeze an approval-wait advance has already moved the anchor past.
+func frozenAfter(anchorMs int64, freezes []freezeSpan) int64 {
+	var total int64
+	for _, f := range freezes {
+		if lived := min(f.ms, f.endMs-anchorMs); lived > 0 {
+			total += lived
+			anchorMs += lived
+		}
 	}
+	return total
 }
 
 // Document returns the conversation document.

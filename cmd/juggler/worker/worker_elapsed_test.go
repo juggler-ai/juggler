@@ -200,16 +200,15 @@ func TestFrozenGapExcludesSuspendedTimeFromElapsed(t *testing.T) {
 		"startedAt": oldAnchor,
 	})
 
-	// First tick just seeds the clock's previous tick — no comparison point yet, no change.
+	// A pass with no freeze measured changes nothing.
 	w.currentRun().detectFrozenGap()
 	if w.turn.processingStartedAt.Load() != oldAnchor {
-		t.Fatalf("first tick must not move the anchor: got %d want %d", w.turn.processingStartedAt.Load(), oldAnchor)
+		t.Fatalf("no freeze must not move the anchor: got %d want %d", w.turn.processingStartedAt.Load(), oldAnchor)
 	}
 
-	// Simulate the process having been frozen for 30s: backdate the last tick so
-	// this tick lands 30s + one interval later than expected.
+	// The process was frozen for 30s, ending now.
 	frozenMs := int64(30_000)
-	w.liveness.prevTickMs = time.Now().UnixMilli() - frozenMs - livenessInterval.Milliseconds()
+	sampleFreezeEndingNow(w, frozenMs)
 
 	w.currentRun().detectFrozenGap()
 
@@ -224,6 +223,47 @@ func TestFrozenGapExcludesSuspendedTimeFromElapsed(t *testing.T) {
 	}
 }
 
+// sampleFreezeEndingNow feeds w's liveness clock the two samples that measure a
+// freeze of frozenMs ending now, as its sampler would after a suspended process
+// resumed.
+func sampleFreezeEndingNow(w *ConversationWorker, frozenMs int64) {
+	now := time.Now().UnixMilli()
+	w.liveness.sample(now - frozenMs - livenessInterval.Milliseconds())
+	w.liveness.sample(now)
+}
+
+// TestFrozenGapNeverExcludesTimeBeforeTheTurn verifies that a freeze reported
+// after a turn began excludes only the part of it the turn lived through. A
+// turn can start in the same loop iteration a long freeze ends — its message sat
+// in the inbox through it — and excluding the whole span would put startedAt in
+// the future, so every client's digit would start negative and count up to 0.
+func TestFrozenGapNeverExcludesTimeBeforeTheTurn(t *testing.T) {
+	w := NewConversationWorker("test-frozen-gap-turn-start", "user:test")
+	defer w.doc.Destroy()
+
+	// A 30s freeze whose last moment is now.
+	sampleFreezeEndingNow(w, 30_000)
+
+	// The turn began 5s ago, 25s into the freeze.
+	turnStart := time.Now().Add(-5 * time.Second).UnixMilli()
+	w.turn.processingStartedAt.Store(turnStart)
+	w.doc.SetMetadata("processingState", map[string]any{
+		"activity":  ActivityCallingLLM,
+		"status":    "streaming",
+		"startedAt": turnStart,
+	})
+
+	w.currentRun().detectFrozenGap()
+
+	now := time.Now().UnixMilli()
+	if got := w.turn.processingStartedAt.Load(); got > now {
+		t.Errorf("anchor moved %dms into the future (elapsed would read negative)", got-now)
+	}
+	if got := w.turn.processingStartedAt.Load(); got < turnStart {
+		t.Errorf("anchor moved backward: got %d, turn started %d", got, turnStart)
+	}
+}
+
 // TestFrozenGapIgnoredWhenIdleOrParked verifies the detector is inert when there
 // is no actively-running turn to correct: idle (no anchor) and parked-on-approval
 // (the approval-wait mechanism already excludes the whole park, this freeze
@@ -232,13 +272,10 @@ func TestFrozenGapIgnoredWhenIdleOrParked(t *testing.T) {
 	w := NewConversationWorker("test-frozen-gap-inert", "user:test")
 	defer w.doc.Destroy()
 
-	backdate := func() {
-		w.liveness.prevTickMs = time.Now().UnixMilli() - 30_000 - livenessInterval.Milliseconds()
-	}
+	backdate := func() { sampleFreezeEndingNow(w, 30_000) }
 
 	// Idle: no anchor. A large gap must not create one.
 	w.turn.processingStartedAt.Store(0)
-	w.currentRun().detectFrozenGap() // seed
 	backdate()
 	w.currentRun().detectFrozenGap()
 	if w.turn.processingStartedAt.Load() != 0 {

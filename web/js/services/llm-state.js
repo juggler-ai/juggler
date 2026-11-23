@@ -111,6 +111,18 @@ function runsView(state) {
  *
  * Note: Iteration limits are enforced by Strategy plugins.
  */
+/**
+ * Milliseconds since the shared anchor `startTime`, or undefined when there is
+ * none. Never negative: the anchor is the server's clock and the reading this
+ * viewer's, and a viewer on another machine whose clock runs behind the
+ * server's would otherwise start every turn below zero.
+ * @param {number|undefined} startTime
+ * @returns {number|undefined} Elapsed milliseconds, clamped at 0.
+ */
+function elapsedSince(startTime) {
+  return startTime === undefined ? undefined : Math.max(0, Date.now() - startTime);
+}
+
 class LLMState {
   constructor() {
     /**
@@ -522,7 +534,7 @@ class LLMState {
     // Elapsed time, or undefined when there is no shared anchor (idle, or parked
     // on an approval — the worker removes startedAt in both cases). The formatter
     // omits the digit when this is undefined.
-    const elapsedTime = startTime !== undefined ? Date.now() - startTime : undefined;
+    const elapsedTime = elapsedSince(startTime);
 
     // Token fields (input/output/cached) live in the Yjs processingState and
     // flow in via _handleProcessingStateChange. We preserve them across calls
@@ -663,9 +675,7 @@ class LLMState {
       // Current elapsed time, or undefined when there is no shared anchor (the
       // worker removes startedAt at idle and while parked on an approval), so the
       // rAF tick shows no digit during an approval wait instead of counting it.
-      const elapsedTime = statusData.startTime !== undefined
-        ? Date.now() - statusData.startTime
-        : undefined;
+      const elapsedTime = elapsedSince(statusData.startTime);
 
       // Update status with current elapsed time, preserving all existing fields
       this.updateStatus(conversationId, statusData.type, {

@@ -16,6 +16,7 @@ the current release). The project follows semantic versioning.
 - JUGGLER_SERVER_DIR runs a separate server, sharing config, e.g. one per sandbox
 - Long conversations no longer fill the disk with old request records
 - Conversations no longer fail to load at startup on a slow disk
+- The request timer no longer starts negative or jumps backward on a busy machine
 - Windows opening while the computer is busy no longer show "This session stopped"
 - A window onto another computer's server keeps trying at launch, then connects itself
 - Settings → Project files can delete transaction records older than a chosen age

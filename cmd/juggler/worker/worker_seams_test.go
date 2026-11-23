@@ -13,24 +13,26 @@ import (
 // over from the worker's own fields.
 
 func TestLivenessClockMeasuresOnlyAFreeze(t *testing.T) {
-	var c livenessClock
+	c := newLivenessClock()
 	if c.ticks() != nil {
 		t.Fatal("a clock that never started must have no tick channel")
 	}
 	const t0 = int64(1_000_000)
-	if got := c.frozenFor(t0); got != 0 {
-		t.Fatalf("first tick reported %dms frozen, want 0", got)
-	}
+	c.sample(t0)
 	normal := t0 + livenessInterval.Milliseconds() + 50
-	if got := c.frozenFor(normal); got != 0 {
-		t.Fatalf("normal cadence reported %dms frozen, want 0", got)
+	c.sample(normal)
+	if got := c.takeFreezes(); len(got) != 0 {
+		t.Fatalf("first sample and normal cadence reported freezes %v, want none", got)
 	}
 	frozen := normal + livenessInterval.Milliseconds() + 30_000
-	if got := c.frozenFor(frozen); got != 30_000 {
-		t.Fatalf("a 30s freeze reported %dms, want 30000", got)
+	c.sample(frozen)
+	c.sample(frozen - 10_000) // a backward clock step
+	got := c.takeFreezes()
+	if want := []freezeSpan{{endMs: frozen, ms: 30_000}}; len(got) != 1 || got[0] != want[0] {
+		t.Fatalf("a 30s freeze then a backward step reported %v, want %v", got, want)
 	}
-	if got := c.frozenFor(frozen - 10_000); got != 0 {
-		t.Fatalf("a backward clock step reported %dms frozen, want 0", got)
+	if again := c.takeFreezes(); len(again) != 0 {
+		t.Fatalf("takeFreezes returned %v a second time, want none", again)
 	}
 }
 

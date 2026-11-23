@@ -1383,7 +1383,7 @@ func (t *OperationTracker) undoableAssetIDs() []string {
 					if len(content) == 0 {
 						return nil
 					}
-					raw, err := json.Marshal(fromYcrdt(content[len(content)-1]))
+					raw, err := json.Marshal(retainedValue(content[len(content)-1]))
 					if err != nil {
 						return nil
 					}
@@ -1408,6 +1408,39 @@ func (t *OperationTracker) undoableAssetIDs() []string {
 	}, docInternalOrigin)
 
 	return ids
+}
+
+// retainedValue converts a value a deleted item still holds to standard Go
+// types, as fromYcrdt does, reading nested Y types from the content they retain
+// rather than through Get, which hides deleted entries. A client writes an
+// item's nested objects as Y types (displayData a Y.Map, attachments a Y.Array
+// of Y.Maps), and a Y type is no value json.Marshal can take: its exported
+// fields lead into the whole document's store. An array keeps its deleted
+// elements, so the walk errs towards reading more, never less. Caller holds
+// ycrdtMu.
+func retainedValue(value any) any {
+	switch v := value.(type) {
+	case *ycrdt.YMap:
+		m := make(map[string]any, len(v.GetMap()))
+		for key, item := range v.GetMap() {
+			if content := item.Content.GetContent(); len(content) > 0 {
+				m[key] = retainedValue(content[len(content)-1])
+			}
+		}
+		return m
+	case *ycrdt.YArray:
+		arr := []any{}
+		for item := v.StartItem(); item != nil; item = item.Right {
+			for _, c := range item.Content.GetContent() {
+				arr = append(arr, retainedValue(c))
+			}
+		}
+		return arr
+	case ycrdt.IAbstractType:
+		return nil // text and XML types hold no ids
+	default:
+		return fromYcrdt(v)
+	}
 }
 
 // allAuxiliary returns true if every message in the slice is an auxiliary type.

@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	ycrdt "github.com/skyterra/y-crdt"
 )
 
 // tinyPNG is the smallest valid 1x1 PNG, used so AssetStore.Save can decode
@@ -417,6 +419,55 @@ func TestCollectLiveAssetIDs_KeepsDiffRefsOfUndoableEdits(t *testing.T) {
 	for _, id := range []string{"old-side-sha", "new-side-sha"} {
 		if !live[id] {
 			t.Errorf("%s is named by an undoable edit but is missing from the live set; live=%v", id, live)
+		}
+	}
+}
+
+// TestUndoableAssetIDs_ReadsClientWrittenFields pins that the undo-stack walk
+// finds the assets of a deleted item a client wrote. The viewer and engine store
+// an item's nested objects as Y types (toYValue, web/js/model/item-accessor.js):
+// displayData is a Y.Map whose diffData is another, and attachments a Y.Array of
+// Y.Maps — not the plain values Go writes. Reading those as plain values marshals
+// y-crdt's own structs instead, which finds nothing (so undo restores an item
+// whose assets the sweep has deleted) and, through the store's pointers, walks
+// the document under the global lock.
+func TestUndoableAssetIDs_ReadsClientWrittenFields(t *testing.T) {
+	f := newKeepFixture(t, 50)
+	f.tracker.StopCapturing()
+	before := f.client.GetStateVector()
+	ycrdtMu.Lock()
+	m, ok := f.client.getItems().Get(0).(*ycrdt.YMap)
+	if ok {
+		f.client.doc.Transact(func(_ *ycrdt.Transaction) {
+			dd := ycrdt.NewYMap(nil)
+			m.Set(keyDisplayData, dd)
+			diff := ycrdt.NewYMap(nil)
+			dd.Set("diffData", diff)
+			diff.Set("oldRef", "old-side-sha")
+			diff.Set("newRef", "new-side-sha")
+			atts := ycrdt.NewYArray()
+			m.Set(keyAttachments, atts)
+			att := ycrdt.NewYMap(nil)
+			atts.Push(ycrdt.ArrayAny{att})
+			att.Set("id", "image-sha")
+		}, f.client.authorID)
+	}
+	ycrdtMu.Unlock()
+	if !ok {
+		t.Fatal("the client holds no tool-action to write")
+	}
+	f.tracker.ApplyClientEdit(clientA, f.client.GetStateUpdate(before), nil)
+	f.tracker.StopCapturing()
+	f.tracker.DeleteMessages([]int{0})
+	f.tracker.StopCapturing()
+
+	got := map[string]bool{}
+	for _, id := range f.tracker.undoableAssetIDs() {
+		got[id] = true
+	}
+	for _, id := range []string{"old-side-sha", "new-side-sha", "image-sha"} {
+		if !got[id] {
+			t.Errorf("%s is named by an undoable client-written item but undoableAssetIDs missed it; got %v", id, got)
 		}
 	}
 }

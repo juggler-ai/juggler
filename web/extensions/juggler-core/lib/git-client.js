@@ -458,6 +458,10 @@ export function gitClient(services, signal) {
       const watcher = () => listener();
       _watchers.set(watcher, services);
       updateWatching();
+      // A watcher reads only what the cache holds, so one arriving at a tree
+      // never read, or at another tree's answer, starts the read itself:
+      // nothing else may (a pin with no status card beside it).
+      if ((_snapshot === null && _error === '') || _foreign) readAgain();
       return tied(() => {
         _watchers.delete(watcher);
         updateWatching();

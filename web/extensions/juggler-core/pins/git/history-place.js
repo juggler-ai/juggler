@@ -37,7 +37,9 @@
  *
  * **Comparing.** Shift-click, or `x` on the selected row, marks a second
  * commit; the detail then offers to review the two in the Review place, older
- * (lower in the list) first. A plain click, or Escape, lets the mark go.
+ * (lower in the list) first. The run from the mark to the selection is drawn
+ * as one selection, every row of it alike (`runRows`). A plain click, or
+ * Escape, lets the mark go.
  *
  * **The detail** follows the selection at once from the list's row, and reads
  * the selected commit (`commit`) once the selection settles; moving it aborts a
@@ -257,6 +259,8 @@ export function createHistoryPlace(host) {
   let rewordAbort = null;
   /** The commit marked to compare the selection with, '' for none. */
   let marked = '';
+  /** @type {Set<string>} The commits from the mark to the selection, drawn selected (`runRows`). */
+  let inRun = new Set();
   /** @type {Map<string, string>} Words for scopes the picker does not list: a stash, by its message. */
   const scopeLabels = new Map();
 
@@ -370,6 +374,7 @@ export function createHistoryPlace(host) {
     el.setAttribute('role', 'option');
     if (row.worktree) return buildWipRow(el, row, graph);
     if (row.sha === marked) el.classList.add('git-history__row--marked');
+    if (inRun.has(row.sha)) el.classList.add('git-history__row--in-run');
     if (list.state().graphed) {
       el.append(graphCell(graph.entering, row, { cap: graph.cap, columns: graph.columns, height: ROW_PX, head: row.sha === headSha }));
     }
@@ -436,6 +441,8 @@ export function createHistoryPlace(host) {
     onPage: () => {
       listError = '';
       renderNote();
+      // A page between the mark and the selection may finish the run.
+      if (marked) redrawRun();
     },
   });
   list.element.setAttribute('aria-label', t('History'));
@@ -504,6 +511,7 @@ export function createHistoryPlace(host) {
     renderNote();
     list.reset();
     marked = '';
+    inRun = new Set();
     showCommit('');
   };
 
@@ -521,6 +529,7 @@ export function createHistoryPlace(host) {
     renderNote();
     list.reset();
     marked = '';
+    inRun = new Set();
     showCommit('');
   };
 
@@ -893,8 +902,54 @@ export function createHistoryPlace(host) {
       commitReader.cancel();
       panel?.cancel();
       if (sha) readSettled();
+      if (marked || inRun.size) redrawRun();
     }
     renderDetail();
+  };
+
+  /**
+   * The rows from the mark to the selection, both ends included: in a history
+   * that is a graph, those between them the newer end reaches without passing
+   * the older end's row, so another branch's commits drawn between are left
+   * out; in the reflog or a filtered list, every row between. Only the rows
+   * between the two are looked at, so it costs the run's length.
+   * @returns {Set<string>} Their ids, none without a pair the list holds.
+   */
+  const runRows = () => {
+    /** @type {Set<string>} */
+    const rows = new Set();
+    if (!marked || !wanted || marked === wanted) return rows;
+    const a = list.indexOf(marked);
+    const b = list.indexOf(wanted);
+    if (a < 0 || b < 0) return rows;
+    const lo = Math.min(a, b);
+    const hi = Math.max(a, b);
+    /** @type {Map<string, GitLogRow>} */
+    const span = new Map();
+    for (let i = lo; i <= hi; i++) {
+      const row = list.rowAt(i);
+      if (row && !row.worktree) span.set(row.sha, row);
+    }
+    if (scope === 'reflog' || applied.text) return new Set(span.keys());
+    const stack = [list.rowAt(lo)?.sha || ''];
+    while (stack.length) {
+      const sha = /** @type {string} */ (stack.pop());
+      const row = span.get(sha);
+      if (!row || rows.has(sha)) continue;
+      rows.add(sha);
+      stack.push(...row.parents);
+    }
+    rows.add(marked);
+    rows.add(wanted);
+    return rows;
+  };
+
+  /** Work out the run again, and build again the rows that joined or left it. */
+  const redrawRun = () => {
+    const was = inRun;
+    inRun = runRows();
+    const changed = [...was].filter((sha) => !inRun.has(sha)).concat([...inRun].filter((sha) => !was.has(sha)));
+    if (changed.length) list.redraw(changed);
   };
 
   /**
@@ -906,6 +961,7 @@ export function createHistoryPlace(host) {
     const was = marked;
     marked = sha;
     list.redraw([was, sha].filter(Boolean));
+    redrawRun();
     renderDetail();
   };
 
@@ -946,10 +1002,10 @@ export function createHistoryPlace(host) {
   /**
    * The run a squash of the marked pair would make one commit: both in the
    * list, on the branch in view, the older end and the newer, and how many
-   * commits from one to the other — the rows between them in the branch's own
-   * unfiltered history; among every ref, those of them HEAD reaches, since
-   * other branches' commits sit between. Whether they are one line of commits
-   * is the server's to check.
+   * commits from one to the other. As the server squashes, they are one line:
+   * the newer end's first parents, none of them a merge, down to the older
+   * end — so the pair is offered only when the list holds that line, and the
+   * count is its length.
    * @returns {{older: string, newer: string, count: number, head: string}|null} The run, null when there is none to squash.
    */
   const squashRun = () => {
@@ -959,18 +1015,20 @@ export function createHistoryPlace(host) {
     const a = list.indexOf(marked);
     const b = list.indexOf(wanted);
     if (a < 0 || b < 0 || a === b) return null;
-    let count = Math.abs(a - b) + 1;
     if (scope === 'all') {
       const reached = reachedFrom(head);
       if (!reached.has(marked) || !reached.has(wanted)) return null;
-      count = 0;
-      for (let i = Math.min(a, b); i <= Math.max(a, b); i++) {
-        const row = list.rowAt(i);
-        if (!row) return null;
-        if (reached.has(row.sha)) count++;
-      }
     }
-    return a > b ? { older: marked, newer: wanted, count, head } : { older: wanted, newer: marked, count, head };
+    const [older, newer] = a > b ? [marked, wanted] : [wanted, marked];
+    let count = 1;
+    for (let row = list.rowAt(Math.min(a, b)); row?.sha !== older; count++) {
+      const parent = row?.parents.length === 1 ? row.parents[0] : '';
+      if (!parent) return null;
+      const at = list.indexOf(parent);
+      if (at < 0 || at > Math.max(a, b)) return null;
+      row = list.rowAt(at);
+    }
+    return { older, newer, count, head };
   };
 
   /**
@@ -1194,6 +1252,7 @@ export function createHistoryPlace(host) {
   const resync = () => {
     list.reset();
     marked = '';
+    inRun = new Set();
     showCommit('');
     readRefs(true);
   };
@@ -1256,6 +1315,7 @@ export function createHistoryPlace(host) {
       fieldSelect.setValue('message');
       drawPlaceholder();
       marked = '';
+      inRun = new Set();
       missed = '';
       renderScopes();
       setLevel('list');

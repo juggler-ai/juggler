@@ -188,12 +188,23 @@ export async function runTests(_ctx) {
 
   await test('a marked run offers Squash, oldest to newest', async () => {
     const m = await mounted();
-    /** @type {HTMLElement} */ (rowAt(m, 1)).click();
-    /** @type {HTMLElement} */ (rowAt(m, 3)).dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
+    // Rows 2, 3 and 4 are one line: the side branch row 0 merges.
+    /** @type {HTMLElement} */ (rowAt(m, 2)).click();
+    /** @type {HTMLElement} */ (rowAt(m, 4)).dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
     const squash = /** @type {HTMLElement} */ (await waitFor(() => m.body.querySelector('.git-history__squash'), 'a Squash button'));
     assert(squash.textContent === 'Squash 3 commits', `its words: ${squash.textContent}`);
     squash.click();
-    assert(same(opAt(m, 0), { repo: '', kind: 'squash', rev: shaOf(3), sha: shaOf(1), expectHead: HEAD }), `squash ${JSON.stringify(opAt(m, 0))}`);
+    assert(same(opAt(m, 0), { repo: '', kind: 'squash', rev: shaOf(4), sha: shaOf(2), expectHead: HEAD }), `squash ${JSON.stringify(opAt(m, 0))}`);
+    m.teardown();
+  });
+
+  await test('a marked pair that is not one line of commits offers no Squash', async () => {
+    const m = await mounted();
+    // Row 1's parent is row 4; row 3 is on the side branch drawn between.
+    /** @type {HTMLElement} */ (rowAt(m, 1)).click();
+    /** @type {HTMLElement} */ (rowAt(m, 3)).dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
+    await waitFor(() => m.body.querySelector('.git-history__compare'), 'the pair offered for comparing');
+    assert(!m.body.querySelector('.git-history__squash'), 'but not for squashing');
     m.teardown();
   });
 

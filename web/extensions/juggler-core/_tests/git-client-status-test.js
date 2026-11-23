@@ -122,6 +122,16 @@ export async function runTests(_ctx) {
   }
 
   /**
+   * Watch the cache for the rest of the case, once the read the first watcher
+   * starts has landed: the reads a case counts are then its own.
+   * @returns {Promise<void>} Settles when that read has.
+   */
+  async function watchCacheRead() {
+    watchCache();
+    await gitStatusCache.refresh();
+  }
+
+  /**
    * A git-change from the server, as the socket hands it on.
    * @param {string} workspace - The workspace it is about.
    */
@@ -158,6 +168,15 @@ export async function runTests(_ctx) {
     assert(JSON.stringify(server.asked.at(-1)) === '[""]', `asked to watch ${JSON.stringify(server.asked)}, want the project`);
   });
 
+  await test('the first watcher of a tree never read reads it', async () => {
+    // A surface watching the cache asks for nothing else: until a status
+    // lands it knows no repository, and nothing else may ever read one.
+    const server = stubServer();
+    const reads = server.reads;
+    watchCache();
+    await waitFor(() => server.reads > reads, 'a read when the first watcher arrived');
+  });
+
   await test('the last watcher leaving names nothing', async () => {
     const server = stubServer();
     const first = watchCache();
@@ -170,7 +189,7 @@ export async function runTests(_ctx) {
 
   await test('a change to the tree shown is read once; another tree\'s is not read', async () => {
     const server = stubServer();
-    watchCache();
+    await watchCacheRead();
     const before = server.reads;
 
     serverSaysChanged('');
@@ -186,7 +205,7 @@ export async function runTests(_ctx) {
     // tree arrives as a change of its own, so a job frame read too is a second
     // `git status` for every state a job passes through.
     const server = stubServer();
-    watchCache();
+    await watchCacheRead();
     const before = server.reads;
     socket()._emit('topic-event', {
       type: 'topic-event', topic: 'git', key: '',
@@ -202,7 +221,7 @@ export async function runTests(_ctx) {
 
   await test('a change while a read is out is read again, once', async () => {
     const server = stubServer();
-    watchCache();
+    await watchCacheRead();
     const before = server.reads;
 
     server.hold = true;
@@ -222,7 +241,7 @@ export async function runTests(_ctx) {
 
   await test('a new connection names the tree again, and reads it', async () => {
     const server = stubServer();
-    watchCache();
+    await watchCacheRead();
     const asked = server.asked.length;
     const reads = server.reads;
 
@@ -233,7 +252,7 @@ export async function runTests(_ctx) {
 
   await test('following the user to another tree watches that tree instead', async () => {
     const server = stubServer();
-    watchCache();
+    await watchCacheRead();
     const beforeSwitch = server.reads;
     setVisibleWorkspace('ws_tree');
     assert(JSON.stringify(server.asked.at(-1)) === '["ws_tree"]', `after switching, the cache asked for ${JSON.stringify(server.asked.at(-1))}`);

@@ -119,6 +119,12 @@ export async function runTests(_ctx) {
    */
   const isSelected = (m, index) => rowAt(m, index)?.getAttribute('aria-selected') === 'true';
   /**
+   * @param {any} m - The mounted pin.
+   * @returns {number[]} The rows drawn as part of the marked run, in order.
+   */
+  const inRun = (m) => [...m.body.querySelectorAll('.git-history__row--in-run')]
+    .map((el) => Number(/** @type {HTMLElement} */ (el).dataset.index)).sort((a, b) => a - b);
+  /**
    * @param {EventTarget} target - Where the key goes.
    * @param {string} key - The key.
    */
@@ -740,15 +746,19 @@ export async function runTests(_ctx) {
     /** @type {HTMLElement} */ (rowAt(m, 4)).dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
     assert(isSelected(m, 1), 'the selection stays');
     assert(Boolean(rowAt(m, 4)?.classList.contains('git-history__row--marked')), 'row 4 is marked');
+    // Rows 2 and 3 are the side branch row 0 merges: row 1's parent is row 4.
+    assert(JSON.stringify(inRun(m)) === '[1,4]', `the run is highlighted, the side branch drawn between left out: ${JSON.stringify(inRun(m))}`);
     const compare = /** @type {HTMLElement} */ (await waitFor(() => detail(m).querySelector('.git-history__compare'), 'a Compare button'));
     assert((compare.textContent || '').includes(`${shaOf(4).slice(0, 7)}..${shaOf(1).slice(0, 7)}`), `older..newer: ${compare.textContent}`);
 
     /** @type {HTMLElement} */ (rowAt(m, 2)).click();
     assert(!m.body.querySelector('.git-history__row--marked'), 'a plain click clears the mark');
+    assert(inRun(m).length === 0, `and the run: ${JSON.stringify(inRun(m))}`);
     press(root, 'x');
     press(root, 'k');
     press(root, 'k');
     assert(isSelected(m, 0) && Boolean(rowAt(m, 2)?.classList.contains('git-history__row--marked')), 'x marks the selected row');
+    assert(JSON.stringify(inRun(m)) === '[0,1,2]', `the run follows the selection: ${JSON.stringify(inRun(m))}`);
     const again = /** @type {HTMLElement} */ (await waitFor(() => detail(m).querySelector('.git-history__compare'), 'Compare again'));
     again.click();
     assert(root.dataset.place === 'review', `Review comes forward: ${root.dataset.place}`);
@@ -757,6 +767,7 @@ export async function runTests(_ctx) {
     root.querySelector(`.git-pin__place-btn[data-place="history"]`)?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     press(root, 'Escape');
     assert(!m.body.querySelector('.git-history__row--marked'), 'Escape clears the mark');
+    assert(inRun(m).length === 0, `and the run: ${JSON.stringify(inRun(m))}`);
     m.teardown();
   });
 

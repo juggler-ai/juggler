@@ -1904,12 +1904,10 @@ export function injectGitClientStyles() {
   background: color-mix(in srgb, var(--accent-yellow) 18%, transparent);
 }
 
-.git-history__row[aria-selected="true"] {
+/* A marked run is drawn as one selection, every row of it alike. */
+.git-history__row[aria-selected="true"],
+.git-history__row--in-run {
   background: var(--selection-bg);
-}
-
-.git-history__row--marked {
-  box-shadow: inset 0.2rem 0 0 var(--accent-orange);
 }
 
 .git-history__more {

@@ -73,11 +73,7 @@ func TestGitAttributionReadInAWorkspace(t *testing.T) {
 		Workspace: ws.ID, Path: "a.txt", Blob: gitIn(t, root, "hash-object", "a.txt"), Conv: writer,
 	})
 
-	tree, err := s.Workspaces().Resolve(ws.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	answer, err := tree.GitRead(t.Context(), gitview.Query{Kind: gitview.QueryAttribution})
+	answer, err := callGitTool(s, t.Context(), ws.ID, "read", map[string]any{"kind": gitview.QueryAttribution})
 	if err != nil {
 		t.Fatalf("attribution read: %v", err)
 	}

@@ -18,8 +18,8 @@ import (
 	"github.com/gorilla/websocket"
 
 	"juggler/cmd/juggler/gitaskpass"
-	"juggler/cmd/juggler/gitops"
 	"juggler/cmd/juggler/gitview/gitviewtest"
+	"juggler/cmd/juggler/jobs"
 	"juggler/cmd/juggler/workspace"
 )
 
@@ -87,17 +87,14 @@ func httpRemote(t *testing.T) (string, string) {
 // it.
 func askpassServer(t *testing.T, dir string) (*Server, *websocket.Conn) {
 	t.Helper()
-	queue := gitops.NewQueue()
-	t.Cleanup(queue.Close)
-	ws, err := workspace.NewResolver(func() string { return dir }, nil, nil).
-		WithGitQueue(func() *gitops.Queue { return queue }).Resolve("")
+	ws, err := workspace.NewResolver(func() string { return dir }, nil, nil).Resolve("")
 	if err != nil {
 		t.Fatal(err)
 	}
 	s, ts := newGitJobServer(t, map[string]workspace.Workspace{"": ws})
 	viewer, _ := dialViewerAs(t, ts, "")
-	askToWatch(t, viewer, "")
-	eventually(t, "the viewer's watch taken in", func() bool { return watchersNaming(s, "") == 1 })
+	askForJobs(t, viewer, "")
+	eventually(t, "the viewer's subscription taken in", func() bool { return jobSubscribersOf(s, "") == 1 })
 	return s, viewer
 }
 
@@ -108,8 +105,8 @@ type frameRecorder struct {
 	raw  []string
 }
 
-// next reads frames until a git-job one about job id arrives, and returns it.
-func (f *frameRecorder) next(id string) gitJob {
+// next reads frames until a job event about job id arrives, and returns it.
+func (f *frameRecorder) next(id string) testGitJob {
 	f.t.Helper()
 	_ = f.conn.SetReadDeadline(time.Now().Add(time.Minute))
 	for {
@@ -118,54 +115,57 @@ func (f *frameRecorder) next(id string) gitJob {
 			f.t.Fatalf("no frame about %s reached the viewer: %v", id, err)
 		}
 		f.raw = append(f.raw, string(data))
-		var frame gitJobFrame
-		if json.Unmarshal(data, &frame) == nil && frame.Type == frameGitJob && frame.Job.ID == id {
-			return frame.Job
+		var frame struct {
+			Type  frameType    `json:"type"`
+			Event testJobEvent `json:"event"`
+		}
+		if json.Unmarshal(data, &frame) == nil && frame.Type == frameTopicEvent && frame.Event.Type == jobEventType && frame.Event.Job.ID == id {
+			return frame.Event.Job
 		}
 	}
 }
 
 // prompt reads frames until job id asks a question, and returns it; the job
 // ending first fails the test.
-func (f *frameRecorder) prompt(id string) gitJobPrompt {
+func (f *frameRecorder) prompt(id string) jobs.Question {
 	f.t.Helper()
 	for {
 		job := f.next(id)
 		if job.Prompt != nil {
 			return *job.Prompt
 		}
-		if job.State != gitJobRunning {
+		if job.State != jobs.Running {
 			f.t.Fatalf("job %s ended without asking anything: %+v", id, job)
 		}
 	}
 }
 
 // end reads frames until job id ends, failing if it asks anything on the way.
-func (f *frameRecorder) end(id string) gitJob {
+func (f *frameRecorder) end(id string) testGitJob {
 	f.t.Helper()
 	for {
 		job := f.next(id)
 		if job.Prompt != nil {
 			f.t.Fatalf("job %s asked %q, want no question", id, job.Prompt.Text)
 		}
-		if job.State != gitJobRunning {
+		if job.State != jobs.Running {
 			return job
 		}
 	}
 }
 
 // answerJob answers a job's question as the router would.
-func answerJob(t *testing.T, s *Server, id string, body gitJobAnswerBody) *httptest.ResponseRecorder {
+func answerJob(t *testing.T, s *Server, id string, body jobAnswerBody) *httptest.ResponseRecorder {
 	t.Helper()
 	data, _ := json.Marshal(body)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/git/jobs/answer?workspace=&id="+id, strings.NewReader(string(data)))
-	s.handleGitJobAnswer(rec, req)
+	req := httptest.NewRequest(http.MethodPost, "/api/jobs/answer?workspace=&id="+id, strings.NewReader(string(data)))
+	s.handleJobAnswer(rec, req)
 	return rec
 }
 
 // answered answers a question that must be taken.
-func answered(t *testing.T, s *Server, id string, body gitJobAnswerBody) {
+func answered(t *testing.T, s *Server, id string, body jobAnswerBody) {
 	t.Helper()
 	if rec := answerJob(t, s, id, body); rec.Code != http.StatusOK {
 		t.Fatalf("answer %+v = %d %s, want 200", body.Prompt, rec.Code, rec.Body.String())
@@ -174,21 +174,21 @@ func answered(t *testing.T, s *Server, id string, body gitJobAnswerBody) {
 
 // signIn answers a fetch's two questions, username then password, and returns
 // the job as it ended.
-func signIn(t *testing.T, s *Server, frames *frameRecorder, id string) gitJob {
+func signIn(t *testing.T, s *Server, frames *frameRecorder, id string) testGitJob {
 	t.Helper()
 	user := frames.prompt(id)
 	if user.Kind != string(gitaskpass.KindText) || !strings.HasPrefix(user.Text, "Username for ") || user.ID == "" {
 		t.Fatalf("first question = %+v, want the username, typed in the open", user)
 	}
-	answered(t, s, id, gitJobAnswerBody{Prompt: user.ID, Answer: askpassUser})
-	if rec := answerJob(t, s, id, gitJobAnswerBody{Prompt: user.ID, Answer: "someone else"}); rec.Code != http.StatusConflict {
+	answered(t, s, id, jobAnswerBody{Prompt: user.ID, Answer: askpassUser})
+	if rec := answerJob(t, s, id, jobAnswerBody{Prompt: user.ID, Answer: "someone else"}); rec.Code != http.StatusConflict {
 		t.Errorf("a second answer to the same question = %d %s, want 409: the first answer wins", rec.Code, rec.Body.String())
 	}
 	pass := frames.prompt(id)
 	if pass.Kind != string(gitaskpass.KindSecret) || !strings.HasPrefix(pass.Text, "Password for ") || pass.ID == user.ID {
 		t.Fatalf("second question = %+v, want the password, masked", pass)
 	}
-	answered(t, s, id, gitJobAnswerBody{Prompt: pass.ID, Answer: askpassSecret})
+	answered(t, s, id, jobAnswerBody{Prompt: pass.ID, Answer: askpassSecret})
 	return frames.end(id)
 }
 
@@ -200,11 +200,11 @@ func noSecret(t *testing.T, s *Server, frames *frameRecorder, id string) {
 			t.Errorf("the password reached a viewer in a frame: %s", raw)
 		}
 	}
-	read := gitJobsRequest(t, s, http.MethodGet, "/api/git/jobs?workspace=&id="+id)
+	read := gitJobsRequest(t, s, http.MethodGet, "/api/jobs?workspace=&id="+id)
 	if strings.Contains(read.Body.String(), askpassSecret) {
 		t.Errorf("the password is in the job read back: %s", read.Body.String())
 	}
-	list := gitJobsRequest(t, s, http.MethodGet, "/api/git/jobs?workspace=")
+	list := gitJobsRequest(t, s, http.MethodGet, "/api/jobs?workspace=")
 	if strings.Contains(list.Body.String(), askpassSecret) {
 		t.Errorf("the password is in the job list: %s", list.Body.String())
 	}
@@ -217,7 +217,7 @@ func TestGitAskpass_AnsweredFetchCompletes(t *testing.T) {
 
 	job := startGitJob(t, s, "", `{"kind":"fetch"}`)
 	ended := signIn(t, s, frames, job.ID)
-	if ended.State != gitJobDone {
+	if ended.State != jobs.Done {
 		t.Fatalf("fetch = %+v, want it done once signed in", ended)
 	}
 	if got := gitIn(t, clone, "rev-parse", "origin/main"); got != want {
@@ -233,10 +233,10 @@ func TestGitAskpass_DeclinedIsAnAuthFailure(t *testing.T) {
 
 	job := startGitJob(t, s, "", `{"kind":"fetch"}`)
 	user := frames.prompt(job.ID)
-	answered(t, s, job.ID, gitJobAnswerBody{Prompt: user.ID, Decline: true})
+	answered(t, s, job.ID, jobAnswerBody{Prompt: user.ID, Decline: true})
 	ended := frames.end(job.ID)
-	if ended.State != gitJobFailed || ended.ErrorKind != "auth" {
-		t.Errorf("declined fetch = %s %q (%s), want failed as auth", ended.State, ended.ErrorKind, ended.Error)
+	if ended.State != jobs.Failed || ended.Error == nil || ended.Error.Kind != "auth" {
+		t.Errorf("declined fetch = %s %+v, want failed as auth", ended.State, ended.Error)
 	}
 }
 
@@ -252,31 +252,28 @@ func TestGitAskpass_AutoFetchAsksNobody(t *testing.T) {
 		t.Fatal("no fetch on first showing")
 	}
 	ended := frames.end(first.Job.ID)
-	if ended.State != gitJobFailed || ended.ErrorKind != "auth" {
-		t.Errorf("auto fetch = %s %q (%s), want failed as auth", ended.State, ended.ErrorKind, ended.Error)
+	if ended.State != jobs.Failed || ended.Error == nil || ended.Error.Kind != "auth" {
+		t.Errorf("auto fetch = %s %+v, want failed as auth", ended.State, ended.Error)
 	}
 }
 
 // Cancelling a job whose question is waiting ends it, takes the question back
-// from every viewer, and leaves the hub holding nothing for it.
+// from every viewer, and leaves nothing to answer.
 func TestGitAskpass_CancelWithAQuestionWaiting(t *testing.T) {
 	clone, _ := httpRemote(t)
 	s, viewer := askpassServer(t, clone)
 	frames := &frameRecorder{t: t, conn: viewer}
 
 	job := startGitJob(t, s, "", `{"kind":"fetch"}`)
-	frames.prompt(job.ID)
-	if rec := gitJobsRequest(t, s, http.MethodPost, "/api/git/jobs/cancel?workspace=&id="+job.ID); rec.Code != http.StatusOK {
+	asked := frames.prompt(job.ID)
+	if rec := gitJobsRequest(t, s, http.MethodPost, "/api/jobs/cancel?workspace=&id="+job.ID); rec.Code != http.StatusOK {
 		t.Fatalf("cancel = %d %s", rec.Code, rec.Body.String())
 	}
 	ended := frames.end(job.ID)
-	if ended.State != gitJobCancelled || ended.Prompt != nil {
+	if ended.State != jobs.Cancelled || ended.Prompt != nil {
 		t.Errorf("cancelled job = %s with prompt %+v, want cancelled with none", ended.State, ended.Prompt)
 	}
-	h := s.gitJobsHub()
-	held := -1
-	h.do(func() { held = len(h.asks) + len(h.tokens) })
-	if held != 0 {
-		t.Errorf("the hub still holds %d questions or tokens for an ended job", held)
+	if rec := answerJob(t, s, job.ID, jobAnswerBody{Prompt: asked.ID, Answer: askpassSecret}); rec.Code != http.StatusConflict {
+		t.Errorf("answering the cancelled job's question = %d %s, want 409", rec.Code, rec.Body.String())
 	}
 }

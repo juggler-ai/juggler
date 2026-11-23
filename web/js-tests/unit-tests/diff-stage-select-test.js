@@ -290,6 +290,26 @@ export async function runTests(_ctx) {
     assert(document.activeElement === line, 'the line lost focus on toggling');
   });
 
+  await run('Space in a viewer is the viewer\'s: its host never hears it', async () => {
+    const el = stagingViewer();
+    el.setPatch(patch());
+    let heard = 0;
+    const onHost = () => { heard++; };
+    document.addEventListener('keydown', onHost);
+    try {
+      // On a pickable line, and on an unpickable part of it (where Space scrolls).
+      lineAt(el, 'new', 19).dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
+      const other = /** @type {HTMLElement} */ (el.querySelector('diff-content') || el.firstElementChild || el);
+      other.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
+      assert(heard === 0, `the host heard ${heard} Space key(s) the viewer answers`);
+      // Any other key is the host's.
+      other.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', bubbles: true, cancelable: true }));
+      assert(heard === 1, 'the host did not hear a key the viewer leaves alone');
+    } finally {
+      document.removeEventListener('keydown', onHost);
+    }
+  });
+
   await run('the comment anchor still asks for a comment and does not pick', async () => {
     const el = stagingViewer({ readOnly: false });
     el.setPatch(patch());

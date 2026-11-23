@@ -3,21 +3,21 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 /**
- * Git ops service tests — a write is a job, and `run` settles when the job ends.
+ * Git ops service tests — a write is a job of kind `git`, and `run` settles
+ * when the job ends.
  *
- * The server answers a write at once with the job it started and reports the
- * job's end only on the socket, and only to connections watching that tree. So
- * what is asserted here is the settling (done resolves, failed and cancelled
- * reject with what the server said), the watching that makes the settling
- * possible (held exactly while a job of the tree is out), the recovery when a
- * frame was missed across a reconnect, and which tree an unnamed run is about.
- * @module unit-tests/git-ops-service-test
+ * Following a job is the jobs service's (jobs-service-test); what is asserted
+ * here is git's part: done resolves and failed or cancelled reject with what
+ * the server said, every job is handed out read flat — git's detail laid over
+ * it — and which tree an unnamed run is about.
+ * @module _tests/git-client-ops-test
  */
 
-import gitOpsService from '../../js/services/git-ops-service.js';
-import { setGitWorkspace } from '../../js/services/git-workspace.js';
-import wsService from '../../js/services/websocket.js';
-import { assert, nextTask, waitFor } from '../utilities/test-helpers.js';
+import { gitClient } from '../lib/git-client.js';
+import { servicesFor } from '../../../js/services/extension-services.js';
+import { setVisibleWorkspace } from '../../../js/services/visible-workspace.js';
+import wsService from '../../../js/services/websocket.js';
+import { assert, nextTask, waitFor } from '../../../js-tests/utilities/test-helpers.js';
 
 /**
  * @typedef {object} TestResult
@@ -47,6 +47,16 @@ function outcome(promise) {
  * @returns {Promise<TestResult>} Test results.
  */
 export async function runTests(_ctx) {
+  // The git client's writes, through a client of a surface that lives for the
+  // whole run.
+  const life = new AbortController();
+  const client = gitClient(servicesFor(null, life.signal), life.signal);
+  const gitOpsService = {
+    run: client.run,
+    onJob: (/** @type {string} */ workspace, /** @type {(job: any) => void} */ listener) => client.watch((event) => {
+      if (event.type === 'git-job') listener(event.job);
+    }, { workspace }),
+  };
   let passed = 0;
   let failed = 0;
   /** @type {string[]} */
@@ -71,18 +81,18 @@ export async function runTests(_ctx) {
   }
 
   /**
-   * Stand in for the server: POST /api/git/run starts a running job,
-   * GET /api/git/jobs?id= answers with the job as the server now has it, and the
-   * git-watch frame is recorded rather than sent.
+   * Stand in for the server: the git tool's run (POST /api/ops/client) starts a running git job,
+   * GET /api/jobs?id= answers with the job as the server now has it, and the
+   * jobs topic's subscriptions frame is recorded rather than sent.
    * @returns {any} The fake.
    */
   function stubServer() {
     const originalFetch = window.fetch;
-    const originalSend = wsService.sendGitWatch;
+    const originalSend = wsService.sendSubscriptions;
     const state = {
       /** @type {string[][]} */
       asked: [],
-      /** @type {{url: string, body: any}[]} */
+      /** @type {{url: string, body: any, workspace: string}[]} */
       posts: [],
       /** @type {string[]} */
       reads: [],
@@ -92,18 +102,19 @@ export async function runTests(_ctx) {
     };
     window.fetch = /** @type {any} */ (async (/** @type {any} */ input, /** @type {any} */ init) => {
       const url = typeof input === 'string' ? input : input?.url || '';
-      if (url.includes('/api/git/run')) {
-        const body = JSON.parse(init?.body || '{}');
-        state.posts.push({ url, body });
-        const workspace = new URLSearchParams(url.split('?')[1] || '').get('workspace') || '';
+      const call = url.includes('/api/ops/client') ? JSON.parse(init?.body || '{}') : null;
+      if (call?.toolId === 'git' && call.operation === 'run') {
+        const body = call.params?.op || {};
+        const workspace = call.workspaceId || '';
+        state.posts.push({ url, body, workspace });
         const job = {
-          id: `job_${++state.next}`, workspace, repo: body.repo || '', kind: body.kind,
-          commands: [], state: 'running', output: '', errorKind: '', result: {},
+          id: `job_${++state.next}`, kind: 'git', workspace, state: 'running', output: '', startedAt: 1,
+          detail: { repo: body.repo || '', op: body.kind, commands: [] },
         };
         state.jobs.set(job.id, job);
-        return new window.Response(JSON.stringify({ job }), { status: 202 });
+        return new window.Response(JSON.stringify({ success: true, data: job }), { status: 200 });
       }
-      if (url.includes('/api/git/jobs')) {
+      if (url.includes('/api/jobs')) {
         state.reads.push(url);
         const id = new URLSearchParams(url.split('?')[1] || '').get('id') || '';
         const job = state.jobs.get(id);
@@ -112,16 +123,17 @@ export async function runTests(_ctx) {
       }
       return originalFetch(input, init);
     });
-    wsService.sendGitWatch = /** @type {any} */ ((/** @type {string[]} */ ids) => {
+    wsService.sendSubscriptions = /** @type {any} */ ((/** @type {string} */ topic, /** @type {string[]} */ ids) => {
+      if (topic !== 'jobs') return true;
       state.asked.push([...ids]);
       return true;
     });
     owed.push(() => {
       window.fetch = originalFetch;
-      wsService.sendGitWatch = originalSend;
-      setGitWorkspace('');
+      wsService.sendSubscriptions = originalSend;
+      setVisibleWorkspace('');
     });
-    setGitWorkspace('');
+    setVisibleWorkspace('');
     return state;
   }
 
@@ -144,7 +156,7 @@ export async function runTests(_ctx) {
   function serverEnds(server, id, changes, options = {}) {
     const job = { ...server.jobs.get(id), ...changes };
     server.jobs.set(id, job);
-    if (!options.silently) socket()._emit('git-job', { type: 'git-job', workspace: job.workspace, job });
+    if (!options.silently) socket()._emit('topic-event', { type: 'topic-event', topic: 'jobs', key: job.workspace, event: { type: 'job', workspace: job.workspace, job } });
   }
 
   /**
@@ -156,7 +168,7 @@ export async function runTests(_ctx) {
    * @param {number} count - How many runs there should be.
    */
   async function posted(server, count) {
-    await waitFor(() => server.posts.length >= count, `POST ${count} to /api/git/run`);
+    await waitFor(() => server.posts.length >= count, `${count} git runs`);
     await waitFor(() => server.reads.length >= count, () => `the read after each POST; ${server.reads.length} of ${count}`);
     await nextTask();
   }
@@ -166,11 +178,12 @@ export async function runTests(_ctx) {
     const running = outcome(gitOpsService.run({ kind: 'stage', repo: '', paths: ['a.txt'] }));
     await posted(server, 1);
     assert(!running.done, 'run settled before the job ended');
-    serverEnds(server, 'job_1', { state: 'done', commands: [['add', '--', 'a.txt']] });
+    serverEnds(server, 'job_1', { state: 'done', detail: { repo: '', op: 'stage', commands: [['add', '--', 'a.txt']] }, result: { head: 'abc' } });
     await waitFor(() => running.done, 'run to settle on the done frame');
     assert(!running.error, `run rejected: ${running.error?.message}`);
-    assert(running.value?.id === 'job_1' && running.value.state === 'done',
-      `run resolved with ${JSON.stringify(running.value)}`);
+    const job = running.value;
+    assert(job?.id === 'job_1' && job.state === 'done' && job.kind === 'stage' && job.commands?.[0]?.[0] === 'add' && job.result?.head === 'abc' && job.errorKind === '',
+      `run resolved with ${JSON.stringify(job)}, want it read flat`);
     assert(server.posts[0].body.kind === 'stage' && server.posts[0].body.paths[0] === 'a.txt',
       `the op went out as ${JSON.stringify(server.posts[0].body)}`);
   });
@@ -180,8 +193,9 @@ export async function runTests(_ctx) {
     const running = outcome(gitOpsService.run({ kind: 'commit', repo: '', message: 'x' }));
     await posted(server, 1);
     serverEnds(server, 'job_1', {
-      state: 'failed', error: 'index.lock exists', errorKind: 'locked', lockPath: '.git/index.lock',
-      errorMessage: { key: 'Another git process holds {path}.', params: { path: '.git/index.lock' } },
+      state: 'failed',
+      error: { kind: 'locked', message: 'index.lock exists', text: { key: 'Another git process holds {path}.', params: { path: '.git/index.lock' } } },
+      detail: { repo: '', op: 'commit', commands: [], lockPath: '.git/index.lock' },
     });
     await waitFor(() => running.done, 'run to settle on the failed frame');
     const err = running.error;
@@ -191,51 +205,36 @@ export async function runTests(_ctx) {
     assert(err.message.includes('.git/index.lock'), `the message is ${JSON.stringify(err.message)}`);
   });
 
-  await test('a job whose end frame was missed resolves after a reconnect', async () => {
+  await test('a cancelled run rejects, and listeners hear only git jobs, read flat', async () => {
     const server = stubServer();
-    const running = outcome(gitOpsService.run({ kind: 'unstage', repo: '', paths: ['b.txt'] }));
+    /** @type {any[]} */
+    const heard = [];
+    const stop = gitOpsService.onJob('ws_ops', (job) => heard.push(job));
+    const running = outcome(gitOpsService.run({ kind: 'fetch', repo: '' }, { workspace: 'ws_ops' }));
     await posted(server, 1);
-    const readsBefore = server.reads.length;
-    serverEnds(server, 'job_1', { state: 'done' }, { silently: true });
-    await nextTask();
-    assert(!running.done, 'run settled with no frame and no read');
-
-    socket()._emit('open', {});
-    await waitFor(() => running.done, () => `run to settle after the reconnect (reads: ${JSON.stringify(server.reads.slice(readsBefore))})`);
-    assert(running.value?.state === 'done', `run settled as ${JSON.stringify(running.value || running.error?.message)}`);
-    assert(server.reads.slice(readsBefore).some((/** @type {string} */ u) => u.includes('id=job_1')),
-      `the job was not read again: ${JSON.stringify(server.reads.slice(readsBefore))}`);
-  });
-
-  await test('the tree is watched while a job runs, and let go after', async () => {
-    const server = stubServer();
-    const first = outcome(gitOpsService.run({ kind: 'stage', repo: '', paths: ['a'] }, { workspace: 'ws_ops' }));
-    const second = outcome(gitOpsService.run({ kind: 'stage', repo: '', paths: ['b'] }, { workspace: 'ws_ops' }));
-    await posted(server, 2);
-    assert(JSON.stringify(server.asked.at(-1)) === '["ws_ops"]',
-      `while jobs run the window asks for ${JSON.stringify(server.asked.at(-1))}`);
-    assert(server.posts.every((/** @type {any} */ p) => p.url.includes('workspace=ws_ops')), 'the runs name their tree');
-
-    serverEnds(server, 'job_1', { state: 'done' });
-    await waitFor(() => first.done, 'the first job to settle');
-    assert(JSON.stringify(server.asked.at(-1)) === '["ws_ops"]',
-      `one job still out, yet the window asks for ${JSON.stringify(server.asked.at(-1))}`);
-
-    serverEnds(server, 'job_2', { state: 'cancelled' });
-    await waitFor(() => second.done, 'the second job to settle');
-    assert(second.error instanceof Error, 'a cancelled job rejects');
-    assert(JSON.stringify(server.asked.at(-1)) === '[]',
-      `no job out, yet the window asks for ${JSON.stringify(server.asked.at(-1))}`);
+    socket()._emit('topic-event', { type: 'topic-event', topic: 'jobs', key: 'ws_ops', event: { type: 'job', workspace: 'ws_ops', job: { id: 'other', kind: 'test', workspace: 'ws_ops', state: 'running', output: '', startedAt: 1 } } });
+    serverEnds(server, 'job_1', {
+      progress: { phase: 'Receiving objects', source: 'remote', percent: 50, done: 1, total: 2 },
+      prompt: { id: 'ask_1', text: 'Password:', kind: 'secret' },
+    });
+    serverEnds(server, 'job_1', { state: 'cancelled', progress: undefined, prompt: undefined });
+    await waitFor(() => running.done, 'the run to settle');
+    stop();
+    assert(running.error instanceof Error && /** @type {any} */ (running.error).job?.state === 'cancelled', 'a cancelled job rejects with the job');
+    assert(heard.every((j) => j.id === 'job_1'), `a listener heard another kind's job: ${JSON.stringify(heard)}`);
+    const asking = heard.find((j) => j.prompt);
+    assert(asking?.progress?.remote === true && asking.progress.percent === 50 && !('source' in asking.progress) && asking.prompt.id === 'ask_1' && asking.kind === 'fetch',
+      `the job asking was read as ${JSON.stringify(asking)}`);
   });
 
   await test('an unnamed run is about the tree in view when it is made', async () => {
     const server = stubServer();
-    setGitWorkspace('ws_visible');
+    setVisibleWorkspace('ws_visible');
     const running = outcome(gitOpsService.run({ kind: 'stage-all', repo: '' }));
     await posted(server, 1);
-    assert(server.posts[0].url.includes('workspace=ws_visible'), `the run went to ${server.posts[0].url}`);
+    assert(server.posts[0].workspace === 'ws_visible', `the run went to ${server.posts[0].workspace}`);
     // Moving on does not move a job already out: its end is reported for its own tree.
-    setGitWorkspace('');
+    setVisibleWorkspace('');
     assert(JSON.stringify(server.asked.at(-1)) === '["ws_visible"]',
       `after the view moved the window asks for ${JSON.stringify(server.asked.at(-1))}`);
     serverEnds(server, 'job_1', { state: 'done' });

@@ -7,7 +7,7 @@ import ContextItem from 'juggler/context-item';
 import { formatDisplayPath, formatFileContentForLLM, parseFileContentForLLM, basename } from 'juggler/item-utils';
 import { fileSourceFromText } from 'juggler/file-source';
 import { extractFileSource } from 'juggler/registry';
-import { createElement, injectStylesOnce } from 'juggler/ui';
+import { createElement, createFileView, injectStylesOnce } from 'juggler/ui';
 import { translator, markUntranslated } from 'juggler/i18n';
 import { addFilePath } from 'juggler/ui';
 import { buildPickerPanel, hasNativeHost, pickFile } from 'juggler/ui';
@@ -835,7 +835,7 @@ class FileContentContextItem extends ContextItem {
         host.appendChild(createElement('div', 'file-content-snapshot-note', part.text));
         continue;
       }
-      const view = /** @type {any} */ (document.createElement('file-view'));
+      const view = /** @type {any} */ (createFileView());
       view.showPath = false;
       view.setSource(fileSourceFromText({ path, text: part.content, lineOffset: part.lineOffset }));
       host.appendChild(view);

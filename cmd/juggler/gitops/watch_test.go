@@ -147,7 +147,7 @@ func manualWatcher(t *testing.T) *Watcher {
 
 func watch(t *testing.T, w *Watcher, root string) <-chan []Change {
 	t.Helper()
-	ch, err := w.Watch(t.Context(), root, Attribution{})
+	ch, err := w.Watch(t.Context(), root)
 	if err != nil {
 		t.Fatalf("Watch(%s): %v", root, err)
 	}
@@ -433,12 +433,12 @@ func TestWatch_RealMergeConflictIsOperation(t *testing.T) {
 }
 
 // The project's tree is told of its working tree by the project's own watcher,
-// and starts none of its own.
+// through ProjectChanged, and starts none of its own.
 func TestWatch_ProjectTreeIsFedByTheProjectWatcher(t *testing.T) {
 	r := newRepo(t)
 	r.write("a.txt", "x\n")
 	r.commit("init")
-	fw, err := core.NewFileWatcherWith(r.dir, core.FileWatcherOptions{GitFeed: true})
+	fw, err := core.NewFileWatcherWith(r.dir, core.FileWatcherOptions{RawFeed: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -453,6 +453,11 @@ func TestWatch_ProjectTreeIsFedByTheProjectWatcher(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(w.Close)
+	go func() {
+		for c := range fw.RawChanges() {
+			w.ProjectChanged(c.Path, c.Event)
+		}
+	}()
 	ch := watch(t, w, r.dir)
 
 	w.do(func() {
@@ -480,11 +485,11 @@ func TestWatch_SharedCommonDirRefcounted(t *testing.T) {
 
 	mainCtx, endMain := context.WithCancel(t.Context())
 	linkedCtx, endLinked := context.WithCancel(t.Context())
-	mainCh, err := w.Watch(mainCtx, main.dir, Attribution{})
+	mainCh, err := w.Watch(mainCtx, main.dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	linkedCh, err := w.Watch(linkedCtx, linked, Attribution{})
+	linkedCh, err := w.Watch(linkedCtx, linked)
 	if err != nil {
 		t.Fatal(err)
 	}

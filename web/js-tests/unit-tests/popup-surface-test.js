@@ -502,6 +502,56 @@ export async function runTests() {
       }
     });
 
+    await run('a popup opened from inside another nests in it, found by its anchor', async () => {
+      __resetPopupManagerForTests();
+      const trigger = document.createElement('button');
+      document.body.append(trigger);
+      const outer = document.createElement('div');
+      const inner = document.createElement('button');
+      outer.append(inner);
+      const child = document.createElement('nav');
+      const row = document.createElement('button');
+      child.append(row);
+      let outerClosed = 0;
+      let childClosed = 0;
+      /** @type {(() => void)|null} */
+      let releaseOuter = null;
+      /** @type {(() => void)|null} */
+      let releaseChild = null;
+      try {
+        // Elements, not selectors: neither surface carries a class to find it by.
+        releaseOuter = presentPopup({ surface: outer, anchor: trigger, id: 'nest-outer',
+          onClose: () => { outerClosed++; releaseOuter?.(); releaseOuter = null; }, insideSelectors: [outer] });
+        await nextTask();
+        releaseChild = presentPopup({ surface: child, anchor: inner, id: 'nest-child', nested: 'auto',
+          onClose: () => { childClosed++; releaseChild?.(); releaseChild = null; }, insideSelectors: [child] });
+        await nextTask();
+        assert(outerClosed === 0, 'opening the child closed the popup it was opened from');
+
+        row.click();
+        await nextTask();
+        assert(outerClosed === 0, 'a press inside the child counted as outside the popup it nests in');
+        assert(childClosed === 0, 'a press inside the child closed it');
+
+        document.body.click();
+        await nextTask();
+        assert(childClosed === 1 && outerClosed === 1, `a press outside both closed child ${childClosed}, outer ${outerClosed}`);
+
+        // Anchored outside every open popup, 'auto' is an ordinary popup and announces itself.
+        releaseOuter = presentPopup({ surface: outer, anchor: trigger, id: 'nest-outer',
+          onClose: () => { outerClosed++; releaseOuter?.(); releaseOuter = null; }, insideSelectors: [outer] });
+        const lone = document.createElement('nav');
+        const releaseLone = presentPopup({ surface: lone, anchor: trigger, id: 'nest-lone', nested: 'auto', onClose: () => {} });
+        assert(outerClosed === 2, 'an un-nested popup did not close the one already open');
+        releaseLone();
+      } finally {
+        releaseChild?.();
+        releaseOuter?.();
+        trigger.remove();
+        __resetPopupManagerForTests();
+      }
+    });
+
     await run('an ordinary open then close leaves nothing behind', async () => {
       __resetPopupManagerForTests();
       const host = mountHost();

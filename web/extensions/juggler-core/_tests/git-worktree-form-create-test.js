@@ -15,12 +15,13 @@
  * @module _tests/git-worktree-form-create-test
  */
 
+import { providerContext } from '../../../js/services/provider-context.js';
 import { waitFor, assert } from '../../../js-tests/utilities/test-helpers.js';
 import { unregisterWorkspace, listWorkspaces } from '../../../js/services/workspaces.js';
 import { provisionWorkspace } from '../../../js/services/workspace-provisioning.js';
 import { rebindConversation } from '../../../js/services/workspace-rebinding.js';
 import GitWorktreeWorkspaceProvider from '../workspaces/git-worktree-workspace-provider.js';
-import api from '../../../js/services/api.js';
+import { gitClient, __scriptGitClients } from '../lib/git-client.js';
 import { underPseudoLocale } from '../../../js-tests/utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../../sdk/lib/i18n.js';
 import {
@@ -195,9 +196,10 @@ export async function runTests() {
 
       // The repository list is the server's; every case owns it rather than
       // inheriting whatever the lane's last suite left behind.
-      const realStatus = Object.prototype.hasOwnProperty.call(api, 'getGitStatus')
-        ? /** @type {any} */ (api).getGitStatus : null;
-      /** @type {any} */ (api).getGitStatus = async () => ({ repos: [{ path: '' }, { path: '3' }] });
+      const unscript = __scriptGitClients((services, signal) => ({
+        ...gitClient(services, signal),
+        statusOf: async () => ({ root: '', workspace: '', repos: /** @type {any} */ ([{ path: '' }, { path: '3' }]) }),
+      }));
       try {
         await underPseudoLocale('git-worktree-form-test', async () => {
           // Every shell command stubbed: nothing on disk is made or looked at.
@@ -212,17 +214,12 @@ export async function runTests() {
             shell,
             shellStreaming: async () => ({ success: false, stdout: '', exitCode: 1 })
           };
-          const ctx = {
-            session: { projectPath: '/1', workspaceRoot: () => '/1' },
+          const ctx = providerContext({ projectPath: '/1', workspaceRoot: () => '/1' }, {
             baseWorkspaceId: '',
-            ops,
-            signal: new AbortController().signal,
-            rollback: { push: () => {} },
-            checkpoint: async () => {},
-            progress: () => {}
-          };
+            ops: /** @type {any} */ (ops)
+          });
 
-          const provider = new GitWorktreeWorkspaceProvider({});
+          const provider = new GitWorktreeWorkspaceProvider();
           /** @type {any} The private hooks, which a test may reach. */
           const hooks = provider;
           const container = document.createElement('div');
@@ -282,7 +279,7 @@ export async function runTests() {
               return e instanceof Error ? e.message : String(e);
             }
           };
-          shown['no-root refusal'] = await thrown(() => hooks._repoRoot({}, { session: { workspaceRoot: () => '' } }));
+          shown['no-root refusal'] = await thrown(() => hooks._repoRoot({}, { workspaceRoot: () => '' }));
           shown['no-branch refusal'] = await thrown(() => hooks._places({ branch: '' }, ctx));
           shown['other-drive refusal'] = await thrown(() => hooks._places({ branch: '4', location: 'D:\\2' },
             { ...ctx, session: { workspaceRoot: () => 'C:\\1' } }));
@@ -291,8 +288,7 @@ export async function runTests() {
           hookThere = false;
         }, { '@juggler/core': CORE_TEXT });
       } finally {
-        if (realStatus) /** @type {any} */ (api).getGitStatus = realStatus;
-        else delete (/** @type {any} */ (api)).getGitStatus;
+        unscript();
       }
 
       const english = Object.entries(shown).filter(([, text]) => !isPseudoLocalized(scrub(text)));

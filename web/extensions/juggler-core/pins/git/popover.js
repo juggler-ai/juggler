@@ -57,8 +57,8 @@ export function openPopover(anchor, fallback, surface, onClosed) {
     onClose: () => {
       if (releaseOpen === release) closePopover();
     },
-    // The commit box's Auto-generate menu opens from inside the commit popover.
-    insideSelectors: ['.git-pop', '.git-gen-menu'],
+    // A menu opened from inside it (the commit box's Auto-generate) nests in it.
+    insideSelectors: [surface],
   });
   releaseOpen = release;
   closedOpen = onClosed || null;
@@ -220,31 +220,25 @@ export function askText(_anchor, _fallback, ask) {
     ask.onSubmit(value, checked, secondValue);
     return true;
   };
-  let cancelled = false;
   const dialog = showFormDialog({
     title: ask.label,
     content: form,
     confirmText: ask.ok,
     className: 'git-ask-dialog',
+    confirmClass: 'git-pop__ok',
+    cancelClass: 'git-pop__cancel',
     onConfirm: submit,
+    onCancel: ask.onCancel,
   });
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     if (submit()) dialog.close(true);
   });
-  // The dialog's own buttons, tagged so the pin (and its tests) can tell them apart.
-  const footer = form.closest('modal-dialog')?.querySelector('.modal-footer');
-  const buttons = footer ? [...footer.querySelectorAll('button')] : [];
-  buttons.at(-1)?.classList.add('git-pop__ok');
-  const cancelButton = buttons.at(-2);
-  cancelButton?.classList.add('git-pop__cancel');
-  cancelButton?.addEventListener('click', () => { cancelled = true; });
   const release = () => dialog.close();
   releaseOpen = release;
   closedOpen = null;
   void dialog.done.then(() => {
     if (releaseOpen === release) releaseOpen = null;
-    if (cancelled) ask.onCancel?.();
   });
   input.focus();
   input.select();
@@ -291,13 +285,17 @@ export function confirmAction(_anchor, _fallback, ask) {
     row.append(box, document.createTextNode(ask.check.label));
     content.append(text, row);
   }
+  const danger = ask.tone !== 'primary';
   const dialog = showFormDialog({
     title: ask.title || ask.ok,
     content,
     confirmText: ask.ok,
     cancelText: ask.cancel || t('Cancel'),
-    danger: ask.tone !== 'primary',
-    className: 'git-confirm-dialog',
+    danger,
+    className: 'git-pop git-confirm-dialog',
+    confirmClass: 'git-pop__ok',
+    cancelClass: 'git-pop__cancel',
+    focusConfirm: true,
     // Closed before the answer is acted on, as a popover is, so what it
     // starts — another question, most often — finds nothing still open.
     onConfirm: () => {
@@ -306,42 +304,27 @@ export function confirmAction(_anchor, _fallback, ask) {
       ask.onConfirm(checked);
       return true;
     },
-  });
-  const modal = /** @type {HTMLElement} */ (text.closest('modal-dialog'));
-  modal.classList.add('git-pop');
-  const buttons = [...modal.querySelectorAll('.modal-footer button')];
-  const ok = /** @type {HTMLButtonElement|undefined} */ (buttons.at(-1));
-  ok?.classList.add('git-pop__ok');
-  const cancelButton = buttons.at(-2);
-  cancelButton?.classList.add('git-pop__cancel');
-  cancelButton?.addEventListener('click', () => {
-    closePopover();
-    ask.onCancel?.();
+    onCancel: () => {
+      closePopover();
+      ask.onCancel?.();
+    },
   });
   const check = ask.check;
-  if (box && ok && check) {
+  if (box && check) {
     const ticked = box;
-    const danger = ask.tone !== 'primary';
     ticked.addEventListener('change', () => {
-      ok.textContent = ticked.checked && check.ok ? check.ok : ask.ok;
-      const risky = danger || (ticked.checked && Boolean(check.danger));
-      ok.classList.toggle('btn-danger', risky);
-      ok.classList.toggle('btn-primary', !risky);
+      dialog.setConfirm({
+        text: ticked.checked && check.ok ? check.ok : ask.ok,
+        danger: danger || (ticked.checked && Boolean(check.danger)),
+      });
     });
   }
-  // The element outlives its closing while its scrim fades; it stops being
-  // the open question at once.
-  const release = () => {
-    modal.classList.remove('git-pop');
-    dialog.close();
-  };
+  const release = () => dialog.close();
   releaseOpen = release;
   closedOpen = null;
   void dialog.done.then(() => {
-    modal.classList.remove('git-pop');
     if (releaseOpen === release) releaseOpen = null;
   });
-  ok?.focus();
   return text;
 }
 

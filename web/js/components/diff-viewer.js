@@ -223,7 +223,7 @@ const STATUS_NOTICES = {
  * lines from one and names its sides `old`/`new`; the client diff numbers lines
  * the same way, so the two inputs meet here and part of the renderer beyond this
  * point knows which produced them.
- * @param {any} hunk - A hunk as `GET /api/git/diff` returned it.
+ * @param {any} hunk - A hunk as the git tool's diff returned it.
  * @returns {DiffHunk} The hunk to render.
  */
 function hunkFromPatch(hunk) {
@@ -834,7 +834,7 @@ class DiffViewer extends JugglerElement {
 
   /**
    * Draw a patch the server produced, hunk for hunk.
-   * @param {any} patch - A `GitFileDiff`, as `services.git.diff()` answers with.
+   * @param {any} patch - A {@link import('../lib/diff-types.js').FileDiff}, as its host hands it over.
    * @param {DiffAnnotation[]} [annotations] - The comments to draw against it:
    *   the same as calling `setAnnotations` straight after, in one render rather
    *   than two. Absent, the comments already given are kept.
@@ -2164,15 +2164,19 @@ class DiffViewer extends JugglerElement {
   }
 
   /**
-   * Space on a focused pickable line toggles it, as a click would. Only the line
-   * itself answers — Space on a button inside it is that button's — and nothing
-   * else is claimed: the keys that move between files and act on them belong to
-   * whatever hosts the viewer.
+   * Space on a focused pickable line toggles it, as a click would. Space is
+   * the viewer's wherever it lands inside it — it toggles a line, presses a
+   * button or scrolls the diff — so it goes no further, and a host's key
+   * handler never acts on it as well. Every other key is left to the host: the
+   * keys that move between files and act on them belong to whatever hosts the
+   * viewer.
    * @param {KeyboardEvent} event - The key.
    * @private
    */
   _onKeyDown(event) {
-    if (event.key !== ' ' || !this._stageVerb) return;
+    if (event.key !== ' ') return;
+    event.stopPropagation();
+    if (!this._stageVerb) return;
     const target = event.target;
     if (!(target instanceof HTMLElement) || !target.matches('.diff-line[aria-pressed]')) return;
     event.preventDefault();
@@ -2378,10 +2382,15 @@ registerContextMenuProvider({
  *   viewer then does. Absent, nothing is pickable and no hunk has a button.
  * @param {boolean} [options.blame] - Offer a blame gutter; the same as calling
  *   `setBlameable(true)`, which says what the viewer then does.
+ * @param {boolean} [options.fill] - Fill the container rather than stand in it
+ *   as a box of its own: no border, shadow or height cap, and as a flex item it
+ *   takes the room left and scrolls within it. For a host that frames the
+ *   viewer itself (a pane given over to one diff).
  * @returns {DiffViewer} The element, not yet in the document.
  */
-export function createDiffViewer({ readOnly = true, stage, blame = false } = {}) {
+export function createDiffViewer({ readOnly = true, stage, blame = false, fill = false } = {}) {
   const viewer = /** @type {DiffViewer} */ (document.createElement('diff-viewer'));
+  if (fill) viewer.classList.add('diff-viewer-fill');
   viewer.readOnly = readOnly;
   if (stage) viewer.setStageable(stage.verb);
   if (blame) viewer.setBlameable(true);

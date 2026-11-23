@@ -82,7 +82,7 @@ class ReviewSendProbePin extends PinboardItemType {
  */
 const comment = (id, body, extra = {}) => ({
   id,
-  repo: '',
+  group: '',
   path: 'web/js/app.js',
   side: 'new',
   startLine: 12,
@@ -226,7 +226,7 @@ export async function runTests() {
         comment('c', 'Third', { path: 'a.js', startLine: 40 }),
         comment('b', 'Second', { path: 'a.js', startLine: 9, side: 'old' }),
         comment('a', 'First', { path: 'a.js', side: 'file', startLine: undefined, endLine: undefined }),
-        comment('e', 'Fifth', { repo: 'vendor/lib', path: 'a.js', startLine: 1 }),
+        comment('e', 'Fifth', { group: 'vendor/lib', path: 'a.js', startLine: 1 }),
       ],
     };
     const bodies = formatReviewMessage(draft).split('\n\n').slice(1).map((block) => block.split('\n').pop());
@@ -240,7 +240,7 @@ export async function runTests() {
   await run('a comment about a file names no line and no side', () => {
     const text = formatReviewMessage({
       comments: [comment('f', 'This file is two files.', {
-        repo: 'vendor/lib',
+        group: 'vendor/lib',
         path: 'src/main.go',
         side: 'file',
         startLine: undefined,

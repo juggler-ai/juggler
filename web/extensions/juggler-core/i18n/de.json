@@ -812,6 +812,7 @@
   "Show every git command this pin ran": "Jeden Git-Befehl anzeigen, den dieser Pin ausgeführt hat",
   "Show how far the visible conversation is through its plan and todo list, while either has work left.": "Anzeigen, wie weit die sichtbare Unterhaltung in ihrem Plan und ihrer Todo-Liste ist, solange bei einem davon noch Arbeit offen ist.",
   "Show in Changes": "In Änderungen anzeigen",
+  "Show in Git view": "In der Git-Ansicht zeigen",
   "Show in History": "Im Verlauf zeigen",
   "Show log": "Protokoll anzeigen",
   "Show on Pinboard": "Auf Pinboard anzeigen",
@@ -1337,5 +1338,8 @@
   "… (truncated)": "… (gekürzt)",
   "…{count} more not shown": "…{count} weitere nicht angezeigt",
   "↑{ahead} ↓{behind} {upstream}": "↑{ahead} ↓{behind} {upstream}",
-  "⚠ Write outside the project folder: {path}": "⚠ Schreiben außerhalb des Projektordners: {path}"
+  "⚠ Write outside the project folder: {path}": "⚠ Schreiben außerhalb des Projektordners: {path}",
+  "The git command failed.": "Der Git-Befehl ist fehlgeschlagen.",
+  "The git command was cancelled.": "Der Git-Befehl wurde abgebrochen.",
+  "The server did not say which git job it started.": "Der Server hat nicht mitgeteilt, welchen Git-Job er gestartet hat."
 }

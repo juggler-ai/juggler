@@ -32,7 +32,8 @@ import {
   workspaceKindNote,
   workspaceFinishOptions,
   workspaceFinishActor,
-  finishWorkspace
+  finishWorkspace,
+  workspaceBranch
 } from '../services/workspace-provisioning.js';
 import { errorText } from '../../sdk/lib/error-utils.js';
 import { t } from '../../sdk/lib/i18n.js';
@@ -791,9 +792,9 @@ class WorkspacePanel extends JugglerElement {
   }
 
   /**
-   * The quiet row under the track: a new conversation here, the tree in the
-   * Git view, the update the track offers, anything else that keeps the
-   * workspace, and "Close…".
+   * The quiet row under the track: a new conversation here, the tree on the
+   * board in each pin that offers to show it, the update the track offers,
+   * anything else that keeps the workspace, and "Close…".
    * @param {any[]} keeps - The finish options that keep the workspace.
    * @param {any[]} endings - The ones that do not.
    * @param {string} unavailableReason - Why there are none, if there are none.
@@ -811,9 +812,11 @@ class WorkspacePanel extends JugglerElement {
     create.prepend(plus);
     section.appendChild(create);
 
-    if (pinboardView.canPin({ kind: 'git' })) {
-      section.appendChild(this._runButton('btn btn-xs btn-ghost workspace-panel-more-git', t('Show in Git view'),
-        () => { void this._showInGit(); }));
+    for (const offer of this._workspaceOffers()) {
+      const button = this._runButton('btn btn-xs btn-ghost workspace-panel-more-pin', offer.label || t('Pin to Pinboard'),
+        () => { void this._pinOffer(offer); });
+      button.dataset.pinType = offer.typeId;
+      section.appendChild(button);
     }
 
     const steps = Array.isArray(this._track?.steps) ? this._track.steps : [];
@@ -855,24 +858,32 @@ class WorkspacePanel extends JugglerElement {
   }
 
   /**
-   * Put this workspace's tree on the board as a Git pin fixed to it, comparing
-   * the branch with the one it was made from — what landing it would bring in —
-   * or, where the record names neither, the branch against where it left the
-   * default branch.
+   * What the board offers to show this workspace in: one offer per pin type
+   * that takes a workspace, told the branch and base its provider records.
+   * @returns {{typeId: string, label: string, config: Record<string, unknown>}[]} The offers.
+   * @private
+   */
+  _workspaceOffers() {
+    const workspace = this._workspace;
+    if (!workspace?.id) return [];
+    const held = workspaceBranch(workspace);
+    return pinboardView.offersFor({
+      kind: 'workspace',
+      workspace: workspace.id,
+      ...(held ? { branch: held.branch } : {}),
+      ...(held?.base ? { base: held.base } : {})
+    });
+  }
+
+  /**
+   * Put one offer on the board.
+   * @param {{typeId: string, config: Record<string, unknown>}} offer - From {@link _workspaceOffers}.
    * @returns {Promise<void>} When it is on the board.
    * @private
    */
-  async _showInGit() {
-    const workspace = this._workspace;
-    if (!workspace) return;
-    const meta = workspace.meta ?? {};
-    const base = typeof meta.base === 'string' ? meta.base : '';
-    const branch = typeof meta.branch === 'string' ? meta.branch : '';
+  async _pinOffer(offer) {
     try {
-      await pinboardView.add('git', {
-        workspace: workspace.id,
-        scope: base && branch ? `${base}...${branch}` : '@branch'
-      });
+      await pinboardView.add(offer.typeId, offer.config);
     } catch (error) {
       showNotice(errorText(error));
     }

@@ -5,16 +5,13 @@
 package workspace
 
 import (
-	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"juggler/cmd/juggler/core"
-	"juggler/cmd/juggler/gitops"
 	"juggler/cmd/juggler/gitview"
 	"juggler/cmd/juggler/ops"
 )
@@ -53,18 +50,7 @@ func newLinkedFixture(t *testing.T, rows ...core.Workspace) linkedFixture {
 	gitRun(t, f.project, "commit", "-qm", "init")
 	gitRun(t, f.project, "worktree", "add", "-q", "-b", "side", f.linked)
 
-	queue := gitops.NewQueue()
-	watcher, err := gitops.NewWatcher("", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(watcher.Close)
-	graphs := gitview.NewGraphs()
-	t.Cleanup(graphs.Close)
-	f.resolver = NewResolver(func() string { return f.project }, lookupOver(rows...), nil).
-		WithGitQueue(func() *gitops.Queue { return queue }).
-		WithGitWatcher(func() *gitops.Watcher { return watcher }).
-		WithGitGraphs(func() *gitview.Graphs { return graphs })
+	f.resolver = NewResolver(func() string { return f.project }, lookupOver(rows...), nil)
 	f.trees = GitTrees{Resolve: f.resolver.Resolve, Rows: func() []core.Workspace { return rows }}
 	return f
 }
@@ -79,8 +65,9 @@ func realPath(t *testing.T, p string) string {
 }
 
 // A worktree no workspace names is reached through the tree it was found
-// from, and is the git surface's alone: the git client can read and write it,
-// and every tool of the agent's is refused there.
+// from, and is the git surface's alone: a tool registered to run in any tree
+// (the git tool, whose reads and writes there the server tests) is built
+// there, and every other tool is refused.
 func TestGitTreesResolveALinkedWorktree(t *testing.T) {
 	f := newLinkedFixture(t)
 	id := WorktreeID("", "", f.linked)
@@ -94,33 +81,14 @@ func TestGitTreesResolveALinkedWorktree(t *testing.T) {
 	if ws.ID() != id || ws.Root() != realPath(t, f.linked) || ws.Name() != "side-tree" {
 		t.Errorf("tree = id %q root %q name %q", ws.ID(), ws.Root(), ws.Name())
 	}
-	changes, err := ws.GitRead(t.Context(), gitview.Query{Kind: gitview.QueryChanges})
-	if err != nil || changes.(gitview.Changes).Branch != "side" {
-		t.Fatalf("GitRead = %+v, %v; want the side branch", changes, err)
-	}
-	changed, err := ws.GitWatch(t.Context())
-	if err != nil {
-		t.Fatalf("GitWatch: %v", err)
-	}
-	write(t, filepath.Join(f.linked, "b.txt"), "b\n")
-	if _, err := ws.GitRun(t.Context(), gitops.Op{Kind: gitops.OpStage, Paths: []string{"b.txt"}}, gitops.Hooks{}); err != nil {
-		t.Fatalf("GitRun: %v", err)
-	}
-	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
-	defer cancel()
-	for heard := false; !heard; {
-		select {
-		case batch := <-changed:
-			for _, c := range batch {
-				heard = heard || c.Kinds&gitops.KindIndex != 0
-			}
-		case <-ctx.Done():
-			t.Fatal("the git-only tree's watch never heard its own index change")
-		}
-	}
-
-	if _, err := ws.Operations("read_file", nil); err == nil {
+	ordinary := ops.Registration{Factory: func(ops.PathScope) ops.Operations { return nil }}
+	if _, err := ws.Operations(ordinary, nil); err == nil {
 		t.Error("the agent's tools were given a worktree only the git client may reach")
+	}
+	anyTree := ordinary
+	anyTree.ClientOnly, anyTree.AnyTree = true, true
+	if _, err := ws.Operations(anyTree, nil); err != nil {
+		t.Errorf("a tool registered to run in any tree was refused a git-only tree: %v", err)
 	}
 	if _, ok := ws.LocalDir(); ok {
 		t.Error("a provider could be spawned in a git-only tree")
@@ -200,7 +168,7 @@ func TestGitTreesAnnotateTheWorktreeRead(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		read, err := tree.GitRead(t.Context(), gitview.Query{Kind: gitview.QueryWorktrees})
+		read, err := gitview.Read(t.Context(), tree.Root(), gitview.Query{Kind: gitview.QueryWorktrees})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -272,34 +240,4 @@ func treeID(t gitview.Worktree) string {
 		return "<none>"
 	}
 	return *t.Tree
-}
-
-// A log read is answered from the server's graph store, for the project and
-// for a worktree reached through it alike; a tree given no store refuses it.
-func TestGitReadServesTheLog(t *testing.T) {
-	f := newLinkedFixture(t)
-	project, err := f.resolver.Resolve("")
-	if err != nil {
-		t.Fatal(err)
-	}
-	linked, err := f.trees.ResolveGit(WorktreeID("", "", f.linked))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, ws := range []Workspace{project, linked} {
-		got, err := ws.GitRead(t.Context(), gitview.Query{Kind: gitview.QueryLog, Log: gitview.LogQuery{Limit: 10}})
-		if err != nil {
-			t.Fatalf("%s: GitRead(log): %v", ws.Root(), err)
-		}
-		if page, ok := got.(gitview.LogPage); !ok || len(page.Rows) != 1 || page.Rows[0].Subject != "init" {
-			t.Errorf("%s: GitRead(log) = %#v", ws.Root(), got)
-		}
-	}
-	bare, err := NewResolver(func() string { return f.project }, nil, nil).Resolve("")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := bare.GitRead(t.Context(), gitview.Query{Kind: gitview.QueryLog}); err == nil {
-		t.Error("a tree with no graph store read a log")
-	}
 }

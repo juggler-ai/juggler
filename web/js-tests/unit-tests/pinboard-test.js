@@ -360,6 +360,53 @@ export async function runTests(_ctx) {
     }
   });
 
+  await run('a source is offered to every type that takes it, each in its own words', async () => {
+    // A workspace's panel draws one button per offer, so the registry has to
+    // hand back all of them — not only the first, as resolveSource does — and
+    // a type that cannot say whether it takes a source must not cost the
+    // others theirs.
+    class ShowsTrees extends PinboardItemType {
+      static MANIFEST = { id: 'test-shows-trees', name: 'Trees', version: '1.0.0', description: 'Shows a tree' };
+      static canPinSource(source) { return source?.kind === 'workspace'; }
+      static configFromSource(source) { return { workspace: source.workspace, scope: `${source.base}...${source.branch}` }; }
+      static sourceLabel() { return 'Show in Trees'; }
+      mount() {}
+    }
+    class Unworded extends PinboardItemType {
+      static MANIFEST = { id: 'test-unworded', name: 'Unworded', version: '1.0.0', description: 'Says nothing' };
+      static canPinSource(source) { return source?.kind === 'workspace'; }
+      static configFromSource(source) { return { workspace: source.workspace }; }
+      mount() {}
+    }
+    class Refuses extends PinboardItemType {
+      static MANIFEST = { id: 'test-refuses-config', name: 'Refuses', version: '1.0.0', description: 'Takes it, then cannot' };
+      static canPinSource(source) { return source?.kind === 'workspace'; }
+      static configFromSource() { return null; }
+      mount() {}
+    }
+    class Throws extends PinboardItemType {
+      static MANIFEST = { id: 'test-throws-offer', name: 'Throws', version: '1.0.0', description: 'Explodes' };
+      static canPinSource() { throw new Error('boom'); }
+      mount() {}
+    }
+    pinboardItemRegistry.reset();
+    try {
+      for (const Type of [Throws, ShowsTrees, Refuses, Unworded]) {
+        const reg = pinboardItemRegistry.registerClass(/** @type {any} */ (Type), { modulePath: '(test)' });
+        assert(reg.registered, `registerClass refused a probe: ${reg.reason}`);
+      }
+      const offers = pinboardItemRegistry.offersFor({ kind: 'workspace', workspace: 'ws_1', branch: 'feat', base: 'main' });
+      assert(JSON.stringify(offers) === JSON.stringify([
+        { typeId: 'test-shows-trees', label: 'Show in Trees', config: { workspace: 'ws_1', scope: 'main...feat' } },
+        { typeId: 'test-unworded', label: '', config: { workspace: 'ws_1' } },
+      ]), `every type that takes it, in order, with its words and config — and none that cannot pin it: ${JSON.stringify(offers)}`);
+      assert(pinboardItemRegistry.offersFor({ kind: 'nothing-takes-this' }).length === 0,
+        'a source nothing takes is offered to nobody');
+    } finally {
+      pinboardItemRegistry.reset();
+    }
+  });
+
   await run('a catch-all type is asked only after every narrower one has declined', async () => {
     // The shipped `file` pin accepts every live file and is registered before any
     // extension's, so first-acceptor-wins by registration order handed it sources

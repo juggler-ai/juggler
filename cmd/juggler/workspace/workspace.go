@@ -6,7 +6,7 @@
 // works in: the project itself, or a workspace registered against it.
 //
 // Every caller that acts on a conversation's tree — the agent's tool
-// operations, its streaming shell, "@" completion, the git views, the directory
+// operations, its streaming shell, "@" completion, the git tool, the directory
 // a CLI provider is spawned in, the sandbox's module imports — resolves the
 // conversation's workspace id to a Workspace and asks it, rather than resolving
 // a root and treating that as a path on this machine. A Workspace's Root is a
@@ -15,8 +15,7 @@
 // to hand out.
 //
 // The methods come in two layers. The bulk operations — Operations,
-// StreamShell, SearchFiles, CompletePath, the git views, the git watch and the git
-// client's reads and writes — are the
+// StreamShell, SearchFiles and CompletePath — are the
 // ones whose cost is in touching many files, so a Workspace performs them
 // beside the files rather than having them assembled out of single reads by the
 // caller. The primitives, Stat and Open, are the single-file reads a caller
@@ -28,8 +27,6 @@ import (
 	"io"
 	"io/fs"
 
-	"juggler/cmd/juggler/gitops"
-	"juggler/cmd/juggler/gitview"
 	"juggler/cmd/juggler/ops"
 )
 
@@ -56,9 +53,11 @@ type Workspace interface {
 	// workspace can host one (see Row.HostsLocalProviders).
 	LocalDir() (string, bool)
 
-	// Operations builds the handler for one of the agent's tools, confined to
-	// this tree and widened by the caller's standing allowed-paths grant.
-	Operations(toolID string, allowedPaths []string) (ops.Operations, error)
+	// Operations builds the handler of a registered tool, confined to this
+	// tree and widened by the caller's standing allowed-paths grant. Who may
+	// call the tool is the dispatcher's to decide (ops.Registration); a tree
+	// only the user's client reaches refuses every tool but an AnyTree one.
+	Operations(reg ops.Registration, allowedPaths []string) (ops.Operations, error)
 
 	// StreamShell runs one streaming shell command here, sending its output to
 	// out and closing out when the command is over, refusal included.
@@ -71,36 +70,6 @@ type Workspace interface {
 	// CompletePath completes a typed path: an absolute one, a "~" one, or a
 	// "./" one anchored at Root.
 	CompletePath(ctx context.Context, query string, limit int) ([]ops.FileMatch, error)
-
-	// GitStatus is the status card's view of every repository in the tree.
-	GitStatus(ctx context.Context) ([]gitview.RepoStatus, error)
-
-	// GitReview is the review's complete manifest of the tree's changes within
-	// a scope (see gitview.ParseScope; the zero Scope is the working tree
-	// against HEAD).
-	GitReview(ctx context.Context, scope gitview.Scope) (gitview.Manifest, error)
-
-	// GitDiff is one file's diff. A refusal of the request itself is a
-	// *gitview.RequestError.
-	GitDiff(ctx context.Context, req gitview.DiffRequest) (gitview.FileDiff, error)
-
-	// GitWatch reports changes to the git state of every repository in the
-	// tree — which repository, and which parts of its state — until ctx ends,
-	// when the channel is closed (see gitops.Watcher.Watch). It is the git
-	// surface's, acting for the user: it widens nothing the agent's tools may
-	// reach.
-	GitWatch(ctx context.Context) (<-chan []gitops.Change, error)
-
-	// GitRead is one of the git client's reads of a repository in the tree
-	// (see gitview.Read): a gitview.Changes for gitview.QueryChanges. A
-	// refusal of the query itself is a *gitview.RequestError.
-	GitRead(ctx context.Context, q gitview.Query) (any, error)
-
-	// GitRun makes one of the git client's writes to a repository in the tree,
-	// queued behind every other write to the same repository (see gitops.Run,
-	// whose typed errors it returns). Like GitWatch it acts for the user and
-	// widens nothing the agent's tools may reach.
-	GitRun(ctx context.Context, op gitops.Op, hooks gitops.Hooks) (gitops.Result, error)
 
 	// Stat describes one path: relative to Root, absolute, or under "~".
 	Stat(path string) (fs.FileInfo, error)

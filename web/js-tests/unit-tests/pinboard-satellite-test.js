@@ -45,6 +45,7 @@ import '../../js/components/conversation-tab.js';
 import { budgetFor } from '../utilities/test-deadline.js';
 import { underPseudoLocale } from '../utilities/pseudo-locale.js';
 import { t, isPseudoLocalized } from '../../sdk/lib/i18n.js';
+import { threadLabel } from '../../js/services/extension-services.js';
 
 /**
  * @typedef {object} TestResult
@@ -2198,7 +2199,7 @@ export async function runTests() {
       } finally {
         unnamed.teardown();
       }
-      const label = /** @type {any} */ (document.createElement('pinboard-content'))._threadLabel({ name: '' }, null);
+      const label = threadLabel({ name: '' }, null);
       assert(label === '', `an unnamed root thread has no label, got ${JSON.stringify(label)}`);
 
       const previousViewerId = wsService.viewerId;
@@ -2211,7 +2212,7 @@ export async function runTests() {
           docked.teardown();
         }
         check('root thread label',
-          /** @type {any} */ (document.createElement('pinboard-content'))._threadLabel({ name: 'Untitled 3' }, null), '3');
+          threadLabel({ name: 'Untitled 3' }, null), '3');
 
         __setViewModeForTests();
         try {

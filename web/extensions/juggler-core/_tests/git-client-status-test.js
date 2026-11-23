@@ -12,13 +12,14 @@
  * user to another tree, and names it again on a new connection. And the reading:
  * one read per change that concerns it, none for a change that does not, and a
  * change that lands while a read is out is never lost to that read.
- * @module unit-tests/git-status-cache-test
+ * @module _tests/git-client-status-test
  */
 
-import gitStatusCache from '../../js/services/git-status-cache.js';
-import { setGitWorkspace } from '../../js/services/git-workspace.js';
-import wsService from '../../js/services/websocket.js';
-import { assert, nextTask, waitFor } from '../utilities/test-helpers.js';
+import { gitClient, __resetGitStatus } from '../lib/git-client.js';
+import { servicesFor } from '../../../js/services/extension-services.js';
+import { setVisibleWorkspace } from '../../../js/services/visible-workspace.js';
+import wsService from '../../../js/services/websocket.js';
+import { assert, nextTask, waitFor } from '../../../js-tests/utilities/test-helpers.js';
 
 /**
  * @typedef {object} TestResult
@@ -33,6 +34,15 @@ import { assert, nextTask, waitFor } from '../utilities/test-helpers.js';
  * @returns {Promise<TestResult>} Test results.
  */
 export async function runTests(_ctx) {
+  // The window's git status cache, through a client of a surface that lives
+  // for the whole run.
+  const life = new AbortController();
+  const client = gitClient(servicesFor(null, life.signal), life.signal);
+  const gitStatusCache = {
+    reset: __resetGitStatus,
+    refresh: () => client.refresh(),
+    subscribe: (/** @type {() => void} */ listener) => client.onChange(listener),
+  };
   let passed = 0;
   let failed = 0;
   /** @type {string[]} */
@@ -57,14 +67,14 @@ export async function runTests(_ctx) {
   }
 
   /**
-   * Stand in for the server on both of the cache's paths: GET /api/git/status
-   * through window.fetch, and the git-watch frame through the socket. A read can
+   * Stand in for the server on both of the cache's paths: the git tool's status
+   * (POST /api/ops/client) through window.fetch, and the git topic's subscriptions frame through the socket. A read can
    * be held open, to land a change while it is out.
    * @returns {any} The fake.
    */
   function stubServer() {
     const originalFetch = window.fetch;
-    const originalSend = wsService.sendGitWatch;
+    const originalSend = wsService.sendSubscriptions;
     const state = {
       reads: 0,
       /** @type {string[][]} */
@@ -74,28 +84,30 @@ export async function runTests(_ctx) {
       hold: false,
     };
     window.fetch = /** @type {any} */ (async (/** @type {any} */ url, /** @type {any} */ opts) => {
-      if (String(url).includes('/git/status')) {
+      const call = String(url).includes('/api/ops/client') ? JSON.parse(opts?.body || '{}') : null;
+      if (call?.toolId === 'git' && call.operation === 'status') {
         state.reads++;
         if (state.hold) {
           state.hold = false;
           await new Promise((resolve) => { state.release = resolve; });
         }
-        return { ok: true, json: async () => ({ root: '/p', repos: [] }) };
+        return { ok: true, json: async () => ({ success: true, data: { root: '/p', repos: [] } }) };
       }
       return originalFetch(url, opts);
     });
-    wsService.sendGitWatch = /** @type {any} */ ((/** @type {string[]} */ ids) => {
+    wsService.sendSubscriptions = /** @type {any} */ ((/** @type {string} */ topic, /** @type {string[]} */ ids) => {
+      if (topic !== 'git') return true;
       state.asked.push([...ids]);
       return true;
     });
     owed.push(() => {
       window.fetch = originalFetch;
-      wsService.sendGitWatch = originalSend;
-      setGitWorkspace('');
+      wsService.sendSubscriptions = originalSend;
+      setVisibleWorkspace('');
       gitStatusCache.reset();
     });
     gitStatusCache.reset();
-    setGitWorkspace('');
+    setVisibleWorkspace('');
     return state;
   }
 
@@ -114,7 +126,10 @@ export async function runTests(_ctx) {
    * @param {string} workspace - The workspace it is about.
    */
   function serverSaysChanged(workspace) {
-    socket()._emit('git-change', { type: 'git-change', workspace, repos: [{ path: '', kinds: ['worktree'] }] });
+    socket()._emit('topic-event', {
+      type: 'topic-event', topic: 'git', key: workspace,
+      event: { type: 'git-change', workspace, repos: [{ path: '', kinds: ['worktree'] }] },
+    });
   }
 
   /**
@@ -173,9 +188,12 @@ export async function runTests(_ctx) {
     const server = stubServer();
     watchCache();
     const before = server.reads;
-    socket()._emit('git-job', {
-      type: 'git-job', workspace: '',
-      job: { id: 'job_1', workspace: '', repo: '', kind: 'stage', commands: [], state: 'running', output: '', errorKind: '', result: {} },
+    socket()._emit('topic-event', {
+      type: 'topic-event', topic: 'git', key: '',
+      event: {
+        type: 'git-job', workspace: '',
+        job: { id: 'job_1', workspace: '', repo: '', kind: 'stage', commands: [], state: 'running', output: '', errorKind: '', result: {} },
+      },
     });
     await nextTask();
     await nextTask();
@@ -217,7 +235,7 @@ export async function runTests(_ctx) {
     const server = stubServer();
     watchCache();
     const beforeSwitch = server.reads;
-    setGitWorkspace('ws_tree');
+    setVisibleWorkspace('ws_tree');
     assert(JSON.stringify(server.asked.at(-1)) === '["ws_tree"]', `after switching, the cache asked for ${JSON.stringify(server.asked.at(-1))}`);
     // Switching reads the new tree at once; let that read land first, so the
     // reads counted below are the changes'.

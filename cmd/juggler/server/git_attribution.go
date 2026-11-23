@@ -10,8 +10,6 @@ import (
 
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/gitattr"
-	"juggler/cmd/juggler/gitops"
-	"juggler/cmd/juggler/ops"
 	"juggler/cmd/juggler/worker"
 	"juggler/internal/projectpaths"
 )
@@ -87,19 +85,4 @@ func (d conversationDirectory) scan() *core.ConvDirIndex {
 		return nil
 	}
 	return idx
-}
-
-// runningShells is the git watcher's view of the process inventory: every
-// shell command running under the project, and where (gitops.AttributeShells).
-// Python runs are left out; they are code the agent wrote to compute, not to
-// change the tree.
-func runningShells(project string) []gitops.ShellCall {
-	var out []gitops.ShellCall
-	for _, p := range ops.ListProcesses(project) {
-		if p.Kind == ops.ProcessPython || p.ConvID == "" {
-			continue
-		}
-		out = append(out, gitops.ShellCall{Conv: p.ConvID, Thread: p.ThreadID, Item: p.ToolUseID, Cwd: p.Cwd, Workspace: p.WorkspaceID})
-	}
-	return out
 }

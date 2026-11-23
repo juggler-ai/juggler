@@ -6,7 +6,7 @@
 import ContextItem from 'juggler/context-item';
 import { formatFileContentForLLM, injectFileContentStyles } from 'juggler/item-utils';
 import { fileSourceFromText } from 'juggler/file-source';
-import { createElement, addFilePath } from 'juggler/ui';
+import { createElement, createFileView, addFilePath } from 'juggler/ui';
 import { translator, markUntranslated } from 'juggler/i18n';
 
 const t = translator('@juggler/core');
@@ -192,7 +192,7 @@ class DroppedFileContextItem extends ContextItem {
     // server-detected language — so the source carries the text the drop
     // captured. Text extracted from a binary file is marked so, which keeps the
     // viewer for the file's own type from being handed it.
-    const view = /** @type {any} */ (document.createElement('file-view'));
+    const view = /** @type {any} */ (createFileView());
     view.setSource(fileSourceFromText({
       path: this.data.filename || t('Dropped file'),
       text: content,

@@ -165,7 +165,7 @@ function renderPresetMenu(item, dropdown, container) {
   }
 
   // Footer actions.
-  const separator = createElement('li', 'sp-preset-separator');
+  const separator = createElement('li', 'menu-divider');
   separator.setAttribute('role', 'separator');
   menu.appendChild(separator);
 
@@ -182,13 +182,13 @@ function renderPresetMenu(item, dropdown, container) {
 }
 
 /**
- * Build an uppercase section label row (CSS upper-cases it). It carries no
- * role: a menu owns only items, and the rows under it name themselves.
+ * Build a section label row: the app's plain menu header. It carries no role:
+ * a menu owns only items, and the rows under it name themselves.
  * @param {string} label - Category caption, as shown
  * @returns {HTMLElement} The header row
  */
 function buildCategoryHeader(label) {
-  const header = createElement('li', 'sp-preset-category caps-label', label);
+  const header = createElement('li', 'menu-header menu-header-plain caps-label', label);
   header.setAttribute('role', 'none');
   return header;
 }

@@ -85,13 +85,13 @@ export async function runTests() {
       assert(registration.registered,
         `registerClass refused the fixture provider: ${registration.reason}`);
 
-      const provider = workspaceProviderRegistry.createProvider(FixtureProvider.MANIFEST.id, session);
+      const provider = workspaceProviderRegistry.createProvider(FixtureProvider.MANIFEST.id);
       assert(provider instanceof FixtureProvider,
         `the registry builds the class it was given, got ${provider?.constructor?.name}`);
       assert(provider?.getSetupLabel() === 'Somewhere else',
         `a provider with no setupLabel is offered under its name, got ${provider?.getSetupLabel()}`);
 
-      assert(workspaceProviderRegistry.createProvider('nothing-of-the-sort', session) === undefined,
+      assert(workspaceProviderRegistry.createProvider('nothing-of-the-sort') === undefined,
         'while a provider nothing registered comes back as nothing, rather than throwing');
     });
 
@@ -303,7 +303,7 @@ export async function runTests() {
       // the closures away, and asks the provider to undo it from `meta` — which
       // is exactly what the load-time sweep will do.
       const projectOps = createBoundOps(() => ({}));
-      const provider = workspaceProviderRegistry.createProvider(FixtureProvider.MANIFEST.id, session);
+      const provider = workspaceProviderRegistry.createProvider(FixtureProvider.MANIFEST.id);
       const cleanupCtx = {
         session,
         ops: projectOps,

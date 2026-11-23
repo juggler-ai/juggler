@@ -20,22 +20,15 @@
  * @module components/pinboard-content
  */
 
+import { createPinSight } from '../services/pin-visibility.js';
 import JugglerElement from './juggler-element.js';
 import pinboardItemRegistry from '../registries/pinboard-item-registry.js';
 import pinboardStore from '../services/pinboard-store.js';
 import pinboardView from '../services/pinboard-view.js';
-import wsService from '../services/websocket.js';
-import gitStatusCache from '../services/git-status-cache.js';
-import gitReviewService from '../services/git-review-service.js';
-import gitOpsService from '../services/git-ops-service.js';
-import { watchGit } from '../services/git-watch.js';
-import { gitWorkspaceId, onGitWorkspaceChange } from '../services/git-workspace.js';
-import { shellListProcesses, shellStopProcess } from '../services/ops-api.js';
+import { createExtensionServices, findToolAction, registerServicesView } from '../services/extension-services.js';
 import { presentPopup } from '../utils/popup-surface.js';
 import { applyMenuRoles, attachMenuKeyboard } from '../utils/menu-roles.js';
-import { reviewDraftBoundsError } from '../utils/review-draft.js';
-import { formatReviewMessage } from '../utils/review-message.js';
-import { extractErrorMessage, errorText } from '../../sdk/lib/error-utils.js';
+import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
 import { itemField } from '../../sdk/lib/message.js';
 import { formatDisplayPath } from '../../sdk/lib/context-item-utils.js';
 import { createFileActions } from '../utils/properties-panel-helpers.js';
@@ -43,27 +36,17 @@ import { insertAtCaret } from './composer-paste-tokens.js';
 import findBar from './find-bar.js';
 import { REFRESH_SVG } from '../utils/icons.js';
 import { PINBOARD_BODY_ID } from './pinboard-tabbar.js';
-import { THREAD_FOCUS_CHANGED, CONVERSATION_TAB_SHOWN } from './conversation-tab.js';
+import { CONVERSATION_TAB_SHOWN } from './conversation-tab.js';
 import { raiseThisWindow } from '../../sdk/lib/window-control.js';
 import { conversationTabFor } from './conversation-bar.js';
-import { itemGoal } from '../model/thread-alias.js';
-import { satelliteLink } from '../services/pinboard-link.js';
-import { isPinboardView } from '../utils/view-mode.js';
 import { capabilityLabel } from '../utils/capability-label.js';
 import { t } from '../../sdk/lib/i18n.js';
-import { displayConversationName } from '../model/conversation-naming.js';
-import { findNearestContextItem } from '../services/nearest-context-item.js';
 import { openWorkspaceCreate } from './workspace-create-dialog.js';
 import { carryOutWorkspaceFinish } from './workspace-finish-dialog.js';
-import { workspaceFinishOptions } from '../services/workspace-provisioning.js';
-import { probeSetupAdoptions, adoptSetupRow, adoptionRowFor } from '../services/workspace-places.js';
 
 /** @typedef {import('../services/pinboard-store.js').Pin} Pin */
 /** @typedef {import('juggler/pinboard-item-type').PinActiveContext} PinActiveContext */
 /** @typedef {import('juggler/pinboard-item-type').PinAction} PinAction */
-/** @typedef {import('juggler/pinboard-item-type').PinContextItemSnapshot} PinContextItemSnapshot */
-/** @typedef {import('juggler/pinboard-item-type').PinTask} PinTask */
-/** @typedef {import('../services/ops-api.js').ProcessInfo} ProcessInfo */
 
 /**
  * The glyphs an item type may ask for by name in a `PinAction`. An action naming
@@ -215,44 +198,6 @@ export function revealInConversation(target) {
 }
 
 /**
- * The tool action a tool call left in a conversation, or null. Tool-call ids
- * repeat across threads — `call_1` is in every sub-thread — so the thread named is
- * searched first, and the rest only when it holds no such call (a process
- * started by a caller that did not say which thread it was in).
- *
- * Reads fields one at a time and never calls `toJSON`: a background command's
- * result holds its accumulated output.
- * @param {any} conversation - The conversation model, loaded or not.
- * @param {string|null} threadId - The thread it ran in, null for the root.
- * @param {string} toolUseId - The tool call.
- * @returns {any} The action's Yjs map, or null.
- */
-function findToolAction(conversation, threadId, toolUseId) {
-  if (!conversation || !toolUseId) return null;
-  const threads = conversation.getAllMessageThreads?.() || [];
-  /**
-   * @param {any} thread - One thread of the conversation.
-   * @returns {any} The call's action in it, or null.
-   */
-  const inThread = (thread) => {
-    for (const ymap of thread?.items || []) {
-      if (typeof ymap?.get !== 'function') continue;
-      if (ymap.get('type') === 'tool-action' && ymap.get('toolUseId') === toolUseId) return ymap;
-    }
-    return null;
-  };
-  const named = threads.find((/** @type {any} */ thread) => (thread.threadItemId || null) === (threadId || null));
-  const found = named ? inThread(named) : null;
-  if (found) return found;
-  for (const thread of threads) {
-    if (thread === named) continue;
-    const other = inThread(thread);
-    if (other) return other;
-  }
-  return null;
-}
-
-/**
  * Turn a reveal of a tool call into a reveal of its row — or, when the row
  * cannot be found, of the thread it ran in, which is the nearest thing that can.
  * @param {any} conversation - The conversation the call was made in.
@@ -324,52 +269,6 @@ export async function showConversation(session, conversationId) {
   if (!session.switchConversation?.(conversationId)) return false;
   await waitForTab(conversationId);
   return true;
-}
-
-/**
- * The transcript row that stands for a context item of this type in a thread.
- *
- * Some context items — the plan and the todo list among them — are `isVisible()
- * false` and draw no tile of their own: the tool-action row that wrote them is
- * their whole presence in the column. Nothing records which row that was, so it
- * is found the way it is found everywhere else in the app, by scanning for the
- * last call of the tool that shares the item's type. A row whose result is a
- * context item is skipped, because the renderer draws nothing for one.
- *
- * Null means the item has no row of its own, and a reveal falls back to the
- * thread that owns it.
- * @param {any} thread - The MessageThread to scan.
- * @param {string} type - The context-item type, which is also the tool's name.
- * @returns {string|null} The row's item id, or null.
- */
-function writingRowId(thread, type) {
-  const items = thread?.items;
-  if (!Array.isArray(items)) return null;
-  for (let i = items.length - 1; i >= 0; i--) {
-    const item = items[i];
-    if (itemField(item, 'type') !== 'tool-action') continue;
-    if (itemField(item, 'toolName') !== type) continue;
-    if (itemField(itemField(item, 'result'), 'resultType') === 'context') continue;
-    const itemId = itemField(item, 'itemId');
-    return typeof itemId === 'string' && itemId ? itemId : null;
-  }
-  return null;
-}
-
-/**
- * A detached copy of a context item's data, so a pin holds a snapshot and cannot
- * write back through it. Context-item data is plain JSON by construction — it is
- * restored from the Yjs map's own `toJSON()` — so a round trip is enough, and it
- * fails closed on anything that turns out not to be.
- * @param {any} data - The item's stored data.
- * @returns {Record<string, any>} A copy, or an empty object if it would not clone.
- */
-function cloneData(data) {
-  try {
-    return JSON.parse(JSON.stringify(data ?? {}));
-  } catch {
-    return {};
-  }
 }
 
 /**
@@ -460,24 +359,12 @@ class PinboardContent extends JugglerElement {
      * @type {Map<string, string[]>} @private
      */
     this._inPlaceWrites = new Map();
-    /** @type {Set<() => void>} @private Watchers of the running-task list. */
-    this._taskListeners = new Set();
-    /** @type {(() => void)|null} @private Stops listening to the socket, while anyone watches tasks. */
-    this._unwatchProcesses = null;
     /**
-     * Counts `processes-changed` frames, so a listing fetched before the latest
-     * frame cannot overwrite it on arrival.
-     * @type {number} @private
+     * Told after the board's snapshot names another conversation or thread —
+     * what the services re-point a review draft and reorder the task list on.
+     * @type {Set<() => void>} @private
      */
-    this._processFrames = 0;
-    /**
-     * Watchers of the review draft, each with the observer it currently has on
-     * the thread being read. The thread moves under them — that is what
-     * switching thread or conversation does — so the observer is re-bound rather
-     * than registered once, and the entry is what there is to re-bind.
-     * @type {Set<{listener: () => void, detach: (() => void)|null}>} @private
-     */
-    this._reviewWatchers = new Set();
+    this._viewMoveListeners = new Set();
     /**
      * Listeners with news waiting — one entry each, however many times they
      * were told. See {@link _scheduleNotify}.
@@ -511,19 +398,19 @@ class PinboardContent extends JugglerElement {
      */
     this._visible = true;
     /**
-     * The project's process inventory as last heard, or null when nothing has
-     * come back yet. Null is a state of its own: "nothing running" is a claim,
-     * and making it before asking would be a guess.
-     * @type {ProcessInfo[]|null} @private
+     * Each mount's sight, by the controller of that mount: one per mount, kept
+     * across the contexts `update` is handed, and ended with its signal.
+     * @type {Map<AbortController, import('../services/pin-visibility.js').PinSight>} @private
      */
-    this._processes = null;
-    /** @type {string} @private The last listing's failure, kept beside the last answer. */
-    this._taskError = '';
-    /** @type {string} @private What the watchers were last told, to spot a real change. */
-    this._taskSignature = '';
+    this._sights = new Map();
+    /** @private */
+    this._onWindowVisibility = () => {
+      for (const sight of this._sights.values()) sight.set('window', document.hidden);
+    };
   }
 
   connectedCallback() {
+    document.addEventListener('visibilitychange', this._onWindowVisibility);
     this._build();
     // Leaving the document ended the pin, and the panel above will not hand the
     // same one over again: show it afresh rather than stand empty.
@@ -541,6 +428,7 @@ class PinboardContent extends JugglerElement {
   setVisible(visible) {
     if (this._visible === visible) return;
     this._visible = visible;
+    for (const sight of this._sights.values()) sight.set('board', !visible);
     if (visible && this._pendingNotify.size) this._scheduleFlush();
   }
 
@@ -556,6 +444,7 @@ class PinboardContent extends JugglerElement {
 
   disconnectedCallback() {
     super.disconnectedCallback();
+    document.removeEventListener('visibilitychange', this._onWindowVisibility);
     this._closeOverflow?.();
     if (this._active) this._leftShowing = { pin: this._pin };
     this._unmount();
@@ -615,17 +504,19 @@ class PinboardContent extends JugglerElement {
     const previousConversation = this._active?.conversation?.id || '';
     const previousThread = this._active?.thread?.id ?? null;
     this._active = active;
-    // A review draft belongs to the thread it will be sent to, so a move between
-    // threads — or between conversations — puts a different draft in front of
-    // the pin. Re-point the watchers before anything below can re-read.
+    // A review draft belongs to the thread it will be sent to, and the task list
+    // puts the conversation being read first, so a move between threads or
+    // conversations is news to the services. Told before anything below can
+    // re-read.
     if ((active?.conversation?.id || '') !== previousConversation
       || (active?.thread?.id ?? null) !== previousThread) {
-      this._rebindReviewWatchers();
-    }
-    // The running-task list is the whole project's, but it puts the
-    // conversation being read first — so a move to another one reorders it.
-    if ((active?.conversation?.id || '') !== previousConversation) {
-      this._notifyTaskWatchers();
+      for (const listener of [...this._viewMoveListeners]) {
+        try {
+          listener();
+        } catch (err) {
+          console.error('[Pinboard] A view-move listener failed:', err);
+        }
+      }
     }
     this._renderToolbar();
     // Every mounted pin hears this, not only the one on screen: a retained pin
@@ -1285,6 +1176,7 @@ class PinboardContent extends JugglerElement {
         this._abort = kept.abort;
         this._controller = kept.controller;
         kept.element.hidden = false;
+        this._sights.get(kept.abort)?.set('tab', false);
         this._callController(kept.controller, 'show');
         this._restoreScroll(pin);
         return;
@@ -1300,6 +1192,7 @@ class PinboardContent extends JugglerElement {
 
     const abort = new AbortController();
     this._abort = abort;
+    this._watchSight(slot, abort);
     const mounted = { ...pin, config };
     /** @type {any} */
     let result;
@@ -1414,6 +1307,34 @@ class PinboardContent extends JugglerElement {
   }
 
   /**
+   * The services one mount is handed, built against this board: its snapshot
+   * is where they read, its notifications are held while the board is closed,
+   * and a move of the snapshot to another thread or conversation is told to
+   * them through {@link _viewMoveListeners}.
+   * @param {AbortSignal} signal - The mount's signal.
+   * @returns {import('juggler/services').Services} The services.
+   * @private
+   */
+  _servicesFor(signal) {
+    return createExtensionServices({
+      signal,
+      session: () => this._session,
+      view: () => ({
+        projectPath: this._active?.project?.path || '',
+        conversationId: this._active?.conversation?.id || '',
+        threadId: this._active?.thread?.id ?? null,
+      }),
+      onViewMove: (listener) => {
+        this._viewMoveListeners.add(listener);
+        return () => { this._viewMoveListeners.delete(listener); };
+      },
+      notify: (fn, args, what) => this._notifyPin(fn, args, what),
+      coalesce: (fn, what, mount) => this._scheduleNotify(fn, what, mount),
+      dropPending: (fn) => this._dropPendingNotify(fn),
+    });
+  }
+
+  /**
    * The context handed to an item type: the pin, the active snapshot, the host
    * services, a signal that fires when the pin goes away, and the one way it may
    * write anything down.
@@ -1433,90 +1354,59 @@ class PinboardContent extends JugglerElement {
     return {
       pin: { id: pin.id, type: pin.type, config: pin.config },
       active: /** @type {PinActiveContext} */ (this._active),
-      services: {
-        files: { onChange: (listener) => this._watchFiles(listener, signal) },
-        contextItems: {
-          find: (type, from) => this._findContextItem(type, from),
-          onChange: (listener) => this._watchContextItems(listener, signal),
-          reveal: (threadId, itemId) => this._reveal(itemId
-            ? { kind: 'item', id: itemId }
-            : { kind: 'thread', id: threadId ?? null }),
-        },
-        git: {
-          status: () => gitStatusCache.get(),
-          error: () => gitStatusCache.getError(),
-          onChange: (listener) => this._watchGitStatus(listener, signal),
-          refresh: async () => {
-            await gitStatusCache.refresh();
-          },
-          review: (options) => this._gitRequest(
-            signal, options?.signal,
-            (linked) => gitReviewService.review({
-              signal: linked, scope: options?.scope, workspace: options?.workspace, conv: options?.conv,
-            })
-          ),
-          diff: (repo, path, options) => this._gitRequest(
-            signal, options?.signal,
-            (linked) => gitReviewService.diff(repo, path, {
-              signal: linked, contextLines: options?.contextLines, scope: options?.scope,
-              workspace: options?.workspace, conv: options?.conv,
-            })
-          ),
-          changes: (options) => this._gitRequest(
-            signal, options?.signal,
-            (linked) => gitReviewService.changes(options?.repo || '', { signal: linked, workspace: options?.workspace })
-          ),
-          read: (kind, options) => this._gitRequest(
-            signal, options?.signal,
-            (linked) => gitReviewService.read(kind, options?.repo || '', {
-              signal: linked, workspace: options?.workspace,
-              params: kind === 'log' ? options?.log : kind === 'commit' ? { commit: options?.commit }
-                : kind === 'blame' ? { path: options?.blame?.path, rev: options?.blame?.rev }
-                  : kind === 'stranded' ? { ref: options?.ref }
-                    : kind === 'attribution' ? { amend: options?.amend, conv: options?.conv }
-                      : kind === 'commit-context' ? { amend: options?.amend } : undefined,
-            })
-          ),
-          digest: (conv, paths, options) => this._gitRequest(
-            signal, options?.signal,
-            (linked) => gitReviewService.digest(conv, options?.repo || '', paths, { signal: linked, workspace: options?.workspace })
-          ),
-          run: (op, options) => gitOpsService.run(op, { workspace: options?.workspace }),
-          cancel: (id, options) => gitOpsService.cancel(id, options?.workspace),
-          answer: (id, reply, options) => gitOpsService.answer(id, reply, options?.workspace),
-          jobs: (options) => gitOpsService.jobs(options?.workspace),
-          fetchOnShow: (options) => gitOpsService.fetchOnShow(options?.repo || '', { workspace: options?.workspace }),
-          watch: (listener, options) => this._watchGitTree(listener, options?.workspace || '', signal),
-        },
-        tasks: {
-          // A copy, like every other service here: what a pin is handed is a
-          // snapshot, and mutating it must not reach the next reader.
-          // Built afresh on every call, so a pin mutating what it was handed
-          // cannot reach the next reader.
-          list: () => this._taskList(),
-          error: () => this._taskError,
-          onChange: (listener) => this._watchTasks(listener, signal),
-          reveal: (task) => (typeof task === 'string'
-            ? this._reveal({ kind: 'item', id: task })
-            : this._revealTask(task)),
-          stop: (taskId) => this._stopTask(taskId),
-        },
-        workspaces: this._workspacesService(signal),
-        review: {
-          draft: () => this._reviewDraft(),
-          onChange: (listener) => this._watchReviewDraft(listener, signal),
-          save: (draft) => this._saveReviewDraft(draft),
-          clear: () => this._saveReviewDraft(null),
-          compose: () => this._composeReview(),
-        },
-      },
+      services: this._servicesFor(signal),
       signal,
+      visibility: this._sightFor(abort).api,
       viewState: this._viewStates.get(pin.id),
       updateConfig: async (nextConfig, options) => {
         if (options?.inPlace && !signal.aborted) this._noteInPlaceWrite(pin.id, nextConfig);
         await pinboardStore.updateConfig(pin.id, nextConfig);
       },
     };
+  }
+
+  /**
+   * The sight of one mount, made the first time it is asked for: out of sight
+   * already for whatever holds now, and ended with the mount's signal.
+   * @param {AbortController} abort - The mount.
+   * @returns {import('../services/pin-visibility.js').PinSight} Its sight.
+   * @private
+   */
+  _sightFor(abort) {
+    const known = this._sights.get(abort);
+    if (known) return known;
+    /** @type {string[]} */
+    const hidden = [];
+    if (!this._visible) hidden.push('board');
+    if (document.hidden) hidden.push('window');
+    const sight = createPinSight({ notify: (fn, args, what) => this._notifyPin(fn, args, what), hidden });
+    this._sights.set(abort, sight);
+    const end = () => {
+      sight.end();
+      if (this._sights.get(abort) === sight) this._sights.delete(abort);
+    };
+    if (abort.signal.aborted) end();
+    else abort.signal.addEventListener('abort', end, { once: true });
+    return sight;
+  }
+
+  /**
+   * Watch a mount's element in and out of view, for its sight. Delivered only
+   * when the browser lays out, so it can put a pin out of sight but never keeps
+   * one there that nothing else does: until it reports, the pin counts as in view.
+   * @param {HTMLElement} slot - The element the pin is mounted into.
+   * @param {AbortController} abort - The mount.
+   * @private
+   */
+  _watchSight(slot, abort) {
+    if (typeof IntersectionObserver !== 'function') return;
+    const sight = this._sightFor(abort);
+    const observer = new IntersectionObserver((entries) => {
+      const entry = entries.at(-1);
+      if (entry) sight.set('scrolled', !entry.isIntersecting);
+    });
+    observer.observe(slot);
+    abort.signal.addEventListener('abort', () => observer.disconnect(), { once: true });
   }
 
   /**
@@ -1575,716 +1465,6 @@ class PinboardContent extends JugglerElement {
   }
 
   /**
-   * Point the conversation at something the mounted pin found — the one door all
-   * three reveals go through.
-   *
-   * In a detached board there are no columns to move, so the reveal is sent to
-   * the window the board was detached from and carried out there. It travels with
-   * the board's own conversation, which that window may long since have left —
-   * being pointed at something is a request to go and look at it, so the window
-   * switches to it before it points. The pin cannot tell the difference, and that
-   * is the point: a board behaves the same whichever window it is in.
-   * @param {{kind: string, id: string|null}} target - The thread or item to point at.
-   * @private
-   */
-  _reveal(target) {
-    if (isPinboardView()) {
-      const conversationId = this._active?.conversation?.id || '';
-      if (target.kind === 'thread') satelliteLink.revealThread(target.id, conversationId);
-      else if (target.id) satelliteLink.revealItem(target.id, conversationId);
-      return;
-    }
-    revealInConversation(target);
-  }
-
-  /**
-   * The session's workspaces, for a pin that shows trees: the git client's
-   * worktree switcher. What makes, finishes and adopts them is the workspace
-   * machinery's own — the create dialog, the panel's endings, the adoption
-   * offers — so a pin asks for those rather than doing them.
-   * @param {AbortSignal} signal - The pin's mount signal.
-   * @returns {import('juggler/pinboard-item-type').PinWorkspaces} The service.
-   * @private
-   */
-  _workspacesService(signal) {
-    const session = () => /** @type {any} */ (this._session);
-    const row = (/** @type {string} */ id) => (session()?.workspaces ?? []).find((/** @type {any} */ w) => w.id === id) ?? null;
-    return {
-      list: () => (session()?.workspaces ?? []).map((/** @type {any} */ w) => ({
-        id: w.id, label: w.label ?? '', root: w.root ?? '', providerId: w.providerId ?? '',
-        state: w.state ?? '', meta: JSON.parse(JSON.stringify(w.meta ?? {})),
-      })),
-      followed: () => gitWorkspaceId(),
-      onChange: (listener) => {
-        const onSession = (/** @type {any} */ event) => {
-          if (['session:workspaces-changed', 'conversation:created', 'conversation:deleted', 'conversation:renamed', 'conversation:switched'].includes(event.type)) {
-            this._notifyPin(listener, [], 'a workspace change');
-          }
-        };
-        const unsubscribe = session()?.subscribe?.(onSession) || null;
-        const unfollow = onGitWorkspaceChange(() => this._notifyPin(listener, [], 'a followed-tree change'));
-        const stop = () => { unsubscribe?.(); unfollow?.(); };
-        signal.addEventListener('abort', stop, { once: true });
-        return stop;
-      },
-      conversationsOf: (id) => {
-        const s = session();
-        if (!s?.conversations) return [];
-        return [...s.conversations.values()]
-          .filter((/** @type {any} */ c) => (c.workspaceId || '') === id)
-          .map((/** @type {any} */ c) => ({ id: c.id, title: s.getConversationName?.(c.id) || c.name || '' }));
-      },
-      // A board window draws no conversations, so it asks the window it was
-      // torn from to show this one, as its header's conversation name does.
-      showConversation: async (id) => {
-        if (isPinboardView()) return satelliteLink.selectConversation(id);
-        return showConversation(this._session, id);
-      },
-      create: async (request) => {
-        if (!session()) return { created: false };
-        return openWorkspaceCreate(session(), { providerId: request?.providerId, values: request?.values });
-      },
-      finishOptions: (id) => {
-        const w = row(id);
-        if (!w || !session()) return { options: [] };
-        return workspaceFinishOptions(session(), w);
-      },
-      finish: async (id, optionId) => {
-        const w = row(id);
-        if (!w || !session()) return null;
-        const option = workspaceFinishOptions(session(), w).options.find((o) => o.id === optionId);
-        if (!option) return null;
-        return carryOutWorkspaceFinish(session(), w, option);
-      },
-      adopt: async (tree) => {
-        if (!session()) return null;
-        await probeSetupAdoptions(session(), signal);
-        const offer = adoptionRowFor(tree);
-        return offer ? adoptSetupRow(session(), offer) : null;
-      },
-      startConversation: async (request) => {
-        const s = session();
-        if (!s) throw new Error('No session to start a conversation in.');
-        const id = await s.createConversation(request?.name || '', { activate: true, origin: 'pin', workspaceId: request?.workspace || '' });
-        await s.getConversation(id)?.sendMessage(request?.message || '');
-        return id;
-      },
-    };
-  }
-
-  /**
-   * Go to the tool action that started a task, in whichever conversation that
-   * was — switching to it first, because a task manager lists every
-   * conversation's work and the one that started a row is seldom the one on
-   * screen. A detached board asks the window it came from to do the same.
-   *
-   * The row is found by its tool call when the reveal lands rather than from
-   * the item id the list carried, because the list is the server's and the
-   * conversation may not have been loaded when it was drawn.
-   * @param {PinTask} task - The task, as `list` handed it out.
-   * @returns {Promise<void>}
-   * @private
-   */
-  async _revealTask(task) {
-    const conversationId = task?.conversationId || this._active?.conversation?.id || '';
-    const threadId = task?.threadId ?? null;
-    if (isPinboardView()) {
-      satelliteLink.revealToolAction(task?.toolUseId || '', threadId, conversationId);
-      return;
-    }
-    if (!(await showConversation(this._session, conversationId))) return;
-    const conversation = this._session?.getConversation?.(conversationId);
-    revealInConversation(task?.toolUseId
-      ? resolveToolTarget(conversation, { kind: 'tool', id: task.toolUseId, thread: threadId })
-      : { kind: 'thread', id: threadId });
-  }
-
-  /**
-   * Subscribe an item type to file changes, absolute-path side out. The watcher
-   * reports paths relative to the project it is rooted at (and a file of a
-   * state folder kept outside the project by its absolute path), which is the
-   * host's business and not a provider's — a pin holds a path and wants to know whether
-   * it is the one that moved.
-   *
-   * The subscription is tied to the pin's own signal as well as to the returned
-   * function, so an item type that forgets to unsubscribe still stops listening
-   * when it goes away.
-   * @param {(changes: import('juggler/pinboard-item-type').PinFileChange[]) => void} listener - Called with each batch.
-   * @param {AbortSignal} signal - The subscribing pin's mount signal.
-   * @returns {() => void} Unsubscribe.
-   * @private
-   */
-  _watchFiles(listener, signal) {
-    const root = (this._active?.project?.path || '').replace(/\/+$/, '');
-    const handler = (/** @type {any} */ changes) => {
-      if (!Array.isArray(changes) || !changes.length) return;
-      const resolved = changes.map((/** @type {any} */ change) => ({
-        path: root && !/^(?:[/\\]|[A-Za-z]:[/\\])/.test(String(change.path)) ? `${root}/${change.path}` : change.path,
-        event: change.event,
-      }));
-      this._notifyPin(listener, [resolved], 'a file change');
-    };
-    wsService.on('file-change', handler);
-    let stopped = false;
-    const stop = () => {
-      if (stopped) return;
-      stopped = true;
-      wsService.off('file-change', handler);
-    };
-    signal.addEventListener('abort', stop, { once: true });
-    return stop;
-  }
-
-  /**
-   * Hand an item type every git frame for one tree — its changes and the jobs
-   * running in it — for as long as it is mounted.
-   *
-   * A pin that names no workspace watches the tree in view, and is moved to the
-   * next one when the user moves to a conversation that works elsewhere. Two
-   * moments make whatever the pin read untrustworthy without a frame saying so:
-   * that move, and a new connection (frames sent while the window was cut off
-   * went nowhere). The pin is told of both with a `git-resync` event.
-   *
-   * Each frame is a copy, so a pin mutating what it was handed cannot reach
-   * another watcher of the same tree.
-   * @param {(event: import('juggler/pinboard-item-type').PinGitWatchEvent) => void} listener - Called with each event.
-   * @param {string} named - The workspace the pin named, '' to follow the one in view.
-   * @param {AbortSignal} signal - The subscribing pin's mount signal.
-   * @returns {() => void} Unsubscribe.
-   * @private
-   */
-  _watchGitTree(listener, named, signal) {
-    /** @type {(() => void)|null} */
-    let unwatch = null;
-    let tree = '';
-    const deliver = (/** @type {any} */ event) => {
-      this._notifyPin(listener, [JSON.parse(JSON.stringify(event))], 'a git event');
-    };
-    const follow = () => {
-      const next = named || gitWorkspaceId();
-      if (unwatch && next === tree) return;
-      // The new tree is watched before the old one is let go, so a tree the two
-      // share is never dropped and taken up again on the server.
-      const previous = unwatch;
-      tree = next;
-      unwatch = watchGit(next, deliver);
-      if (!previous) return;
-      previous();
-      deliver({ type: 'git-resync', workspace: next });
-    };
-    follow();
-    const stopFollowing = named ? null : onGitWorkspaceChange(follow);
-    const stopOnOpen = wsService.on('open', () => deliver({ type: 'git-resync', workspace: tree }));
-    let stopped = false;
-    const stop = () => {
-      if (stopped) return;
-      stopped = true;
-      stopFollowing?.();
-      stopOnOpen();
-      unwatch?.();
-      unwatch = null;
-    };
-    if (signal.aborted) stop();
-    else signal.addEventListener('abort', stop, { once: true });
-    return stop;
-  }
-
-  /**
-   * Subscribe an item type to the shared git status. The cache reads the tree
-   * only while something is watching, so a pin that goes away stops the git
-   * invocations along with itself.
-   *
-   * Tied to the pin's signal as well as to the returned function, like the file
-   * watcher, so forgetting to unsubscribe leaks nothing.
-   * @param {() => void} listener - Called when a new status has arrived.
-   * @param {AbortSignal} signal - The subscribing pin's mount signal.
-   * @returns {() => void} Unsubscribe.
-   * @private
-   */
-  _watchGitStatus(listener, signal) {
-    const unsubscribe = gitStatusCache.subscribe(() => {
-      this._notifyPin(listener, [], 'a git status change');
-    });
-    signal.addEventListener('abort', unsubscribe, { once: true });
-    return unsubscribe;
-  }
-
-  /**
-   * Run one read of git under both signals that may end it: the pin's mount, and
-   * whatever the pin passed for the request itself.
-   *
-   * A pin that passes nothing still gets the first, which is the point — a review
-   * a pin asked for and then went away from is a read nobody will look at, and
-   * leaving it running is how a board that has been closed for a minute is still
-   * shelling out to git. Both listeners come off again the moment the read
-   * settles, because a pin selects file after file and the mount outlives every
-   * one of them.
-   * @template T
-   * @param {AbortSignal} mount - The pin's mount signal.
-   * @param {AbortSignal|undefined} caller - The signal the pin passed, if any.
-   * @param {(signal: AbortSignal) => Promise<T>} read - The read to run.
-   * @returns {Promise<T>} What it answered.
-   * @private
-   */
-  async _gitRequest(mount, caller, read) {
-    const child = new AbortController();
-    const abort = () => child.abort();
-    if (mount.aborted || caller?.aborted) abort();
-    else {
-      mount.addEventListener('abort', abort);
-      caller?.addEventListener('abort', abort);
-    }
-    try {
-      return await read(child.signal);
-    } finally {
-      mount.removeEventListener('abort', abort);
-      caller?.removeEventListener('abort', abort);
-    }
-  }
-
-  /**
-   * What to call a thread: the name its own column header shows, and the
-   * conversation's title for the root.
-   * @param {any} conversation - The conversation being read.
-   * @param {string|null} threadItemId - The thread, null for the root.
-   * @returns {string} A name to show, or '' when the thread was never named.
-   * @private
-   */
-  _threadLabel(conversation, threadItemId) {
-    if (!threadItemId) return conversation?.name ? displayConversationName(conversation.name) : '';
-    try {
-      const ymap = conversation.findItemById?.(threadItemId);
-      return ymap ? (itemGoal(ymap) || '') : '';
-    } catch {
-      return '';
-    }
-  }
-
-  /**
-   * The nearest context item of a type, as a copy. Walks a thread and then its
-   * ancestors, and reports which one it came from — a pin showing a parent
-   * thread's plan has to be able to say so.
-   *
-   * The walk normally starts at the thread being read, so a pin follows the
-   * reader. A pin that watches one thread names it instead: same resolution,
-   * different starting point, and the source it reports is still whichever
-   * thread in that chain actually owns the item.
-   * @param {string} type - The context-item type id, e.g. 'plan'.
-   * @param {string|null} [from] - The thread to start at; omit to follow the reader.
-   * @returns {PinContextItemSnapshot|null} The snapshot, or null if nothing has one.
-   * @private
-   */
-  _findContextItem(type, from) {
-    const conversationId = this._active?.conversation?.id;
-    const conversation = conversationId ? this._session?.getConversation?.(conversationId) : null;
-    if (!conversation) return null;
-
-    const focused = from === undefined ? (this._active?.thread?.id ?? null) : from;
-    const found = findNearestContextItem(conversation, type, focused);
-    if (!found) return null;
-    const { item, thread, threadId } = found;
-    let itemId = null;
-    try {
-      itemId = writingRowId(thread, type);
-    } catch {
-      itemId = null;
-    }
-    return {
-      id: item.id,
-      type: item.type,
-      // A copy, so a pin cannot write through it into the conversation.
-      data: cloneData(item.data),
-      source: {
-        threadId,
-        label: this._threadLabel(conversation, threadId),
-        inherited: threadId !== focused,
-        itemId,
-      },
-    };
-  }
-
-  /**
-   * Tell an item type when what it read may have changed: the conversation's
-   * items, or which thread is being read. Both matter, and neither carries what
-   * changed — the pin re-reads, which is cheap and always right.
-   *
-   * The thread being read is answered from the active-context snapshot, not from
-   * the conversation, so the snapshot has to be the new one by the time a pin
-   * re-reads. It is: the panel above listens for the same thread-focus event and
-   * registered for it when it connected, which is necessarily before it mounted
-   * anything here, and same-target listeners run in the order they were added.
-   * So the panel has already pushed the new snapshot down. That also covers the
-   * pin that implements `onChange` and no `update()`, which is why this listens
-   * for a thread move at all rather than leaving it to the panel's `update()`.
-   *
-   * Tied to the pin's own signal as well as to the returned function, exactly as
-   * {@link _watchFiles} is.
-   * @param {() => void} listener - Called after a change.
-   * @param {AbortSignal} signal - The subscribing pin's mount signal.
-   * @returns {() => void} Unsubscribe.
-   * @private
-   */
-  _watchContextItems(listener, signal) {
-    const fire = () => this._scheduleNotify(listener, 'a context-item change', signal);
-    /** @param {import('../model/session-events.js').SessionEvent} event - A session event. */
-    const onSession = (event) => {
-      if (event.type !== 'context-items:changed' && event.type !== 'conversation:changed') return;
-      // A pin reads one conversation. Every other conversation in the session
-      // emits these too, and without this filter a turn streaming in a tab
-      // nobody is looking at would re-read this pin's transcript at the sync rate.
-      const changed = event.data?.conversationId;
-      if (changed && changed !== (this._active?.conversation?.id || '')) return;
-      fire();
-    };
-    const unsubscribeSession = this._session?.subscribe?.(onSession) || null;
-    // Moving between threads is one deliberate act, not a stream, and what a pin
-    // shows has to have followed by the time the move is over.
-    const onFocus = () => this._notifyPin(listener, [], 'a thread-focus change');
-    document.addEventListener(THREAD_FOCUS_CHANGED, onFocus);
-
-    let stopped = false;
-    const stop = () => {
-      if (stopped) return;
-      stopped = true;
-      unsubscribeSession?.();
-      document.removeEventListener(THREAD_FOCUS_CHANGED, onFocus);
-      // This is the only service whose news is coalesced, so it is the only one
-      // that can have a notification still in hand at this point.
-      this._dropPendingNotify(listener);
-    };
-    signal?.addEventListener('abort', stop, { once: true });
-    return stop;
-  }
-
-  /**
-   * The thread a review is written to and read from: the one the reader is in,
-   * in the conversation the board is showing. Resolved at the moment it is
-   * asked for rather than held, because both halves of that move under a pin —
-   * the reader changes thread, the board changes conversation — and a held
-   * thread would go on answering for the one they left.
-   * @returns {import('../model/message-thread.js').default|null} The thread, or
-   *   null when there is no conversation to write to.
-   * @private
-   */
-  _reviewThread() {
-    const conversationId = this._active?.conversation?.id;
-    const conversation = conversationId ? this._session?.getConversation?.(conversationId) : null;
-    if (!conversation) return null;
-    try {
-      // resolveMessageThread throws for an id that is not a thread item, which a
-      // stale snapshot can easily hold.
-      return conversation.resolveMessageThread(this._active?.thread?.id ?? null);
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * The unsent review on the thread being read, as a copy — the normalising read
-   * builds every comment fresh, so a pin cannot write through one into the
-   * document.
-   * @returns {import('../utils/review-draft.js').ReviewDraft|null} The draft, or
-   *   null when there is no conversation to hold one.
-   * @private
-   */
-  _reviewDraft() {
-    const thread = this._reviewThread();
-    return thread ? thread.gitReviewDraft : null;
-  }
-
-  /**
-   * Replace the review draft on the thread being read, or clear it with null.
-   *
-   * Refuses rather than trims. The destination is checked first because it is
-   * the more fundamental absence, and the bounds are checked before anything is
-   * written so that a refused save leaves the previous draft exactly as it was —
-   * the surface that asked still holds the text, and can show what came back
-   * beside it.
-   * @param {{comments?: import('../utils/review-draft.js').ReviewComment[]}|null} draft - The draft to store.
-   * @returns {Promise<void>} Resolves once it is in the document.
-   * @private
-   */
-  async _saveReviewDraft(draft) {
-    const thread = this._reviewThread();
-    if (!thread) throw new Error(t('There is no conversation open to keep review comments in.'));
-    const problem = reviewDraftBoundsError(draft);
-    if (problem) throw new Error(problem);
-    thread.gitReviewDraft = draft;
-  }
-
-  /**
-   * Put the review in the prompt, for the reader to send themselves.
-   *
-   * The feedback is the user's own words about their own code, and the last look
-   * at it belongs to them: it goes into the box so it can be read back, added
-   * to, cut down or abandoned. Three places it can land, in this order —
-   *
-   * - the composer for the thread being read, when this window has one;
-   * - the window this board was detached from, which has the columns (see
-   *   {@link module:services/pinboard-link}); the owner decides what happens
-   *   there, exactly as it does for a reveal;
-   * - failing both, the conversation itself, as one ordinary user message. A
-   *   board whose owner has closed still has somewhere to put the feedback, and
-   *   a review that cannot be handed over is worth more said than dropped.
-   *
-   * The comments are never cleared. Pasting is not saying — the text can still
-   * be deleted out of the box — so the batch stays the reader's to discard, and
-   * the panel goes on counting it until they do.
-   * @returns {Promise<void>} Resolves once the review has been handed over.
-   * @private
-   */
-  async _composeReview() {
-    const thread = this._reviewThread();
-    if (!thread) throw new Error(t('There is no conversation open to put a review in.'));
-    const draft = thread.gitReviewDraft;
-    if (!draft.comments.length) throw new Error(t('There are no review comments to hand over.'));
-    const text = formatReviewMessage(draft);
-
-    if (pasteIntoComposer(composerForThread(thread), text)) return;
-    if (isPinboardView()
-      && satelliteLink.compose(text, thread.conversation.id, thread.threadItemId ?? null)) return;
-    await composeForThread(thread, text);
-  }
-
-  /**
-   * Tell a pin when the review draft it is showing may have changed. Two
-   * different things count, and a pin cannot tell them apart: the draft was
-   * written — here, or in another window sharing the conversation — or the
-   * thread being read moved, so the draft is now a different one. Both mean the
-   * same thing to the pin, which re-reads.
-   *
-   * Tied to the pin's own signal as well as to the returned function, exactly as
-   * {@link _watchContextItems} is.
-   * @param {() => void} listener - Called after a change.
-   * @param {AbortSignal} signal - The subscribing pin's mount signal.
-   * @returns {() => void} Unsubscribe.
-   * @private
-   */
-  _watchReviewDraft(listener, signal) {
-    /** @type {{listener: () => void, detach: (() => void)|null}} */
-    const entry = { listener, detach: null };
-    this._reviewWatchers.add(entry);
-    this._bindReviewWatcher(entry);
-
-    let stopped = false;
-    const stop = () => {
-      if (stopped) return;
-      stopped = true;
-      entry.detach?.();
-      entry.detach = null;
-      this._reviewWatchers.delete(entry);
-    };
-    signal?.addEventListener('abort', stop, { once: true });
-    return stop;
-  }
-
-  /**
-   * Point one watcher at the thread now being read. A board with no conversation
-   * has nothing to observe and is left unbound — it is re-bound the moment one
-   * arrives, which is what {@link _rebindReviewWatchers} is for.
-   * @param {{listener: () => void, detach: (() => void)|null}} entry - The watcher.
-   * @private
-   */
-  _bindReviewWatcher(entry) {
-    entry.detach?.();
-    entry.detach = null;
-    const thread = this._reviewThread();
-    if (!thread) return;
-    entry.detach = thread.observeGitReviewDraft(
-      () => this._notifyPin(entry.listener, [], 'a review-draft change')
-    );
-  }
-
-  /**
-   * Move every watcher to the thread now being read, and tell it. The telling is
-   * the point: nothing was written, but what a pin is showing belongs to the
-   * thread the reader has just left, and a pin that learned of the move only
-   * when someone next typed would show another thread's comments until they did.
-   * @private
-   */
-  _rebindReviewWatchers() {
-    for (const entry of this._reviewWatchers) {
-      this._bindReviewWatcher(entry);
-      this._notifyPin(entry.listener, [], 'a move to another review draft');
-    }
-  }
-
-  /**
-   * The running tasks, as a pin is handed them: the server's inventory, with
-   * what the transcript knows about each laid over it where the conversation is
-   * loaded — the action's row, the tool's name, and what it was started for.
-   *
-   * The server is the only thing that knows what is running. The transcript
-   * cannot say — the durable snapshot beside a tool action freezes at whatever it
-   * last said, so after a restart it claims `running` forever — and it is read
-   * here only for labels, never to decide what is listed.
-   *
-   * The conversation being read comes first; within that, newest first.
-   * @returns {PinTask[]|null} Tasks, or null when nothing has come back yet.
-   * @private
-   */
-  _taskList() {
-    if (!this._processes) return null;
-    const activeId = this._active?.conversation?.id || '';
-    const tasks = this._processes.map((process) => this._describeProcess(process));
-    tasks.sort((a, b) => (Number(b.conversationId === activeId) - Number(a.conversationId === activeId))
-      || (b.at - a.at)
-      || a.taskId.localeCompare(b.taskId));
-    return tasks;
-  }
-
-  /**
-   * One process as a task. Reads the action's fields one at a time and never
-   * calls `toJSON`: a background command's result holds its accumulated output.
-   * @param {ProcessInfo} process - The server's entry.
-   * @returns {PinTask} The task.
-   * @private
-   */
-  _describeProcess(process) {
-    const conversationId = process.convId || '';
-    const session = /** @type {any} */ (this._session);
-    const conversation = conversationId ? session?.getConversation?.(conversationId) : null;
-    const name = conversationId
-      ? (session?.getConversationName?.(conversationId) || conversation?.name || '')
-      : '';
-    const action = findToolAction(conversation, process.threadId || null, process.toolUseId || '');
-    return {
-      taskId: process.id,
-      kind: process.kind,
-      conversationId,
-      conversationTitle: name ? displayConversationName(name) : '',
-      threadId: process.threadId || null,
-      toolUseId: process.toolUseId || '',
-      itemId: action ? String(itemField(action, 'itemId') || '') : '',
-      toolName: action ? String(action.get('toolName') || '') : '',
-      command: process.command || '',
-      label: action ? String(itemField(action.get('toolInput'), 'description') || '') : '',
-      at: Number.isFinite(process.startedAt) ? process.startedAt : Infinity,
-    };
-  }
-
-  /**
-   * Ask the server for the whole inventory — for the first watcher, and after
-   * the socket comes back, when frames may have been missed. A frame that lands
-   * while this is out is newer than its answer, and wins.
-   * @returns {Promise<void>} Resolves once the list has been refreshed.
-   * @private
-   */
-  async _fetchProcesses() {
-    const framesBefore = this._processFrames;
-    try {
-      const answer = await shellListProcesses();
-      if (this._processFrames !== framesBefore) return;
-      this._processes = Array.isArray(answer?.processes) ? answer.processes : [];
-      this._taskError = '';
-    } catch (err) {
-      this._taskError = errorText(err);
-    }
-    this._notifyTaskWatchers();
-  }
-
-  /**
-   * Tell every task watcher the list may have changed.
-   * @private
-   */
-  _notifyTaskWatchers() {
-    // Frames repeat the whole table, and most of a burst's frames say what the
-    // last one said. That is not news. What does change between identical
-    // answers is how long each task has been going, which is the watcher's own
-    // clock to keep.
-    const signature = JSON.stringify({
-      processes: this._processes && this._processes.map((p) => p.id),
-      active: this._active?.conversation?.id || '',
-      error: this._taskError,
-    });
-    if (signature === this._taskSignature) return;
-    this._taskSignature = signature;
-    for (const listener of this._taskListeners) {
-      this._notifyPin(listener, [], 'a task change');
-    }
-  }
-
-  /**
-   * Listen to the socket exactly while something is watching, and catch up
-   * when the first watcher arrives or the socket comes back.
-   * @private
-   */
-  _updateTaskWatching() {
-    const wanted = this._taskListeners.size > 0;
-    if (wanted === (this._unwatchProcesses !== null)) return;
-    if (!wanted) {
-      this._unwatchProcesses?.();
-      this._unwatchProcesses = null;
-      return;
-    }
-    /** @param {any} data */
-    const onFrame = (data) => {
-      this._processFrames++;
-      this._processes = Array.isArray(data?.processes) ? data.processes : [];
-      this._taskError = '';
-      this._notifyTaskWatchers();
-    };
-    const onOpen = () => { void this._fetchProcesses(); };
-    wsService.on('processes-changed', onFrame);
-    wsService.on('open', onOpen);
-    this._unwatchProcesses = () => {
-      wsService.off('processes-changed', onFrame);
-      wsService.off('open', onOpen);
-    };
-    void this._fetchProcesses();
-  }
-
-  /**
-   * Subscribe an item type to the running-task list, listening for the first
-   * watcher and stopping after the last.
-   *
-   * Tied to the pin's signal as well as to the returned function, like every
-   * other service here.
-   * @param {() => void} listener - Called when the list may have changed.
-   * @param {AbortSignal} signal - The subscribing pin's mount signal.
-   * @returns {() => void} Unsubscribe.
-   * @private
-   */
-  _watchTasks(listener, signal) {
-    this._taskListeners.add(listener);
-    this._updateTaskWatching();
-
-    let stopped = false;
-    const stop = () => {
-      if (stopped) return;
-      stopped = true;
-      this._taskListeners.delete(listener);
-      this._updateTaskWatching();
-    };
-    signal.addEventListener('abort', stop, { once: true });
-    return stop;
-  }
-
-  /**
-   * Stop a running task, by whichever means actually fits it.
-   *
-   * A Monitor's task is owned by its delivery binding, and cancelling that is
-   * what stops it: the worker sees the flag, stops the pump and kills the task,
-   * so the binding's own status stays the truth about it. That needs the
-   * conversation loaded here; when it is not, or the task is anything else, the
-   * server stops the process — a background task exactly as its own Stop button
-   * would, a foreground command so that its tool action reads "Killed by user".
-   * @param {string} taskId - The task to stop.
-   * @returns {Promise<void>} Resolves once it has been asked to stop.
-   * @private
-   */
-  async _stopTask(taskId) {
-    const process = (this._processes || []).find((candidate) => candidate.id === taskId);
-    if (process?.kind === 'background' && process.convId) {
-      const conversation = /** @type {any} */ (this._session)?.getConversation?.(process.convId);
-      const thread = (conversation?.getAllMessageThreads?.() || [])
-        .find((/** @type {any} */ candidate) => (candidate.threadItemId || null) === (process.threadId || null));
-      if (thread?.cancelTaskOutputDelivery?.(taskId)) return;
-    }
-    await shellStopProcess({ id: taskId });
-  }
-
-  /**
    * Tear down whatever is mounted. Best-effort: an item type that throws on the
    * way out has already been replaced by the time it does.
    * @private
@@ -2296,6 +1476,7 @@ class PinboardContent extends JugglerElement {
       // subscriptions stay live, so what happens while it is hidden is still
       // news it will be told — which is the difference between a pin that
       // survives a tab switch and one that merely gets rebuilt quickly.
+      this._sights.get(kept.abort)?.set('tab', true);
       this._callController(kept.controller, 'hide');
       kept.element.hidden = true;
     } else {
@@ -2468,3 +1649,15 @@ export function describePin(pin, active) {
 }
 
 customElements.define('pinboard-content', PinboardContent);
+
+// The half of the extension services only the view can carry out: pointing the
+// columns at something, the workspace dialogs, and putting text in a composer.
+registerServicesView({
+  revealInConversation,
+  resolveToolTarget,
+  showConversation,
+  pasteIntoThreadComposer: (thread, text) => pasteIntoComposer(composerForThread(thread), text),
+  composeForThread,
+  openWorkspaceCreate,
+  carryOutWorkspaceFinish,
+});

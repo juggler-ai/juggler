@@ -34,8 +34,9 @@ import {
 import { isPathAllowed } from '../../extensions/juggler-core/context-items/path-approval.js';
 import { setupRows } from '../../js/services/workspace-places.js';
 import { ensureWorkspaceBanner, removeAllElements } from '../../js/components/conversation-area-rendering.js';
-import { followSession, setGitWorkspace } from '../../js/services/git-workspace.js';
-import gitStatusCache from '../../js/services/git-status-cache.js';
+import { followSession, setVisibleWorkspace } from '../../js/services/visible-workspace.js';
+import { gitClient, __resetGitStatus } from '../../extensions/juggler-core/lib/git-client.js';
+import { servicesFor } from '../../js/services/extension-services.js';
 import {
   runWorkspaceSuite,
   bannerFor,
@@ -855,21 +856,26 @@ export async function runTests() {
 
         unfollow = followSession(session);
 
+        const life = new AbortController();
+        const git = gitClient(servicesFor(null, life.signal), life.signal);
         session.switchConversation(bound.id);
-        gitStatusCache.reset();
-        const inTree = await gitStatusCache.refresh();
+        __resetGitStatus();
+        await git.refresh();
+        const inTree = git.status();
         assert(inTree?.root === `${projectPath}/src`,
           `the status is read in the visible conversation's tree, got ${JSON.stringify(inTree?.root)}`);
 
         session.switchConversation(project.id);
-        gitStatusCache.reset();
-        const inProject = await gitStatusCache.refresh();
+        __resetGitStatus();
+        await git.refresh();
+        const inProject = git.status();
+        life.abort();
         assert(inProject?.root === projectPath,
           `and follows a switch back to a conversation working in the project, got ${JSON.stringify(inProject?.root)}`);
       } finally {
         if (unfollow) unfollow();
-        setGitWorkspace('');
-        gitStatusCache.reset();
+        setVisibleWorkspace('');
+        __resetGitStatus();
         if (wasVisible) session.switchConversation(wasVisible);
         session.workspaces = saved;
         await fetchJson(`/api/session/workspaces/${id}`, { method: 'DELETE', fallback: null });

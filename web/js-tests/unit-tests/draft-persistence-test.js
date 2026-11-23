@@ -79,14 +79,14 @@ export async function runTests(_ctx) {
    * @returns {any} One comment, as the review pin saves it.
    */
   const reviewComment = (id, body) => ({
-    id, repo: '', path: 'web/js/app.js', side: 'new', startLine: 12, endLine: 12,
+    id, group: '', path: 'web/js/app.js', side: 'new', startLine: 12, endLine: 12,
     lineText: ['  const x = 1;'], body, revision: 'sha256:9f1c',
     createdAt: 1_700_000_000_000, updatedAt: 1_700_000_000_000,
   });
-  conversation.rootMessageThread.gitReviewDraft = { comments: [reviewComment('r1', 'This loop runs twice')] };
+  conversation.rootMessageThread.reviewDraft = { comments: [reviewComment('r1', 'This loop runs twice')] };
   const reviewThreadId = conversation.rootMessageThread
     .createSubThread({ goal: 'Review the diff' }).threadId;
-  conversation.resolveMessageThread(reviewThreadId).gitReviewDraft = {
+  conversation.resolveMessageThread(reviewThreadId).reviewDraft = {
     comments: [reviewComment('r2', 'The sub-thread\'s own comment')],
   };
   // Push the write to the worker promptly so the only thing left to wait on is
@@ -140,7 +140,7 @@ export async function runTests(_ctx) {
     errors.push(`A draft stored with a timer must read back as a plain draft, got the keys ${keys}`);
   }
 
-  const review = reloaded.rootMessageThread.gitReviewDraft;
+  const review = reloaded.rootMessageThread.reviewDraft;
   if (review.comments.length !== 1 || review.comments[0].id !== 'r1') {
     errors.push(`Root review draft not persisted across reload. Expected the one comment 'r1', got ${JSON.stringify(review.comments)}`);
   } else if (review.comments[0].body !== 'This loop runs twice'
@@ -149,7 +149,7 @@ export async function runTests(_ctx) {
     errors.push(`Review comment not persisted faithfully — the words, the anchor and the quote all have to come back: ${JSON.stringify(review.comments[0])}`);
   }
 
-  const childReview = reloaded.resolveMessageThread(reviewThreadId).gitReviewDraft;
+  const childReview = reloaded.resolveMessageThread(reviewThreadId).reviewDraft;
   if (childReview.comments.length !== 1 || childReview.comments[0].id !== 'r2') {
     errors.push(`Sub-thread review draft not persisted across reload. Expected the one comment 'r2', got ${JSON.stringify(childReview.comments)}`);
   }

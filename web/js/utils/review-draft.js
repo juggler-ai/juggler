@@ -54,9 +54,6 @@ function isSide(side) {
   return typeof side === 'string' && SIDES.has(side);
 }
 
-/** The scope a comment with none was written in, spelled the way a Git pin spells it. */
-const DEFAULT_SCOPE = '@uncommitted';
-
 /** How long a scope's words may be; they are written by the host, not the reader. */
 const SCOPE_LABEL_MAX = 500;
 
@@ -67,8 +64,9 @@ const SCOPE_LABEL_MAX = 500;
  * need and so is not told.
  * @typedef {object} ReviewComment
  * @property {string} id - Identifies the comment for edit and delete
- * @property {string} repo - The repository it belongs to, '' for the project's own
- * @property {string} path - The file, relative to that repository
+ * @property {string} group - The group of files it belongs to — for Git, the
+ *   repository by its path in the tree — '' for the first or only one
+ * @property {string} path - The file, relative to that group
  * @property {string} [oldPath] - Where the file was, for a rename
  * @property {'old'|'new'|'file'} side - Which side of the diff it hangs on, or
  *   'file' for one about the file rather than any line in it
@@ -82,8 +80,8 @@ const SCOPE_LABEL_MAX = 500;
  *   against. A comment whose file no longer answers to this is outdated, and is
  *   shown as outdated rather than re-anchored.
  * @property {string} [scope] - What the diff it was written on compared, as the
- *   pin asked for it — `@staged`, `main...HEAD`. Absent for the working tree
- *   against HEAD, which is every comment written before there was a choice.
+ *   host named it — for Git, `@staged`, `main...HEAD`. Absent for the host's
+ *   default comparison, which is every comment written before there was a choice.
  * @property {string} [scopeLabel] - That comparison in words, with the commits it
  *   came to when it was written: what the line numbers are line numbers of.
  * @property {number} createdAt - Unix ms it was written
@@ -173,7 +171,8 @@ function normalizeComment(raw) {
   /** @type {ReviewComment} */
   const comment = {
     id,
-    repo: typeof obj.repo === 'string' ? obj.repo : '',
+    // v0.8.2 called the group `repo`; a draft saved then is read the same.
+    group: typeof obj.group === 'string' ? obj.group : typeof obj.repo === 'string' ? obj.repo : '',
     path,
     side,
     lineText: normalizeQuote(obj.lineText),
@@ -184,7 +183,7 @@ function normalizeComment(raw) {
   };
   if (typeof obj.oldPath === 'string' && obj.oldPath) comment.oldPath = obj.oldPath;
   const scope = typeof obj.scope === 'string' ? obj.scope.trim().split(/\s+/).filter(Boolean).join(' ') : '';
-  if (scope && scope !== DEFAULT_SCOPE) {
+  if (scope) {
     comment.scope = scope;
     if (typeof obj.scopeLabel === 'string' && obj.scopeLabel) {
       comment.scopeLabel = obj.scopeLabel.slice(0, SCOPE_LABEL_MAX);

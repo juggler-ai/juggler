@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"juggler/cmd/juggler/core"
+	"juggler/cmd/juggler/gitops"
+	"juggler/cmd/juggler/jobs"
 	"juggler/cmd/juggler/providers/accounts"
 	"juggler/cmd/juggler/server/handlers"
 	"juggler/cmd/juggler/syswake"
@@ -93,7 +95,6 @@ func unmarshalWS[T any](data []byte, label string) (T, bool) {
 type serverAPIs struct {
 	opsAPI            *handlers.OpsAPI
 	completionsAPI    *handlers.CompletionsAPI
-	gitStatusAPI      *handlers.GitStatusAPI
 	extensionsAPI     *handlers.ExtensionsAPI
 	userCommandsAPI   *handlers.UserCommandsAPI
 	skillsAPI         *handlers.SkillsAPI
@@ -313,17 +314,24 @@ type Server struct {
 	// resolution. Tests set it; production leaves it nil.
 	agentRunModelResolver func(context.Context, json.RawMessage) (core.ModelRef, error)
 
-	// gitWatches is the git watches viewers have asked for (see git_watch.go).
-	gitWatches gitWatchHub
-	// gitJobs is the git client's writes, running and lately ended (see
-	// git_jobs.go).
-	gitJobs gitJobHub
+	// topics is what clients have subscribed to (see topics.go), made by
+	// topicHub on first use.
+	topics     *topicHub
+	topicsOnce sync.Once
+	// jobs is every job, running and lately ended (see jobs.go), made by
+	// jobHub on first use.
+	jobs     *jobs.Hub
+	jobsOnce sync.Once
 	// gitAskpassExe is the program git runs to ask the user a question
 	// (git_askpass.go); "" is this server's own binary.
 	gitAskpassExe string
 	// gitWatchResolve resolves the workspaces a git watch or a git job names,
 	// in place of GitTrees().ResolveGit when set. Test-only seam.
 	gitWatchResolve workspace.ResolveFunc
+	// gitWriteScript and gitWatchScript make a git write and a git watch in
+	// place of gitops's when set (see gitWrite, gitWatch). Test-only seams.
+	gitWriteScript func(ctx context.Context, root string, op gitops.Op, hooks gitops.Hooks) (gitops.Result, error)
+	gitWatchScript func(ctx context.Context, root string) (<-chan []gitops.Change, error)
 
 	// engineReadyGate, when set, is called at the start of every LLM turn (and
 	// before a worker-driven strategy hook) to guarantee the hidden engine
@@ -463,9 +471,8 @@ func New(cfg Config) (*Server, error) {
 		// Every handler that acts on a conversation's tree resolves it through
 		// the server's one resolver (Server.Workspaces), which reads the live
 		// project and session on each request.
-		opsAPI:            handlers.NewOpsAPI(s.Workspaces().Resolve),
+		opsAPI:            s.newOpsAPI(),
 		completionsAPI:    handlers.NewCompletionsAPI(s.Workspaces().Resolve),
-		gitStatusAPI:      handlers.NewGitStatusAPI(s.GitTrees().ResolveGit).WithWorktreeIDs(s.GitTrees().Annotate),
 		extensionsAPI:     extensionsAPI,
 		userCommandsAPI:   handlers.NewUserCommandsAPI(s.ProjectPath),
 		skillsAPI:         skillsAPI,

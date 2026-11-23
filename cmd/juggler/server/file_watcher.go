@@ -13,6 +13,8 @@ import (
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/extmanifest"
 	"juggler/cmd/juggler/gitops"
+	"juggler/cmd/juggler/ops"
+	"juggler/cmd/juggler/shellattr"
 	"juggler/internal/jlog"
 	"juggler/internal/projectpaths"
 
@@ -38,11 +40,27 @@ const pluginReloadDebounce = 300 * time.Millisecond
 // this once, after the engine is up and the server is serving — earlier and
 // you'd be holding kernel watch handles for events with no audience.
 func (s *Server) StartBackgroundServices() {
+	s.startProjectWatchers()
+	s.startPluginWatcher()
+	s.startConfigWatcher()
+	s.RefreshProviders()
+	s.startUpdateChecker()
+	s.startEngineSupervisor()
+	// Here rather than when the worker manager is wired: the conversations it
+	// loads may fire a send at once, and its turn asks the engine for context.
+	go s.loadHeldConversations()
+}
+
+// startProjectWatchers starts the project's file watcher and the two readers
+// of its raw feed — the git watcher and the shell attribution recorder — once:
+// a project already watched is left as it is.
+func (s *Server) startProjectWatchers() {
 	st := s.projectState.Load()
 	if st != nil && st.fileWatcher == nil {
-		// The git feed is the git watcher's: the project's tree is told of its
-		// working tree by this watcher rather than by one of its own.
-		fw, err := core.NewFileWatcherWith(st.projectPath, core.FileWatcherOptions{GitFeed: true})
+		// The raw feed tells the git watcher of the project's working tree, so
+		// it needs no watcher of its own, and tells the shell recorder what
+		// shell commands write there, whether or not anything watches git.
+		fw, err := core.NewFileWatcherWith(st.projectPath, core.FileWatcherOptions{RawFeed: true})
 		if err != nil {
 			jlog.Error("Failed to create file watcher: %v", err)
 		} else {
@@ -55,11 +73,14 @@ func (s *Server) StartBackgroundServices() {
 			if gw, err := gitops.NewWatcher(st.projectPath, fw); err != nil {
 				jlog.Error("Failed to create git watcher: %v", err)
 			} else {
-				gw.AttributeShells(runningShells)
 				newSt.gitWatcher = gw
 			}
+			rec := shellattr.New(st.projectPath, runningShells, s.shellTreeRoot)
+			newSt.shellRecorder = rec
+			newSt.stopShellFeed = ops.OnProcessesChanged(func(string) { rec.ProcessesChanged() })
 			s.projectState.Store(&newSt)
 			go s.forwardFileChanges(&newSt)
+			go forwardRawChanges(fw, newSt.gitWatcher, rec)
 			// Windows that reconnected while the project was being walked asked
 			// for watches that could not start then.
 			if newSt.gitWatcher != nil {
@@ -67,14 +88,41 @@ func (s *Server) StartBackgroundServices() {
 			}
 		}
 	}
-	s.startPluginWatcher()
-	s.startConfigWatcher()
-	s.RefreshProviders()
-	s.startUpdateChecker()
-	s.startEngineSupervisor()
-	// Here rather than when the worker manager is wired: the conversations it
-	// loads may fire a send at once, and its turn asks the engine for context.
-	go s.loadHeldConversations()
+}
+
+// forwardRawChanges hands each change on the file watcher's raw feed to the
+// git watcher (nil for none) and the shell recorder, until the watcher stops.
+// Both are told the same changes in the same order; after either closes it
+// ignores them.
+func forwardRawChanges(fw *core.FileWatcher, gw *gitops.Watcher, rec *shellattr.Recorder) {
+	for c := range fw.RawChanges() {
+		if gw != nil {
+			gw.ProjectChanged(c.Path, c.Event)
+		}
+		rec.ProjectChanged(c.Path, c.Event)
+	}
+}
+
+// stopProjectWatchers stops what startProjectWatchers started: the readers of
+// the file watcher's raw feed before the file watcher.
+func (s *Server) stopProjectWatchers() {
+	st := s.projectState.Load()
+	if st == nil {
+		return
+	}
+	if st.gitWatcher != nil {
+		st.gitWatcher.Close()
+	}
+	if st.stopShellFeed != nil {
+		st.stopShellFeed()
+	}
+	if st.shellRecorder != nil {
+		st.shellRecorder.Close()
+	}
+	if st.fileWatcher != nil {
+		jlog.Info("⏳ Stopping file watcher...")
+		st.fileWatcher.Stop()
+	}
 }
 
 // loadHeldConversations loads the project's conversations holding queued sends,

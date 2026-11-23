@@ -102,7 +102,7 @@ export async function runTests(_ctx) {
   const notices = (el) => [...el.querySelectorAll('diff-notice')].map((n) => n.textContent || '').join(' ');
 
   /**
-   * A patch in the shape `GET /api/git/diff` answers with.
+   * A patch in the shape the git tool's diff answers with.
    * @param {object} [over] - Fields to override.
    * @returns {any} The patch.
    */

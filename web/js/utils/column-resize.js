@@ -56,6 +56,7 @@
  */
 
 import { cachedWindowPref, getWindowPref, setWindowPref } from '../services/prefs.js';
+import { remPx } from '../../sdk/lib/split-drag.js';
 
 export const COL_MIN_WIDTH_REM = 12.5;
 const COL_MAX_WIDTH_REM = 100;
@@ -146,7 +147,7 @@ export function startingColumnWidth() {
  * @returns {number} Current root font-size in CSS pixels.
  */
 export function rootFontSizePx() {
-  return parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
+  return remPx();
 }
 
 /**

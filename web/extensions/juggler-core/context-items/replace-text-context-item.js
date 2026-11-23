@@ -387,7 +387,7 @@ class ReplaceTextContextItem extends EditBase {
       // counts every occurrence for a replace_all; fall back to the single
       // old_str/new_str region when it isn't available.
       if (result && result.success !== false) {
-        this._attributeWrite(anyParams.path);
+        this.reportFileWritten(anyParams.path);
       }
       if (result) {
         const stats = (typeof oldFull === 'string' && typeof newFull === 'string')

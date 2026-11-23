@@ -1,6 +1,10 @@
 {
   "_comment": "The declared crossings of the SDK/app boundary, enforced by the juggler/sdk-boundary ESLint rule (tooling/eslint.config.js). \"sdk\": Apache-2.0 web/sdk/** modules that import the AGPL web/js/** tree (host bindings); LICENSING.md's boundary audit is rendered from them by TestLicensingBoundaryAudit (web/sdk_boundary_test.go, UPDATE=1 rewrites it). \"extensions\": bundled extension modules that import web/js/** or web/sdk/lib/** by relative path instead of through a juggler/* specifier. Each entry says why; an entry whose import is gone fails the lint.",
   "sdk": {
+    "web/sdk/context-item.js": {
+      "why": "a tool's report of a file it wrote goes to the host",
+      "imports": ["web/js/services/tool-writes.js"]
+    },
     "web/sdk/file-source.js": {
       "why": "addresses the host's file-content, tree and asset endpoints under its base path",
       "imports": ["web/js/utils/api-url.js"]
@@ -15,7 +19,7 @@
     },
     "web/sdk/ops.js": {
       "why": "the host operations themselves, and agent runs carried out by the host",
-      "imports": ["web/js/services/agent-runs.js", "web/js/services/fs.js", "web/js/services/git-attribution.js", "web/js/services/ops-api.js", "web/js/services/shell-streaming.js"]
+      "imports": ["web/js/services/agent-runs.js", "web/js/services/fs.js", "web/js/services/ops-api.js", "web/js/services/shell-streaming.js"]
     },
     "web/sdk/pinboard.js": {
       "why": "pins go to the host's board; pin descriptors come from the loaded extensions",
@@ -33,7 +37,9 @@
       "why": "the host's own UI components and formatters, so an extension's UI matches the app's",
       "imports": [
         "web/js/components/diff-viewer.js",
+        "web/js/components/file-view.js",
         "web/js/components/modal-dialog.js",
+        "web/js/components/path-input.js",
         "web/js/components/project-picker.js",
         "web/js/components/reveal-button.js",
         "web/js/components/review-panel.js",
@@ -54,10 +60,6 @@
     }
   },
   "extensions": {
-    "web/extensions/juggler-core/cards/git-status-card.js": {
-      "why": "shows the host's git-status cache, shared with the app's own git UI",
-      "imports": ["web/js/services/git-status-cache.js", "web/js/services/pinboard-view.js"]
-    },
     "web/extensions/juggler-core/cards/usage-card.js": {
       "why": "shows the host's provider, model and usage caches",
       "imports": ["web/js/services/default-model-cache.js", "web/js/services/providers-cache.js", "web/js/services/usage-stats-cache.js", "web/js/utils/usage-renderer.js"]
@@ -100,10 +102,6 @@
     "web/extensions/juggler-core/viewers/pdf-file-viewer.js": {
       "why": "loads the vendored PDF.js (Apache-2.0, web/js/vendor/README.md) on demand; not app code",
       "imports": ["web/js/vendor/pdf.min.mjs"]
-    },
-    "web/extensions/juggler-core/workspaces/git-worktree-workspace-provider.js": {
-      "why": "asks the host's git-status endpoint; the SDK has no git API",
-      "imports": ["web/js/services/api.js"]
     },
     "web/extensions/juggler-mcp/context-items/mcp-tool-context-item.js": {
       "why": "listens for the host's plugin-changed push; the SDK has no server-event subscription",

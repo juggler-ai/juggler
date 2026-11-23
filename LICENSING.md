@@ -40,23 +40,23 @@ The SDK/app dependency boundary is enforced by lint: a relative import from
 in `tooling/sdk-boundary.json`. The lists below are rendered from that file.
 
 <!-- sdk-boundary:begin — rendered from tooling/sdk-boundary.json by TestLicensingBoundaryAudit (web/sdk_boundary_test.go); UPDATE=1 rewrites it -->
-- **Self-contained**: these SDK entry modules import no app code: `sdk/coerce-schema-types.js`, `sdk/command-type.js`, `sdk/context-item-types.js`, `sdk/context-item.js`, `sdk/file-viewer.js`, `sdk/hook-type.js`, `sdk/i18n-worker.js`, `sdk/i18n.js`, `sdk/info-card-type.js`, `sdk/item-utils-worker.js`, `sdk/item-utils.js`, `sdk/pinboard-item-type.js`, `sdk/sandbox.js`, `sdk/search-backend.js`, `sdk/version.js`, `sdk/workspace-provider.js`. Nothing under `sdk/lib/` imports app code either, except where listed next.
+- **Self-contained**: these SDK entry modules import no app code: `sdk/coerce-schema-types.js`, `sdk/command-type.js`, `sdk/context-item-types.js`, `sdk/file-viewer.js`, `sdk/hook-type.js`, `sdk/i18n-worker.js`, `sdk/i18n.js`, `sdk/info-card-type.js`, `sdk/item-utils-worker.js`, `sdk/item-utils.js`, `sdk/pinboard-item-type.js`, `sdk/sandbox.js`, `sdk/search-backend.js`, `sdk/services.js`, `sdk/version.js`, `sdk/workspace-provider.js`. Nothing under `sdk/lib/` imports app code either, except where listed next.
 - **Declared host bindings**: the SDK is the *interface* to a running Juggler
   host, and these modules bind it to the host's AGPL implementation:
+  - `sdk/context-item.js` → `js/services/tool-writes.js` — a tool's report of a file it wrote goes to the host
   - `sdk/file-source.js` → `js/utils/api-url.js` — addresses the host's file-content, tree and asset endpoints under its base path
   - `sdk/lib/sandbox-runner.js` → `js/utils/api-url.js` — addresses the host's sandbox page under its base path
   - `sdk/model.js` → `js/utils/compaction-utils.js` — the compaction lifecycle is the host's
-  - `sdk/ops.js` → `js/services/agent-runs.js`, `js/services/fs.js`, `js/services/git-attribution.js`, `js/services/ops-api.js`, `js/services/shell-streaming.js` — the host operations themselves, and agent runs carried out by the host
+  - `sdk/ops.js` → `js/services/agent-runs.js`, `js/services/fs.js`, `js/services/ops-api.js`, `js/services/shell-streaming.js` — the host operations themselves, and agent runs carried out by the host
   - `sdk/pinboard.js` → `js/services/extensions.js`, `js/services/pinboard-operations-api.js`, `js/utils/asset-url.js` — pins go to the host's board; pin descriptors come from the loaded extensions
   - `sdk/registry.js` → `js/registries/context-item-registry.js`, `js/registries/file-viewer-registry.js`, `js/registries/strategy-registry.js` — the host's capability registries
   - `sdk/strategy-type.js` → `js/services/thread-orchestrator.js` — a strategy submits its turn through the host's orchestrator
   - `sdk/ui-worker.js` → `js/services/key-shortcut-manager.js`, `js/utils/asset-url.js`, `js/utils/format.js` — the DOM-free subset of the ui.js bindings, for the engine worker
-  - `sdk/ui.js` → `js/components/diff-viewer.js`, `js/components/modal-dialog.js`, `js/components/project-picker.js`, `js/components/reveal-button.js`, `js/components/review-panel.js`, `js/services/context-menu-service.js`, `js/services/key-shortcut-manager.js`, `js/services/nearest-context-item.js`, `js/utils/asset-url.js`, `js/utils/format.js`, `js/utils/image-lightbox.js`, `js/utils/menu-roles.js`, `js/utils/popup-surface.js`, `js/utils/properties-panel-helpers.js` — the host's own UI components and formatters, so an extension's UI matches the app's
+  - `sdk/ui.js` → `js/components/diff-viewer.js`, `js/components/file-view.js`, `js/components/modal-dialog.js`, `js/components/path-input.js`, `js/components/project-picker.js`, `js/components/reveal-button.js`, `js/components/review-panel.js`, `js/services/context-menu-service.js`, `js/services/key-shortcut-manager.js`, `js/services/nearest-context-item.js`, `js/utils/asset-url.js`, `js/utils/format.js`, `js/utils/image-lightbox.js`, `js/utils/menu-roles.js`, `js/utils/popup-surface.js`, `js/utils/properties-panel-helpers.js` — the host's own UI components and formatters, so an extension's UI matches the app's
 - **Bundled extensions that reach past the SDK**: every other module under
   `extensions/` reaches the host only through `juggler/*` specifiers, as a
   third-party extension must. These are the exceptions — mostly built-ins that
   are part of the app's own features — and are not templates for those parts:
-  - `extensions/juggler-core/cards/git-status-card.js` → `js/services/git-status-cache.js`, `js/services/pinboard-view.js` — shows the host's git-status cache, shared with the app's own git UI
   - `extensions/juggler-core/cards/usage-card.js` → `js/services/default-model-cache.js`, `js/services/providers-cache.js`, `js/services/usage-stats-cache.js`, `js/utils/usage-renderer.js` — shows the host's provider, model and usage caches
   - `extensions/juggler-core/context-items/define-command-context-item.js` → `js/services/user-commands.js` — writes to the host's user-command store
   - `extensions/juggler-core/context-items/edit/permission-section.js` → `js/services/file-editing-permission.js` — the host's file-editing permission toggle
@@ -66,7 +66,6 @@ in `tooling/sdk-boundary.json`. The lists below are rendered from that file.
   - `extensions/juggler-core/context-items/web-search-context-item.js` → `js/services/web-search-backends.js` — searches with the backends the user's Web search setting names, from the host's search-backend registry; a backend never needs either
   - `extensions/juggler-core/strategies/auto-approve-strategy-type.js` → `js/services/file-editing-permission.js` — reads the host's file-editing permission toggle
   - `extensions/juggler-core/viewers/pdf-file-viewer.js` → `js/vendor/pdf.min.mjs` — loads the vendored PDF.js (Apache-2.0, web/js/vendor/README.md) on demand; not app code
-  - `extensions/juggler-core/workspaces/git-worktree-workspace-provider.js` → `js/services/api.js` — asks the host's git-status endpoint; the SDK has no git API
   - `extensions/juggler-mcp/context-items/mcp-tool-context-item.js` → `js/services/websocket.js` — listens for the host's plugin-changed push; the SDK has no server-event subscription
 <!-- sdk-boundary:end -->
 

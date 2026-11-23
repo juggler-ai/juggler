@@ -213,3 +213,17 @@ class FileView extends JugglerElement {
 }
 
 customElements.define('file-view', FileView);
+
+/**
+ * A file view, ready to be given a source with `setSource`.
+ *
+ * The element is registered by importing this module, which is why a host that
+ * wants one asks for it here rather than calling `document.createElement`: an
+ * extension cannot know whether anything else in the window has loaded the
+ * component yet, and an unregistered custom element ignores every property set
+ * on it.
+ * @returns {FileView} The element, not yet in the document.
+ */
+export function createFileView() {
+  return /** @type {FileView} */ (document.createElement('file-view'));
+}

@@ -10,6 +10,7 @@ import { coerceToolInputToSchema } from './coerce-schema-types.js';
 import { smartTruncate } from './lib/smart-truncate.js';
 import { validateManifest } from './lib/manifest.js';
 import { createBoundOps } from './ops.js';
+import { reportToolWrite } from '../js/services/tool-writes.js';
 import { t, markUntranslated, markForTranslation, htmlSlots } from './lib/i18n.js';
 import { withNodes } from './lib/html.js';
 
@@ -481,6 +482,48 @@ class ContextItem {
       }));
     }
     return this._ops;
+  }
+
+  /**
+   * Tell the host this call has just written `path`, so the file's new version
+   * is known to be this conversation's work — the views of a tree use it to say
+   * which conversation made a change. Call it from `execute()` once a write has
+   * landed and never before: not from an approval preview, which also runs for
+   * writes the user goes on to deny. What a shell command writes the host hears
+   * of itself, from the file system, while the command runs; this is for a tool
+   * that writes through the ops, which the host cannot tell apart from the user.
+   *
+   * Fire-and-forget: nothing it does can fail the write, and it never throws.
+   * @param {string} path - The file as the tool named it: absolute, or relative
+   *   to the workspace root
+   * @returns {void}
+   */
+  reportFileWritten(path) {
+    if (typeof path !== 'string' || !path || !this.conversation?.id) return;
+    try {
+      const sent = this._sendFileWritten({
+        workspaceId: this.getWorkspaceId(),
+        path,
+        conv: this.conversation.id,
+        thread: /** @type {{threadItemId?: string}} */ (this.messageThread)?.threadItemId || '',
+        item: this.toolUseId || '',
+      });
+      Promise.resolve(sent).catch(() => {});
+    } catch {
+      // A sender that throws has only failed to record who wrote the file.
+    }
+  }
+
+  /**
+   * Send one {@link ContextItem#reportFileWritten} report to the host. Tests
+   * replace it on an instance.
+   * @protected
+   * @internal
+   * @param {import('../js/services/tool-writes.js').ToolWrite} write - Who wrote which file
+   * @returns {Promise<void>|void} Settles when sent
+   */
+  _sendFileWritten(write) {
+    return reportToolWrite(write);
   }
 
   /**

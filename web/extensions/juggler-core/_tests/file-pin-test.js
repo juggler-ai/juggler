@@ -29,6 +29,14 @@ import { addFilePath } from 'juggler/ui';
 import { assert, waitFor } from '../../../js-tests/utilities/test-helpers.js';
 import { underPseudoLocale } from '../../../js-tests/utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../../sdk/lib/i18n.js';
+import { gitClient, __scriptGitClients } from '../lib/git-client.js';
+
+/** @type {any} A client for services that script no git: no status, ever. */
+const NO_GIT = { status: () => null, error: () => '', onChange: () => () => {}, refresh: async () => {} };
+
+// A directory pin's browser is handed the client a case's services carry as
+// `git`, and none when they carry none.
+__scriptGitClients((services, signal) => services.git ?? (services.topics ? gitClient(services, signal) : NO_GIT));
 
 /** juggler-core's English for this pin, standing in for its catalogue. */
 const CORE_TEXT = [
@@ -131,6 +139,7 @@ export async function runTests(ctx) {
         },
       }),
       signal: abort.signal,
+      visibility: { isVisible: () => true, onChange: () => () => {} },
       updateConfig: options.updateConfig || (async () => {}),
     }));
 

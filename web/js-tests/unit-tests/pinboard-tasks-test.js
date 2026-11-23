@@ -34,6 +34,7 @@ import pinboardItemRegistry from '../../js/registries/pinboard-item-registry.js'
 import wsService, { WebSocketService } from '../../js/services/websocket.js';
 import PinboardItemType from 'juggler/pinboard-item-type';
 import { resolveToolTarget } from '../../js/components/pinboard-content.js';
+import { taskInventory } from '../../js/services/extension-services.js';
 
 /** The context the probe was mounted with. */
 const probe = { context: /** @type {any} */ (null) };
@@ -474,9 +475,9 @@ export async function runTests() {
       inventory = [proc('bg-old')];
       // Counts finished listings, so the check below runs once the stale answer
       // has been handled rather than after a guess at how long that takes.
-      const fetchProcesses = content._fetchProcesses;
+      const fetchProcesses = taskInventory.fetch;
       let fetched = 0;
-      content._fetchProcesses = async function () {
+      taskInventory.fetch = async function () {
         try {
           return await fetchProcesses.call(this);
         } finally {
@@ -493,7 +494,7 @@ export async function runTests() {
         release();
         await waitFor(() => fetched > 0, 'the stale listing to be handled');
       } finally {
-        delete content._fetchProcesses;
+        taskInventory.fetch = fetchProcesses;
       }
       assert(!find(service().list(), 'bg-old') && !!find(service().list(), 'bg-new'),
         `the older listing overwrote the newer frame: ${JSON.stringify(service().list())}`);

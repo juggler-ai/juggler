@@ -20,6 +20,8 @@
  */
 
 import { createBoundOps } from '../../sdk/ops.js';
+import { servicesFor } from './extension-services.js';
+import { providerContext } from './provider-context.js';
 import { extractErrorMessage, errorText } from '../../sdk/lib/error-utils.js';
 import { t, markForTranslation, formatList } from '../../sdk/lib/i18n.js';
 import workspaceProviderRegistry from '../registries/workspace-provider-registry.js';
@@ -75,7 +77,7 @@ export const PROVIDER_UNAVAILABLE = markForTranslation("This workspace's provide
  *   failure arrives as `problem`, never as `detail`.
  */
 export async function workspaceStatus(session, workspace, signal) {
-  const provider = workspaceProviderRegistry.createProvider(workspace.providerId ?? '', session);
+  const provider = workspaceProviderRegistry.createProvider(workspace.providerId ?? '');
   const fallback = { available: workspace.available !== false };
   if (!provider) {
     // Also a problem rather than a detail: with nobody to ask, there is nothing
@@ -83,16 +85,12 @@ export async function workspaceStatus(session, workspace, signal) {
     return { ...fallback, problem: t(PROVIDER_UNAVAILABLE), providerMissing: true };
   }
   try {
-    return await provider.status(workspace, {
-      session,
+    return await provider.status(workspace, providerContext(session, {
       ops: createBoundOps(() => ({ workspaceId: workspace.id })),
       baseOps: createBoundOps(() => ({ workspaceId: workspace.baseWorkspaceId ?? '' })),
       baseWorkspaceId: workspace.baseWorkspaceId ?? '',
-      signal: signal ?? new AbortController().signal,
-      rollback: { push: () => {} },
-      checkpoint: async () => {},
-      progress: () => {}
-    });
+      signal,
+    }));
   } catch (error) {
     // A provider that throws while merely reporting must not take the row's
     // description off the screen with it. The reason goes in `problem`, which
@@ -119,7 +117,7 @@ export async function workspaceStatus(session, workspace, signal) {
  * @returns {{options: import('../../sdk/workspace-provider.js').FinishOption[], unavailableReason?: string}} What can be done.
  */
 export function workspaceFinishOptions(session, workspace, known = {}) {
-  const provider = workspaceProviderRegistry.createProvider(workspace.providerId ?? '', session);
+  const provider = workspaceProviderRegistry.createProvider(workspace.providerId ?? '');
   if (!provider) {
     return { options: [], unavailableReason: t(PROVIDER_UNAVAILABLE) };
   }
@@ -137,7 +135,7 @@ export function workspaceFinishOptions(session, workspace, known = {}) {
  * @returns {boolean} True when its provider overrides `track`.
  */
 export function workspaceHasTrack(session, workspace) {
-  const provider = workspaceProviderRegistry.createProvider(workspace?.providerId ?? '', session);
+  const provider = workspaceProviderRegistry.createProvider(workspace?.providerId ?? '');
   return !!provider && provider.track !== WorkspaceProvider.prototype.track;
 }
 
@@ -154,22 +152,18 @@ export function workspaceHasTrack(session, workspace) {
  * @returns {Promise<(import('../../sdk/workspace-provider.js').WorkspaceTrack & {problem?: string}) | null>} The steps, null for none, or `{steps: [], problem}`.
  */
 export async function workspaceTrack(session, workspace, signal) {
-  const provider = workspaceProviderRegistry.createProvider(workspace.providerId ?? '', session);
+  const provider = workspaceProviderRegistry.createProvider(workspace.providerId ?? '');
   if (!provider) return null;
   try {
-    return await provider.track(workspace, {
-      session,
+    return await provider.track(workspace, providerContext(session, {
       // The actions a track offers include handing work to a conversation, so
       // it is told which one that would be, by the rule the endings use.
       conversation: workspaceFinishActor(session, workspace),
       ops: createBoundOps(() => ({ workspaceId: workspace.id })),
       baseOps: createBoundOps(() => ({ workspaceId: workspace.baseWorkspaceId ?? '' })),
       baseWorkspaceId: workspace.baseWorkspaceId ?? '',
-      signal: signal ?? new AbortController().signal,
-      rollback: { push: () => {} },
-      checkpoint: async () => {},
-      progress: () => {}
-    }) ?? null;
+      signal,
+    })) ?? null;
   } catch (error) {
     return { steps: [], problem: errorText(error) };
   }
@@ -193,21 +187,36 @@ export async function workspaceTrack(session, workspace, signal) {
  */
 export function workspaceInstructionRoots(session, workspace) {
   if (!workspace) return [];
-  const provider = workspaceProviderRegistry.createProvider(workspace.providerId ?? '', session);
+  const provider = workspaceProviderRegistry.createProvider(workspace.providerId ?? '');
   if (!provider) return [];
   try {
-    return provider.instructionRoots(workspace, {
-      session,
+    return provider.instructionRoots(workspace, providerContext(session, {
       ops: createBoundOps(() => ({ workspaceId: workspace.id })),
       baseOps: createBoundOps(() => ({ workspaceId: workspace.baseWorkspaceId ?? '' })),
       baseWorkspaceId: workspace.baseWorkspaceId ?? '',
-      signal: new AbortController().signal,
-      rollback: { push: () => {} },
-      checkpoint: async () => {},
-      progress: () => {}
-    }).filter(root => typeof root === 'string' && root !== '');
+    })).filter(root => typeof root === 'string' && root !== '');
   } catch {
     return [];
+  }
+}
+
+/**
+ * The branch a workspace was made to hold and the one it was made from, as its
+ * provider records them. A missing or throwing provider, or one whose
+ * workspaces hold no branch, answers null.
+ * @param {import('../model/session.js').Workspace|null} [workspace] - The row.
+ * @returns {{branch: string, base?: string}|null} Its branch and base, or null.
+ */
+export function workspaceBranch(workspace) {
+  if (!workspace) return null;
+  const provider = workspaceProviderRegistry.createProvider(workspace.providerId ?? '');
+  if (!provider) return null;
+  try {
+    const held = provider.branchOf(workspace);
+    if (!held || typeof held.branch !== 'string' || !held.branch) return null;
+    return typeof held.base === 'string' && held.base ? { branch: held.branch, base: held.base } : { branch: held.branch };
+  } catch {
+    return null;
   }
 }
 
@@ -223,7 +232,7 @@ export function workspaceInstructionRoots(session, workspace) {
  * @returns {string} The provider's name, or '' when it is not loaded.
  */
 export function workspaceKind(session, workspace) {
-  const provider = workspaceProviderRegistry.createProvider(workspace?.providerId ?? '', session);
+  const provider = workspaceProviderRegistry.createProvider(workspace?.providerId ?? '');
   return provider?.getManifest?.()?.name ?? '';
 }
 
@@ -242,7 +251,7 @@ export function workspaceKind(session, workspace) {
  * @returns {string} The provider's description, or '' when it has none or is not loaded.
  */
 export function workspaceKindNote(session, workspace) {
-  const provider = workspaceProviderRegistry.createProvider(workspace?.providerId ?? '', session);
+  const provider = workspaceProviderRegistry.createProvider(workspace?.providerId ?? '');
   return provider?.getManifest?.()?.description ?? '';
 }
 
@@ -676,14 +685,13 @@ async function runFinish(provider, workspace, actionId, ctx) {
 export async function finishWorkspace(request) {
   const { session, workspace, conversation, actionId, input, signal } = request;
 
-  const provider = workspaceProviderRegistry.createProvider(workspace?.providerId ?? '', session);
+  const provider = workspaceProviderRegistry.createProvider(workspace?.providerId ?? '');
   if (!provider) return { done: false, message: t(PROVIDER_UNAVAILABLE) };
 
   const { refusal } = workspaceFinishWarning(session, workspace);
   if (refusal) return { done: false, message: refusal };
 
-  const result = await runFinish(provider, workspace, actionId, {
-    session,
+  const result = await runFinish(provider, workspace, actionId, providerContext(session, {
     conversation,
     ops: createBoundOps(() => ({ workspaceId: workspace.id })),
     // An ending that lands work writes into the tree the workspace came from,
@@ -692,11 +700,8 @@ export async function finishWorkspace(request) {
     baseOps: createBoundOps(() => ({ workspaceId: workspace.baseWorkspaceId ?? '' })),
     baseWorkspaceId: workspace.baseWorkspaceId ?? '',
     input: input ?? {},
-    signal: signal ?? new AbortController().signal,
-    rollback: { push: () => {} },
-    checkpoint: async () => {},
-    progress: () => {}
-  });
+    signal,
+  }));
 
   if (!result?.done) return { done: false, message: result?.message };
 
@@ -876,7 +881,7 @@ export async function provisionWorkspace(request) {
     onProgress
   } = request;
 
-  const provider = workspaceProviderRegistry.createProvider(providerId, session);
+  const provider = workspaceProviderRegistry.createProvider(providerId);
   if (!provider) {
     throw new Error(t(`Couldn't provision a workspace: no provider "{provider}" is loaded.`, { provider: providerId }));
   }
@@ -916,9 +921,7 @@ export async function provisionWorkspace(request) {
   let unwinding = false;
   const unwindSignal = new AbortController().signal;
 
-  /** @type {import('../../sdk/workspace-provider.js').ProviderContext} */
-  const ctx = {
-    session,
+  const ctx = providerContext(session, {
     conversation,
     // Pinned to the BASE workspace: `git worktree add` runs in the repository,
     // not in the tree it is about to create — which does not exist yet. This is
@@ -928,10 +931,11 @@ export async function provisionWorkspace(request) {
     baseOps: createBoundOps(() => ({ workspaceId: baseWorkspaceId })),
     baseWorkspaceId,
     get signal() { return unwinding ? unwindSignal : effectiveSignal; },
+    services: servicesFor(session, effectiveSignal),
     rollback: { push: (compensation) => { compensations.push(compensation); } },
     checkpoint: async (metaPatch) => { await patchWorkspace(row.id, { meta: metaPatch }); },
     progress: (step, detail) => { onProgress?.(step, detail); }
-  };
+  });
 
   /**
    * Run the stack back down, with the signal switched over first.

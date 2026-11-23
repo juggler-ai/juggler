@@ -2175,11 +2175,17 @@ export async function runTests(_ctx) {
           check('review save refusal', [await thrown(() => review.save({ comments: [] }))]);
           check('review compose refusal', [await thrown(() => review.compose())]);
           const content = region(acting.shell);
-          content._reviewThread = () => ({ gitReviewDraft: { comments: [] } });
+          // A conversation whose thread holds no comments yet. The services read
+          // the board's session and snapshot when asked, so swapping both in
+          // for the one call is all it takes.
+          const { _session: realSession, _active: realActive } = content;
+          content._session = { getConversation: () => ({ resolveMessageThread: () => ({ reviewDraft: { comments: [] } }) }) };
+          content._active = { ...realActive, conversation: { id: 'conv_empty_review', title: '' }, thread: { id: null } };
           try {
             check('empty review refusal', [await thrown(() => review.compose())]);
           } finally {
-            delete content._reviewThread;
+            content._session = realSession;
+            content._active = realActive;
           }
         } finally {
           if (document.querySelector('.pinboard-item-toolbar-menu')) acting.shell.querySelector('.pinboard-item-toolbar__more')?.click();

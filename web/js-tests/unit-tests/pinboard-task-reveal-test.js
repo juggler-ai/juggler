@@ -16,7 +16,7 @@
  *     and its column up — before anything is pointed at.
  *
  * Asserted at those two seams against a real conversation tab, and through the
- * docked board's own `_revealTask`, rather than by driving the whole window's
+ * `services.tasks.reveal` a surface is handed, rather than by driving the whole window's
  * conversation switch, which a shared lane cannot do without stepping on its
  * neighbours.
  * @module unit-tests/pinboard-task-reveal-test
@@ -35,6 +35,7 @@ import {
   TOOL_STATES
 } from '../../sdk/lib/message.js';
 import { revealInConversation, showConversation } from '../../js/components/pinboard-content.js';
+import { servicesFor } from '../../js/services/extension-services.js';
 import '../../js/components/conversation-tab.js';
 
 /**
@@ -122,19 +123,18 @@ export async function runTests() {
     });
 
     await run('the docked board reveals a task in the conversation on screen without switching', async () => {
-      const content = /** @type {any} */ (document.createElement('pinboard-content'));
       /** @type {string[]} */
       const calls = [];
-      content.setSession({
+      const tasks = servicesFor(/** @type {any} */ ({
         getConversation: (/** @type {string} */ id) => (id === conversation.id ? conversation : null),
         getVisibleConversation: () => conversation,
         ensureConversationLoaded: async () => { calls.push('load'); },
         switchConversation: () => { calls.push('switch'); return true; },
-      });
+      }), new AbortController().signal).tasks;
       revealInConversation({ kind: 'thread', id: null });
-      await content._revealTask({
+      await tasks.reveal(/** @type {any} */ ({
         taskId: 'bg-1', conversationId: conversation.id, threadId: sub, toolUseId: 'call_1',
-      });
+      }));
       assert(calls.length === 0, `a task in the conversation on screen needs no switch, got ${JSON.stringify(calls)}`);
       assert(selected(/** @type {string} */ (subCall.itemId)), 'the task\'s call must be selected');
     });

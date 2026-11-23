@@ -122,7 +122,6 @@ export async function runTests(_ctx) {
     const services = {
       files: { onChange: () => () => {} },
       contextItems: { find: () => null, onChange: () => () => {}, reveal: () => {} },
-      git: { status: () => null, error: () => '', onChange: () => () => {}, refresh: async () => {} },
       tasks: {
         /** @returns {any[]|null} The running tasks. */
         list: () => current,

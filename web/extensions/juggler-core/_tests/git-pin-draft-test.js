@@ -13,7 +13,8 @@
  */
 
 import GitPin from '../pins/git-pin.js';
-import gitReviewService from '../../../js/services/git-review-service.js';
+import { gitClient } from '../lib/git-client.js';
+import { servicesFor } from '../../../js/services/extension-services.js';
 import { assert, nextTask } from '../../../js-tests/utilities/test-helpers.js';
 import { underPseudoLocale } from '../../../js-tests/utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../../sdk/lib/i18n.js';
@@ -81,11 +82,11 @@ export async function runTests(_ctx) {
         base: 'head',
         comments: [
           {
-            id: 'c_1', repo: '', path: 'a.js', side: 'new', startLine: 85, endLine: 85,
+            id: 'c_1', group: '', path: 'a.js', side: 'new', startLine: 85, endLine: 85,
             lineText: [], body: 'One.', revision: 'rev1', createdAt: 1, updatedAt: 1,
           },
           {
-            id: 'c_2', repo: '', path: 'a.js', side: 'file',
+            id: 'c_2', group: '', path: 'a.js', side: 'file',
             lineText: [], body: 'Two.', revision: 'rev1', createdAt: 2, updatedAt: 2,
           },
         ],
@@ -148,7 +149,7 @@ export async function runTests(_ctx) {
         version: 1,
         base: 'head',
         comments: [{
-          id: 'c_1', repo: '', path: 'a.js', side: 'file',
+          id: 'c_1', group: '', path: 'a.js', side: 'file',
           lineText: [], body: 'Only.', revision: 'rev1', createdAt: 1, updatedAt: 1,
         }],
       },
@@ -165,7 +166,7 @@ export async function runTests(_ctx) {
         version: 1,
         base: 'head',
         comments: [{
-          id: 'c_1', repo: '', path: 'a.js', side: 'file',
+          id: 'c_1', group: '', path: 'a.js', side: 'file',
           lineText: [], body: 'Still unsaid.', revision: 'rev1', createdAt: 1, updatedAt: 1,
         }],
       },
@@ -188,7 +189,7 @@ export async function runTests(_ctx) {
         version: 1,
         base: 'head',
         comments: [{
-          id: 'c_1', repo: '', path: 'a.js', side: 'file',
+          id: 'c_1', group: '', path: 'a.js', side: 'file',
           lineText: [], body: 'Wrong on reflection.', revision: 'rev1', createdAt: 1, updatedAt: 1,
         }],
       },
@@ -209,7 +210,7 @@ export async function runTests(_ctx) {
       version: 1,
       base: 'head',
       comments: [{
-        id: 'c_9', repo: '', path: 'a.js', side: 'new', startLine: 85, endLine: 85,
+        id: 'c_9', group: '', path: 'a.js', side: 'new', startLine: 85, endLine: 85,
         lineText: [], body: 'Written in the other window.', revision: 'rev1', createdAt: 1, updatedAt: 1,
       }],
     });
@@ -226,7 +227,7 @@ export async function runTests(_ctx) {
         version: 1,
         base: 'head',
         comments: [{
-          id: 'c_1', repo: '', path: 'a.js', side: 'new', startLine: 85, endLine: 85,
+          id: 'c_1', group: '', path: 'a.js', side: 'new', startLine: 85, endLine: 85,
           lineText: ['the line as it was'], body: 'Written against the old file.',
           revision: 'rev0', createdAt: 1, updatedAt: 1,
         }],
@@ -282,7 +283,7 @@ export async function runTests(_ctx) {
       version: 1,
       base: 'head',
       comments: [{
-        id: 'c_1', repo: '', path: 'a.js', side: 'file',
+        id: 'c_1', group: '', path: 'a.js', side: 'file',
         lineText: [], body: 'After the end.', revision: 'rev1', createdAt: 1, updatedAt: 1,
       }],
     });
@@ -500,7 +501,7 @@ export async function runTests(_ctx) {
 
   await test('a comment is written in the pin\'s scope, and another scope\'s are kept but not drawn here', async () => {
     const draftComment = (/** @type {string} */ id, /** @type {any} */ extra = {}) => ({
-      id, repo: '', path: 'a.js', side: 'new', startLine: 85, endLine: 85,
+      id, group: '', path: 'a.js', side: 'new', startLine: 85, endLine: 85,
       lineText: ['this.renderComments(hunks);'], body: `Body ${id}`, revision: 'rev1',
       createdAt: 1, updatedAt: 1, ...extra,
     });
@@ -604,6 +605,8 @@ export async function runTests(_ctx) {
   // --- against the real service ---------------------------------------------
 
   await test('the real service hands the pin the shape it expects', async () => {
+    const life = new AbortController();
+    const gitReviewService = gitClient(servicesFor(null, life.signal), life.signal);
     const review = await gitReviewService.review();
     assert(review !== null, 'the server should answer a review request');
     assert(typeof review.root === 'string' && Array.isArray(review.repos),
@@ -634,6 +637,7 @@ export async function runTests(_ctx) {
       refusal = e instanceof Error ? e.message : String(e);
     }
     assert(refusal.includes('--output'), `an option the server will not pass to git is refused, naming it: ${refusal}`);
+    life.abort();
   });
 
   // --- en-XA ------------------------------------------------------------------

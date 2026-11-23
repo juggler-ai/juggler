@@ -23,14 +23,14 @@ const t = translator('@juggler/core');
 
 /**
  * @typedef {import('./refs-model.js').TreeView} TreeView
- * @typedef {import('juggler/pinboard-item-type').PinGitService} PinGitService
- * @typedef {import('juggler/pinboard-item-type').PinGitOp} PinGitOp
- * @typedef {import('juggler/pinboard-item-type').PinGitJob} PinGitJob
+ * @typedef {import('../../lib/git-client.js').GitClient} GitClient
+ * @typedef {import('../../lib/git-client.js').GitOp} GitOp
+ * @typedef {import('../../lib/git-client.js').GitJob} GitJob
  */
 
 /**
  * @typedef {object} ActionsHost
- * @property {() => PinGitService} git - The pin's git service, as it now is.
+ * @property {() => GitClient} git - The pin's git service, as it now is.
  * @property {() => string} repo - The repository the pin shows.
  * @property {() => {workspace?: string}} workspaceOption - The tree option for every call.
  * @property {import('./toast.js').PinToast} toast - The pin's toast.
@@ -46,10 +46,10 @@ const t = translator('@juggler/core');
 /**
  * @typedef {object} PlaceActions
  * @property {(e: any) => void} explain - Say what a refused or failed write means, and offer the next step.
- * @property {(op: Record<string, any>, onError?: (e: any) => boolean) => Promise<PinGitJob|null>} run -
+ * @property {(op: Record<string, any>, onError?: (e: any) => boolean) => Promise<GitJob|null>} run -
  *   Run one write (without its repository), then read again; `onError` takes a
  *   failure it understands. The finished job, or null when it failed.
- * @property {(op: Record<string, any>, retry: string) => Promise<PinGitJob|null>} runPastChanges -
+ * @property {(op: Record<string, any>, retry: string) => Promise<GitJob|null>} runPastChanges -
  *   Run a write local changes can be in the way of, offering to stash them; `retry`
  *   is the words of the button that does.
  * @property {(op: Record<string, any>, name: string, anchor: Element) => void} switchTo -
@@ -89,7 +89,7 @@ export function menuRows(items, choose) {
  * switching the submodule's own repository back to that branch — or that
  * commit, detached — undoes it. One that was not checked out has nowhere to go
  * back to.
- * @param {(op: Record<string, any>) => Promise<PinGitJob|null>} run - Runs one
+ * @param {(op: Record<string, any>) => Promise<GitJob|null>} run - Runs one
  *   write, saying why when it fails; the finished job, or null.
  * @param {import('./toast.js').PinToast} toast - The pin's toast.
  * @param {string} repo - The repository whose submodule it is.
@@ -139,7 +139,7 @@ export function createActions(host) {
     // Another write: what the toast said about the last one has had its say.
     host.toast.userActed();
     try {
-      return await host.git().run(/** @type {PinGitOp} */ ({ repo: host.repo(), ...op }), host.workspaceOption());
+      return await host.git().run(/** @type {GitOp} */ ({ repo: host.repo(), ...op }), host.workspaceOption());
     } catch (e) {
       if (host.live() && !onError?.(e)) explain(e);
       return null;

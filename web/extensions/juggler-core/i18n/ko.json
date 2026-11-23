@@ -812,6 +812,7 @@
   "Show every git command this pin ran": "이 핀이 실행한 모든 git 명령 보기",
   "Show how far the visible conversation is through its plan and todo list, while either has work left.": "표시 중인 대화의 계획과 할 일 목록에 남은 작업이 있는 동안 진행 상황을 표시합니다.",
   "Show in Changes": "변경 사항에서 표시",
+  "Show in Git view": "Git 보기에서 표시",
   "Show in History": "기록에서 보기",
   "Show log": "기록 보기",
   "Show on Pinboard": "핀보드에 표시",
@@ -1337,5 +1338,8 @@
   "… (truncated)": "…(잘림)",
   "…{count} more not shown": "…표시되지 않은 항목 {count}개 더 있음",
   "↑{ahead} ↓{behind} {upstream}": "↑{ahead} ↓{behind} {upstream}",
-  "⚠ Write outside the project folder: {path}": "⚠ 프로젝트 폴더 밖에 쓰기: {path}"
+  "⚠ Write outside the project folder: {path}": "⚠ 프로젝트 폴더 밖에 쓰기: {path}",
+  "The git command failed.": "git 명령이 실패했습니다.",
+  "The git command was cancelled.": "git 명령이 취소되었습니다.",
+  "The server did not say which git job it started.": "서버가 어떤 git 작업을 시작했는지 알려 주지 않았습니다."
 }

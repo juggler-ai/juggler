@@ -27,11 +27,11 @@ import { createElement } from 'juggler/ui';
 
 const t = translator('@juggler/core');
 
-/** @typedef {import('juggler/pinboard-item-type').PinGitStopped} PinGitStopped */
+/** @typedef {import('../../lib/git-client.js').GitStopped} GitStopped */
 
 /**
  * @typedef {object} BannerState
- * @property {PinGitStopped|null} stopped - The operation in progress; null for none.
+ * @property {GitStopped|null} stopped - The operation in progress; null for none.
  * @property {number} conflicts - Files still in conflict.
  * @property {string} head - HEAD's sha, named when the branch is detached.
  * @property {boolean} busy - One of its writes is out.
@@ -60,7 +60,7 @@ const short = (sha) => (sha || '').slice(0, 7);
 
 /**
  * The branch an operation changes, by name, or HEAD's sha when it is detached.
- * @param {PinGitStopped} stopped - The operation.
+ * @param {GitStopped} stopped - The operation.
  * @param {string} head - HEAD's sha.
  * @returns {string} Its name.
  */
@@ -71,7 +71,7 @@ export function branchOf(stopped, head) {
 /**
  * What the banner says, a part at a time: what is in progress, how far a rebase
  * has got, the conflicts left, and the changes set aside.
- * @param {PinGitStopped} stopped - The operation.
+ * @param {GitStopped} stopped - The operation.
  * @param {number} conflicts - Files still in conflict.
  * @param {string} head - HEAD's sha.
  * @returns {string[]} The parts.

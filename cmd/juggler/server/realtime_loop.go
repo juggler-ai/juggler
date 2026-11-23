@@ -120,8 +120,8 @@ func (s *Server) runRealtimeClientLoop(ctx context.Context, client RealtimeClien
 	// Join viewer group for multi-view broadcasting.
 	s.joinViewerGroup(client)
 	defer s.leaveViewerGroup(client.ClientID())
-	// A connection's git watches end with it (git_watch.go).
-	defer s.dropGitWatches(client.ClientID())
+	// A connection's subscriptions end with it (topics.go).
+	defer s.topicHub().drop(client.ClientID())
 	// So do the agent runs it started (agent_runs.go). The engine's own are
 	// dropped with every other run when it goes, above.
 	if role != ClientRoleEngine {
@@ -298,12 +298,14 @@ func (s *Server) runRealtimeClientLoop(ctx context.Context, client RealtimeClien
 				// wrote it and already holds what it wrote.
 				s.broadcastToOthers(bareFrame{Type: frameSessionChanged}, client.ClientID())
 
-			case frameGitWatch:
-				req, ok := unmarshalWS[GitWatchRequest](msgBytes, "git-watch")
+			case frameSubscriptions:
+				req, ok := unmarshalWS[SubscriptionsRequest](msgBytes, "subscriptions")
 				if !ok {
 					continue
 				}
-				s.setGitWatches(client.ClientID(), req.Workspaces)
+				if err := s.topicHub().subscribe(client.ClientID(), role, req.Topic, req.Keys); err != nil {
+					jlog.Info("Realtime: refused subscriptions to %q from a %s client %s (%s): %v", req.Topic, role, client.ClientID(), client.ClientInfo().Origin, err)
+				}
 
 			case frameWorkerMessage:
 				if s.workerManager == nil {
@@ -421,8 +423,9 @@ func (s *Server) runRealtimeClientLoop(ctx context.Context, client RealtimeClien
 //     realm makes, and carries nothing but "re-read it" to every client but the
 //     one that wrote it.
 //   - worker-message is how both realms talk to a conversation's worker.
-//   - git-watch names the trees a viewer shows the git state of; the engine
-//     shows none.
+//   - subscriptions names the keys of a topic a client wants pushed, and is
+//     open to both roles here because each topic says which roles may hear it
+//     (topics.go): the hub refuses the rest, as this table refuses a frame.
 //   - agent-run-start / agent-run-cancel ask for and abandon an agent run,
 //     which either realm may want (an engine plugin can call runAgent). Its
 //     progress and result go back to the requester alone (agent_runs.go).
@@ -439,7 +442,7 @@ var inboundFrameRoles = map[frameType][]ClientRole{
 	frameOneShotResult:    {ClientRoleEngine},
 	frameSessionChanged:   {ClientRoleViewer, ClientRoleEngine},
 	frameWorkerMessage:    {ClientRoleViewer, ClientRoleEngine},
-	frameGitWatch:         {ClientRoleViewer},
+	frameSubscriptions:    {ClientRoleViewer, ClientRoleEngine},
 	frameAgentRunStart:    {ClientRoleViewer, ClientRoleEngine},
 	frameAgentRunCancel:   {ClientRoleViewer, ClientRoleEngine},
 	frameAgentRunProgress: {ClientRoleEngine},

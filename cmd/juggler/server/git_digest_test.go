@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -65,19 +64,22 @@ func storedTranscript(t *testing.T, s *Server, name string, before, nested, afte
 	return id
 }
 
-// askDigest asks the digest route and decodes a 200's answer.
+// askDigest asks the git tool's digest, with the parameters written as the
+// query of the route it stands for, and sorts the answer as that route did:
+// 200 with the digest, 404 for a conversation the project does not have, 400
+// for any other refusal.
 func askDigest(t *testing.T, s *Server, query url.Values) (int, conversationDigest) {
 	t.Helper()
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/git/conversation-digest?"+query.Encode(), nil).WithContext(t.Context())
-	s.handleGitConversationDigest(rec, req)
-	var d conversationDigest
-	if rec.Code == http.StatusOK {
-		if err := json.Unmarshal(rec.Body.Bytes(), &d); err != nil {
-			t.Fatalf("digest: %v\n%s", err, rec.Body.String())
-		}
+	got, err := callGitTool(s, t.Context(), query.Get("workspace"), "digest", map[string]any{
+		"conv": query.Get("conv"), "repo": query.Get("repo"), "paths": query["paths"],
+	})
+	switch {
+	case err != nil && err.Error() == "No such conversation":
+		return http.StatusNotFound, conversationDigest{}
+	case err != nil:
+		return http.StatusBadRequest, conversationDigest{}
 	}
-	return rec.Code, d
+	return http.StatusOK, got.(conversationDigest)
 }
 
 func turnsLine(d conversationDigest) string {
@@ -98,11 +100,7 @@ func turnsLine(d conversationDigest) string {
 func TestGitConversationDigest(t *testing.T) {
 	s := newTestServerStateWithProject(t)
 	root := t.TempDir()
-	tree, err := workspace.NewResolver(func() string { return root }, nil, nil).Resolve("")
-	if err != nil {
-		t.Fatal(err)
-	}
-	s.gitWatchResolve = resolveTrees(map[string]workspace.Workspace{"ws_tree": tree})
+	scriptGit(t, s, resolveTrees(map[string]workspace.Workspace{"ws_tree": localTreeAs(t, "ws_tree", root)}))
 	done := worker.StateCompleted
 
 	id := storedTranscript(t, s, "Parser work",

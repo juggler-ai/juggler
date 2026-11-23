@@ -10,7 +10,7 @@ import Session from '../model/session.js';
 import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
 import { t, markUntranslated } from '../../sdk/lib/i18n.js';
 import { isEngine } from '../../sdk/lib/client-role.js';
-import { followSession } from './git-workspace.js';
+import { followSession } from './visible-workspace.js';
 import { reconcileWorkspaces } from './workspace-reconcile.js';
 import appPhase, { setAppPhase } from './app-phase.js';
 import { revealLinkedConversation } from './conversation-commands.js';

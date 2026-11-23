@@ -21,6 +21,7 @@ the current release). The project follows semantic versioning.
 - Import Claude Code, Codex, Pi and OpenCode conversations on first launch.
 - Claude models via OpenRouter use prompt caching, and show cache writes
 - Filenames on read, edit, write, search and file cards open on the Pinboard
+- Extension SDK: `services.git` is gone; call the git tool through `services.ops.client`
 
 ## [0.8.2] - 2026-11-20
 

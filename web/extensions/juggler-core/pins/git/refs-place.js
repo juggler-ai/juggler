@@ -62,13 +62,13 @@ const t = translator('@juggler/core');
 /**
  * @typedef {import('./refs-model.js').RefsState} RefsState
  * @typedef {import('./refs-model.js').TreeView} TreeView
- * @typedef {import('juggler/pinboard-item-type').PinGitService} PinGitService
+ * @typedef {import('../../lib/git-client.js').GitClient} GitClient
  * @typedef {import('juggler/pinboard-item-type').PinWorkspaces} PinWorkspaces
  */
 
 /**
  * @typedef {object} RefsHost
- * @property {() => PinGitService} git - The pin's git service, as it now is.
+ * @property {() => GitClient} git - The pin's git service, as it now is.
  * @property {() => PinWorkspaces|undefined} workspaces - The session's workspaces.
  * @property {() => {workspace?: string}} workspaceOption - The tree option for every call.
  * @property {HTMLElement} rootElement - The pin's root.
@@ -81,7 +81,7 @@ const t = translator('@juggler/core');
  * @property {() => void} toggleFollow - Follow, or stop following, the conversation's workspace.
  * @property {() => void} refreshAll - Read everything again.
  * @property {(kind: 'fetch'|'pull'|'push') => void} network - Fetch, pull or push the repository, as the head's buttons do.
- * @property {(op: import('juggler/pinboard-item-type').PinGitOp, e: any, anchor: Element) => boolean} pushFailed - A push
+ * @property {(op: import('../../lib/git-client.js').GitOp, e: any, anchor: Element) => boolean} pushFailed - A push
  *   from here failed: true when it was turned down or needs a remote named, and
  *   the head's choices (Pull, a forced push, which remote) are offered.
  * @property {() => string[]} folded - The sections folded away, by id.
@@ -126,11 +126,11 @@ const t = translator('@juggler/core');
 export function createRefsPlace(host) {
   let live = true;
   let opened = false;
-  /** @type {import('juggler/pinboard-item-type').PinGitRefs|null} */
+  /** @type {import('../../lib/git-client.js').GitRefs|null} */
   let refs = null;
-  /** @type {import('juggler/pinboard-item-type').PinGitWorktrees['trees']} */
+  /** @type {import('../../lib/git-client.js').GitWorktrees['trees']} */
   let trees = [];
-  /** @type {import('juggler/pinboard-item-type').PinGitSubmodules['submodules']} */
+  /** @type {import('../../lib/git-client.js').GitSubmodules['submodules']} */
   let submodules = [];
   let readError = '';
   /** @type {string|null} */
@@ -302,7 +302,7 @@ export function createRefsPlace(host) {
   const askDelete = (kind, name, sha, anchor, go) => {
     const ref = kind === 'branch' ? `refs/heads/${name}` : `refs/tags/${name}`;
     const short = sha.slice(0, 7);
-    void /** @type {Promise<import('juggler/pinboard-item-type').PinGitStranded>} */ (
+    void /** @type {Promise<import('../../lib/git-client.js').GitStranded>} */ (
       git().read('stranded', { repo: host.repo(), ...ws(), ref })
     ).then((s) => (s.count > 0
       ? t('{kind, select, branch {Delete branch {name}?} other {Delete tag {name}?}} Nothing else reaches {sha}, so {more, select, true {more than {count} commits} other {{count, plural, one {that commit} other {# commits}}}} will be unreachable, and git deletes unreachable commits eventually.',
@@ -365,10 +365,10 @@ export function createRefsPlace(host) {
    * named — offer what the head's push would: Pull, a forced push, a remote.
    * @param {Record<string, any>} op - The push, without its repository.
    * @param {Element} anchor - What asked.
-   * @returns {Promise<import('juggler/pinboard-item-type').PinGitJob|null>} The finished job, or null.
+   * @returns {Promise<import('../../lib/git-client.js').GitJob|null>} The finished job, or null.
    */
   const runPush = (op, anchor) => run(op, (e) => host.pushFailed(
-    /** @type {import('juggler/pinboard-item-type').PinGitOp} */ ({ repo: host.repo(), ...op }),
+    /** @type {import('../../lib/git-client.js').GitOp} */ ({ repo: host.repo(), ...op }),
     e, anchor.isConnected ? anchor : element));
 
   /**
@@ -664,7 +664,7 @@ export function createRefsPlace(host) {
   // --- drawing -------------------------------------------------------------
 
   /**
-   * @param {import('juggler/pinboard-item-type').PinGitSubmodules['submodules'][number]} m - A submodule.
+   * @param {import('../../lib/git-client.js').GitSubmodules['submodules'][number]} m - A submodule.
    * @returns {string} Where it is against what is recorded for it, in a few words.
    */
   const submoduleState = (m) => {

@@ -60,21 +60,21 @@ const PAGE = 200;
 const OVERSCAN = 15;
 
 /**
- * @typedef {import('juggler/pinboard-item-type').PinGitLog} PinGitLog
- * @typedef {import('juggler/pinboard-item-type').PinGitLogRow} PinGitLogRow
+ * @typedef {import('../../lib/git-client.js').GitLog} GitLog
+ * @typedef {import('../../lib/git-client.js').GitLogRow} GitLogRow
  */
 
 /**
  * @typedef {object} HistoryListOptions
  * @property {(query: {offset: number, limit: number, graph?: string, refresh?: boolean, find?: string},
- *   signal: AbortSignal) => Promise<PinGitLog>} fetch - Read one page of the list's session; the
+ *   signal: AbortSignal) => Promise<GitLog>} fetch - Read one page of the list's session; the
  *   signal is aborted once nothing will look at the answer.
- * @property {(row: PinGitLogRow, index: number, graph: {entering: number[], columns: number, cap: number}) => HTMLElement} buildRow -
+ * @property {(row: GitLogRow, index: number, graph: {entering: number[], columns: number, cap: number}) => HTMLElement} buildRow -
  *   One row's element; the list places it.
  * @property {() => number} cap - The most graph lanes drawn.
- * @property {(row: PinGitLogRow|null, index: number) => void} onSelect - The selection moved.
+ * @property {(row: GitLogRow|null, index: number) => void} onSelect - The selection moved.
  * @property {(e: any) => void} onError - A read failed.
- * @property {(page: PinGitLog) => void} [onPage] - A page was taken.
+ * @property {(page: GitLog) => void} [onPage] - A page was taken.
  */
 
 /**
@@ -89,8 +89,8 @@ const OVERSCAN = 15;
  *   it into view: its row, or -1 when the list does not hold it, or null when a later
  *   `selectSha` or a reset came first (nothing is selected by it then).
  * @property {(by: number) => void} move - Move the selection, stepping over the working tree's row.
- * @property {() => {index: number, row: PinGitLogRow|null}} selected - The selection.
- * @property {(index: number) => PinGitLogRow|null} rowAt - A held row.
+ * @property {() => {index: number, row: GitLogRow|null}} selected - The selection.
+ * @property {(index: number) => GitLogRow|null} rowAt - A held row.
  * @property {(sha: string) => number} indexOf - Where a held commit is, or -1.
  * @property {() => {total: number, loaded: boolean, graphed: boolean, columns: number, cap: number}} state -
  *   What is known of the list, and the graph's columns and width as its rows are drawn.
@@ -113,7 +113,7 @@ export function createHistoryList(options) {
   let graph = '';
   let gen = 0;
   let graphed = true;
-  /** @type {Map<number, {page: PinGitLog, entering: number[][]}>} By page number. */
+  /** @type {Map<number, {page: GitLog, entering: number[][]}>} By page number. */
   const pages = new Map();
   /** @type {Map<string, {p: number, abort: AbortController}>} Pages being read, by `gen:page`. */
   const reading = new Map();
@@ -157,7 +157,7 @@ export function createHistoryList(options) {
 
   /**
    * @param {number} index - A row.
-   * @returns {PinGitLogRow|null} It, when held.
+   * @returns {GitLogRow|null} It, when held.
    */
   const rowAt = (index) => {
     const held = pages.get(Math.floor(index / PAGE));
@@ -178,7 +178,7 @@ export function createHistoryList(options) {
 
   /**
    * Take one page, if it is still of this list.
-   * @param {PinGitLog} page - The page.
+   * @param {GitLog} page - The page.
    * @param {number} asked - The epoch it was asked in.
    * @returns {boolean} Whether it was taken.
    */
@@ -261,7 +261,7 @@ export function createHistoryList(options) {
     }
   };
 
-  /** @type {import('juggler/utils/virtual-list').VirtualList<PinGitLogRow>} */
+  /** @type {import('juggler/utils/virtual-list').VirtualList<GitLogRow>} */
   const list = createVirtualList({
     scroller: element,
     spacerClass: 'git-history__spacer',
@@ -273,7 +273,7 @@ export function createHistoryList(options) {
     // scrolled it out of the window is still turning something attached.
     retain: (el) => el.matches(':hover'),
     build: (row, index) => {
-      const held = /** @type {{page: PinGitLog, entering: number[][]}} */ (pages.get(Math.floor(index / PAGE)));
+      const held = /** @type {{page: GitLog, entering: number[][]}} */ (pages.get(Math.floor(index / PAGE)));
       const el = options.buildRow(row, index, { entering: held.entering[index - held.page.offset] || [], columns, cap });
       el.dataset.sha = row.sha;
       return el;

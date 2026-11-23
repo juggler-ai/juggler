@@ -5,7 +5,7 @@
 
 import ContextItem from 'juggler/context-item';
 import { formatDisplayPath, formatFileSize, formatFileSizeForDisplay, formatFileContentForLLM, normalizeFilePath, injectFileContentStyles } from 'juggler/item-utils';
-import { addFilePath } from 'juggler/ui';
+import { addFilePath, createFileView } from 'juggler/ui';
 import { fileSourceFromReadResult } from 'juggler/file-source';
 import { extractFileSource } from 'juggler/registry';
 import { toolInputPath, dirname, isPathAllowed, folderGrantSuggestions, stripInjectedApprovalFlags, absolutePathKey } from './path-approval.js';
@@ -384,7 +384,7 @@ class ReadFileContextItem extends ContextItem {
       : undefined;
     addFilePath(container, absolutePath || data.path || t('No file'), info, { pin: absolutePath });
 
-    const view = /** @type {any} */ (document.createElement('file-view'));
+    const view = /** @type {any} */ (createFileView());
     view.showPath = false;
     // A persisted result does not record how its read was authorised, but a
     // recorded read of an out-of-root path is by construction one the user

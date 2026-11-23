@@ -37,11 +37,8 @@ const t = translator('@juggler/core');
  * A group of conversations, working in the project.
  */
 class GroupWorkspaceProvider extends UnbuiltWorkspaceProvider {
-  /**
-   * @param {{session?: any}} [context] - What is known before any hook runs.
-   */
-  constructor(context = {}) {
-    super(context);
+  constructor() {
+    super();
 
     /** @type {any} The rendered form, while there is one. */
     this._form = null;
@@ -88,13 +85,13 @@ class GroupWorkspaceProvider extends UnbuiltWorkspaceProvider {
   /**
    * The project itself, named.
    * @param {any} values - name, which may be empty.
-   * @param {any} ctx - The hook's context, for the session.
+   * @param {any} ctx - The hook's context, for the project's path.
    * @returns {Promise<any>} The workspace.
    */
   async provision(values, ctx) {
-    const project = String(ctx?.session?.projectPath ?? '');
+    const project = String(ctx?.projectPath ?? '');
     if (!project) throw new Error(t("Couldn't make a group: the session has no project."));
-    const label = String(values?.name ?? '').trim() || nextGroupName(ctx.session);
+    const label = String(values?.name ?? '').trim() || nextGroupName(ctx.services.workspaces.list());
     return { workspace: { root: project, label } };
   }
 
@@ -157,12 +154,12 @@ class GroupWorkspaceProvider extends UnbuiltWorkspaceProvider {
  * "Group N", for the lowest N no open group is already called. The name is
  * made in the language the user is reading and stored as they would have typed
  * it, so it is compared in that language too.
- * @param {any} session - The session whose groups these are.
+ * @param {{label: string, state: string}[]} rows - The session's workspaces.
  * @returns {string} The name.
  */
-function nextGroupName(session) {
+function nextGroupName(rows) {
   const taken = new Set();
-  for (const row of session?.workspaces ?? []) {
+  for (const row of rows) {
     if (row?.state === 'closed') continue;
     taken.add(String(row?.label ?? ''));
   }

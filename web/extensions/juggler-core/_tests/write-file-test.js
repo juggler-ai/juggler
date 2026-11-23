@@ -56,7 +56,8 @@ export async function runTests() {
       ];
       for (const [name, status] of states) {
         const ui = /** @type {any} */ (item.getStatusUI(status, input));
-        shown[`row ${name}`] = String(ui?.summary);
+        // A row's summary is an element when its filename is a link.
+        shown[`row ${name}`] = ui?.summary instanceof Node ? String(ui.summary.textContent) : String(ui?.summary);
         shown[`type name ${name}`] = String(ui?.typeName);
       }
 
@@ -91,7 +92,7 @@ export async function runTests() {
       conversation: { id: 'conv_1', workspaceId: 'ws_1', session },
       messageThread: { ...messageThread, threadItemId: 'th_1' },
     }));
-    /** @type {any} */ (writer)._sendAttribution = (/** @type {any} */ body) => { sent.push(body); };
+    /** @type {any} */ (writer)._sendFileWritten = (/** @type {any} */ body) => { sent.push(body); };
     let writeOk = true;
     /** @type {any} */ (writer)._ops = {
       writeFile: async (/** @type {any} */ p) => {
@@ -116,7 +117,7 @@ export async function runTests() {
     }
 
     // A sender that throws never fails the write it reports.
-    /** @type {any} */ (writer)._sendAttribution = () => { throw new Error('offline'); };
+    /** @type {any} */ (writer)._sendFileWritten = () => { throw new Error('offline'); };
     const result = await writer.execute({ path: '/2/b.txt', content: 'x' });
     if (/** @type {any} */ (result)?.success !== true) throw new Error(`a failing attribution failed the write: ${JSON.stringify(result)}`);
     passed++;

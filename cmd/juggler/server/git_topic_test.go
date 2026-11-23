@@ -18,11 +18,11 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// A viewer asks for the git changes of the trees it shows with one git-watch
-// frame naming all of them, and is sent git-change frames for those trees and
-// no others for as long as it asks — until it asks for something else or its
-// connection goes. The tree here is scripted: what a real one watches is
-// gitops's business, and these are about who is watching.
+// A viewer asks for the git changes of the trees it shows with one
+// subscriptions frame of the git topic naming all of them, and is sent their
+// git-change events and no others for as long as it asks — until it asks for
+// something else or its connection goes. The tree here is scripted: what a real
+// one watches is gitops's business, and these are about who is watching.
 
 // watchedTree is a workspace whose git watch the test drives: each GitWatch is
 // announced on started with its context, and whatever the test puts on changes
@@ -61,7 +61,7 @@ func (w *watchedTree) GitWatch(ctx context.Context) (<-chan []gitops.Change, err
 func newGitWatchServer(t *testing.T, tree *watchedTree) (*Server, *httptest.Server) {
 	t.Helper()
 	s, ts := newViewerSocketServer(t)
-	s.gitWatchResolve = resolveOnly("ws_tree", tree)
+	scriptGit(t, s, resolveOnly("ws_tree", tree))
 	return s, ts
 }
 
@@ -70,7 +70,7 @@ func askToWatch(t *testing.T, conn *websocket.Conn, ids ...string) {
 	if ids == nil {
 		ids = []string{}
 	}
-	if err := conn.WriteJSON(map[string]any{"type": "git-watch", "workspaces": ids}); err != nil {
+	if err := conn.WriteJSON(map[string]any{"type": "subscriptions", "topic": "git", "keys": ids}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -89,7 +89,8 @@ func within[T any](t *testing.T, ch <-chan T, what string) T {
 	}
 }
 
-// nextGitChange reads frames until a git-change arrives, and returns it raw.
+// nextGitChange reads frames until a git topic's git-change event arrives, and
+// returns the frame raw.
 func nextGitChange(t *testing.T, conn *websocket.Conn) string {
 	t.Helper()
 	_ = conn.SetReadDeadline(time.Now().Add(time.Minute))
@@ -98,31 +99,25 @@ func nextGitChange(t *testing.T, conn *websocket.Conn) string {
 		if err != nil {
 			t.Fatalf("no git-change reached the viewer: %v", err)
 		}
-		var head struct{ Type string }
-		if json.Unmarshal(data, &head) == nil && head.Type == "git-change" {
+		var head struct {
+			Type, Topic string
+			Event       struct{ Type string }
+		}
+		if json.Unmarshal(data, &head) == nil && head.Type == "topic-event" && head.Topic == "git" && head.Event.Type == "git-change" {
 			return string(data)
 		}
 	}
 }
 
-// do runs fn on the hub's goroutine and waits for it.
-func (h *gitWatchHub) do(fn func()) {
-	ran := make(chan struct{})
-	if h.post(func() { fn(); close(ran) }) {
-		select {
-		case <-ran:
-		case <-h.quit:
-		}
-	}
-}
-
-// watchersOf is how many connections hold the watch of a workspace, read on
-// the hub's own goroutine.
+// watchersOf is how many connections hold the running watch of a workspace;
+// 0 when none runs.
 func watchersOf(s *Server, id string) int {
 	n := 0
-	s.gitHub().do(func() {
-		if e := s.gitWatches.watches[id]; e != nil {
-			n = len(e.clients)
+	h := s.topicHub()
+	h.do(func() {
+		k := topicKey{gitTopicName, id}
+		if h.upstreams[k] != nil {
+			n = len(h.subscribers[k])
 		}
 	})
 	return n
@@ -155,9 +150,9 @@ func TestGitWatchFrame_SubscribeDeliverUnsubscribe(t *testing.T) {
 		{Repo: "libs/inner", Kinds: gitops.KindRefs},
 	}
 	got := nextGitChange(t, conn)
-	want := `{"type":"git-change","workspace":"ws_tree","repos":[{"path":"","kinds":["index","worktree"]},{"path":"libs/inner","kinds":["refs"]}]}`
+	want := `{"type":"topic-event","topic":"git","key":"ws_tree","event":{"type":"git-change","workspace":"ws_tree","repos":[{"path":"","kinds":["index","worktree"]},{"path":"libs/inner","kinds":["refs"]}]}}`
 	if got != want {
-		t.Errorf("git-change frame:\n  got  %s\n  want %s", got, want)
+		t.Errorf("git-change event:\n  got  %s\n  want %s", got, want)
 	}
 
 	askToWatch(t, conn)
@@ -238,23 +233,15 @@ func (w *lateTree) GitWatch(ctx context.Context) (<-chan []gitops.Change, error)
 
 // A viewer that asks before the git watcher exists — a window reconnecting to
 // a server that has just started — is watching once it does, without asking
-// again: it sends git-watch only when what it shows changes.
+// again: it names its trees only when what it shows changes.
 func TestGitWatchFrame_WatchRefusedBeforeTheWatcherStartsOnceItExists(t *testing.T) {
 	tree := &lateTree{watchedTree: newWatchedTree(), ready: make(chan struct{})}
 	s, ts := newViewerSocketServer(t)
-	s.gitWatchResolve = resolveOnly("ws_tree", tree)
+	scriptGit(t, s, resolveOnly("ws_tree", tree))
 	conn, _ := dialViewerAs(t, ts, "")
 
 	askToWatch(t, conn, "ws_tree")
-	eventually(t, "the viewer's ask to be taken in", func() bool {
-		asked := false
-		s.gitHub().do(func() {
-			for _, ids := range s.gitWatches.clients {
-				asked = asked || ids["ws_tree"]
-			}
-		})
-		return asked
-	})
+	eventually(t, "the viewer's ask to be taken in", func() bool { return subscribersOf(s, "ws_tree") == 1 })
 	if n := watchersOf(s, "ws_tree"); n != 0 {
 		t.Fatalf("a watch that could not start has %d watchers", n)
 	}
@@ -266,12 +253,55 @@ func TestGitWatchFrame_WatchRefusedBeforeTheWatcherStartsOnceItExists(t *testing
 	nextGitChange(t, conn)
 }
 
-// git-watch is a viewer's: the engine shows no trees.
-func TestGitWatchFrame_IsAViewersFrame(t *testing.T) {
-	if _, allowed := inboundFrameAllowed(frameGitWatch, ClientRoleEngine); allowed {
-		t.Error("the engine may send git-watch")
+// The git topic is a viewer's: the engine shows no trees. Its subscriptions
+// frame starts no watch and subscribes it to nothing.
+func TestGitTopic_RefusedToTheEngine(t *testing.T) {
+	tree := newWatchedTree()
+	s, ts := newGitWatchServer(t, tree)
+	viewer, _ := dialViewerAs(t, ts, "")
+	engine := dialEngine(t, ts)
+
+	if err := engine.WriteJSON(map[string]any{"type": "subscriptions", "topic": "git", "keys": []string{"ws_tree"}}); err != nil {
+		t.Fatal(err)
 	}
-	if _, allowed := inboundFrameAllowed(frameGitWatch, ClientRoleViewer); !allowed {
-		t.Error("a viewer may not send git-watch")
+	// The engine's frames are handled in order, so once its session-changed
+	// reaches the viewer its subscriptions frame has been answered, and anything
+	// that answer gave the hub to do is queued ahead of the look below.
+	if err := engine.WriteJSON(map[string]any{"type": "session-changed"}); err != nil {
+		t.Fatal(err)
 	}
+	nextFrameOfType(t, viewer, "session-changed")
+	if n := subscribersOf(s, "ws_tree"); n != 0 {
+		t.Errorf("the engine's subscription was taken: %d subscribers", n)
+	}
+	select {
+	case <-tree.started:
+		t.Error("the engine's subscription started a watch")
+	default:
+	}
+}
+
+// nextFrameOfType reads frames until one of type typ arrives.
+func nextFrameOfType(t *testing.T, conn *websocket.Conn, typ string) {
+	t.Helper()
+	_ = conn.SetReadDeadline(time.Now().Add(time.Minute))
+	for {
+		_, data, err := conn.ReadMessage()
+		if err != nil {
+			t.Fatalf("no %s reached the connection: %v", typ, err)
+		}
+		var head struct{ Type string }
+		if json.Unmarshal(data, &head) == nil && head.Type == typ {
+			return
+		}
+	}
+}
+
+// subscribersOf is how many connections are subscribed to a workspace's git,
+// whether or not its watch runs.
+func subscribersOf(s *Server, id string) int {
+	n := 0
+	h := s.topicHub()
+	h.do(func() { n = len(h.subscribers[topicKey{gitTopicName, id}]) })
+	return n
 }

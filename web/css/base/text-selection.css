@@ -107,6 +107,7 @@ conversation-bar input,
 .pinboard-panel textarea,
 .pinboard-content__body,
 .pinboard-placeholder__error,
+diff-viewer,
 .update-notice__status-text {
     -webkit-user-select: text;
     user-select: text;

@@ -12,7 +12,7 @@
  */
 
 /**
- * @typedef {import('juggler/pinboard-item-type').PinGitChangedFile & {pending?: boolean}} ChangedFile
+ * @typedef {import('../../lib/git-client.js').GitChangedFile & {pending?: boolean}} ChangedFile
  * @typedef {'conflicts'|'staged'|'changes'|'untracked'} GroupId
  * @typedef {{id: GroupId, files: ChangedFile[]}} Group
  */
@@ -202,7 +202,7 @@ function unresolved(file) {
  * optimistic list drawn until a read says what it did. Kinds it cannot predict
  * (line staging, commits) leave the files as they are.
  * @param {ChangedFile[]} files - The files as last drawn.
- * @param {import('juggler/pinboard-item-type').PinGitOp} op - The write.
+ * @param {import('../../lib/git-client.js').GitOp} op - The write.
  * @returns {ChangedFile[]} The files as they will be.
  */
 export function applyOp(files, op) {

@@ -28,7 +28,7 @@
  *
  * One info-card plugin of the `@juggler/core` extension; the host rail owns the
  * outer card chrome (eyebrow + × close), so this only fills the content region.
- * The status itself comes from the shared host cache, which the Git pin reads
+ * The status itself comes from the host's git service, a shared cache which the Git pin reads
  * too — so having both open costs one poll, not two — and which holds the last
  * snapshot across remounts so this paints instantly. Not an ARIA live region:
  * the counts change quietly and the same information is available from git.
@@ -37,11 +37,10 @@
 
 import InfoCardType from 'juggler/info-card-type';
 import { translator, formatNumber, formatList } from 'juggler/i18n';
-import { injectStylesOnce } from 'juggler/ui';
-import gitStatusCache from '../../../js/services/git-status-cache.js';
-import pinboardView from '../../../js/services/pinboard-view.js';
+import { canPinSource, injectStylesOnce, pinSource } from 'juggler/ui';
 import { branchPhrase, divergencePhrase, repoLabel } from '../lib/git-status.js';
 import { icon } from '../pins/git/icons.js';
+import { gitClientOf } from '../lib/git-client.js';
 
 const t = translator('@juggler/core');
 
@@ -267,7 +266,7 @@ button.git-status-card__files:focus-visible {
 `);
 
 /**
- * @typedef {import('../../../js/services/api.js').GitRepoStatus} GitRepoStatus
+ * @typedef {import('../lib/git-client.js').GitRepo} GitRepo
  */
 
 /**
@@ -312,17 +311,18 @@ function badge(name) {
  * @returns {HTMLElement} The badge.
  */
 function repoBadge(name, path) {
+  /** @type {import('../lib/git-client.js').GitPinSource} */
   const source = { ...GIT_SOURCE, repo: path };
-  if (!pinboardView.canPin(source)) return badge(name);
+  if (!canPinSource(source)) return badge(name);
   const b = /** @type {HTMLButtonElement} */ (el('button', 'git-status-card__repo', name));
   b.type = 'button';
   b.title = t('Open {repo} in Git', { repo: name });
-  b.addEventListener('click', () => { void pinboardView.addSource(source); });
+  b.addEventListener('click', () => { void pinSource(source); });
   return b;
 }
 
 /**
- * @param {GitRepoStatus} repo - A repo.
+ * @param {GitRepo} repo - A repo.
  * @returns {boolean} Whether it has anything uncommitted.
  */
 const isDirty = (repo) => repo.changed > 0 || repo.staged > 0 || (repo.conflicted || 0) > 0;
@@ -332,7 +332,7 @@ const isDirty = (repo) => repo.changed > 0 || repo.staged > 0 || (repo.conflicte
  * pressing kind among them, the tooltip says how many of each. Raised over the
  * card's button so the tooltip can be had, it opens the pin on its repository,
  * as the badge does — where the Git pin can be opened at all.
- * @param {GitRepoStatus} repo - A repo with something uncommitted.
+ * @param {GitRepo} repo - A repo with something uncommitted.
  * @returns {HTMLElement} The count.
  */
 function filesCount(repo) {
@@ -340,12 +340,13 @@ function filesCount(repo) {
   const tone = conflicted > 0 ? ' git-status-card__files--conflicted'
     : repo.changed > 0 ? '' : ' git-status-card__files--staged';
   const count = repo.total || Math.max(repo.changed, repo.staged);
+  /** @type {import('../lib/git-client.js').GitPinSource} */
   const source = { ...GIT_SOURCE, repo: repo.path || '' };
-  const clickable = pinboardView.canPin(source);
+  const clickable = canPinSource(source);
   const files = el(clickable ? 'button' : 'span', `git-status-card__files${tone}`, formatNumber(count));
   if (clickable) {
     /** @type {HTMLButtonElement} */ (files).type = 'button';
-    files.addEventListener('click', () => { void pinboardView.addSource(source); });
+    files.addEventListener('click', () => { void pinSource(source); });
   }
   files.title = formatList([
     ...(conflicted > 0 ? [t('{count, plural, one {# conflict} other {# conflicts}}', { count: conflicted })] : []),
@@ -358,7 +359,7 @@ function filesCount(repo) {
 /**
  * One repository on one line: its label when it needs one, its branch, how far
  * that is from its upstream, and what is waiting — or a tick for nothing.
- * @param {GitRepoStatus} repo - The repo.
+ * @param {GitRepo} repo - The repo.
  * @param {string|null} name - Its location label, or null when it needs none.
  * @returns {HTMLElement} The line.
  */
@@ -421,6 +422,7 @@ function inTree(workspace, nodes) {
  * about the card.
  * @type {import('juggler/pinboard-item-type').PinSource}
  */
+/** @type {import('../lib/git-client.js').GitPinSource} */
 const GIT_SOURCE = { kind: 'git' };
 
 /**
@@ -436,16 +438,16 @@ const GIT_SOURCE = { kind: 'git' };
 function withLauncher(nodes) {
   const summary = el('div', 'git-status-card__summary');
   summary.append(...nodes);
-  if (!pinboardView.canPin(GIT_SOURCE)) return [summary];
+  if (!canPinSource(GIT_SOURCE)) return [summary];
   const card = el('div', 'git-status-card__card');
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'git-status-card__launch';
   button.setAttribute('aria-label', t('Open Git in the Pinboard'));
   button.title = t('Open Git');
-  // addSource dedupes: the pin already on the board is revealed rather than
+  // pinSource dedupes: the pin already on the board is revealed rather than
   // another added.
-  button.addEventListener('click', () => { void pinboardView.addSource(GIT_SOURCE); });
+  button.addEventListener('click', () => { void pinSource(GIT_SOURCE); });
   const go = el('span', 'git-status-card__go');
   go.append(icon('forward'));
   card.append(button, summary, go);
@@ -455,27 +457,28 @@ function withLauncher(nodes) {
 /**
  * Render the current snapshot into the content region.
  * @param {HTMLElement} contentEl
+ * @param {import('../lib/git-client.js').GitClient} git - The card's git client.
  * @returns {void}
  */
-function render(contentEl) {
-  const snap = gitStatusCache.get();
+function render(contentEl, git) {
+  const snap = git.status();
   if (snap === null) {
     // Nothing known and a reason why: the read is being refused rather than
     // taking its time, and "Checking…" would say that forever. The likeliest
     // reason is a conversation bound to a workspace that cannot be reached, and
     // the server's own words for that are better than any we would invent.
-    const error = gitStatusCache.getError();
+    const error = git.error();
     contentEl.replaceChildren(...withLauncher([note(error || t('Checking…'))]));
     return;
   }
   const repos = snap.repos || [];
   if (repos.length === 0) {
-    contentEl.replaceChildren(...withLauncher(inTree(snap.workspace, [note(t('No git repository'))])));
+    contentEl.replaceChildren(...withLauncher(inTree(snap.workspace ?? '', [note(t('No git repository'))])));
     return;
   }
   // Only the lone-repo-at-root case hides its location; anything else labels.
   const lone = repos.length === 1 && !repos[0]?.path;
-  const labelOf = (/** @type {GitRepoStatus} */ r) => (lone ? null : repoLabel(snap.root, r.path));
+  const labelOf = (/** @type {GitRepo} */ r) => (lone ? null : repoLabel(snap.root, r.path));
   const dirty = repos.filter(isDirty);
   // A lone repo's line is worth a glance even when clean; several clean ones
   // are summed up in a note rather than listed.
@@ -483,7 +486,7 @@ function render(contentEl) {
   const nodes = dirty.length ? dirty.map((r) => repoLine(r, labelOf(r)))
     : only ? [repoLine(only, labelOf(only))]
       : [note(t('No changed files'))];
-  contentEl.replaceChildren(...withLauncher(inTree(snap.workspace, nodes)));
+  contentEl.replaceChildren(...withLauncher(inTree(snap.workspace ?? '', nodes)));
 }
 
 /**
@@ -506,16 +509,19 @@ export default class GitStatusCard extends InfoCardType {
   }
 
   /**
-   * Paint whatever the cache already holds, then follow it. The polling, the
-   * focus gate and the last-good-snapshot retention all belong to the cache, so
+   * Paint whatever the host already holds, then follow it. The polling, the
+   * focus gate and the last-good-snapshot retention all belong to the host, so
    * mounting a second surface onto the same status costs nothing.
    * @param {HTMLElement} contentEl
+   * @param {unknown} _session - Unused: the status follows the visible conversation.
+   * @param {import('juggler/info-card-type').InfoCardContext} context - The card's services.
    * @returns {() => void} Teardown that stops watching.
    */
-  mount(contentEl) {
-    const stopWatching = gitStatusCache.subscribe(() => render(contentEl));
-    render(contentEl);
-    void gitStatusCache.refresh();
+  mount(contentEl, _session, context) {
+    const git = gitClientOf(context.services, context.signal);
+    const stopWatching = git.onChange(() => render(contentEl, git));
+    render(contentEl, git);
+    void git.refresh();
     return stopWatching;
   }
 }

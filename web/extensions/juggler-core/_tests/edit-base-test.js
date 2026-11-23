@@ -123,7 +123,7 @@ export async function runTests() {
       id: 'r2', session, toolUseId: 'tu_2',
       conversation: { id: 'conv_2', session }, messageThread,
     }));
-    /** @type {any} */ (editor)._sendAttribution = (/** @type {any} */ body) => { sent.push(body); };
+    /** @type {any} */ (editor)._sendFileWritten = (/** @type {any} */ body) => { sent.push(body); };
     let editOk = false;
     /** @type {any} */ (editor)._ops = {
       editFile: async (/** @type {any} */ p) => {

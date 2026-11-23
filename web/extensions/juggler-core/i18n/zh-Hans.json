@@ -812,6 +812,7 @@
   "Show every git command this pin ran": "显示此置顶项运行过的每条 git 命令",
   "Show how far the visible conversation is through its plan and todo list, while either has work left.": "在计划或待办仍有剩余时，显示可见对话在计划和待办上的进度。",
   "Show in Changes": "在“更改”中显示",
+  "Show in Git view": "在 Git 视图中显示",
   "Show in History": "在历史中显示",
   "Show log": "查看日志",
   "Show on Pinboard": "在置顶项中显示",
@@ -1337,5 +1338,8 @@
   "… (truncated)": "……（已截断）",
   "…{count} more not shown": "……另有 {count} 个未显示",
   "↑{ahead} ↓{behind} {upstream}": "↑{ahead} ↓{behind} {upstream}",
-  "⚠ Write outside the project folder: {path}": "⚠ 在项目文件夹之外写入：{path}"
+  "⚠ Write outside the project folder: {path}": "⚠ 在项目文件夹之外写入：{path}",
+  "The git command failed.": "git 命令失败。",
+  "The git command was cancelled.": "git 命令已取消。",
+  "The server did not say which git job it started.": "服务器没有说明它启动了哪个 git 任务。"
 }

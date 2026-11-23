@@ -22,6 +22,8 @@
  * @module _tests/git-worktree-test
  */
 
+import { providerContext } from '../../../js/services/provider-context.js';
+import { createBoundOps } from '../../../sdk/ops.js';
 import { assert } from '../../../js-tests/utilities/test-helpers.js';
 import { registerWorkspace, unregisterWorkspace } from '../../../js/services/workspaces.js';
 import { provisionWorkspace } from '../../../js/services/workspace-provisioning.js';
@@ -169,7 +171,7 @@ export async function runTests() {
       assert(registerProvider() === '',
         'and asking a second time, as the next run of this suite in this lane does, finds it there');
 
-      const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID, session);
+      const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID);
       if (!provider) throw new Error('the provider is not in the registry under its own id');
       assert(provider.getSetupLabel() === 'New git worktree',
         `the "New…" row would read ${JSON.stringify(provider.getSetupLabel())}`);
@@ -182,8 +184,8 @@ export async function runTests() {
       // worktree of the project itself is the opposite case: it carries its own
       // copy on its own branch, and a second one read out of the main checkout
       // would be a second answer to the same question.
-      const provider = new GitWorktreeWorkspaceProvider({ session });
-      const ctx = { session };
+      const provider = new GitWorktreeWorkspaceProvider();
+      const ctx = providerContext(session, { ops: createBoundOps(() => ({})) });
 
       const ofSubrepo = provider.instructionRoots(
         { meta: { repoDir: `${projectPath}${separator}sub${separator}repo` } }, ctx);
@@ -257,12 +259,11 @@ export async function runTests() {
       // would mean owning a Windows runner; asking it here means driving a
       // provision against a Windows-shaped repository with the shell replaced
       // by a recorder, and reading back what was really run.
-      const provider = new GitWorktreeWorkspaceProvider({ session });
+      const provider = new GitWorktreeWorkspaceProvider();
       /** @type {string[]} */
       const ran = [];
-      const ctx = {
-        session: { workspaceRoot: () => 'C:\\src\\app' },
-        ops: {
+      const ctx = providerContext({ workspaceRoot: () => 'C:\\src\\app' }, {
+        ops: /** @type {any} */ ({
           /**
            * @param {any} request - What the provider wants run.
            * @returns {Promise<any>} A shell result.
@@ -276,13 +277,9 @@ export async function runTests() {
             const probe = command.startsWith('test ') || command.includes('--verify');
             return { success: !probe, stdout: '', stderr: '', exitCode: probe ? 1 : 0 };
           }
-        },
-        baseWorkspaceId: '',
-        signal: new AbortController().signal,
-        rollback: { push: () => {} },
-        checkpoint: async () => {},
-        progress: () => {}
-      };
+        }),
+        baseWorkspaceId: ''
+      });
 
       const built = await provider.provision({ branch: BRANCH, base: 'main' }, ctx);
       assert(built.workspace.root === 'C:\\src\\app-feat-tunnels',

@@ -32,7 +32,7 @@ function absoluteFilePath(root, repoPath, filePath) {
 /**
  * Whether a file is still on disk. A deletion is reviewable from its committed
  * side, but Open and Reveal would be pointing at nothing.
- * @param {import('juggler/pinboard-item-type').PinGitFile} file - The file.
+ * @param {import('../../lib/git-client.js').GitFile} file - The file.
  * @returns {boolean} True when the working tree still holds it.
  */
 function stillOnDisk(file) {
@@ -44,7 +44,7 @@ function stillOnDisk(file) {
  * `!` for a conflict, `?` for an untracked file, else what happened to it —
  * the staged side's letter when it has one, since the review compares from
  * HEAD and a file added then edited is still added.
- * @param {import('juggler/pinboard-item-type').PinGitFile} file - The file.
+ * @param {import('../../lib/git-client.js').GitFile} file - The file.
  * @returns {string} The letter.
  */
 function reviewLetter(file) {
@@ -58,7 +58,7 @@ function reviewLetter(file) {
  * One file as the panel's rail lists it.
  * @param {string} root - The tree's root.
  * @param {string} repoPath - Its repository, relative to the root.
- * @param {import('juggler/pinboard-item-type').PinGitFile} file - The file.
+ * @param {import('../../lib/git-client.js').GitFile} file - The file.
  * @returns {any} The panel's file.
  */
 export function reviewFile(root, repoPath, file) {
@@ -83,7 +83,7 @@ export function reviewFile(root, repoPath, file) {
  * commit's own scope, so a comment written on it is kept apart from the
  * working tree's. The words a comment stores, which reach the model, stay
  * English.
- * @param {import('juggler/pinboard-item-type').PinGitCommit} commit - The commit.
+ * @param {import('../../lib/git-client.js').GitCommit} commit - The commit.
  * @param {string} root - The tree's root.
  * @returns {any} The manifest.
  */

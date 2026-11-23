@@ -36,11 +36,10 @@ export function injectGitClientStyles() {
 
 /* The pin is chrome — rows, labels, captions and buttons are aimed at with
    clicks, so a drag across them selects nothing (base/text-selection.css) —
-   except for what is worth copying: the diffs, the Review place, a commit's
+   except for what is worth copying (a diff is, everywhere): the Review place, a commit's
    or ref's message and facts, the command log, what the hooks printed, the
    fields, and the errors worth pasting into a report. */
 .git-pin :is(input, textarea),
-.git-pin diff-viewer,
 .git-changes__file,
 .git-pin__place--review,
 .git-history__about,
@@ -683,14 +682,6 @@ export function injectGitClientStyles() {
   display: flex;
   flex-direction: column;
   min-height: 0;
-}
-
-.git-changes__viewer diff-viewer {
-  flex: 1 1 auto;
-  max-height: none;
-  min-height: 0;
-  border: 0;
-  box-shadow: none;
 }
 
 .git-changes__file {

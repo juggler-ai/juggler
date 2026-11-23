@@ -6,7 +6,7 @@ import { hostedPageURL, hostMovesNoWindow, windowControlURL } from '../../sdk/li
 import { conversationAssetURL } from '../../sdk/file-source.js';
 import { getPaintedTheme, getMode } from '../utils/theme-manager.js';
 import { getCurrentZoom } from '../utils/zoom-manager.js';
-import { fetchJson } from './http.js';
+import { fetchJson, HttpError } from './http.js';
 import { apiUrl, basePath } from '../utils/api-url.js';
 import { t } from '../../sdk/lib/i18n.js';
 
@@ -46,189 +46,7 @@ import { t } from '../../sdk/lib/i18n.js';
  * @property {string} version - Application version
  */
 
-/**
- * @typedef {object} GitFileStatus
- * @property {string} path - File path relative to its repository.
- * @property {string} [oldPath] - Former path for a rename or copy.
- * @property {string} index - Staged status letter ("M", "A", "D", …), "." when unmodified.
- * @property {string} worktree - Working-tree status letter, "?" for untracked, "." when unmodified.
- * @property {boolean} [conflicted] - Whether this is an unmerged entry.
- * @property {number} [added] - Added tracked text lines; absent for untracked/binary files.
- * @property {number} [removed] - Removed tracked text lines; absent for untracked/binary files.
- */
-
-/**
- * @typedef {object} GitRepoStatus
- * @property {string} path - Repo location relative to the project root ("" for the root repo).
- * @property {number} changed - Count of files with working-tree changes (incl. untracked).
- * @property {number} staged - Count of files with staged (index) changes.
- * @property {number} conflicted - Count of files with unresolved merges.
- * @property {number} total - Count of files git reported, listed in `files` or not.
- * @property {number} added - Added tracked text lines relative to HEAD.
- * @property {number} removed - Removed tracked text lines relative to HEAD.
- * @property {string} branch - Current branch, "" on a detached head.
- * @property {string} upstream - Tracking branch, "" when there is none.
- * @property {string} head - Full HEAD object id, "" before the first commit.
- * @property {boolean} initial - Whether the repository has no commits yet.
- * @property {number} ahead - Commits this branch has that its upstream does not.
- * @property {number} behind - Commits its upstream has that this branch does not.
- * @property {number} stashes - Entries in the stash.
- * @property {boolean} detached - Whether HEAD is detached rather than on a branch.
- * @property {GitFileStatus[]} files - The changed files, bounded server-side.
- * @property {boolean} truncated - Whether the tree holds more files than `files` lists.
- */
-
-/**
- * @typedef {GitRepoStatus & {complete: boolean, error?: string, base?: string, target?: string, baseName?: string}} GitReviewRepo
- *   One repository in a review manifest: everything the card reports about it,
- *   plus whether that is the whole story and git's own complaint when it is not.
- *   A repository git could not read is listed all the same. For any scope but the
- *   default, `base` and `target` are the object ids the scope resolved to there
- *   (`target` only when the new side is a commit), and `baseName` the branch
- *   `@branch` settled on.
- */
-
-/**
- * @typedef {object} GitScope
- * @property {string} input - The scope as asked for, e.g. '@uncommitted' or 'main...HEAD'.
- * @property {'worktree'|'index'|'unstaged'|'commits'} kind - Which two states it compares.
- * @property {string} label - The comparison in words.
- */
-
-/**
- * @typedef {object} GitReview
- * @property {string} root - Absolute project root path.
- * @property {boolean} complete - Whether every repository and file was reached.
- * @property {string[]} warnings - What the review could not reach, in sentences.
- * @property {GitScope} [scope] - What was compared.
- * @property {GitReviewRepo[]} repos - Every repository found, root repo first.
- */
-
-/**
- * @typedef {object} GitDiffLine
- * @property {string} kind - "context", "add" or "remove".
- * @property {number} [oldLine] - Line number on the old side; absent for an added line.
- * @property {number} [newLine] - Line number on the new side; absent for a removed line.
- * @property {string} text - The line, with no leading +/-/space.
- */
-
-/**
- * @typedef {object} GitDiffHunk
- * @property {number} oldStart - First line this hunk covers on the old side.
- * @property {number} oldLines - Lines it covers there.
- * @property {number} newStart - First line it covers on the new side.
- * @property {number} newLines - Lines it covers there.
- * @property {string} [heading] - The section git names in the `@@` line, often absent.
- * @property {GitDiffLine[]} lines - The hunk's lines, in file order.
- */
-
-/**
- * @typedef {object} GitFileDiff
- * @property {string} repo - Repository the file belongs to, "" for the root repo.
- * @property {string} path - File path relative to that repository.
- * @property {string} [oldPath] - Former path, for a rename or copy.
- * @property {string} status - modified, added, deleted, renamed, copied, typechange,
- *   conflicted, untracked or unchanged.
- * @property {boolean} binary - Whether git judged it binary; no patch text is invented for one.
- * @property {boolean} [conflicted] - Whether the index holds unmerged stages for it.
- * @property {boolean} truncated - Whether the patch was cut short; the counts still describe all of it.
- * @property {number} added - Added lines.
- * @property {number} removed - Removed lines.
- * @property {string} revision - Fingerprint of every byte this response describes,
- *   including the bytes past a ceiling that were never returned.
- * @property {number} context - Unchanged lines carried around each change. What the
- *   request asked for, or the server's default; a reader can be shown less than
- *   this from the patch alone, but more takes another request.
- * @property {string} [oldMode] - Git's six-digit mode on the old side, when it differs.
- * @property {string} [newMode] - Git's six-digit mode on the new side, when it differs.
- * @property {GitDiffHunk[]} hunks - The patch, hunk by hunk.
- */
-
-/**
- * One side of one file's change, in lines.
- * @typedef {object} GitChangeStat
- * @property {number} added - Added lines.
- * @property {number} removed - Removed lines.
- */
-
-/**
- * @typedef {object} GitChangedFile
- * @property {string} path - File path relative to its repository.
- * @property {string} [oldPath] - Former path for a rename or copy.
- * @property {string} index - Staged status letter, "." when unchanged.
- * @property {string} worktree - Working-tree status letter, "?" for untracked, "." when unchanged.
- * @property {boolean} [conflicted] - Whether this is an unmerged entry.
- * @property {boolean} [submodule] - Whether the path is a submodule.
- * @property {boolean} [binary] - Whether git judged it binary.
- * @property {boolean} [lfs] - Whether it is stored in Git LFS.
- * @property {GitChangeStat} [staged] - The index against HEAD; absent when that side has no line changes.
- * @property {GitChangeStat} [unstaged] - The working tree against the index; absent likewise.
- */
-
-/**
- * @typedef {object} GitChanges
- * @property {string} repo - The repository, "" for the root repo.
- * @property {string} branch - Current branch, "" on a detached head.
- * @property {string} upstream - Tracking branch, "" when there is none.
- * @property {number} ahead - Commits this branch has that its upstream does not.
- * @property {number} behind - Commits its upstream has that this branch does not.
- * @property {boolean} detached - Whether HEAD is detached.
- * @property {boolean} initial - Whether the repository has no commits yet.
- * @property {{sha: string, message: string, pushed: boolean}} [head] - The commit HEAD names; absent before the first.
- * @property {boolean} wrapsBody - Whether this repository's commit bodies are wrapped.
- * @property {string} [operation] - A merge, rebase or the like in progress.
- * @property {number} remotes - How many remotes the repository has.
- * @property {GitChangedFile[]} files - Every changed file.
- * @property {boolean} truncated - Whether the tree holds more files than `files` lists.
- */
-
-/**
- * One git write, as the client asks for it. Which fields matter is the kind's
- * business; every path is relative to the repository.
- * @typedef {object} GitOp
- * @property {GitJob['kind']} kind - What to do.
- * @property {string} repo - The repository, "" for the root repo.
- * @property {string[]} [paths] - The files, for the kinds that take several.
- * @property {string} [path] - The file, for the lines kinds.
- * @property {{old?: number, new?: number}[]} [lines] - The lines chosen, by their number on each side.
- * @property {string} [context] - The context the lines' diff was read at.
- * @property {string} [revision] - That diff's revision; a different one refuses the write.
- * @property {'file'|'extension'|'folder'} [pattern] - What an ignore covers.
- * @property {string} [message] - A commit's message.
- * @property {boolean} [amend] - Whether a commit amends HEAD.
- * @property {string} [expectHead] - The HEAD an undo-commit undoes, or a reset moves from.
- * @property {string} [discard] - The discard an undo-discard restores, or the save a hard reset back writes back.
- */
-
-/** @typedef {import('../protocol/server-wire-types.gen.js').GitJob} GitJob */
-
-/**
- * What a commit message for the staged changes is written from (the
- * `commit-context` read), already cut to size. Every cut is marked in the text
- * on a line of its own opening "[…".
- * @typedef {object} GitCommitContext
- * @property {string} repo - The repository, "" for the root repo.
- * @property {boolean} amend - Whether it describes an amend of HEAD; false when there is no HEAD.
- * @property {string} [headMessage] - HEAD's message, when amending.
- * @property {{path: string, oldPath?: string, status: string}[]} files - The staged files, each with git's status letter.
- * @property {string} stat - `--stat` of the change.
- * @property {string} diff - The staged patch: each file's cut to ~4k, the whole to ~24k; binary, lock, minified and generated files summarised.
- * @property {boolean} truncated - Whether anything was cut or left out.
- * @property {string[]} subjects - Up to ten recent subjects, newest first, merges skipped (below HEAD when amending).
- * @property {string} rules - What AGENTS.md, CLAUDE.md, CONTRIBUTING.md and .github/ say about commits, each part headed "From <file>:".
- * @property {boolean} wrapsBody - Whether this repository's commit bodies are wrapped.
- */
-
-/**
- * What one conversation says about why some files changed.
- * @typedef {object} GitConversationDigest
- * @property {string} conv - The conversation.
- * @property {string} title - Its title.
- * @property {string[]} userMessages - Its user messages, oldest first, each cut to 2k and the most recent 8k kept.
- * @property {{user: string, closing: string, files: string[]}[]} turns - The turns that touched the files asked about: the user's message, the agent's last message, and the files touched; the most recent 12k kept.
- * @property {boolean} truncated - Whether a message was cut (ending " [… cut]") or dropped.
- */
-
+/** @typedef {import('../protocol/server-wire-types.gen.js').Job} Job */
 /**
  * REST API service for Juggler backend
  * @class
@@ -250,16 +68,45 @@ function newWindowParams() {
 }
 
 /**
- * The `?workspace=` a git read carries, or nothing at all.
- *
- * Absent means the project server-side, exactly as it does for an operation, so
- * an unbound conversation's reads are the same requests they always were.
- * @param {string} [workspaceId] - Workspace to read, '' or omitted for the project.
- * @returns {string} The query string to append, or ''.
+ * Call one operation of a registered tool through the client's ops entry
+ * (POST /api/ops/client), which acts for the user: it reaches the tools only
+ * the user's client may call (the git tool), and the worktrees only they may
+ * run in. The agent's tool calls go through POST /api/ops/call instead, which
+ * refuses those. A failure throws an Error carrying the server's English as
+ * its message, the translatable message as `serverMessage`, and the
+ * failure's code, if it has one, as `code`.
+ * @param {string} toolId - The tool.
+ * @param {string} operation - Its operation.
+ * @param {Record<string, any>} params - Its parameters.
+ * @param {string} [workspaceId] - The tree, '' or omitted for the project.
+ * @param {AbortSignal} [signal] - Cancellation; it reaches the server's work.
+ * @returns {Promise<any>} The operation's answer.
  */
-function gitWorkspaceQuery(workspaceId) {
-  return workspaceId ? `?workspace=${encodeURIComponent(workspaceId)}` : '';
+export async function clientOp(toolId, operation, params, workspaceId = '', signal) {
+  /** @type {any} */
+  let resp;
+  try {
+    resp = await fetchJson(apiUrl('/ops/client'), {
+      method: 'POST',
+      body: { toolId, operation, params, ...(workspaceId ? { workspaceId } : {}) },
+      ...(signal ? { signal } : {}),
+    });
+  } catch (err) {
+    // A refusal before any tool ran (no project open, a body the server could
+    // not read) comes with an HTTP status, and the same answer shape.
+    if (!(err instanceof HttpError) || err.body?.success !== false) throw err;
+    resp = err.body;
+  }
+  if (!resp?.success) {
+    /** @type {any} */
+    const error = new Error(resp?.error || `${toolId} ${operation} failed`);
+    error.serverMessage = resp?.message;
+    error.code = resp?.code || '';
+    throw error;
+  }
+  return resp.data;
 }
+
 
 class APIService {
   /**
@@ -613,179 +460,39 @@ class APIService {
     });
   }
 
-  /**
-   * Summarise the working tree of every git repo under the tree named (root repo
-   * plus nested subrepos/submodules). Best-effort: repos whose status can't be
-   * read are omitted, and an empty repo list means no git repository was found.
-   * @param {string} [workspaceId] - Workspace to read, '' or omitted for the project.
-   * @param {{signal?: AbortSignal}} [options] - Cancellation, for a speculative read nobody is waiting on any more.
-   * @returns {Promise<{root: string, workspace?: string, repos: GitRepoStatus[]}>} The root read, the
-   *   workspace's name when that root is not the project, and its per-repo status.
-   */
-  async getGitStatus(workspaceId = '', options = {}) {
-    return await this.request(`/git/status${gitWorkspaceQuery(workspaceId)}`,
-      { signal: options.signal });
-  }
+
+
+
+
+
+
 
   /**
-   * Read the review manifest: every repository under the project and every file
-   * in each of them, freshly. Unlike {@link APIService#getGitStatus} this is the
-   * question asked in earnest — nothing is skipped for being expensive, and
-   * whatever it still could not reach comes back as `complete: false` and a
-   * warning saying so rather than as a shorter list.
-   * @param {{signal?: AbortSignal, workspaceId?: string, scope?: string, conv?: string}} [options] - Cancellation,
-   *   which tree to read, and what to compare ('' or omitted for the working tree
-   *   against HEAD; the server refuses a scope it cannot read with a 400). `conv`
-   *   is the conversation whose turn the `@turn` scope compares against.
-   * @returns {Promise<GitReview>} The manifest.
-   */
-  async getGitReview(options = {}) {
-    const query = new URLSearchParams();
-    if (options.workspaceId) query.set('workspace', options.workspaceId);
-    if (options.scope) query.set('scope', options.scope);
-    if (options.conv) query.set('conv', options.conv);
-    const qs = query.toString();
-    return await this.request(`/git/review${qs ? `?${qs}` : ''}`, { signal: options.signal });
-  }
-
-  /**
-   * Read one file's change within a scope — by default its whole working-tree
-   * change against HEAD, index and worktree folded together, which is the same
-   * comparison the status card's line counts come from.
-   * @param {string} repo - Repository relative to the project root, "" for the root repo.
-   * @param {string} path - File relative to that repository.
-   * @param {{signal?: AbortSignal, workspaceId?: string, contextLines?: number, scope?: string, conv?: string}} [options] -
-   *   Cancellation, which tree to read, how many unchanged lines to carry around
-   *   each change (-1 for the whole file; omitted takes the server's default), and
-   *   what to compare (with `conv`), as for {@link APIService#getGitReview}. The answer reports
-   *   the width it was produced at.
-   * @returns {Promise<GitFileDiff>} The file's patch and what happened to it.
-   */
-  async getGitDiff(repo, path, options = {}) {
-    const query = new URLSearchParams({ repo, path });
-    if (options.workspaceId) query.set('workspace', options.workspaceId);
-    if (typeof options.contextLines === 'number') query.set('context', String(options.contextLines));
-    if (options.scope) query.set('scope', options.scope);
-    if (options.conv) query.set('conv', options.conv);
-    return await this.request(`/git/diff?${query.toString()}`, { signal: options.signal });
-  }
-
-  /**
-   * Read one repository's changes as the git client's Changes place shows them:
-   * every changed file, each side of it counted separately, and what a commit
-   * box needs to know about HEAD.
-   * @param {string} repo - Repository relative to the tree's root, "" for the root repo.
-   * @param {string} [workspaceId] - Workspace to read, '' or omitted for the project.
-   * @param {{signal?: AbortSignal}} [options] - Cancellation.
-   * @returns {Promise<GitChanges>} The repository's changes. A refusal is a 400
-   *   and a failure a 502, each with the server's message.
-   */
-  async getGitChanges(repo, workspaceId = '', options = {}) {
-    return await this.readGit('changes', repo, workspaceId, options);
-  }
-
-  /**
-   * Make one of the git client's reads of one repository: `changes` (a
-   * {@link GitChanges}), `refs` (its branches, remotes, tags and stashes),
-   * `worktrees` (every working tree of the repository), `log` (a page of its
-   * history), `commit` (one commit), `blame` (one file's lines by commit) or
-   * `attribution` (which conversations made the staged changes, best first:
-   * `{staged, conversations: [{conv, title, strong, weak, prior, files}]}`) or
-   * `commit-context` (what a commit message is written from: a
-   * {@link GitCommitContext}; `amend` describes an amend of HEAD).
-   * @param {string} kind - Which read.
-   * @param {string} repo - Repository relative to the tree's root, "" for the root repo.
-   * @param {string} [workspaceId] - Tree to read, '' or omitted for the project.
-   * @param {{signal?: AbortSignal, params?: Record<string, string|number|boolean|undefined>}} [options] -
-   *   Cancellation, and the read's own parameters: a log's graph, scope, ref,
-   *   filters, offset, limit, refresh and find, a commit's `commit`, a
-   *   blame's `path` and `rev`, or an attribution's `amend` (score an amend of
-   *   HEAD) and `conv` (the visible conversation, a tie-break only). Empty
-   *   ones are left out, and true is sent as 1.
-   * @returns {Promise<any>} The read. A refusal is a 400 and a failure a 502,
-   *   each with the server's message.
-   */
-  async readGit(kind, repo, workspaceId = '', options = {}) {
-    const query = new URLSearchParams({ kind, repo });
-    if (workspaceId) query.set('workspace', workspaceId);
-    for (const [name, value] of Object.entries(options.params || {})) {
-      if (value === undefined || value === null || value === '' || value === false) continue;
-      query.set(name, value === true ? '1' : String(value));
-    }
-    return await this.request(`/git/read?${query.toString()}`, { signal: options.signal });
-  }
-
-  /**
-   * Digest one conversation for a commit message: its user messages, and the
-   * turns that touched the given files. Read-only; a conversation the project
-   * does not have is a 404.
-   * @param {string} conv - The conversation.
-   * @param {string} repo - Repository relative to the tree's root, "" for the root repo.
-   * @param {string[]} paths - Files relative to that repository, as an attribution read lists them.
-   * @param {string} [workspaceId] - Tree, '' or omitted for the project.
-   * @param {{signal?: AbortSignal}} [options] - Cancellation.
-   * @returns {Promise<GitConversationDigest>} The digest.
-   */
-  async getGitConversationDigest(conv, repo, paths, workspaceId = '', options = {}) {
-    const query = new URLSearchParams({ conv, repo });
-    if (workspaceId) query.set('workspace', workspaceId);
-    for (const p of paths) query.append('paths', p); // i18n-ignore: a query parameter name
-    return await this.request(`/git/conversation-digest?${query.toString()}`, { signal: options.signal });
-  }
-
-  /**
-   * Start one git write. The server answers at once with the job it started; how
-   * it ends is reported on the socket, to connections watching the tree.
-   * @param {GitOp} op - The write.
-   * @param {string} [workspaceId] - Workspace to write in, '' or omitted for the project.
-   * @returns {Promise<{job: GitJob}>} The job, as it stood when it was started.
-   */
-  async runGit(op, workspaceId = '') {
-    return await this.request(`/git/run${gitWorkspaceQuery(workspaceId)}`, { method: 'POST', body: op });
-  }
-
-  /**
-   * Read a tree's git writes: one by id, or every one running and the last
-   * hundred finished, newest first.
+   * Read a workspace's jobs, of every kind: one by id, or every one running and
+   * the last hundred ended, newest first.
    * @param {string} [workspaceId] - Workspace, '' or omitted for the project.
    * @param {string} [id] - The one job to read; a job the server does not have is a 404.
-   * @returns {Promise<{jobs?: GitJob[], job?: GitJob}>} `{jobs}` for the list, `{job}` for one.
+   * @returns {Promise<{jobs?: Job[], job?: Job}>} `{jobs}` for the list, `{job}` for one.
    */
-  async getGitJobs(workspaceId = '', id = '') {
+  async getJobs(workspaceId = '', id = '') {
     const query = new URLSearchParams();
     if (workspaceId) query.set('workspace', workspaceId);
     if (id) query.set('id', id);
     const qs = query.toString();
-    return await this.request(`/git/jobs${qs ? `?${qs}` : ''}`);
+    return await this.request(`/jobs${qs ? `?${qs}` : ''}`);
   }
 
-  /**
-   * Ask for the fetch a git client makes the first time it shows a repository.
-   * The server starts one per repository per session, however many trees or
-   * pins ask.
-   * @param {string} [repo] - The repository within the tree, '' for its own.
-   * @param {string} [workspaceId] - Workspace, '' or omitted for the project.
-   * @returns {Promise<{job?: GitJob, skipped?: boolean}>} The fetch it started, or
-   *   `skipped` when the repository was fetched this way before.
-   */
-  async gitFetchOnShow(repo = '', workspaceId = '') {
-    const query = new URLSearchParams();
-    if (workspaceId) query.set('workspace', workspaceId);
-    if (repo) query.set('repo', repo);
-    const qs = query.toString();
-    return await this.request(`/git/fetch-on-show${qs ? `?${qs}` : ''}`, { method: 'POST' });
-  }
 
   /**
    * Ask the server to stop a git write.
    * @param {string} id - The job.
    * @param {string} [workspaceId] - Its workspace, '' or omitted for the project.
-   * @returns {Promise<{job: GitJob}>} The job as it stood once asked.
+   * @returns {Promise<{job: Job}>} The job as it stood once asked.
    */
-  async cancelGitJob(id, workspaceId = '') {
+  async cancelJob(id, workspaceId = '') {
     const query = new URLSearchParams({ id });
     if (workspaceId) query.set('workspace', workspaceId);
-    return await this.request(`/git/jobs/cancel?${query.toString()}`, { method: 'POST' });
+    return await this.request(`/jobs/cancel?${query.toString()}`, { method: 'POST' });
   }
 
   /**
@@ -795,12 +502,12 @@ class APIService {
    * @param {{prompt: string, answer?: string, decline?: boolean}} reply - The
    *   question's id, and the answer or the decline.
    * @param {string} [workspaceId] - Its workspace, '' or omitted for the project.
-   * @returns {Promise<{job: GitJob}>} The job as it stood once answered.
+   * @returns {Promise<{job: Job}>} The job as it stood once answered.
    */
-  async answerGitJob(id, reply, workspaceId = '') {
+  async answerJob(id, reply, workspaceId = '') {
     const query = new URLSearchParams({ id });
     if (workspaceId) query.set('workspace', workspaceId);
-    return await this.request(`/git/jobs/answer?${query.toString()}`, { method: 'POST', body: reply });
+    return await this.request(`/jobs/answer?${query.toString()}`, { method: 'POST', body: reply });
   }
 
   /**

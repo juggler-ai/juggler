@@ -326,8 +326,8 @@ import { runTests as runPinboardThreadSourceTests } from '../unit-tests/pinboard
 import { runTests as runPinboardTasksTests } from '../unit-tests/pinboard-tasks-test.js';
 import { runTests as runPinboardTaskRevealTests } from '../unit-tests/pinboard-task-reveal-test.js';
 import { runTests as runPinboardGitReviewTests } from '../unit-tests/pinboard-git-review-test.js';
-import { runTests as runGitStatusCacheTests } from '../unit-tests/git-status-cache-test.js';
-import { runTests as runGitOpsServiceTests } from '../unit-tests/git-ops-service-test.js';
+import { runTests as runJobsServiceTests } from '../unit-tests/jobs-service-test.js';
+import { runTests as runTopicsTests } from '../unit-tests/topics-test.js';
 import { runTests as runReviewDraftTests } from '../unit-tests/review-draft-test.js';
 import { runTests as runReviewSendTests } from '../unit-tests/review-send-test.js';
 import { runTests as runReviewPanelTests } from '../unit-tests/review-panel-test.js';
@@ -973,8 +973,8 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:pinboard-tasks', run: runPinboardTasksTests },
   { name: 'unit:pinboard-task-reveal', run: runPinboardTaskRevealTests },
   { name: 'unit:pinboard-git-review', run: runPinboardGitReviewTests },
-  { name: 'unit:git-status-cache', run: runGitStatusCacheTests },
-  { name: 'unit:git-ops-service', run: runGitOpsServiceTests },
+  { name: 'unit:jobs-service', run: runJobsServiceTests },
+  { name: 'unit:topics', run: runTopicsTests },
   { name: 'unit:review-draft', run: runReviewDraftTests },
   { name: 'unit:review-send', run: runReviewSendTests },
   { name: 'unit:review-panel', run: runReviewPanelTests },

@@ -14,7 +14,7 @@
  * @module pins/git/menu-select
  */
 
-import { attachMenuKeyboard, createElement, focusMenuItem, presentPopup } from 'juggler/ui';
+import { attachMenuKeyboard, createElement, focusMenuChoice, presentPopup } from 'juggler/ui';
 import { icon } from './icons.js';
 
 /**
@@ -88,7 +88,7 @@ export function createMenuSelect({ className, label, onChoose, expand, bare = fa
     const listed = expand ? expand() : choices;
     for (const choice of listed) {
       if (choice.group && choice.group !== group) {
-        const header = createElement('li', 'menu-header-plain', choice.group);
+        const header = createElement('li', 'menu-header menu-header-plain caps-label', choice.group);
         header.setAttribute('role', 'none');
         surface.append(header);
       }
@@ -118,16 +118,11 @@ export function createMenuSelect({ className, label, onChoose, expand, bare = fa
       onClose: () => {
         if (release) close();
       },
-      insideSelectors: ['.git-select-menu'],
+      insideSelectors: [surface],
     });
     button.setAttribute('aria-expanded', 'true');
     attachMenuKeyboard(surface, { close, autoFocus: !current });
-    if (current) {
-      const row = current;
-      requestAnimationFrame(() => {
-        if (row.isConnected) focusMenuItem(surface, row);
-      });
-    }
+    if (current) focusMenuChoice(surface);
   };
 
   button.addEventListener('click', open);

@@ -15,6 +15,7 @@
  * @module _tests/git-worktree-provision-test
  */
 
+import { providerContext } from '../../../js/services/provider-context.js';
 import { assert } from '../../../js-tests/utilities/test-helpers.js';
 import { registerWorkspace, patchWorkspace, unregisterWorkspace, listWorkspaces } from '../../../js/services/workspaces.js';
 import { provisionWorkspace } from '../../../js/services/workspace-provisioning.js';
@@ -167,7 +168,7 @@ export async function runTests() {
         await giveRepoASlowHook(ops, repo, 30);
         const before = await snapshot(ops, repo);
 
-        const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID, session);
+        const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID);
         if (!provider) throw new Error('the provider is not registered');
         row = await registerWorkspace({
           kind: 'local',
@@ -178,17 +179,14 @@ export async function runTests() {
         const controller = new AbortController();
         const dying = provider.provision(
           { repo, branch: BRANCH, base: 'main', location },
-          {
-            session,
+          providerContext(session, {
             ops,
             baseWorkspaceId: '',
             signal: controller.signal,
             // The tab is about to die. Everything it was holding in memory goes
             // with it, which is what makes the checkpoints the only record.
-            rollback: { push: () => {} },
-            checkpoint: async (/** @type {any} */ patch) => { await patchWorkspace(row.id, { meta: patch }); },
-            progress: () => {}
-          }
+            checkpoint: async (/** @type {any} */ patch) => { await patchWorkspace(row.id, { meta: patch }); }
+          })
         ).catch(() => {});
 
         assert(await pathTurnsUp(ops, `${tree}/hook-ran.txt`, 10000),
@@ -201,15 +199,10 @@ export async function runTests() {
           throw new Error(`the row carries what was checkpointed, got ${JSON.stringify(abandoned?.meta)}`);
         }
 
-        const outcome = await provider.cleanupPartial(abandoned, {
-          session,
+        const outcome = await provider.cleanupPartial(abandoned, providerContext(session, {
           ops,
-          baseWorkspaceId: '',
-          signal: new AbortController().signal,
-          rollback: { push: () => {} },
-          checkpoint: async () => {},
-          progress: () => {}
-        });
+          baseWorkspaceId: ''
+        }));
         assert(outcome.removed === true,
           `cleanup says it removed the provision, got ${JSON.stringify(outcome)}`);
         assert(await snapshot(ops, repo) === before,

@@ -46,6 +46,7 @@ import { applySplits, createSplitHandle, normalizeSplits } from './git/splitter.
 import { createToast } from './git/toast.js';
 import { injectGitClientStyles } from './git/styles.js';
 import { createTreeEvents } from './git/tree-events.js';
+import { gitClientOf } from '../lib/git-client.js';
 
 const t = translator('@juggler/core');
 
@@ -83,10 +84,9 @@ injectStylesOnce('git-pin-styles', `
   font-size: var(--font-size-meta);
 }
 
-.review-panel__scope .git-pin__scope-bar {
+/* In the review panel's scope row, which spaces it. */
+.git-pin__scope-bar--in-panel {
   margin-bottom: 0;
-  flex: 0 1 auto;
-  max-width: 100%;
 }
 
 /* The select and the input are .field-input .field-input-xs. */
@@ -181,8 +181,8 @@ function shortId(id) {
 /**
  * The repository a scope resolved the same way in everywhere — which is the
  * ordinary case, and the only one a single line can say honestly.
- * @param {import('juggler/pinboard-item-type').PinGitReview} review - What the server reported.
- * @returns {import('juggler/pinboard-item-type').PinGitReviewRepo|null} One of
+ * @param {import('../lib/git-client.js').GitReview} review - What the server reported.
+ * @returns {import('../lib/git-client.js').GitReviewRepo|null} One of
  *   them, or null when they disagree or none resolved anything.
  */
 function uniformResolution(review) {
@@ -200,7 +200,7 @@ function uniformResolution(review) {
  * and a worktree the next, and without the name the two read identically. Any
  * scope but the default is named as it was asked for, with the commits it came
  * to, since `main` today is not `main` yesterday.
- * @param {import('juggler/pinboard-item-type').PinGitReview} review - What the server reported.
+ * @param {import('../lib/git-client.js').GitReview} review - What the server reported.
  * @param {string} scope - The scope the review was asked for.
  * @param {Wording} say - `t` for the screen, {@link english} for a comment.
  * @returns {string} e.g. 'Working tree of feat/tunnels against HEAD'.
@@ -235,7 +235,7 @@ function scopeLabel(review, scope, say) {
  * A repository's second line: where its HEAD is and how far that has drifted
  * from what it tracks. The rail has one row per file under it, so this is the
  * only place the repository itself gets to say anything.
- * @param {import('juggler/pinboard-item-type').PinGitReviewRepo} repo - The repository.
+ * @param {import('../lib/git-client.js').GitReviewRepo} repo - The repository.
  * @returns {string} The phrase, e.g. 'develop · 2 ahead · abcdef1'.
  */
 function repoDetail(repo) {
@@ -257,7 +257,7 @@ function repoDetail(repo) {
  * What could not be read here, in git's own words. Listing a repository with its
  * complaint is the whole point of listing it: dropping it would turn "I could
  * not read this" into "there is nothing here".
- * @param {import('juggler/pinboard-item-type').PinGitReviewRepo} repo - The repository.
+ * @param {import('../lib/git-client.js').GitReviewRepo} repo - The repository.
  * @returns {string} The note, or '' when there is nothing to say.
  */
 function repoNote(repo) {
@@ -267,7 +267,7 @@ function repoNote(repo) {
 /**
  * The review manifest as the panel takes it: groups and files, already worded.
  * The panel knows nothing about git, so everything git-shaped is said here.
- * @param {import('juggler/pinboard-item-type').PinGitReview} review - What the server reported.
+ * @param {import('../lib/git-client.js').GitReview} review - What the server reported.
  * @param {string} scope - The scope it was asked for.
  * @returns {any} The manifest.
  */
@@ -397,7 +397,16 @@ class GitPin extends PinboardItemType {
    * @returns {boolean} True for the git working tree.
    */
   static canPinSource(source) {
-    return source?.kind === 'git';
+    return source?.kind === 'git' || (source?.kind === 'workspace' && typeof source.workspace === 'string' && source.workspace !== '');
+  }
+
+  /**
+   * A workspace's panel offers its tree here under this name.
+   * @param {import('juggler/pinboard-item-type').PinSource} source - What is on offer.
+   * @returns {string} The action's label, or '' to leave it to the host.
+   */
+  static sourceLabel(source) {
+    return source?.kind === 'workspace' ? t('Show in Git view') : '';
   }
 
   /**
@@ -417,13 +426,22 @@ class GitPin extends PinboardItemType {
 
   /**
    * @param {import('juggler/pinboard-item-type').PinSource} source - What the user asked to pin.
-   * @returns {Record<string, unknown>|null} The config: the source's scope, if it
-   *   named one, and its repository, if it named one.
+   * @returns {Record<string, unknown>|null} The config: for a workspace, that
+   *   workspace and its comparison; otherwise the source's scope, if it named
+   *   one, and its repository, if it named one.
    */
   static configFromSource(source) {
     if (!GitPin.canPinSource(source)) return null;
+    // A workspace is shown fixed to its tree, comparing its branch with the one
+    // it was made from — what landing it would bring in — or, where its
+    // provider names neither, the branch against where it left the default.
+    if (source.kind === 'workspace') {
+      const { branch, base } = source;
+      return { workspace: source.workspace, scope: base && branch ? `${base}...${branch}` : '@branch' };
+    }
     const config = normalizeGitPinParameters(/** @type {any} */ (source));
-    return typeof source.repo === 'string' ? { ...config, repo: source.repo } : config;
+    const { repo } = /** @type {import('../lib/git-client.js').GitPinSource} */ (source);
+    return typeof repo === 'string' ? { ...config, repo } : config;
   }
 
   /**
@@ -435,7 +453,18 @@ class GitPin extends PinboardItemType {
     let context = pinContext;
     // The one git service every place and the pin itself use: one watch of the
     // tree, and a write ending told to all of them as a change (tree-events.js).
-    const events = createTreeEvents(() => context.services.git);
+    /** @type {WeakMap<object, import('../lib/git-client.js').GitClient>} The client made over each services object. */
+    const clients = new WeakMap();
+    /** @returns {import('../lib/git-client.js').GitClient} The pin's git client, over its services as they now are. */
+    const gitOf = () => {
+      let client = clients.get(context.services);
+      if (!client) {
+        client = gitClientOf(context.services, context.signal);
+        clients.set(context.services, client);
+      }
+      return client;
+    };
+    const events = createTreeEvents(gitOf);
     injectGitClientStyles();
     const root = createElement('div', 'git-pin');
     root.tabIndex = 0;
@@ -443,7 +472,7 @@ class GitPin extends PinboardItemType {
     const content = createElement('div', 'git-pin__content');
     container.replaceChildren(root);
 
-    /** @type {import('juggler/pinboard-item-type').PinGitReview|null} */
+    /** @type {import('../lib/git-client.js').GitReview|null} */
     let review = null;
     /** The scope `review` was read in, which every patch of it is read in too. */
     let reviewScope = DEFAULT_SCOPE;
@@ -509,7 +538,7 @@ class GitPin extends PinboardItemType {
     };
     const panel = createReviewPanel({
       scopeLabel: t(SCOPE_LABEL),
-      loadPatch: (file, options) => context.services.git.diff(file.repo, file.path,
+      loadPatch: (file, options) => gitOf().diff(file.repo, file.path,
         { ...options, scope: reviewScope, ...(reviewConv ? { conv: reviewConv } : {}), ...workspaceOption() }),
       review: reviewService,
     });
@@ -577,6 +606,7 @@ class GitPin extends PinboardItemType {
       // beside the words describing what it chose; without one there is no row,
       // and it sits above the message it may have caused.
       const inPanel = Boolean(review && (review.repos || []).length > 0);
+      bar.classList.toggle('git-pin__scope-bar--in-panel', inPanel);
       if (inPanel) {
         body.replaceChildren(content);
         panel.setScopeControl(bar);
@@ -623,7 +653,7 @@ class GitPin extends PinboardItemType {
       const conv = asked === TURN_SCOPE ? turnConv() : '';
       askedConv = conv;
       try {
-        const next = await context.services.git.review({ scope: asked, ...(conv ? { conv } : {}), ...workspaceOption() });
+        const next = await gitOf().review({ scope: asked, ...(conv ? { conv } : {}), ...workspaceOption() });
         if (!live || mine !== generation) return;
         review = next;
         reviewScope = asked;
@@ -679,15 +709,15 @@ class GitPin extends PinboardItemType {
     // Review is read the first time it is shown: a pin opened in Changes does
     // not read the whole tree for a review nobody has looked at.
     let reviewRead = false;
-    /** @type {import('juggler/pinboard-item-type').PinGitReview|null} The pinned tree's last repository list. */
+    /** @type {import('../lib/git-client.js').GitReview|null} The pinned tree's last repository list. */
     let pinnedReview = null;
     // A warning or failure toast with nothing else to offer opens the log at
     // the command that failed; `log` is made below, before anything can fail.
     const toast = createToast({ showLog: () => log.reveal() });
-    /** @returns {import('juggler/pinboard-item-type').PinGitStatus|null} The visible tree's status. */
+    /** @returns {import('../lib/git-client.js').GitStatus|null} The visible tree's status. */
     const status = () => {
       try {
-        return context.services.git.status();
+        return gitOf().status();
       } catch (_) {
         return null;
       }
@@ -724,7 +754,7 @@ class GitPin extends PinboardItemType {
     // --- the head: its primary action and the network writes -------------
     /** @type {import('./git/changes-place.js').ChangesState|null} What Changes last said of the repository in view. */
     let shownRepo = null;
-    /** @type {Map<string, import('juggler/pinboard-item-type').PinGitJob>} The tree's running network writes, by id. */
+    /** @type {Map<string, import('../lib/git-client.js').GitJob>} The tree's running network writes, by id. */
     const netJobs = new Map();
     /** @type {{kind: string, repo: string}|null} A network write this pin asked for, until it ends. */
     let starting = null;
@@ -748,7 +778,7 @@ class GitPin extends PinboardItemType {
     /**
      * The network write the user started in a repository, while it runs.
      * @param {string} repo - The repository.
-     * @returns {import('juggler/pinboard-item-type').PinGitJob|null} The newest, or null.
+     * @returns {import('../lib/git-client.js').GitJob|null} The newest, or null.
      */
     const runningJobOf = (repo) => {
       const mine = [...netJobs.values()].filter((j) => !j.auto && (j.repo || '') === repo);
@@ -786,7 +816,7 @@ class GitPin extends PinboardItemType {
      * or no. Its Cancel declines; Escape or a click elsewhere only closes it,
      * and the primary asks it again. The answer goes to the server and is kept
      * nowhere here.
-     * @param {import('juggler/pinboard-item-type').PinGitJob} job - The job asking.
+     * @param {import('../lib/git-client.js').GitJob} job - The job asking.
      */
     const askPrompt = (job) => {
       const prompt = job.prompt;
@@ -794,7 +824,7 @@ class GitPin extends PinboardItemType {
       /** @param {{answer?: string, decline?: boolean}} reply - The answer, or a decline. */
       const reply = (reply) => {
         if (reply.decline) declinedHere.add(job.id);
-        context.services.git.answer?.(job.id, { prompt: prompt.id, ...reply }, workspaceOption())
+        gitOf().answer?.(job.id, { prompt: prompt.id, ...reply }, workspaceOption())
           .catch((/** @type {any} */ e) => {
             // Answered first from somewhere else: nothing to say.
             if (e?.status !== 409) toast.error(errorText(e));
@@ -828,7 +858,7 @@ class GitPin extends PinboardItemType {
       if (firstFetches.has(key)) return;
       const entry = { fetching: true, offline: '' };
       firstFetches.set(key, entry);
-      const asked = context.services.git.fetchOnShow?.({ repo: state.repo, ...workspaceOption() });
+      const asked = gitOf().fetchOnShow?.({ repo: state.repo, ...workspaceOption() });
       if (!asked) {
         entry.fetching = false;
         return;
@@ -844,7 +874,7 @@ class GitPin extends PinboardItemType {
     /**
      * Run a network write from the head, and offer what to do instead when it
      * can't go ahead.
-     * @param {import('juggler/pinboard-item-type').PinGitOp} op - The write.
+     * @param {import('../lib/git-client.js').GitOp} op - The write.
      * @param {Element} [anchor] - What a choice it fails with hangs off: the
      *   primary unless another place asked.
      */
@@ -909,12 +939,12 @@ class GitPin extends PinboardItemType {
     /**
      * The remote branch a push goes to: the one it names (`remote/name`, a
      * push from Refs), else the upstream of the branch shown.
-     * @param {import('juggler/pinboard-item-type').PinGitOp} op - The push.
+     * @param {import('../lib/git-client.js').GitOp} op - The push.
      * @returns {string} e.g. 'origin/develop', '' when there is none.
      */
     const pushTarget = (op) => (op.remote && op.name ? `${op.remote}/${op.name}` : shownRepo?.read?.upstream || '');
     /**
-     * @param {import('juggler/pinboard-item-type').PinGitOp} op - The push.
+     * @param {import('../lib/git-client.js').GitOp} op - The push.
      * @returns {string} The local branch it pushes.
      */
     const pushedBranch = (op) => op.branch || shownRepo?.read?.branch || '';
@@ -925,7 +955,7 @@ class GitPin extends PinboardItemType {
      * A push from Refs that was turned down comes here too, so it offers what
      * the head's does: Pull — when that pulls into the branch pushed, from
      * where it went — or a forced push.
-     * @param {import('juggler/pinboard-item-type').PinGitOp} op - The write.
+     * @param {import('../lib/git-client.js').GitOp} op - The write.
      * @param {any} e - Its failure.
      * @param {Element} [anchor] - What the choice hangs off: the primary unless another place asked.
      */
@@ -996,7 +1026,7 @@ class GitPin extends PinboardItemType {
      * A write another place ran failed: when it is a push turned down, or one
      * that needs a remote named, offer what the head's would. A tag the remote
      * has elsewhere is not one Pull or force answers.
-     * @param {import('juggler/pinboard-item-type').PinGitOp} op - The write, with its repository.
+     * @param {import('../lib/git-client.js').GitOp} op - The write, with its repository.
      * @param {any} e - Its failure.
      * @param {Element} anchor - What asked.
      * @returns {boolean} True when it was that, and is handled.
@@ -1013,7 +1043,7 @@ class GitPin extends PinboardItemType {
      * Push over what the remote has, after saying what is replaced — and only
      * over that: the push is leased on the sha the remote was last seen at, so
      * one that has moved since is refused rather than overwritten.
-     * @param {import('juggler/pinboard-item-type').PinGitOp} op - The push turned down.
+     * @param {import('../lib/git-client.js').GitOp} op - The push turned down.
      * @param {Element} [anchor] - What asked.
      */
     const forcePush = async (op, anchor = head.primaryButton) => {
@@ -1031,7 +1061,7 @@ class GitPin extends PinboardItemType {
     /**
      * Push over what the remote has, asked for up front by the push's own
      * confirmation — leased as `forcePush`'s is.
-     * @param {import('juggler/pinboard-item-type').PinGitOp} op - The push.
+     * @param {import('../lib/git-client.js').GitOp} op - The push.
      */
     const forceLeased = async (op) => {
       const sha = await leaseSha(op);
@@ -1042,15 +1072,15 @@ class GitPin extends PinboardItemType {
      * The sha the branch a push goes to was last fetched at, for a forced push
      * to be leased on; '' — having said why — when there is none to lease on,
      * or the pin has gone.
-     * @param {import('juggler/pinboard-item-type').PinGitOp} op - The push.
+     * @param {import('../lib/git-client.js').GitOp} op - The push.
      * @returns {Promise<string>} The sha.
      */
     const leaseSha = async (op) => {
       const target = pushTarget(op);
       let sha = '';
       try {
-        const refsRead = /** @type {import('juggler/pinboard-item-type').PinGitRefs} */ (
-          await context.services.git.read('refs', { repo: op.repo, ...workspaceOption() }));
+        const refsRead = /** @type {import('../lib/git-client.js').GitRefs} */ (
+          await gitOf().read('refs', { repo: op.repo, ...workspaceOption() }));
         for (const remote of refsRead.remotes || []) {
           if (!target.startsWith(`${remote.name}/`)) continue;
           const branch = target.slice(remote.name.length + 1);
@@ -1067,11 +1097,11 @@ class GitPin extends PinboardItemType {
 
     // --- the operation in progress: the banner's writes --------------------
     /**
-     * @param {import('juggler/pinboard-item-type').PinGitChanges|null|undefined} read - A changes read.
-     * @returns {import('juggler/pinboard-item-type').PinGitStopped|null} The operation in progress in it.
+     * @param {import('../lib/git-client.js').GitChanges|null|undefined} read - A changes read.
+     * @returns {import('../lib/git-client.js').GitStopped|null} The operation in progress in it.
      */
     const stoppedOf = (read) => read?.stopped || (read?.operation
-      ? { kind: /** @type {import('juggler/pinboard-item-type').PinGitStopped['kind']} */ (read.operation) } : null);
+      ? { kind: /** @type {import('../lib/git-client.js').GitStopped['kind']} */ (read.operation) } : null);
     const showConflicts = () => {
       showPlace('changes', true);
       changes.showFirstConflict();
@@ -1162,7 +1192,7 @@ class GitPin extends PinboardItemType {
     };
     head.handlers.cancel = () => {
       const id = current?.job?.id;
-      if (id) void context.services.git.cancel(id, workspaceOption()).catch((/** @type {any} */ e) => toast.error(errorText(e)));
+      if (id) void gitOf().cancel(id, workspaceOption()).catch((/** @type {any} */ e) => toast.error(errorText(e)));
     };
 
     const changes = createChangesPlace({
@@ -1350,14 +1380,14 @@ class GitPin extends PinboardItemType {
     const readRepos = async () => {
       if (isPinned(config)) {
         try {
-          pinnedReview = await context.services.git.review(workspaceOption());
+          pinnedReview = await gitOf().review(workspaceOption());
           if (live) changes.setRepos(pinnedReview.repos || []);
         } catch (_) { /* the root repository is shown regardless */ }
       } else {
         changes.setRepos(status()?.repos || []);
       }
     };
-    const unwatchStatus = context.services.git.onChange?.(() => {
+    const unwatchStatus = gitOf().onChange?.(() => {
       if (live && !isPinned(config)) changes.setRepos(status()?.repos || []);
     });
     const watchResync = () => events.git().watch?.((event) => {
@@ -1536,17 +1566,13 @@ class GitPin extends PinboardItemType {
     resizes.observe(root);
 
     // Back in sight after STALE_AFTER_MS or more, every place reads again, as
-    // Refresh does: another board tab (hide/show), the board put away (off the
-    // screen, which the observer sees), or the window in the background.
+    // Refresh does. Whether it is in sight is the host's to say (another board
+    // tab, the board put away, the window in the background, scrolled out);
+    // how long away is worth a re-read is this pin's.
     const absence = createAbsence({ onReturn: () => { if (live) void head.handlers.refresh(); } });
-    const onScreen = new IntersectionObserver((entries) => {
-      const entry = entries.at(-1);
-      if (live && entry) absence.set('board', !entry.isIntersecting);
-    });
-    onScreen.observe(root);
-    const onDocumentVisibility = () => { if (live) absence.set('window', document.hidden); };
-    document.addEventListener('visibilitychange', onDocumentVisibility);
-    absence.set('window', document.hidden);
+    const sight = context.visibility;
+    const stopWatchingSight = sight?.onChange((visible) => { if (live) absence.set('host', !visible); }) ?? null;
+    if (sight) absence.set('host', !sight.isVisible());
 
     /**
      * @param {PlaceId} chosen - The place to show; a full pin shows another for
@@ -1580,7 +1606,6 @@ class GitPin extends PinboardItemType {
         }
         return;
       }
-      if (target.closest('diff-viewer') && event.key === ' ') return;
       if (places?.[place].handleKey(event)) event.preventDefault();
     });
 
@@ -1634,14 +1659,11 @@ class GitPin extends PinboardItemType {
       hide: () => {
         closePopover();
         toast.hide();
-        absence.set('tab', true);
       },
-      show: () => absence.set('tab', false),
       teardown: () => {
         live = false;
         resizes.disconnect();
-        onScreen.disconnect();
-        document.removeEventListener('visibilitychange', onDocumentVisibility);
+        stopWatchingSight?.();
         for (const p of Object.values(/** @type {Record<PlaceId, PinPlace>} */ (places))) p.teardown();
         unwatchStatus?.();
         unwatchResync?.();

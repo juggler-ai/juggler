@@ -6,10 +6,8 @@ package workspace
 
 import (
 	"context"
-	"errors"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -17,9 +15,6 @@ import (
 	"time"
 
 	"juggler/cmd/juggler/core"
-	"juggler/cmd/juggler/gitops"
-	"juggler/cmd/juggler/gitview"
-	"juggler/cmd/juggler/gitview/gitviewtest"
 	"juggler/cmd/juggler/ops"
 )
 
@@ -80,8 +75,8 @@ func (p probe) Execute(context.Context, string, map[string]any) (any, error) {
 
 func probeOf(t *testing.T, ws Workspace, allowed []string) probed {
 	t.Helper()
-	ops.Register(probeTool, func(scope ops.PathScope) ops.Operations { return probe{scope} })
-	handler, err := ws.Operations(probeTool, allowed)
+	reg := ops.Registration{Factory: func(scope ops.PathScope) ops.Operations { return probe{scope} }}
+	handler, err := ws.Operations(reg, allowed)
 	if err != nil {
 		t.Fatalf("Operations(%s): %v", probeTool, err)
 	}
@@ -122,8 +117,8 @@ func TestLocalWorkspaceOperationsAreConfinedToTheirTree(t *testing.T) {
 		t.Errorf("the project's scope reaches into a workspace it was never granted: %s", inTree)
 	}
 
-	if _, err := tr.resolve(t, "").Operations("workspace-test-no-such-tool", nil); err == nil {
-		t.Error("Operations for an unregistered tool succeeded")
+	if _, err := tr.resolve(t, "").Operations(ops.Registration{}, nil); err == nil {
+		t.Error("Operations for a tool with no handler succeeded")
 	}
 }
 
@@ -298,103 +293,5 @@ func TestLocalWorkspaceOpenStaysInItsTree(t *testing.T) {
 			_ = f.Close()
 			t.Errorf("Open(%q) succeeded, want it refused", rel)
 		}
-	}
-}
-
-// The git views answer about the tree they belong to, never the project.
-func TestLocalWorkspaceGitAnswersAboutItsOwnTree(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skipf("git is not installed here: %v", err)
-	}
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Cleanup(gitviewtest.LendClocks(time.Minute, 5*time.Minute))
-
-	tr := newTrees(t)
-	cmd := exec.Command("git", "init", "-q")
-	cmd.Dir = tr.tree
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v\n%s", err, out)
-	}
-	write(t, filepath.Join(tr.tree, "only-here.txt"), "new\n")
-	ws, project := tr.resolve(t, "ws_tree"), tr.resolve(t, "")
-
-	status, err := ws.GitStatus(t.Context())
-	if err != nil || len(status) != 1 || status[0].Changed != 1 {
-		t.Errorf("workspace status = %+v (err %v), want its one repository with one change", status, err)
-	}
-	review, err := ws.GitReview(t.Context(), gitview.Scope{})
-	if err != nil || len(review.Repos) != 1 || len(review.Repos[0].Files) != 1 {
-		t.Errorf("workspace review = %+v (err %v), want its one changed file", review, err)
-	}
-	if review, err := project.GitReview(t.Context(), gitview.Scope{}); err != nil || len(review.Repos) != 0 {
-		t.Errorf("project review = %+v (err %v), want nothing: the project holds no repository", review, err)
-	}
-	diff, err := ws.GitDiff(t.Context(), gitview.DiffRequest{Path: "only-here.txt"})
-	if err != nil || diff.Status != "untracked" {
-		t.Errorf("workspace diff = %+v (err %v), want the untracked file", diff, err)
-	}
-	var refused *gitview.RequestError
-	if _, err := ws.GitDiff(t.Context(), gitview.DiffRequest{Path: "../x"}); !errors.As(err, &refused) {
-		t.Errorf("a diff climbing out err = %v, want a *gitview.RequestError", err)
-	}
-}
-
-// A workspace's git watch is of its own tree. The project holds no repository
-// here, so a watch that went to the project instead would never hear the change
-// and the test would wait out its deadline.
-func TestLocalWorkspaceGitWatchWatchesItsOwnTree(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skipf("git is not installed here: %v", err)
-	}
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-
-	tr := newTrees(t)
-	cmd := exec.Command("git", "init", "-q")
-	cmd.Dir = tr.tree
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v\n%s", err, out)
-	}
-	watcher, err := gitops.NewWatcher("", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(watcher.Close)
-	resolver := NewResolver(func() string { return tr.project },
-		lookupOver(ready("ws_tree", core.WorkspaceKindLocal, "feat/tunnels", tr.tree)), nil).
-		WithGitWatcher(func() *gitops.Watcher { return watcher })
-	ws, err := resolver.Resolve("ws_tree")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	changes, err := ws.GitWatch(t.Context())
-	if err != nil {
-		t.Fatalf("GitWatch: %v", err)
-	}
-	write(t, filepath.Join(tr.tree, "new.txt"), "x\n")
-
-	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
-	defer cancel()
-	for heard := false; !heard; {
-		select {
-		case batch := <-changes:
-			for _, c := range batch {
-				heard = heard || (c.Repo == "" && c.Kinds&gitops.KindWorktree != 0)
-			}
-		case <-ctx.Done():
-			t.Fatal("the workspace's watch never heard of a file written in its tree")
-		}
-	}
-}
-
-// With no watcher to ask, a watch is refused rather than silently empty.
-func TestLocalGitWatchWithoutAWatcherIsRefused(t *testing.T) {
-	tr := newTrees(t)
-	if _, err := tr.resolve(t, "").GitWatch(t.Context()); err == nil {
-		t.Error("GitWatch succeeded with no watcher to watch with")
 	}
 }

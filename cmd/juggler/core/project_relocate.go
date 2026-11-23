@@ -18,10 +18,6 @@ import (
 	"juggler/internal/projectpaths"
 )
 
-// gitWorktreeProviderID is the workspace provider whose rows are git worktrees
-// of the project's repository (juggler-core's git-worktree provider).
-const gitWorktreeProviderID = "git-worktree"
-
 // errVolume refuses a move from one volume to another, which a rename cannot
 // make.
 var errVolume = errors.New("the destination is on another volume; a project can only be moved within one")
@@ -156,10 +152,10 @@ func RelocateProject(project, dest string) error {
 }
 
 // repairWorktrees runs `git worktree repair` in project, when it is the root
-// of a repository, naming every git-worktree workspace tree that is there to
-// find: a tree's link to the repository named the project where it was, and
-// a tree that moved with the project is one git can no longer find by itself.
-// Relative links are asked for, as the git-worktree provider writes them; a
+// of a repository, naming every workspace tree that is a linked worktree: a
+// tree's link to the repository named the project where it was, and a tree
+// that moved with the project is one git can no longer find by itself.
+// Relative links are asked for, as worktrees made by Juggler are written; a
 // git that predates the setting ignores it.
 func repairWorktrees(project, sessionPath string) {
 	if _, err := os.Stat(filepath.Join(project, ".git")); err != nil {
@@ -177,8 +173,9 @@ func repairWorktrees(project, sessionPath string) {
 	}
 }
 
-// worktreeRoots lists the roots of the git-worktree rows in session.json that
-// are not closed.
+// worktreeRoots lists the roots of the rows in session.json that are not
+// closed and are linked git worktrees (isLinkedWorktree). Which provider made
+// a row is not consulted: the tree on disk says what it is.
 func worktreeRoots(sessionPath string) []string {
 	data, err := os.ReadFile(sessionPath)
 	if err != nil {
@@ -192,9 +189,31 @@ func worktreeRoots(sessionPath string) []string {
 	}
 	var roots []string
 	for _, w := range doc.Workspaces {
-		if w.ProviderID == gitWorktreeProviderID && w.State != WorkspaceStateClosed && w.Root != "" {
+		if w.State != WorkspaceStateClosed && w.Root != "" && isLinkedWorktree(w.Root) {
 			roots = append(roots, w.Root)
 		}
 	}
 	return roots
+}
+
+// isLinkedWorktree reports whether root is a linked worktree: its .git is a
+// file naming a directory under some repository's .git/worktrees. A main
+// checkout has a .git directory, and a submodule's .git file names
+// .git/modules instead; neither is one, nor is a plain copy of a tree.
+func isLinkedWorktree(root string) bool {
+	info, err := os.Lstat(filepath.Join(root, ".git"))
+	if err != nil || !info.Mode().IsRegular() {
+		return false
+	}
+	data, err := os.ReadFile(filepath.Join(root, ".git"))
+	if err != nil {
+		return false
+	}
+	line, _, _ := strings.Cut(string(data), "\n")
+	gitdir, ok := strings.CutPrefix(strings.TrimSpace(line), "gitdir:")
+	if !ok {
+		return false
+	}
+	parent := filepath.Base(filepath.Dir(filepath.Clean(filepath.FromSlash(strings.TrimSpace(gitdir)))))
+	return parent == "worktrees"
 }

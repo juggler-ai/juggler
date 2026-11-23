@@ -216,22 +216,12 @@ const SYSTEM_PROMPT_STYLES = `
 
 .system-prompt-preset-dropdown menu,
 .system-prompt-manage-dropdown menu {
+  /* Headers start where the rows' names do, past the check column. */
+  --menu-header-pad-start: calc(var(--space-10) + var(--space-16) + var(--space-8));
+
   display: flex;
   flex-direction: column;
   gap: 0.0625rem;
-}
-
-.sp-preset-category {
-  padding: var(--space-8) var(--space-10) var(--space-4);
-  padding-left: calc(var(--space-10) + var(--space-16) + var(--space-8));
-  color: var(--text-tertiary);
-  cursor: default;
-  -webkit-user-select: none;
-  user-select: none;
-}
-
-.sp-preset-category:first-child {
-  padding-top: var(--space-2);
 }
 
 .sp-preset-row {
@@ -336,12 +326,6 @@ const SYSTEM_PROMPT_STYLES = `
 .sp-preset-delete-btn:hover {
   color: var(--danger);
   border-color: var(--danger);
-}
-
-.sp-preset-separator {
-  height: 0.0625rem;
-  background: var(--border-divider, var(--border-color));
-  margin: var(--space-6) var(--space-4);
 }
 
 .sp-preset-empty {

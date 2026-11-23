@@ -14,6 +14,8 @@
  * @module lib/setup-fields
  */
 
+import { createPathInput } from 'juggler/ui';
+
 /**
  * Where the next form's field ids start, so two forms on screen at once — two
  * new conversations, side by side — do not both call their fields the same
@@ -91,7 +93,7 @@ export function pathField(container, id, name, label, placeholder, options = {})
   caption.className = 'setup-field-label';
   caption.textContent = label;
 
-  const input = document.createElement('path-input');
+  const input = createPathInput();
   input.id = id;
   input.setAttribute('placeholder', placeholder);
   input.dataset.field = name;

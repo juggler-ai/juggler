@@ -78,16 +78,12 @@ type Change struct {
 // sent, on each tree's own goroutine.
 type Watcher struct {
 	project   string            // the project root, symbolic links resolved; "" for none
-	projectFW *core.FileWatcher // the project's watcher, with its git feed; nil for none
+	projectFW *core.FileWatcher // the project's watcher, with its raw feed; nil for none
 	fsw       *fsnotify.Watcher
 
 	// manual makes a tree flush only when a test calls flush, and a flush send
 	// even when it has nothing to say. Set before the first Watch.
 	manual bool
-
-	// running lists the shell commands running under a project (see
-	// AttributeShells); nil for none. Owned by run.
-	running RunningShells
 
 	cmds      chan func()
 	quit      chan struct{}
@@ -140,21 +136,14 @@ type tree struct {
 	// tree's goroutines start.
 	fw *core.FileWatcher
 
-	// attr is what the tree records shell changes under, and realRoot its root
-	// with symbolic links resolved, to know a command's directory by. Set
-	// before the tree's goroutines start.
-	attr     Attribution
-	realRoot string
-
 	repos      []repoInfo
 	pending    map[string]Kinds
 	rediscover bool
-	shellPaths map[string][]ShellCall // files changed while shell commands ran, and the commands
 }
 
 // NewWatcher makes a watcher. project is the project root, whose tree is told
-// of its working tree by projectFW's git feed rather than by a watcher of its
-// own; both may be empty, and then every tree gets its own.
+// of its working tree by ProjectChanged, from projectFW's raw feed, rather than
+// by a watcher of its own; both may be empty, and then every tree gets its own.
 func NewWatcher(project string, projectFW *core.FileWatcher) (*Watcher, error) {
 	fsw, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -190,10 +179,6 @@ func (w *Watcher) Close() {
 // run is the goroutine that owns the watcher's state.
 func (w *Watcher) run() {
 	defer close(w.done)
-	var projectFeed <-chan core.FileChange
-	if w.projectFW != nil {
-		projectFeed = w.projectFW.GitChanges()
-	}
 	for {
 		select {
 		case fn := <-w.cmds:
@@ -212,16 +197,17 @@ func (w *Watcher) run() {
 				continue
 			}
 			jlog.Error("[GitWatcher] %v", err)
-		case c, ok := <-projectFeed:
-			if !ok {
-				projectFeed = nil
-				continue
-			}
-			w.workingTreeChanged(c.Path, c.Event)
 		case <-w.quit:
 			return
 		}
 	}
+}
+
+// ProjectChanged is one change from the project's watcher's raw feed
+// (core.FileWatcherOptions.RawFeed), by absolute path. Whoever reads that feed
+// hands each change on here; after Close it does nothing.
+func (w *Watcher) ProjectChanged(path, event string) {
+	w.do(func() { w.workingTreeChanged(path, event) })
 }
 
 // do runs fn on the watcher's goroutine and waits for it, or reports false if
@@ -240,10 +226,8 @@ func (w *Watcher) do(fn func()) bool {
 // Watch reports changes to the git state of every repository under root until
 // ctx ends, when the channel is closed. Each send is one tree's news since the
 // last, one Change per repository, never empty. Repositories created under root
-// later are found when the directory holding them appears. While it watches,
-// the tree records what shell commands change in it under attr (see
-// AttributeShells).
-func (w *Watcher) Watch(ctx context.Context, root string, attr Attribution) (<-chan []Change, error) {
+// later are found when the directory holding them appears.
+func (w *Watcher) Watch(ctx context.Context, root string) (<-chan []Change, error) {
 	root = filepath.Clean(root)
 	info, err := os.Stat(root)
 	if err != nil {
@@ -253,10 +237,10 @@ func (w *Watcher) Watch(ctx context.Context, root string, attr Attribution) (<-c
 		return nil, fmt.Errorf("%s is not a directory", root)
 	}
 
-	t := &tree{w: w, root: root, out: make(chan []Change, 16), kick: make(chan struct{}, 1), pending: map[string]Kinds{}, attr: attr, realRoot: realPath(root)}
+	t := &tree{w: w, root: root, out: make(chan []Change, 16), kick: make(chan struct{}, 1), pending: map[string]Kinds{}}
 	repos := discover(ctx, root)
 	if w.project == "" || realPath(root) != w.project {
-		fw, err := core.NewFileWatcherWith(root, core.FileWatcherOptions{GitFeed: true, NoIndex: true})
+		fw, err := core.NewFileWatcherWith(root, core.FileWatcherOptions{RawFeed: true, NoIndex: true})
 		if err != nil {
 			return nil, err
 		}
@@ -531,9 +515,6 @@ func (t *tree) workingTreeChanged(path, event string) {
 		t.noteAll(AllKinds)
 		return
 	}
-	if event == "create" || event == "write" {
-		t.noteShells(path)
-	}
 	for _, r := range t.repos {
 		if path == r.dir {
 			t.note(r.rel, KindWorktree)
@@ -558,7 +539,7 @@ func (t *tree) workingTreeChanged(path, event string) {
 	}
 }
 
-// feed hands the tree's own working-tree watcher's git feed to the watcher,
+// feed hands the tree's own working-tree watcher's raw feed to the watcher,
 // until that watcher stops. The viewers' stream of the same watcher is drained
 // unread: nobody completes paths in, or shows file events from, a tree watched
 // for git alone.
@@ -567,7 +548,7 @@ func (t *tree) feed() {
 		for range t.fw.Changes() { //nolint:revive // drained so the watcher never blocks on it
 		}
 	}()
-	for c := range t.fw.GitChanges() {
+	for c := range t.fw.RawChanges() {
 		t.w.do(func() { t.workingTreeChanged(c.Path, c.Event) })
 	}
 }
@@ -624,9 +605,7 @@ func (t *tree) run(ctx context.Context) {
 }
 
 // flush looks for repositories again if the tree asked to, then sends
-// everything recorded since the last flush as one batch, and then records what
-// shell commands changed (attributeShells), so hashing never holds the news
-// back.
+// everything recorded since the last flush as one batch.
 func (t *tree) flush(ctx context.Context) {
 	var rediscover bool
 	t.w.do(func() {
@@ -652,7 +631,6 @@ func (t *tree) flush(ctx context.Context) {
 			return
 		}
 	}
-	t.attributeShells(ctx)
 }
 
 // refreshRepos looks for the tree's repositories again, watching the new and

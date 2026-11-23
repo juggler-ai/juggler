@@ -28,11 +28,12 @@
  */
 
 import WorkspaceProvider from 'juggler/workspace-provider';
-import api from '../../../js/services/api.js';
 import { branchPhrase, countsPhrase, divergencePhrase, fileStatusWords } from '../lib/git-status.js';
 import { baseName, join, parentOf, relativePath } from '../lib/workspace-paths.js';
 import { choice, field, nextFormSequence, showNote } from '../lib/setup-fields.js';
 import { formatList, markUntranslated, translator } from 'juggler/i18n';
+import { injectStylesOnce } from 'juggler/ui';
+import { gitClientOf } from '../lib/git-client.js';
 
 const t = translator('@juggler/core');
 
@@ -423,25 +424,39 @@ function parseUnmerged(text) {
   return found;
 }
 
-/**
- * A git worktree, as a place a conversation can work.
- */
+// The branch glyph the manifest's `icon` names: this provider's own class,
+// so it is styled here rather than by the host.
+injectStylesOnce('git-worktree-provider-icon', `
+  .icon-git-branch {
+    display: inline-block;
+    width: 0.875rem;
+    height: 0.875rem;
+    flex-shrink: 0;
+    background-color: currentcolor;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='6' y1='3' x2='6' y2='15'/%3E%3Ccircle cx='18' cy='6' r='3'/%3E%3Ccircle cx='6' cy='18' r='3'/%3E%3Cpath d='M18 9a9 9 0 0 1-9 9'/%3E%3C/svg%3E") center/contain no-repeat;
+  }
+`);
+
 /**
  * Whether an open row of this provider still describes a tree its path matched:
  * the tree is on the branch the row was made for, or the row names none. A row
  * on a tree that has moved to another branch is a stale record — reconcile
  * tombstones it — and anything else that asks "is this tree that workspace?"
- * (the git client's worktree list) asks here, so the two cannot disagree.
+ * asks {@link GitWorktreeWorkspaceProvider#holdsTree}, which answers from here,
+ * so the two cannot disagree.
  * @param {any} row - A workspace row whose root is the tree.
  * @param {{branch?: string}} tree - The tree as `git worktree list` describes it.
  * @returns {boolean} Whether the row is that tree's workspace.
  */
-export function tracksTree(row, tree) {
+function tracksTree(row, tree) {
   if (row?.state === 'closed') return false;
   const expected = String(row?.meta?.branch ?? '');
   return !expected || (tree?.branch ?? '') === expected;
 }
 
+/**
+ * A git worktree, as a place a conversation can work.
+ */
 class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
   static MANIFEST = {
     id: 'git-worktree',
@@ -460,14 +475,35 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
     }
   };
 
-  /**
-   * @param {{session?: any}} [context] - What is known before any hook runs.
-   */
-  constructor(context = {}) {
-    super(context);
+  constructor() {
+    super();
 
     /** @type {any} The rendered form, while there is one. */
     this._form = null;
+  }
+
+  /**
+   * The tree is this workspace while it is on the branch the row was made for.
+   * @param {any} workspace - An open row rooted at the tree.
+   * @param {{path: string, branch?: string}} tree - The tree, as git lists it.
+   * @returns {boolean} Whether the row is that tree's workspace.
+   */
+  holdsTree(workspace, tree) {
+    return tracksTree(workspace, tree);
+  }
+
+  /**
+   * The branch the worktree was made for, and the one it was made from.
+   * @param {any} workspace - The row.
+   * @returns {{branch: string, base?: string}|null} Its branch and base, or null
+   *   when the record names no branch.
+   */
+  branchOf(workspace) {
+    const meta = workspace?.meta ?? {};
+    const branch = typeof meta.branch === 'string' ? meta.branch : '';
+    if (!branch) return null;
+    const base = typeof meta.base === 'string' ? meta.base : '';
+    return base ? { branch, base } : { branch };
   }
 
   // ==========================================================================
@@ -491,7 +527,7 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
    * on it is theirs; emptying it hands the decision back, since an empty
    * location provisions to the derived default.
    * @param {HTMLElement} container - The panel section's body.
-   * @param {any} ctx - Session, operations pinned to the base workspace, and the rest.
+   * @param {any} ctx - The project, operations pinned to the base workspace, and the rest.
    */
   renderSetup(container, ctx) {
     const seq = nextFormSequence();
@@ -601,7 +637,8 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
 
     let found;
     try {
-      found = await api.getGitStatus(form.ctx?.baseWorkspaceId ?? '', { signal: form.ctx?.signal });
+      const ctx = /** @type {any} */ (form.ctx);
+      found = await gitClientOf(ctx.services, ctx.signal).statusOf(ctx.baseWorkspaceId ?? '', { signal: ctx.signal });
     } catch {
       return; // A form without the field is the form as it has always been.
     }
@@ -614,7 +651,7 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
     // directory's.
     const baseRoot = this._formPlaces(form.ctx, '').repoRoot;
     const { select } = choice(form.container, form.ids.repo, 'repo', t('Repository'),
-      repos.map(path => ({ value: path, label: path || baseName(baseRoot) || '.' })));
+      repos.map((/** @type {string} */ path) => ({ value: path, label: path || baseName(baseRoot) || '.' })));
     // Above the three fields it scopes, which means moving it: the rest of the
     // form was built while this was still being asked about.
     form.container.prepend(/** @type {HTMLElement} */ (select.parentElement));
@@ -895,11 +932,10 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
   /**
    * Tell the host the form has moved without anyone having typed in it — the
    * base that filled itself in, the name git has just turned down. The host
-   * listens for `input` and `change` on the container it handed over and reads
-   * the form when it hears either.
+   * hears a field's own `input` and `change`; this is the rest.
    */
   _report() {
-    this._form?.container.dispatchEvent(new Event('change', { bubbles: true }));
+    this._form?.ctx?.setupChanged?.();
   }
 
   /**
@@ -1002,7 +1038,7 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
    * @throws {Error} When the base workspace cannot be resolved.
    */
   _repoRoot(values, ctx) {
-    const baseRoot = ctx?.session?.workspaceRoot?.(ctx?.baseWorkspaceId ?? '');
+    const baseRoot = ctx?.workspaceRoot?.(ctx?.baseWorkspaceId ?? '');
     if (!baseRoot) throw new Error(t("Couldn't make a worktree: the base workspace has no root."));
     const chosen = String(values?.repo ?? '').trim();
     // A submodule can be worked on from either end, and `scope` says which was
@@ -1247,7 +1283,7 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
    * How the tree is doing: which branch it is on, whether it holds work, and how
    * far that branch has drifted from what it tracks.
    *
-   * Answered by `GET /api/git/status?workspace=`, not by parsing porcelain here.
+   * Answered by the git client's status of the workspace, not by parsing porcelain here.
    * That endpoint already resolves any ready workspace through the same four
    * refusals an operation makes, and returns branch, divergence and counts in one
    * round trip — which is what makes this cheap enough for a place list to ask
@@ -1262,8 +1298,8 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
       return { detail: t('The worktree directory is missing.'), available: false };
     }
 
-    const answer = await api.getGitStatus(workspace.id, { signal: ctx.signal });
-    const repo = /** @type {any} */ ((answer?.repos ?? []).find(candidate => !candidate.path));
+    const answer = await gitClientOf(ctx.services, ctx.signal).statusOf(workspace.id, { signal: ctx.signal });
+    const repo = /** @type {any} */ ((answer?.repos ?? []).find((/** @type {any} */ candidate) => !candidate.path));
     if (!repo) {
       // A registered root that is no longer a repository: removed by hand, or
       // never one. Worth saying rather than reporting a clean tree.
@@ -1350,7 +1386,7 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
   async track(workspace, ctx) {
     if (workspace?.available === false) return null;
     const reading = await this._read(workspace, ctx);
-    return { steps: this._steps(workspace, reading, Boolean(ctx?.conversation?.sendMessage)) };
+    return { steps: this._steps(workspace, reading, Boolean(ctx?.conversation)) };
   }
 
   /**
@@ -1539,7 +1575,7 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
    * @returns {string[]} The project, or nothing.
    */
   instructionRoots(workspace, ctx) {
-    const project = String(ctx?.session?.projectPath ?? '');
+    const project = String(ctx?.projectPath ?? '');
     const repoDir = String(workspace?.meta?.repoDir ?? '');
     if (!project || !repoDir) return [];
     // `.` is the repository the project IS; null is another drive, where nothing
@@ -1717,17 +1753,12 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
 
     if (!message) {
       const conversation = ctx?.conversation;
-      if (!conversation?.sendMessage) {
+      if (!conversation) {
         return { done: false, message: t('Enter a commit message — there is no conversation here to write one.') };
       }
       // The model reads this, so it stays English whatever the UI language.
       const request = `Commit the work in this worktree${branch ? ` (branch ${branch})` : ''}, with a message describing it.`;
-      await conversation.sendMessage(
-        markUntranslated(request),
-        null,
-        conversation.rootMessageThread,
-        { consumeComposer: false }
-      );
+      await conversation.send(markUntranslated(request));
       return { done: false, message: t('The conversation will write the commit message and commit on its next turn.') };
     }
 
@@ -1783,7 +1814,7 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
    */
   _repoFromBase(workspace, ctx, why) {
     const meta = workspace?.meta ?? {};
-    const baseRoot = String(ctx?.session?.workspaceRoot?.(ctx?.baseWorkspaceId ?? '') ?? '');
+    const baseRoot = String(ctx?.workspaceRoot?.(ctx?.baseWorkspaceId ?? '') ?? '');
     const repoRel = meta.repoDir && baseRoot ? relativePath(baseRoot, String(meta.repoDir)) : null;
     if (!repoRel) {
       const params = {
@@ -2252,7 +2283,7 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
    */
   async _resolve(workspace, ctx) {
     const conversation = ctx?.conversation;
-    if (!conversation?.sendMessage) {
+    if (!conversation) {
       return { done: false, message: t('There is no conversation here to hand the conflicts to.') };
     }
     const branch = String(workspace?.meta?.branch ?? '');
@@ -2265,7 +2296,7 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
     const request = `The ${stuck.state} in this worktree${branch ? ` (branch ${branch})` : ''} stopped on conflicts${inSub}${files}. `
       + 'Resolve each one, keeping what both sides meant, and stage the result. '
       + `Then run \`GIT_EDITOR=true git ${stuck.state} --continue\`${stuck.path ? ` in ${stuck.path}` : ''}; if it stops again, resolve that too. Do not abort it.`;
-    await conversation.sendMessage(markUntranslated(request), null, conversation.rootMessageThread, { consumeComposer: false });
+    await conversation.send(markUntranslated(request));
     return { done: false, message: t('The conversation will resolve the conflicts on its next turn.') };
   }
 
@@ -2357,7 +2388,7 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
    * @returns {Promise<any>} What matches, what does not, and what has no row.
    */
   async reconcile(workspaces, ctx) {
-    const projectPath = ctx?.session?.projectPath ?? '';
+    const projectPath = ctx?.projectPath ?? '';
     if (!projectPath) return { orphanedWorkspaces: [], orphanedArtifacts: [], confirmed: [] };
 
     // The project is always looked in — it is where a pooled tree's repository
@@ -2479,7 +2510,7 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
       return { removed: false };
     }
 
-    const projectPath = ctx.session?.projectPath ?? '';
+    const projectPath = ctx?.projectPath ?? '';
     const repoRel = (projectPath && relativePath(projectPath, meta.repoDir)) || meta.repoDir;
     const treeRel = String(meta?.treeRel);
 

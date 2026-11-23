@@ -167,7 +167,7 @@ class ReviewPanel {
    * @param {string} options.scopeLabel - What is being compared, in words. Shown
    *   as the panel's first line, because a diff with no stated scope is a diff
    *   the reader has to guess the meaning of.
-   * @param {(file: ReviewFile, options: {signal: AbortSignal}) => Promise<any>} options.loadPatch -
+   * @param {(file: ReviewFile, options: {signal: AbortSignal}) => Promise<import('../lib/diff-types.js').FileDiff>} options.loadPatch -
    *   One file's patch. Called when a file is selected, never in a loop over the
    *   manifest, and given a signal that is aborted when the reader moves on.
    * @param {any} options.review - Where the comments live: `draft`, `onChange`,
@@ -371,13 +371,21 @@ class ReviewPanel {
    * and wrap to two when the panel is too narrow for that. The node is moved,
    * not copied: a host that shows it elsewhere while the panel is away takes it
    * back simply by appending it there.
+   *
+   * While it is here the panel sizes it: it wears `review-panel__scope-control`,
+   * which lets it shrink to the row and never past it. Its own outer margin is
+   * the host's to drop while it is here.
    * @param {HTMLElement|null} node - The control, or null to take it out.
    */
   setScopeControl(node) {
     for (const child of Array.from(this._scopeEl.children)) {
-      if (child !== this._scopeTextEl && child !== node) child.remove();
+      if (child === this._scopeTextEl || child === node) continue;
+      child.classList.remove('review-panel__scope-control');
+      child.remove();
     }
-    if (node && node.parentNode !== this._scopeEl) this._scopeEl.insertBefore(node, this._scopeTextEl);
+    if (!node) return;
+    node.classList.add('review-panel__scope-control');
+    if (node.parentNode !== this._scopeEl) this._scopeEl.insertBefore(node, this._scopeTextEl);
   }
 
   /** Move focus to the file being read. */
@@ -851,7 +859,7 @@ class ReviewPanel {
       const whole = el('button', 'review-panel__file-comment btn btn-xs btn-neutral', t('Comment on this file'));
       /** @type {HTMLButtonElement} */ (whole).type = 'button';
       whole.addEventListener('click', () => this._openEditor({
-        repo: file.repo,
+        group: file.repo,
         path: file.path,
         oldPath: file.oldPath,
         side: 'file',
@@ -954,7 +962,7 @@ class ReviewPanel {
     const byFile = new Map();
     for (const comment of comments) {
       if (!this._inScope(comment)) continue;
-      const key = fileKey(comment.repo, comment.path);
+      const key = fileKey(comment.group, comment.path);
       const list = byFile.get(key);
       if (list) list.push(comment);
       else byFile.set(key, [comment]);
@@ -1037,7 +1045,7 @@ class ReviewPanel {
     const file = this._fileFor(this._activeKey);
     if (!file || !detail) return;
     this._openEditor({
-      repo: file.repo,
+      group: file.repo,
       path: file.path,
       oldPath: file.oldPath,
       side: detail.side,
@@ -1057,7 +1065,7 @@ class ReviewPanel {
     if (!comment) return;
     this._openEditor({
       id: comment.id,
-      repo: comment.repo,
+      group: comment.group,
       path: comment.path,
       oldPath: comment.oldPath,
       side: comment.side,
@@ -1203,7 +1211,7 @@ class ReviewPanel {
     /** @type {any} */
     const comment = {
       id: anchor.id || commentId(),
-      repo: anchor.repo,
+      group: anchor.group,
       path: anchor.path,
       side: anchor.side,
       lineText: anchor.lines || [],
@@ -1339,7 +1347,7 @@ class ReviewPanel {
  * A review panel, ready to be given a manifest.
  * @param {object} options - How the panel behaves.
  * @param {string} options.scopeLabel - What is being compared, in words.
- * @param {(file: ReviewFile, options: {signal: AbortSignal}) => Promise<any>} options.loadPatch -
+ * @param {(file: ReviewFile, options: {signal: AbortSignal}) => Promise<import('../lib/diff-types.js').FileDiff>} options.loadPatch -
  *   One file's patch, on demand.
  * @param {any} options.review - Where the comments live, as `services.review`.
  * @param {(file: ReviewFile, options: {signal: AbortSignal}) => Promise<any>} [options.loadBlame] - One file's

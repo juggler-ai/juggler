@@ -34,6 +34,12 @@ import { recordTape } from '../utils/event-tape.js';
 import { normalizeDraft, normalizeAttachments, normalizeTextFiles, normalizePasteBlobs } from '../utils/attachments.js';
 import { normalizeReviewDraft } from '../utils/review-draft.js';
 
+/** Where a thread's unsent review is kept. */
+const REVIEW_DRAFT_KEY = 'reviewDraft';
+
+/** Where v0.8.2 kept it, read when {@link REVIEW_DRAFT_KEY} is absent. */
+const LEGACY_REVIEW_DRAFT_KEY = 'gitReviewDraft';
+
 /**
  * @typedef {import('../../sdk/lib/message.js').Message} Message
  * @typedef {import('../../sdk/lib/message.js').ToolActionMessage} ToolActionMessage
@@ -272,22 +278,27 @@ export default class MessageThread {
   }
 
   /**
-   * The unsent working-tree review for this thread: the comments written against
-   * the diff and not yet sent. Stored the same way the composer draft is — on
-   * the thread container for a sub-thread, in conversation metadata for the root
-   * — because it is the same kind of thing, unsent input belonging to one
+   * The unsent review for this thread: the comments written against a diff and
+   * not yet sent. Stored the same way the composer draft is — on the thread
+   * container for a sub-thread, in conversation metadata for the root —
+   * because it is the same kind of thing, unsent input belonging to one
    * destination, and it must survive a tab switch, a detached board and a
    * restart exactly as the composer's does.
    *
    * It is a separate key rather than part of `draft` precisely because the two
    * are sent separately: a review is one message of its own, and folding it into
    * the composer record would make discarding one discard the other.
+   *
+   * v0.8.2 kept the record under `gitReviewDraft`, which is read when
+   * `reviewDraft` is absent. A write never leaves both: a sub-thread's takes the
+   * old key away, and the root's always writes `reviewDraft` — the empty record
+   * when cleared — which is then what is read.
    * @returns {import('../utils/review-draft.js').ReviewDraft} The comments, always well-formed.
    */
-  get gitReviewDraft() {
+  get reviewDraft() {
     const raw = this.threadItemId
-      ? this.container.get('gitReviewDraft')
-      : this.conversation.getMetadata('gitReviewDraft');
+      ? (this.container.get(REVIEW_DRAFT_KEY) ?? this.container.get(LEGACY_REVIEW_DRAFT_KEY))
+      : (this.conversation.getMetadata(REVIEW_DRAFT_KEY) ?? this.conversation.getMetadata(LEGACY_REVIEW_DRAFT_KEY));
     return normalizeReviewDraft(raw);
   }
 
@@ -295,21 +306,22 @@ export default class MessageThread {
    * @param {{comments?: import('../utils/review-draft.js').ReviewComment[]}|null} value -
    *   The draft to store; null or a draft with no comments clears it.
    */
-  set gitReviewDraft(value) {
+  set reviewDraft(value) {
     const record = normalizeReviewDraft(value);
     const empty = record.comments.length === 0;
     if (this.threadItemId) {
       this.transact(() => {
+        this.container.delete(LEGACY_REVIEW_DRAFT_KEY);
         if (empty) {
-          this.container.delete('gitReviewDraft');
+          this.container.delete(REVIEW_DRAFT_KEY);
         } else {
-          this.container.set('gitReviewDraft', convertToYType(record));
+          this.container.set(REVIEW_DRAFT_KEY, convertToYType(record));
         }
       });
     } else {
       // Root: conversation metadata, which has no delete — so an emptied review
       // is stored as the empty record, exactly as the composer draft is.
-      this.conversation.setMetadata('gitReviewDraft', record);
+      this.conversation.setMetadata(REVIEW_DRAFT_KEY, record);
     }
   }
 
@@ -324,10 +336,11 @@ export default class MessageThread {
    * @param {() => void} listener - Called after the draft may have changed.
    * @returns {() => void} Unsubscribe.
    */
-  observeGitReviewDraft(listener) {
+  observeReviewDraft(listener) {
     /** @param {any} event - The Y.Map event. */
     const observer = (event) => {
-      if (event?.keysChanged?.has?.('gitReviewDraft')) listener();
+      const keys = event?.keysChanged;
+      if (keys?.has?.(REVIEW_DRAFT_KEY) || keys?.has?.(LEGACY_REVIEW_DRAFT_KEY)) listener();
     };
     if (this.threadItemId) {
       // A thread-container write fires no metadata observer, so the container is

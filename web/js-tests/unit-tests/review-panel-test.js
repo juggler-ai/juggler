@@ -256,7 +256,7 @@ export async function runTests() {
       const drawn = async (locale) => {
         const previous = setLocale(locale);
         const review = fakeReview({ comments: [
-          { id: 'c1', repo: '', path: '7', side: 'file', body: '8', scope: '9', createdAt: 1, updatedAt: 1 },
+          { id: 'c1', group: '', path: '7', side: 'file', body: '8', scope: '9', createdAt: 1, updatedAt: 1 },
         ] });
         const panel = createReviewPanel({ scopeLabel: '1', loadPatch: async () => ({ hunks: [] }), review });
         container.appendChild(panel.element);

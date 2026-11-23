@@ -747,7 +747,7 @@ exist, and the two that write are called out as the exceptions they are:
 |---------|-------------------|
 | `services.files` | `onChange(listener)` — files changing on disk, absolute paths. Only inside the open project, and never dot-files: the watcher is rooted at the project and skips them. Offer a way to re-read rather than trusting it to be complete, and never poll for what it does not tell you. |
 | `services.contextItems` | `find(type, from?)` — the nearest context item of a type, as a copy, with the thread it came from; `onChange(listener)` — the items or the focused thread moved, call `find` again; `reveal(threadId)` — bring that thread's column into view. |
-| `services.git` | The ambient half: `status()` — every repository under the project with its branch, upstream divergence, counts and bounded file list, or null before the first read; `error()` — the last read's failure, shown beside the last good status rather than instead of it; `onChange(listener)`; `refresh()`. The deliberate half: `review({signal})` — every repository and every changed file in each of them, with whatever could not be reached named in `warnings`; `diff(repo, path, {signal})` — one file's whole working-tree change against `HEAD`, as structured hunks. |
+| `services.ops` | `client(toolId, operation, params, {workspace, signal})` — run one operation of a registered tool as the user's client, in a workspace (`''` for the project), and get its answer. It reaches what the agent's tool calls cannot: tools registered for the client alone, such as Juggler's git tool, and the trees only they may run in. Cancelled by `signal` and when your surface goes away; a failure rejects with the server's message (`serverMessage`, translatable) and a `code` when it has one (`'NO_PROJECT'` with no project open). |
 | `services.tasks` | `list()` — every command the project's conversations have running, background or foreground, with the conversation, thread and tool call that started each; the conversation being read first, then newest first; null before the first answer. `error()`; `onChange(listener)`; `reveal(task)` — switch to the task's conversation and select the tool action that started it; `stop(taskId)`. |
 | `services.review` | `draft()` — the unsent review comments on the thread being read, as a copy, or null when there is no conversation to hold any; `onChange(listener)` — they changed, here or in another window, or the reader moved to a thread with different ones; `save({comments})` — replace them; `clear()` — discard them; `compose()` — put them as one ordinary message into that thread's composer for the reader to send, keeping them on the draft. |
 
@@ -771,25 +771,12 @@ your pin changes — that is the point — but it does mean a reveal is best-eff
 and one-way: it returns nothing, and once the window that owns the board has gone
 there is nowhere left to point.
 
-`services.git` is a **poll, not a watch**: nothing under `.git` reaches the file
-watcher, so the host asks git on a timer while the window is focused, and
-`onChange` means a fresh answer arrived rather than that the repository changed
-when it did. Give the user a way to ask again, and never poll yourself — every
-surface shares the one poll, and a second would run git twice.
-
-`review()` and `diff()` are the other half of that service, and they are the
-opposite of the poll: asked for rather than kept up to date, and never quietly
-shortened. A review reads every repository under the project, so ask when a
-review is opened or refreshed — concurrent callers share one read, so a second
-surface costs nothing, but a loop here runs git in a loop. Its `complete` field
-is the one thing not to paper over: false means something is missing, `warnings`
-says what in sentences fit to show a user, and partial results are worth keeping
-on screen as long as you describe them as partial. Ask for a patch one file at a
-time, at the moment something is going to show it. Pass a `signal` to either and
-cancelling really does cancel the read; the host also cancels whatever your pin
-has out when the pin goes away. Both reject rather than resolving with nothing —
-the read failed, you cancelled it, or the project changed while it was out — so a
-cancelled request is never mistaken for a file that turned out to be unchanged.
+`services.ops.client` is how a surface acts **for the user**, not for the agent:
+it is handed to pins, info cards and workspace providers and to nothing that runs
+a tool call, so what it does is what the user asked for in the UI. It is not part
+of `juggler/ops`, which a context item imports. Pass a `signal` to anything a
+newer request supersedes — cancelling really cancels the server's work — and
+expect the host to cancel whatever your surface has out when it goes away.
 
 `services.tasks` is a **live inventory, not a history**: a task leaves the list
 the moment it ends, however it ended, and nothing survives a server restart. That

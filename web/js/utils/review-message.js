@@ -50,7 +50,7 @@ function sideRank(side) {
  * @returns {number} The usual -1/0/1.
  */
 function compareComments(a, b) {
-  if (a.repo !== b.repo) return a.repo < b.repo ? -1 : 1;
+  if (a.group !== b.group) return a.group < b.group ? -1 : 1;
   if (a.path !== b.path) return a.path < b.path ? -1 : 1;
   const sides = sideRank(a.side) - sideRank(b.side);
   if (sides !== 0) return sides;
@@ -107,7 +107,7 @@ function formatComment(comment) {
     // The repository a comment belongs to is part of where the file is: two
     // `src/main.go` in two nested repositories are two different files, and a
     // reference that dropped the prefix would name neither of them.
-    path: comment.repo ? `${comment.repo}/${comment.path}` : comment.path,
+    path: comment.group ? `${comment.group}/${comment.path}` : comment.path,
     startLine: comment.startLine,
     endLine: comment.endLine,
     // 'file' is not a side of a diff, it is the absence of one, and the block

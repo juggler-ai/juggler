@@ -6,8 +6,6 @@ package server
 
 import (
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,7 +16,7 @@ import (
 	"juggler/cmd/juggler/gitops"
 	"juggler/cmd/juggler/gitview"
 	"juggler/cmd/juggler/gitview/gitviewtest"
-	"juggler/cmd/juggler/server/handlers"
+	"juggler/cmd/juggler/jobs"
 	"juggler/cmd/juggler/workspace"
 )
 
@@ -64,13 +62,10 @@ func TestGitJob_EndToEndInALinkedWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	queue := gitops.NewQueue()
-	t.Cleanup(queue.Close)
-	resolver := workspace.NewResolver(func() string { return linked }, nil, nil).
-		WithGitQueue(func() *gitops.Queue { return queue })
+	resolver := workspace.NewResolver(func() string { return linked }, nil, nil)
 	s := newTestServerState(t)
-	s.gitWatchResolve = resolver.Resolve
-	t.Cleanup(s.stopGitJobs)
+	scriptGit(t, s, resolver.Resolve)
+	t.Cleanup(s.stopJobs)
 
 	patch, err := gitview.ReadPatch(t.Context(), linked, gitview.DiffRequest{Path: "a.txt", Scope: "@unstaged"})
 	if err != nil {
@@ -82,22 +77,21 @@ func TestGitJob_EndToEndInALinkedWorktree(t *testing.T) {
 	})
 	job := startGitJob(t, s, "", string(stage))
 	gitJobEnded(t, s, job.ID)
-	if got := readGitJob(t, s, "", job.ID); got.State != gitJobDone {
+	if got := readGitJob(t, s, "", job.ID); got.State != jobs.Done {
 		t.Fatalf("stage-lines = %+v, want it done", got)
 	}
 
 	job = startGitJob(t, s, "", `{"kind":"commit","message":"Add two"}`)
 	gitJobEnded(t, s, job.ID)
 	committed := readGitJob(t, s, "", job.ID)
-	if committed.State != gitJobDone || committed.Result.Head == "" {
+	if committed.State != jobs.Done || committed.Result.Head == "" {
 		t.Fatalf("commit = %+v, want it done with the new HEAD", committed)
 	}
 
-	rec := httptest.NewRecorder()
-	handlers.NewGitStatusAPI(resolver.Resolve).HandleGitRead(rec, httptest.NewRequest(http.MethodGet, "/api/git/read?kind=changes", nil))
-	var changes gitview.Changes
-	if err := json.Unmarshal(rec.Body.Bytes(), &changes); err != nil || rec.Code != http.StatusOK {
-		t.Fatalf("changes = %d %s (%v)", rec.Code, rec.Body.String(), err)
+	read, err := callGitTool(s, t.Context(), "", "read", map[string]any{"kind": "changes"})
+	changes, ok := read.(gitview.Changes)
+	if err != nil || !ok {
+		t.Fatalf("changes = %#v (%v)", read, err)
 	}
 	if changes.Branch != "side" || changes.Head == nil || strings.TrimSpace(changes.Head.Message) != "Add two" || changes.Head.Sha != committed.Result.Head {
 		t.Errorf("changes = %+v (head %+v), want side at the commit just made", changes, changes.Head)
@@ -130,7 +124,7 @@ func TestGitJob_EndToEndAskpassThroughTheServerBinary(t *testing.T) {
 
 	job := startGitJob(t, s, "", `{"kind":"fetch"}`)
 	ended := signIn(t, s, frames, job.ID)
-	if ended.State != gitJobDone {
+	if ended.State != jobs.Done {
 		t.Fatalf("fetch = %+v, want it done once signed in", ended)
 	}
 	if got := gitIn(t, clone, "rev-parse", "origin/main"); got != want {

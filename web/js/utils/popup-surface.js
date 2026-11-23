@@ -82,6 +82,35 @@ export function whenRevealed(el, fn) {
 }
 
 /**
+ * The surfaces `presentPopup` has open, each with the popups opened from
+ * inside it (`nested: 'auto'`), which count as inside it.
+ * @type {Map<HTMLElement, Set<HTMLElement>>}
+ */
+const openSurfaces = new Map();
+
+/**
+ * @param {HTMLElement} surface - An open surface.
+ * @returns {HTMLElement[]} The popups open from inside it, and from inside those.
+ */
+function nestedIn(surface) {
+  return [...(openSurfaces.get(surface) || [])].flatMap((child) => [child, ...nestedIn(child)]);
+}
+
+/**
+ * The innermost open popup surface holding `el`, if any.
+ * @param {Element} el - An element in the page.
+ * @returns {HTMLElement|null} The surface, or null when `el` is in none.
+ */
+function openSurfaceHolding(el) {
+  /** @type {HTMLElement|null} */
+  let found = null;
+  for (const surface of openSurfaces.keys()) {
+    if (surface.contains(el) && (!found || found.contains(surface))) found = surface;
+  }
+  return found;
+}
+
+/**
  * Present an already-built popup surface and wire everything it needs.
  *
  * Call when the popup OPENS; run the returned `release` exactly once when it
@@ -94,8 +123,9 @@ export function whenRevealed(el, fn) {
  * @param {() => void} opts.onClose - Idempotent close callback.
  * @param {'left'|'right'} [opts.align='left'] - Anchored horizontal alignment.
  * @param {number} [opts.gap=8] - Gap (px) between anchor and dropdown (wide).
- * @param {string[]} [opts.insideSelectors] - Selectors whose subtree counts as
- *   "inside" for outside-click dismissal. Omit for surfaces that keep the
+ * @param {(string|Element)[]} [opts.insideSelectors] - Selectors, or elements
+ *   (the surface itself, say), whose subtree counts as "inside" for
+ *   outside-click dismissal. Omit for surfaces that keep the
  *   textarea focused (autocompletes) or do their own outside handling. With
  *   them, a press of `anchor` while open closes the popup and is consumed, so a
  *   trigger toggles; list the trigger here only to handle that press yourself.
@@ -104,9 +134,12 @@ export function whenRevealed(el, fn) {
  * @param {boolean} [opts.modal=true] - Sheet flavour on narrow screens: modal
  *   (scrim + grabber, scrim-tap dismisses) or non-modal (docked, no scrim,
  *   does not steal focus). Ignored while anchored.
- * @param {boolean} [opts.nested=false] - Opened from a control inside another
- *   open popup: it does not announce itself, so that popup stays open (see
- *   `registerOpenPopup`).
+ * @param {boolean|'auto'} [opts.nested=false] - Opened from a control inside
+ *   another open popup: it does not announce itself, so that popup stays open
+ *   (see `registerOpenPopup`). `'auto'` decides by the anchor: nested exactly
+ *   when it sits in a surface presented here, and then a press inside this
+ *   popup counts as inside that one too, so the two need no selectors naming
+ *   each other.
  * @param {boolean} [opts.restoreFocus=true] - On release, return focus to the
  *   control focused before opening when focus is on <body> or inside the
  *   surface. Off for a surface that never takes focus and is closed because
@@ -150,7 +183,17 @@ export function presentPopup({
   // handler still resolves taps on it to "outside", so one path serves both.
   // The anchor is a toggle: pressing it again closes the popup instead of
   // reopening it, for every trigger, without each one keeping an open flag.
-  const releaseDismiss = registerOpenPopup({ id, onClose, insideSelectors, nested, anchor });
+  const parent = nested === 'auto' ? openSurfaceHolding(anchor) : null;
+  const releaseDismiss = registerOpenPopup({
+    id,
+    onClose,
+    insideSelectors,
+    insideAlso: () => nestedIn(surface),
+    nested: nested === 'auto' ? parent !== null : nested,
+    anchor,
+  });
+  openSurfaces.set(surface, new Set());
+  if (parent) openSurfaces.get(parent)?.add(surface);
 
   /** @type {HTMLElement|null} */
   let scrim = null;
@@ -291,6 +334,8 @@ export function presentPopup({
     removeGrabber();
     surface.remove();
     releaseDismiss();
+    openSurfaces.delete(surface);
+    if (parent) openSurfaces.get(parent)?.delete(surface);
 
     // A popup may take focus with it when it closes. Return that focus to the
     // control used before it opened, but leave a deliberately focused outside

@@ -65,7 +65,9 @@ func readWorkspaceRows(t *testing.T, sessionPath string) []map[string]any {
 
 // A project that is a repository moves with its conversations, its workspace
 // rows follow it, and its worktrees — one beside it, one inside it — are
-// still worktrees of it afterwards.
+// still worktrees of it afterwards. Which rows are worktrees is read off the
+// trees themselves, so rows made by a provider the server has never heard of
+// are repaired too.
 func TestRelocateProjectMovesRepositoryAndWorktrees(t *testing.T) {
 	t.Setenv(projectpaths.StateDirEnv, "")
 	parent := t.TempDir()
@@ -89,9 +91,9 @@ func TestRelocateProjectMovesRepositoryAndWorktrees(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeWorkspaceRows(t, filepath.Join(state, "session.json"), []map[string]any{
-		{"id": "w1", "kind": "local", "root": beside, "providerId": "git-worktree", "state": "ready",
+		{"id": "w1", "kind": "local", "root": beside, "providerId": "someone-elses-trees", "state": "ready",
 			"meta": map[string]any{"repoDir": project, "dir": beside, "branch": "feature"}},
-		{"id": "w2", "kind": "local", "root": inside, "providerId": "git-worktree", "state": "ready",
+		{"id": "w2", "kind": "local", "root": inside, "providerId": "another-tree-maker", "state": "ready",
 			"meta": map[string]any{"repoDir": project, "dir": inside, "branch": "inner"}},
 		{"id": "w3", "kind": "local", "root": filepath.Join(project, "sub"), "providerId": "project-folder", "state": "ready",
 			"meta": map[string]any{"folder": "sub"}},

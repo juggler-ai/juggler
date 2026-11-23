@@ -14,16 +14,12 @@ import (
 	"strings"
 
 	"juggler/cmd/juggler/core"
-	"juggler/cmd/juggler/gitattr"
-	"juggler/cmd/juggler/gitops"
-	"juggler/cmd/juggler/gitview"
-	"juggler/cmd/juggler/msg"
 	"juggler/cmd/juggler/ops"
 )
 
 // local is a tree on the machine the server runs on: the project, or a
 // workspace registered against it. Its root is a directory here, so every
-// method is the ops package, the filesystem or gitview applied to it.
+// method is the ops package or the filesystem applied to it.
 type local struct {
 	id   string
 	name string
@@ -43,22 +39,6 @@ type local struct {
 	// index is the project's path index, or nil when there is none (no file
 	// watcher). Only the project's tree has one.
 	index ops.PathSearcher
-
-	// git is the server's git watcher, shared by every tree; nil when there is
-	// none, and then GitWatch refuses.
-	git *gitops.Watcher
-
-	// queue is the server's git write queue, shared by every tree; nil when
-	// there is none, and then GitRun refuses.
-	queue *gitops.Queue
-
-	// graphs is the server's store of History lists, shared by every tree; nil
-	// when there is none, and then a log read refuses.
-	graphs *gitview.Graphs
-
-	// convs is the project's conversations, as an attribution read scores them;
-	// nil when the server has none, and then an attribution read refuses.
-	convs gitattr.Directory
 }
 
 // project is the project the tree belongs to: where its attribution index is
@@ -118,16 +98,15 @@ func (w *local) scope(allowedPaths []string) ops.PathScope {
 		return ops.NewPathScope(w.root, allowedPaths).WithWorkspace(w.id)
 	}
 	allowed := append(append([]string{}, allowedPaths...), w.projectRoot)
-	return ops.NewPathScope(w.root, allowed).WithProjectRoot(w.projectRoot).WithWorkspace(w.id)
+	return ops.NewPathScope(w.root, allowed).WithProjectRoot(w.projectRoot).WithWorkspace(w.id).WithName(w.name)
 }
 
-// Operations builds the registered handler for a tool over this tree's scope.
-func (w *local) Operations(toolID string, allowedPaths []string) (ops.Operations, error) {
-	factory, err := ops.GetGlobal(toolID)
-	if err != nil {
-		return nil, err
+// Operations builds a tool's handler over this tree's scope.
+func (w *local) Operations(reg ops.Registration, allowedPaths []string) (ops.Operations, error) {
+	if reg.Factory == nil {
+		return nil, errors.New("the tool has no handler")
 	}
-	return factory(w.scope(allowedPaths)), nil
+	return reg.Factory(w.scope(allowedPaths)), nil
 }
 
 // StreamShell runs the command under this tree's scope, with no allowed-paths
@@ -151,68 +130,6 @@ func (w *local) SearchFiles(ctx context.Context, query string, limit int) ([]ops
 // CompletePath completes a typed path with "./" anchored at the root.
 func (w *local) CompletePath(ctx context.Context, query string, limit int) ([]ops.FileMatch, error) {
 	return ops.CompletePath(ctx, query, w.root, limit)
-}
-
-// GitStatus is gitview's card over the root.
-func (w *local) GitStatus(ctx context.Context) ([]gitview.RepoStatus, error) {
-	return gitview.Status(ctx, w.root), nil
-}
-
-// GitReview is gitview's manifest of the root.
-func (w *local) GitReview(ctx context.Context, scope gitview.Scope) (gitview.Manifest, error) {
-	return gitview.Review(ctx, w.root, scope), nil
-}
-
-// GitDiff is gitview's diff of one file under the root.
-func (w *local) GitDiff(ctx context.Context, req gitview.DiffRequest) (gitview.FileDiff, error) {
-	return gitview.Diff(ctx, w.root, req)
-}
-
-// GitWatch is the shared git watcher's watch of the root.
-func (w *local) GitWatch(ctx context.Context) (<-chan []gitops.Change, error) {
-	if w.git == nil {
-		return nil, errors.New("this server watches no git state")
-	}
-	if w.root == "" {
-		return nil, errors.New("no project is open")
-	}
-	return w.git.Watch(ctx, w.root, gitops.Attribution{Project: w.project(), Workspace: w.id})
-}
-
-// GitRead is gitview's read of a repository under the root; a log, the
-// server's graph store's; an attribution, the project's attribution index
-// scored against the project's conversations.
-func (w *local) GitRead(ctx context.Context, q gitview.Query) (any, error) {
-	if w.root == "" {
-		return nil, msg.NewError("No project is open")
-	}
-	if q.Kind == gitview.QueryAttribution {
-		if w.convs == nil {
-			return nil, msg.NewError("This server attributes no changes.")
-		}
-		return gitattr.Read(ctx, gitattr.ForProject(w.project()), w.root, gitattr.Request{
-			Workspace: w.id, Repo: q.Repo, Amend: q.Attribution.Amend, Visible: q.Attribution.Conv,
-		}, w.convs)
-	}
-	if q.Kind == gitview.QueryLog {
-		if w.graphs == nil {
-			return nil, msg.NewError("This server reads no history.")
-		}
-		return w.graphs.Read(ctx, w.root, q.Repo, q.Log)
-	}
-	return gitview.Read(ctx, w.root, q)
-}
-
-// GitRun is gitops's write to a repository under the root, on the server's
-// shared write queue.
-func (w *local) GitRun(ctx context.Context, op gitops.Op, hooks gitops.Hooks) (gitops.Result, error) {
-	if w.queue == nil {
-		return gitops.Result{}, msg.NewError("This server makes no git writes.")
-	}
-	if w.root == "" {
-		return gitops.Result{}, msg.NewError("No project is open")
-	}
-	return gitops.Run(ctx, w.queue, w.root, op, hooks)
 }
 
 // Stat describes a path the way a typed "@" mention names one.

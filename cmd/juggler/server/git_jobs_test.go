@@ -16,16 +16,53 @@ import (
 	"time"
 
 	"juggler/cmd/juggler/gitops"
+	"juggler/cmd/juggler/jobs"
 	"juggler/cmd/juggler/msg"
+	"juggler/cmd/juggler/server/handlers"
 	"juggler/cmd/juggler/workspace"
 
 	"github.com/gorilla/websocket"
 )
 
-// A git write is a job: started by one request, answered at once, and run to
-// its end on the server's time rather than the request's. What git does is
-// gitops's business; these are about the job — who hears of it, how it ends,
-// and what can be read back about it afterwards. The trees are scripted.
+// A git write is a job of kind "git": started by one request, answered at
+// once, and run to its end on the server's time rather than the request's.
+// What git does is gitops's business; these are about the job as git's kind —
+// who hears of it, how it ends, what its detail says, and what can be read back
+// about it afterwards. The trees are scripted.
+
+// testGitJob is a git job as a client reads it: its detail and result in git's
+// shapes.
+type testGitJob struct {
+	jobs.Job
+	Detail gitJobDetail  `json:"detail"`
+	Result gitops.Result `json:"result"`
+}
+
+// testJobEvent is a jobs topic event about a git job.
+type testJobEvent struct {
+	Type      string     `json:"type"`
+	Workspace string     `json:"workspace"`
+	Job       testGitJob `json:"job"`
+}
+
+// askForJobs subscribes a connection to the jobs of the workspaces named.
+func askForJobs(t *testing.T, conn *websocket.Conn, ids ...string) {
+	t.Helper()
+	if ids == nil {
+		ids = []string{}
+	}
+	if err := conn.WriteJSON(map[string]any{"type": "subscriptions", "topic": jobsTopicName, "keys": ids}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// jobSubscribersOf is how many connections are subscribed to a workspace's jobs.
+func jobSubscribersOf(s *Server, id string) int {
+	n := 0
+	h := s.topicHub()
+	h.do(func() { n = len(h.subscribers[topicKey{jobsTopicName, id}]) })
+	return n
+}
 
 // jobTree is a workspace whose writes the test drives. Each GitRun names one
 // command, prints output if any, announces itself on started with its context,
@@ -75,28 +112,39 @@ func resolveTrees(trees map[string]workspace.Workspace) workspace.ResolveFunc {
 	}
 }
 
-// runGitJob posts an op to the run route as the router would, and returns the
-// recorded answer.
+// runGitJob starts an op through the git tool's run, and records its answer as
+// the run route this stands for would have: 202 with the job, or 400 with why
+// nothing started.
 func runGitJob(t *testing.T, s *Server, ctx context.Context, workspaceID, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/git/run?workspace="+workspaceID, strings.NewReader(body)).WithContext(ctx)
-	s.handleGitRun(rec, req)
+	req := httptest.NewRequest(http.MethodPost, "/api/ops/client", nil)
+	var op any
+	if err := json.Unmarshal([]byte(body), &op); err != nil {
+		handlers.WriteErr(rec, req, http.StatusBadRequest, err)
+		return rec
+	}
+	job, err := callGitTool(s, ctx, workspaceID, "run", map[string]any{"op": op})
+	if err != nil {
+		handlers.WriteErr(rec, req, http.StatusBadRequest, err)
+		return rec
+	}
+	handlers.WriteJSON(rec, req, http.StatusAccepted, jobAnswer{Job: job.(jobs.Job)})
 	return rec
 }
 
 // startGitJob runs an op that must be accepted, and returns the job it started.
-func startGitJob(t *testing.T, s *Server, workspaceID, body string) gitJob {
+func startGitJob(t *testing.T, s *Server, workspaceID, body string) testGitJob {
 	t.Helper()
 	rec := runGitJob(t, s, t.Context(), workspaceID, body)
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("run = %d %s, want 202", rec.Code, rec.Body.String())
 	}
-	var resp struct{ Job gitJob }
+	var resp struct{ Job testGitJob }
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("run answer: %v\n%s", err, rec.Body.String())
 	}
-	if resp.Job.ID == "" || resp.Job.State != gitJobRunning || resp.Job.Workspace != workspaceID {
+	if resp.Job.ID == "" || resp.Job.Kind != gitJobKind || resp.Job.State != jobs.Running || resp.Job.Workspace != workspaceID {
 		t.Fatalf("run answered %+v, want a running job in %q", resp.Job, workspaceID)
 	}
 	return resp.Job
@@ -108,24 +156,24 @@ func gitJobsRequest(t *testing.T, s *Server, method, target string) *httptest.Re
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(method, target, nil)
 	switch {
-	case strings.HasPrefix(target, "/api/git/jobs/cancel"):
-		s.handleGitJobCancel(rec, req)
-	case strings.HasPrefix(target, "/api/git/jobs"):
-		s.handleGitJobs(rec, req)
+	case strings.HasPrefix(target, "/api/jobs/cancel"):
+		s.handleJobCancel(rec, req)
+	case strings.HasPrefix(target, "/api/jobs"):
+		s.handleJobs(rec, req)
 	default:
-		t.Fatalf("not a git jobs route: %s", target)
+		t.Fatalf("not a jobs route: %s", target)
 	}
 	return rec
 }
 
 // readGitJob reads one job back from the jobs route.
-func readGitJob(t *testing.T, s *Server, workspaceID, id string) gitJob {
+func readGitJob(t *testing.T, s *Server, workspaceID, id string) testGitJob {
 	t.Helper()
-	rec := gitJobsRequest(t, s, http.MethodGet, "/api/git/jobs?workspace="+workspaceID+"&id="+id)
+	rec := gitJobsRequest(t, s, http.MethodGet, "/api/jobs?workspace="+workspaceID+"&id="+id)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("jobs?id=%s = %d %s, want 200", id, rec.Code, rec.Body.String())
 	}
-	var resp struct{ Job gitJob }
+	var resp struct{ Job testGitJob }
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("jobs answer: %v\n%s", err, rec.Body.String())
 	}
@@ -135,56 +183,43 @@ func readGitJob(t *testing.T, s *Server, workspaceID, id string) gitJob {
 // gitJobEnded waits for a job to end, as the hub sees it.
 func gitJobEnded(t *testing.T, s *Server, id string) {
 	t.Helper()
-	var done <-chan struct{}
-	s.gitJobsHub().do(func() {
-		if run := s.gitJobs.running[id]; run != nil {
-			done = run.done
-		}
-	})
-	if done != nil {
-		within(t, done, "job "+id+" ending")
-	}
+	within(t, s.jobHub().Ended(id), "job "+id+" ending")
 }
 
-// watchersNaming is how many connections name a workspace in their git-watch
-// set, read on the watch hub's own goroutine.
-func watchersNaming(s *Server, id string) int {
-	n := 0
-	s.gitHub().do(func() {
-		for _, ids := range s.gitWatches.clients {
-			if ids[id] {
-				n++
-			}
-		}
-	})
-	return n
-}
-
-// nextGitJob reads frames until a git-job arrives, and returns it.
-func nextGitJob(t *testing.T, conn *websocket.Conn) gitJobFrame {
+// nextGitJob reads frames until a jobs topic event arrives, and returns the
+// event.
+func nextGitJob(t *testing.T, conn *websocket.Conn) testJobEvent {
 	t.Helper()
 	_ = conn.SetReadDeadline(time.Now().Add(time.Minute))
 	for {
 		_, data, err := conn.ReadMessage()
 		if err != nil {
-			t.Fatalf("no git-job reached the viewer: %v", err)
+			t.Fatalf("no job event reached the viewer: %v", err)
 		}
-		var frame gitJobFrame
-		if json.Unmarshal(data, &frame) == nil && frame.Type == frameGitJob {
-			return frame
+		var frame struct {
+			Type  frameType    `json:"type"`
+			Topic string       `json:"topic"`
+			Key   string       `json:"key"`
+			Event testJobEvent `json:"event"`
+		}
+		if json.Unmarshal(data, &frame) == nil && frame.Type == frameTopicEvent && frame.Topic == jobsTopicName && frame.Event.Type == jobEventType {
+			if frame.Key != frame.Event.Workspace || frame.Key != frame.Event.Job.Workspace {
+				t.Errorf("a job event keyed %q is about %q", frame.Key, frame.Event.Workspace)
+			}
+			return frame.Event
 		}
 	}
 }
 
-// gitJobFramesUntilEnd reads a connection's git-job frames until the job named ends, and
-// returns every frame it read on the way.
-func gitJobFramesUntilEnd(t *testing.T, conn *websocket.Conn, id string) []gitJobFrame {
+// gitJobFramesUntilEnd reads a connection's job events until the job named
+// ends, and returns every event it read on the way.
+func gitJobFramesUntilEnd(t *testing.T, conn *websocket.Conn, id string) []testJobEvent {
 	t.Helper()
-	var frames []gitJobFrame
+	var frames []testJobEvent
 	for {
 		f := nextGitJob(t, conn)
 		frames = append(frames, f)
-		if f.Job.ID == id && f.Job.State != gitJobRunning {
+		if f.Job.ID == id && f.Job.State != jobs.Running {
 			return frames
 		}
 	}
@@ -193,33 +228,33 @@ func gitJobFramesUntilEnd(t *testing.T, conn *websocket.Conn, id string) []gitJo
 func newGitJobServer(t *testing.T, trees map[string]workspace.Workspace) (*Server, *httptest.Server) {
 	t.Helper()
 	s, ts := newViewerSocketServer(t)
-	s.gitWatchResolve = resolveTrees(trees)
-	t.Cleanup(s.stopGitJobs)
+	scriptGit(t, s, resolveTrees(trees))
+	t.Cleanup(s.stopJobs)
 	return s, ts
 }
 
-// A job's frames go to the connections that named its workspace in their
-// git-watch set, and to no others.
+// A job's events go to the connections subscribed to its workspace in the jobs
+// topic, and to no others.
 func TestGitJob_FramesReachOnlyWatchers(t *testing.T) {
 	tree, other := newJobTree(), newJobTree()
 	tree.output = "hook says hello\n"
 	s, ts := newGitJobServer(t, map[string]workspace.Workspace{"ws_tree": tree, "ws_other": other})
 	watcher, _ := dialViewerAs(t, ts, "")
 	bystander, _ := dialViewerAs(t, ts, "")
-	askToWatch(t, watcher, "ws_tree")
-	askToWatch(t, bystander, "ws_other")
-	eventually(t, "both viewers' watch sets taken in", func() bool {
-		return watchersNaming(s, "ws_tree") == 1 && watchersNaming(s, "ws_other") == 1
+	askForJobs(t, watcher, "ws_tree")
+	askForJobs(t, bystander, "ws_other")
+	eventually(t, "both viewers' subscriptions taken in", func() bool {
+		return jobSubscribersOf(s, "ws_tree") == 1 && jobSubscribersOf(s, "ws_other") == 1
 	})
 
 	job := startGitJob(t, s, "ws_tree", `{"kind":"stage","path":"a.txt","repo":"libs/inner"}`)
 	frames := gitJobFramesUntilEnd(t, watcher, job.ID)
 	end := frames[len(frames)-1]
-	if end.Workspace != "ws_tree" || end.Job.State != gitJobDone || end.Job.Repo != "libs/inner" || end.Job.Kind != gitops.OpStage {
+	if end.Workspace != "ws_tree" || end.Job.State != jobs.Done || end.Job.Kind != gitJobKind || end.Job.Detail.Repo != "libs/inner" || end.Job.Detail.Op != gitops.OpStage {
 		t.Errorf("last frame = %+v, want the job done in ws_tree", end)
 	}
-	if !slices.EqualFunc(end.Job.Commands, [][]string{{"add", "--", "a.txt"}}, slices.Equal) {
-		t.Errorf("commands = %v, want the one the tree ran", end.Job.Commands)
+	if !slices.EqualFunc(end.Job.Detail.Commands, [][]string{{"add", "--", "a.txt"}}, slices.Equal) {
+		t.Errorf("commands = %v, want the one the tree ran", end.Job.Detail.Commands)
 	}
 	if end.Job.Output != "hook says hello\n" || end.Job.Result.Head != "abc123" {
 		t.Errorf("output %q, result %+v: want the tree's", end.Job.Output, end.Job.Result)
@@ -253,12 +288,12 @@ func TestGitJob_FinishedJobReadBack(t *testing.T) {
 	gitJobEnded(t, s, second.ID)
 
 	got := readGitJob(t, s, "ws_tree", first.ID)
-	if got.State != gitJobDone || got.Result.Head != "abc123" || len(got.Commands) != 1 {
+	if got.State != jobs.Done || got.Result.Head != "abc123" || len(got.Detail.Commands) != 1 {
 		t.Errorf("read back %+v, want it done with its result and command", got)
 	}
 
-	rec := gitJobsRequest(t, s, http.MethodGet, "/api/git/jobs?workspace=ws_tree")
-	var list struct{ Jobs []gitJob }
+	rec := gitJobsRequest(t, s, http.MethodGet, "/api/jobs?workspace=ws_tree")
+	var list struct{ Jobs []testGitJob }
 	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil || rec.Code != http.StatusOK {
 		t.Fatalf("jobs = %d %s (%v)", rec.Code, rec.Body.String(), err)
 	}
@@ -266,14 +301,14 @@ func TestGitJob_FinishedJobReadBack(t *testing.T) {
 		t.Errorf("jobs = %+v, want the second then the first", list.Jobs)
 	}
 
-	rec = gitJobsRequest(t, s, http.MethodGet, "/api/git/jobs")
+	rec = gitJobsRequest(t, s, http.MethodGet, "/api/jobs")
 	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil || len(list.Jobs) != 0 {
 		t.Errorf("the project's jobs = %s, want none: the jobs were another workspace's", rec.Body.String())
 	}
-	if rec := gitJobsRequest(t, s, http.MethodGet, "/api/git/jobs?workspace=ws_tree&id=nope"); rec.Code != http.StatusNotFound {
+	if rec := gitJobsRequest(t, s, http.MethodGet, "/api/jobs?workspace=ws_tree&id=nope"); rec.Code != http.StatusNotFound {
 		t.Errorf("an unknown job = %d, want 404", rec.Code)
 	}
-	if rec := gitJobsRequest(t, s, http.MethodGet, "/api/git/jobs?id="+first.ID); rec.Code != http.StatusNotFound {
+	if rec := gitJobsRequest(t, s, http.MethodGet, "/api/jobs?id="+first.ID); rec.Code != http.StatusNotFound {
 		t.Errorf("a job asked of the wrong workspace = %d, want 404", rec.Code)
 	}
 }
@@ -288,16 +323,16 @@ func TestGitJob_CancelEndsARunningJob(t *testing.T) {
 	job := startGitJob(t, s, "ws_tree", `{"kind":"commit","message":"m"}`)
 	ctx := within(t, tree.started, "the write starting")
 
-	rec := gitJobsRequest(t, s, http.MethodPost, "/api/git/jobs/cancel?workspace=ws_tree&id="+job.ID)
+	rec := gitJobsRequest(t, s, http.MethodPost, "/api/jobs/cancel?workspace=ws_tree&id="+job.ID)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("cancel = %d %s, want 200", rec.Code, rec.Body.String())
 	}
 	within(t, ctx.Done(), "the write's context ending")
 	gitJobEnded(t, s, job.ID)
-	if got := readGitJob(t, s, "ws_tree", job.ID); got.State != gitJobCancelled || got.ErrorKind != "" {
+	if got := readGitJob(t, s, "ws_tree", job.ID); got.State != jobs.Cancelled || got.Error != nil {
 		t.Errorf("cancelled job = %+v, want state cancelled", got)
 	}
-	if rec := gitJobsRequest(t, s, http.MethodPost, "/api/git/jobs/cancel?workspace=ws_tree&id=nope"); rec.Code != http.StatusNotFound {
+	if rec := gitJobsRequest(t, s, http.MethodPost, "/api/jobs/cancel?workspace=ws_tree&id=nope"); rec.Code != http.StatusNotFound {
 		t.Errorf("cancelling an unknown job = %d, want 404", rec.Code)
 	}
 }
@@ -309,27 +344,27 @@ func TestGitJob_DisconnectDoesNotCancel(t *testing.T) {
 	tree.release = make(chan struct{})
 	s, ts := newGitJobServer(t, map[string]workspace.Workspace{"ws_tree": tree})
 	conn, _ := dialViewerAs(t, ts, "")
-	askToWatch(t, conn, "ws_tree")
-	eventually(t, "the viewer's watch set taken in", func() bool { return watchersNaming(s, "ws_tree") == 1 })
+	askForJobs(t, conn, "ws_tree")
+	eventually(t, "the viewer's subscription taken in", func() bool { return jobSubscribersOf(s, "ws_tree") == 1 })
 
 	reqCtx, endRequest := context.WithCancel(t.Context())
 	rec := runGitJob(t, s, reqCtx, "ws_tree", `{"kind":"commit","message":"m"}`)
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("run = %d %s", rec.Code, rec.Body.String())
 	}
-	var resp struct{ Job gitJob }
+	var resp struct{ Job testGitJob }
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
 	ctx := within(t, tree.started, "the write starting")
 
 	endRequest()
 	_ = conn.Close()
-	eventually(t, "the viewer's departure taken in", func() bool { return watchersNaming(s, "ws_tree") == 0 })
+	eventually(t, "the viewer's departure taken in", func() bool { return jobSubscribersOf(s, "ws_tree") == 0 })
 	if ctx.Err() != nil {
 		t.Fatal("the write was cancelled when its request and viewer went")
 	}
 	close(tree.release)
 	gitJobEnded(t, s, resp.Job.ID)
-	if got := readGitJob(t, s, "ws_tree", resp.Job.ID); got.State != gitJobDone {
+	if got := readGitJob(t, s, "ws_tree", resp.Job.ID); got.State != jobs.Done {
 		t.Errorf("job = %+v, want it done", got)
 	}
 }
@@ -345,11 +380,19 @@ func TestGitJob_RefusedOpFails(t *testing.T) {
 	job := startGitJob(t, s, "ws_tree", `{"kind":"stage"}`)
 	gitJobEnded(t, s, job.ID)
 	got := readGitJob(t, s, "ws_tree", job.ID)
-	if got.State != gitJobFailed || got.ErrorKind != "refused" || got.Error != "No files were named." {
-		t.Errorf("refused job = %+v, want failed, refused, with the English", got)
+	if got.State != jobs.Failed || got.Error == nil || got.Error.Kind != "refused" || got.Error.Message != "No files were named." {
+		t.Errorf("refused job = %+v (error %+v), want failed, refused, with the English", got, got.Error)
 	}
-	if got.ErrorMessage == nil || got.ErrorMessage.Key != "No files were named." {
-		t.Errorf("errorMessage = %+v, want the refusal's message", got.ErrorMessage)
+	if got.Error == nil || got.Error.Text == nil || got.Error.Text.Key != "No files were named." {
+		t.Errorf("error = %+v, want the refusal's message", got.Error)
+	}
+
+	// What a refusal needs said with it is on the job's detail.
+	tree.err = &gitops.LockedError{Path: "/r/.git/index.lock", Err: msg.NewError("Another git holds the lock.")}
+	job = startGitJob(t, s, "ws_tree", `{"kind":"commit","message":"m"}`)
+	gitJobEnded(t, s, job.ID)
+	if got := readGitJob(t, s, "ws_tree", job.ID); got.Error == nil || got.Error.Kind != "locked" || got.Detail.LockPath != "/r/.git/index.lock" {
+		t.Errorf("locked job = %+v (error %+v), want locked with its lock on the detail", got, got.Error)
 	}
 }
 
@@ -378,27 +421,27 @@ func TestGitJobErrorKinds(t *testing.T) {
 		{&gitops.PublishedError{Err: m}, "published", "", ""},
 		{errors.New("git said no"), "", "", ""},
 	} {
-		var j gitJob
-		describeGitJobError(&j, c.err)
-		if j.ErrorKind != c.kind || j.Worktree != c.worktree || j.Branch != c.branch {
-			t.Errorf("%T: kind %q worktree %q branch %q, want %q %q %q", c.err, j.ErrorKind, j.Worktree, j.Branch, c.kind, c.worktree, c.branch)
+		var j gitJobDetail
+		kind := describeGitJobError(&j, c.err)
+		if kind != c.kind || j.Worktree != c.worktree || j.Branch != c.branch {
+			t.Errorf("%T: kind %q worktree %q branch %q, want %q %q %q", c.err, kind, j.Worktree, j.Branch, c.kind, c.worktree, c.branch)
 		}
 	}
 
 	// What the viewer offers instead of a failed network write needs: the pull's
 	// preferred way in first, the refs a push was turned down for and why, the
 	// remotes to choose a publish's from.
-	var j gitJob
+	var j gitJobDetail
 	describeGitJobError(&j, &gitops.DivergedError{Prefer: "rebase", Err: m})
 	if j.Prefer != "rebase" {
 		t.Errorf("diverged prefer = %q", j.Prefer)
 	}
-	j = gitJob{}
+	j = gitJobDetail{}
 	describeGitJobError(&j, &gitops.RejectedError{Refs: []string{"refs/heads/main"}, Reason: "fetch first", Err: m})
 	if !slices.Equal(j.Rejected, []string{"refs/heads/main"}) || j.Reason != "fetch first" {
 		t.Errorf("rejected = %q, reason %q", j.Rejected, j.Reason)
 	}
-	j = gitJob{}
+	j = gitJobDetail{}
 	describeGitJobError(&j, &gitops.RemoteNeededError{Remotes: []string{"fork", "upstream"}, Err: m})
 	if !slices.Equal(j.Remotes, []string{"fork", "upstream"}) {
 		t.Errorf("remotes = %q", j.Remotes)
@@ -415,7 +458,7 @@ func TestGitJob_RunRefusesABadRequest(t *testing.T) {
 	if rec := runGitJob(t, s, t.Context(), "ws_gone", `{"kind":"stage"}`); rec.Code != http.StatusBadRequest {
 		t.Errorf("an unknown workspace = %d, want 400", rec.Code)
 	}
-	rec := gitJobsRequest(t, s, http.MethodGet, "/api/git/jobs?workspace=ws_tree")
+	rec := gitJobsRequest(t, s, http.MethodGet, "/api/jobs?workspace=ws_tree")
 	if !strings.Contains(rec.Body.String(), `"jobs":[]`) {
 		t.Errorf("jobs = %s, want none", rec.Body.String())
 	}

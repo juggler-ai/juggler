@@ -22,6 +22,7 @@
       "juggler/strategy-type": ["../web/sdk/strategy-type.js"],
       "juggler/command-type": ["../web/sdk/command-type.js"],
       "juggler/info-card-type": ["../web/sdk/info-card-type.js"],
+      "juggler/services": ["../web/sdk/services.js"],
       "juggler/pinboard": ["../web/sdk/pinboard.js"],
       "juggler/pinboard-item-type": ["../web/sdk/pinboard-item-type.js"],
       "juggler/file-viewer": ["../web/sdk/file-viewer.js"],

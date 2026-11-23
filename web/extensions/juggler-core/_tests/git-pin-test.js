@@ -97,6 +97,18 @@ export async function runTests(_ctx) {
       'a source it rejects should produce no config');
   });
 
+  await test('a workspace is shown fixed to its tree, comparing its branch with the one it came from', () => {
+    const made = /** @type {any} */ ({ kind: 'workspace', workspace: 'ws_1', branch: 'feat', base: 'main' });
+    assert(GitPin.canPinSource(made) === true, 'a workspace is offered to the Git view');
+    assert(JSON.stringify(GitPin.configFromSource(made)) === JSON.stringify({ workspace: 'ws_1', scope: 'main...feat' }),
+      `a branch and its base compare the two: ${JSON.stringify(GitPin.configFromSource(made))}`);
+    const plain = /** @type {any} */ ({ kind: 'workspace', workspace: 'ws_2' });
+    assert(JSON.stringify(GitPin.configFromSource(plain)) === JSON.stringify({ workspace: 'ws_2', scope: '@branch' }),
+      `with neither, the branch against where it left the default: ${JSON.stringify(GitPin.configFromSource(plain))}`);
+    assert(GitPin.sourceLabel(made) === 'Show in Git view', `the offer is worded: ${GitPin.sourceLabel(made)}`);
+    assert(GitPin.canPinSource(/** @type {any} */ ({ kind: 'workspace' })) === false, 'a workspace source names a workspace');
+  });
+
   // --- what it draws --------------------------------------------------------
 
   await test('nothing read yet is not no repository', () => {
@@ -331,15 +343,8 @@ export async function runTests(_ctx) {
   });
 
   await test('shown again after a while out of sight, the pin reads everything again', async () => {
-    // A test's pin is mounted off the screen, in a lane's window that reports
-    // itself hidden, which the pin would rightly call out of sight for the
-    // whole case: this one is on screen until a tab switch says otherwise.
-    const RealObserver = window.IntersectionObserver;
-    window.IntersectionObserver = /** @type {any} */ (class {
-      observe() {}
-      disconnect() {}
-    });
-    Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+    // Whether the pin is in sight is the host's to say (context.visibility);
+    // how long out of sight is worth a re-read is the pin's.
     let clock = 1_000_000;
     __setAbsenceClockForTests(() => clock);
     /** @type {any} */
@@ -348,19 +353,17 @@ export async function runTests(_ctx) {
       m = await mounted({ manifest: manifestOf([{ path: 'a.js', index: 'M', worktree: '.' }]) });
       await refreshPin(m);
       const before = m.reviews();
-      m.controller.hide();
+      m.setVisible(false);
       clock += 5_000;
-      m.controller.show();
+      m.setVisible(true);
       await nextTask();
-      assert(m.reviews() === before, `a glance at another tab reads nothing: ${m.reviews()} after ${before}`);
+      assert(m.reviews() === before, `a glance away reads nothing: ${m.reviews()} after ${before}`);
 
-      m.controller.hide();
+      m.setVisible(false);
       clock += STALE_AFTER_MS + 1;
-      m.controller.show();
+      m.setVisible(true);
       await waitFor(() => m.reviews() > before, 'a read after a long absence');
     } finally {
-      window.IntersectionObserver = RealObserver;
-      delete (/** @type {any} */ (document)).hidden;
       __setAbsenceClockForTests(null);
       m?.teardown();
     }
@@ -531,7 +534,7 @@ export async function runTests(_ctx) {
     assert(comment.body === 'Split this into two methods.', `body missing: ${JSON.stringify(comment)}`);
     assert(comment.side === 'new' && comment.startLine === 85 && comment.endLine === 85,
       `the anchor is the comment's address: ${JSON.stringify(comment)}`);
-    assert(comment.path === 'a.js' && comment.repo === '', `the file is part of it: ${JSON.stringify(comment)}`);
+    assert(comment.path === 'a.js' && comment.group === '', `the file is part of it: ${JSON.stringify(comment)}`);
     assert(comment.revision === 'rev1',
       `without the revision nothing can tell later that the file moved on: ${JSON.stringify(comment)}`);
     assert(comment.lineText.join('\n').includes('this.renderComments(hunks);'),
@@ -596,7 +599,7 @@ export async function runTests(_ctx) {
         base: 'head',
         comments: [{
           id: 'c_1',
-          repo: '',
+          group: '',
           path: 'a.js',
           side: 'new',
           startLine: 85,
@@ -630,7 +633,7 @@ export async function runTests(_ctx) {
         base: 'head',
         comments: [{
           id: 'c_1',
-          repo: '',
+          group: '',
           path: 'b.js',
           side: 'new',
           startLine: 85,
@@ -657,7 +660,7 @@ export async function runTests(_ctx) {
         comments: [
           {
             id: 'c_1',
-            repo: '',
+            group: '',
             path: 'a.js',
             side: 'new',
             startLine: 85,
@@ -670,7 +673,7 @@ export async function runTests(_ctx) {
           },
           {
             id: 'c_2',
-            repo: '',
+            group: '',
             path: 'a.js',
             side: 'file',
             lineText: [],
@@ -699,7 +702,7 @@ export async function runTests(_ctx) {
         base: 'head',
         comments: [{
           id: 'c_1',
-          repo: '',
+          group: '',
           path: 'a.js',
           side: 'new',
           startLine: 85,

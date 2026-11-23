@@ -16,6 +16,7 @@
  * @module _tests/git-worktree-lifecycle-test
  */
 
+import { providerContext } from '../../../js/services/provider-context.js';
 import { assert } from '../../../js-tests/utilities/test-helpers.js';
 import { unregisterWorkspace, listWorkspaces } from '../../../js/services/workspaces.js';
 import { provisionWorkspace, finishWorkspace } from '../../../js/services/workspace-provisioning.js';
@@ -36,7 +37,6 @@ import {
 
 /** @typedef {import('./git-worktree-helpers.js').WorktreeReport} WorktreeReport */
 /** @typedef {import('../../../js/model/session.js').Workspace} Workspace */
-/** @typedef {import('../../../sdk/workspace-provider.js').ProviderContext} ProviderContext */
 
 /**
  * This suite builds real git repositories inside the shared fixture project and
@@ -89,7 +89,7 @@ export async function runTests() {
         // workspace table does not.
         await mustRun(ops, `git -C ${repo} worktree add -q -b pool/one ../${pool} main`);
 
-        const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID, session);
+        const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID);
         if (!provider) throw new Error('the provider is not registered');
         const report = /** @type {WorktreeReport} */ (
           await provider.reconcile([outcome.workspace], reconcileCtx(session, ops)));
@@ -151,7 +151,7 @@ export async function runTests() {
         // to the pool does.
         await mustRun(ops, `git -C ${repo}-moved-tree switch -q -c somebody/else`);
 
-        const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID, session);
+        const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID);
         if (!provider) throw new Error('the provider is not registered');
         const report = /** @type {WorktreeReport} */ (await provider.reconcile(
           [gone.workspace, moved.workspace], reconcileCtx(session, ops)));
@@ -234,7 +234,7 @@ export async function runTests() {
       // which facade was used, which no amount of removed directories can show
       // — and asked with Windows-shaped paths so the platform that has to be
       // right about this is the one being described.
-      const provider = new GitWorktreeWorkspaceProvider({ session });
+      const provider = new GitWorktreeWorkspaceProvider();
       /** @type {string[]} */
       const fromTree = [];
       /** @type {string[]} */
@@ -264,13 +264,11 @@ export async function runTests() {
           }
         },
         'discard',
-        {
-          session: { workspaceRoot: (/** @type {string} */ id) => (id ? 'C:\\src\\elsewhere' : 'C:\\src') },
+        providerContext({ workspaceRoot: (/** @type {string} */ id) => (id ? 'C:\\src\\elsewhere' : 'C:\\src') }, {
           baseWorkspaceId: '',
           ops: recorder(fromTree),
-          baseOps: recorder(fromBase),
-          signal: new AbortController().signal
-        }
+          baseOps: recorder(fromBase)
+        })
       );
 
       assert(finished.done === true,
@@ -296,7 +294,7 @@ export async function runTests() {
       // `stderr` alone reports the bare fallback and loses git's reason every
       // time — which is precisely how a CI failure spent three runs saying only
       // that the directory was still there.
-      const provider = new GitWorktreeWorkspaceProvider({ session });
+      const provider = new GitWorktreeWorkspaceProvider();
       const finished = await provider.finish(
         {
           meta: {
@@ -308,20 +306,18 @@ export async function runTests() {
           }
         },
         'discard',
-        {
-          session: { workspaceRoot: () => 'C:\\src' },
+        providerContext({ workspaceRoot: () => 'C:\\src' }, {
           baseWorkspaceId: '',
-          ops: { shell: async () => ({ success: true, stdout: '', stderr: '', exitCode: 0 }) },
-          baseOps: {
+          ops: /** @type {any} */ ({ shell: async () => ({ success: true, stdout: '', stderr: '', exitCode: 0 }) }),
+          baseOps: /** @type {any} */ ({
             shell: async () => ({
               success: false,
               stdout: 'fatal: validation failed, cannot remove working tree: it is locked\nSTILL-THERE',
               stderr: '',
               exitCode: 1
             })
-          },
-          signal: new AbortController().signal
-        }
+          })
+        })
       );
 
       assert(finished.done === false,
@@ -345,7 +341,7 @@ export async function runTests() {
         await buildRepo(ops, repo, `hello-${tag}`);
         await mustRun(ops, `git -C ${repo} worktree add -q -b pool/${tag} '../${tree}' main`);
 
-        const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID, session);
+        const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID);
         if (!provider) throw new Error('the provider is not registered');
         // A finished row is how a repository is put in front of reconcile
         // without claiming any of its trees.
@@ -359,12 +355,10 @@ export async function runTests() {
         }
 
         const finished = await provider.finish(/** @type {Workspace} */ (offered.workspace), 'discard',
-          /** @type {ProviderContext} */ ({
-            session,
+          providerContext(session, {
             baseWorkspaceId: '',
             ops,
-            baseOps: ops,
-            signal: new AbortController().signal
+            baseOps: ops
           }));
 
         const ran = await shell(ops, `test -e ${repo}/${marker} || test -e ${marker}`);

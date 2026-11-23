@@ -18,6 +18,7 @@
  */
 
 import { createBoundOps } from '../../sdk/ops.js';
+import { providerContext } from './provider-context.js';
 import { whenRegistriesReady } from '../registries/registry-ready.js';
 import workspaceProviderRegistry from '../registries/workspace-provider-registry.js';
 import { listWorkspaces, patchWorkspace, unregisterWorkspace, claimWorkspaceReconcile } from './workspaces.js';
@@ -86,19 +87,11 @@ export async function reconcileWorkspaces(session) {
   // Asked of the server rather than read from `session.workspaces`: this runs at
   // load, and the point of it is what the table says now.
   const workspaces = await listWorkspaces();
-  const ctx = {
-    session,
-    ops: createBoundOps(() => ({})),
-    baseWorkspaceId: '',
-    signal: new AbortController().signal,
-    rollback: { push: () => {} },
-    checkpoint: async () => {},
-    progress: () => {}
-  };
+  const ctx = providerContext(session, { ops: createBoundOps(() => ({})), baseWorkspaceId: '' });
 
   for (const workspace of workspaces) {
     if (workspace.state !== 'provisioning') continue;
-    const provider = workspaceProviderRegistry.createProvider(workspace.providerId ?? '', session);
+    const provider = workspaceProviderRegistry.createProvider(workspace.providerId ?? '');
     if (!provider) continue;
     try {
       // Pinned per row: what a half-built workspace left behind may be beside the
@@ -125,7 +118,7 @@ export async function reconcileWorkspaces(session) {
   for (const providerId of workspaceProviderRegistry.getIds()) {
     const mine = surviving.filter(ws => ws.providerId === providerId && ws.state !== 'closed');
     if (mine.length === 0) continue;
-    const provider = workspaceProviderRegistry.createProvider(providerId, session);
+    const provider = workspaceProviderRegistry.createProvider(providerId);
     try {
       const result = await provider?.reconcile(mine, ctx);
       pass.reports.push({ providerId, result });

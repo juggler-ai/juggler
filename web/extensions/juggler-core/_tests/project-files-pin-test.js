@@ -31,6 +31,13 @@ import { describePin } from '../../../js/components/pinboard-content.js';
 import { assert, waitFor } from '../../../js-tests/utilities/test-helpers.js';
 import { underPseudoLocale, shownStrings } from '../../../js-tests/utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../../sdk/lib/i18n.js';
+import { gitClient, __scriptGitClients } from '../lib/git-client.js';
+
+/** @type {any} A client for services that script no git: no status, ever. */
+const NO_GIT = { status: () => null, error: () => '', onChange: () => () => {}, refresh: async () => {} };
+
+// The browser is handed the scripted client a case's services carry as `git`.
+__scriptGitClients((services, signal) => services.git ?? (services.topics ? gitClient(services, signal) : NO_GIT));
 
 /** The English messages the en-XA case draws, served as juggler-core's. */
 const CORE_TEXT = [

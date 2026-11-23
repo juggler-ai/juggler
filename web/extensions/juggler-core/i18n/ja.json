@@ -812,6 +812,7 @@
   "Show every git command this pin ran": "このピンが実行したすべての git コマンドを表示",
   "Show how far the visible conversation is through its plan and todo list, while either has work left.": "表示中の会話の計画と TODO リストに残りの作業がある間、その進み具合を表示します。",
   "Show in Changes": "変更で表示",
+  "Show in Git view": "Git ビューで表示",
   "Show in History": "履歴で表示",
   "Show log": "ログを表示",
   "Show on Pinboard": "ピンボードに表示",
@@ -1337,5 +1338,8 @@
   "… (truncated)": "…（切り詰め）",
   "…{count} more not shown": "…ほか {count} 件は表示されていません",
   "↑{ahead} ↓{behind} {upstream}": "↑{ahead} ↓{behind} {upstream}",
-  "⚠ Write outside the project folder: {path}": "⚠ プロジェクトフォルダ外への書き込み: {path}"
+  "⚠ Write outside the project folder: {path}": "⚠ プロジェクトフォルダ外への書き込み: {path}",
+  "The git command failed.": "git コマンドが失敗しました。",
+  "The git command was cancelled.": "git コマンドはキャンセルされました。",
+  "The server did not say which git job it started.": "サーバーは開始した git ジョブを伝えませんでした。"
 }

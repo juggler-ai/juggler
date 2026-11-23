@@ -752,9 +752,9 @@ export async function runTests() {
       const held = new Promise((resolve) => { letGo = () => resolve(undefined); });
       /** @type {Promise<unknown>[]} */
       const answers = [];
-      registry.createProvider = function (/** @type {string} */ id, /** @type {any} */ s) {
-        const provider = realCreate.call(this, id, s);
-        if (!provider || s !== session) return provider;
+      registry.createProvider = function (/** @type {string} */ id) {
+        const provider = realCreate.call(this, id);
+        if (!provider) return provider;
         const reconcile = provider.reconcile.bind(provider);
         provider.reconcile = (/** @type {any[]} */ ...args) => {
           const answer = held.then(() => reconcile(...args));

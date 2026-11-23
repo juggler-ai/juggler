@@ -13,8 +13,14 @@
 
 import { nextTask } from '../../../js-tests/utilities/test-helpers.js';
 import { __holdToasts } from '../pins/git/toast.js';
+import GitWorktreeWorkspaceProvider from '../workspaces/git-worktree-workspace-provider.js';
+import { gitClient, __scriptGitClients } from '../lib/git-client.js';
 
 /** @typedef {import('../pins/git-pin.js').default} GitPin */
+
+// The pin is handed the scripted client these services carry as `git`; one
+// built on services that carry none is the real one.
+__scriptGitClients((services, signal) => services.git ?? gitClient(services, signal));
 
 /**
  * The choices one of the pin's pickers offers, read off the menu it opens, as
@@ -90,7 +96,7 @@ export function confirmPop() {
 
 /**
  * A repo with everything filled in, so a case overrides only what it is about.
- * @param {Partial<import('juggler/pinboard-item-type').PinGitReviewRepo>} [overrides] - What this case cares about.
+ * @param {Partial<import('../lib/git-client.js').GitReviewRepo>} [overrides] - What this case cares about.
  * @returns {any} The repo.
  */
 export const repo = (overrides = {}) => ({
@@ -480,7 +486,8 @@ let mounts = 0;
  *   with, likewise; the default is none.
  * @param {{rows?: any[], followed?: string, conversations?: Record<string, any[]>,
  *   finishOptions?: Record<string, any>, adopt?: any}} [options.workspaces] -
- *   What the `workspaces` stub answers with.
+ *   What the `workspaces` stub answers with. `forTree` asks the provider a
+ *   row names, as the host does; only the git-worktree provider is known here.
  * @param {any} [options.log] - What `git.read('log')` answers with: a
  *   function of the LogQuery (an Error rejects), such as {@link historyOf}.
  * @param {any} [options.commit] - What `git.read('commit')` answers with, or a
@@ -839,6 +846,12 @@ export function mountPin(pin, options = {}) {
           if (at >= 0) workspaceListeners.splice(at, 1);
         };
       },
+      forTree: (/** @type {{path: string, branch?: string, rows?: string[]}} */ tree) => {
+        const worktrees = new GitWorktreeWorkspaceProvider();
+        const held = (ws.rows || []).find((/** @type {any} */ r) => (tree.rows || []).includes(r.id)
+          && r.state !== 'closed' && r.providerId === 'git-worktree' && worktrees.holdsTree(r, tree));
+        return held ? held.id : '';
+      },
       conversationsOf: (/** @type {string} */ id) => ws.conversations?.[id] || [],
       showConversation: async (/** @type {string} */ id) => {
         workspaceCalls.push({ call: 'showConversation', args: [id] });
@@ -899,6 +912,23 @@ export function mountPin(pin, options = {}) {
     },
   };
 
+  // The host's say on whether the pin is in sight: in sight until a case says
+  // otherwise with `setVisible`.
+  let inSight = true;
+  /** @type {Set<(visible: boolean) => void>} */
+  const sightListeners = new Set();
+  const visibility = {
+    isVisible: () => inSight,
+    /**
+     * @param {(visible: boolean) => void} listener - Told each change.
+     * @returns {() => void} Stop.
+     */
+    onChange: (listener) => {
+      sightListeners.add(listener);
+      return () => { sightListeners.delete(listener); };
+    },
+  };
+
   /**
    * The PinContext for a pin with this config.
    * @param {Record<string, any>} config - The pin's config.
@@ -913,6 +943,7 @@ export function mountPin(pin, options = {}) {
     },
     services,
     signal: abort.signal,
+    visibility,
     updateConfig: async (/** @type {any} */ next, /** @type {any} */ writeOptions) => {
       configs.push(next);
       configWrites.push({ config: next, options: writeOptions || {} });
@@ -928,6 +959,15 @@ export function mountPin(pin, options = {}) {
     body,
     controller,
     services,
+    /**
+     * Say whether the host has the pin in sight, telling its listeners on a change.
+     * @param {boolean} visible - In sight.
+     */
+    setVisible: (visible) => {
+      if (visible === inSight) return;
+      inSight = visible;
+      for (const listener of [...sightListeners]) listener(visible);
+    },
     // The review suites read the Review place alone: the head line and the
     // place switcher above it are the Changes suite's business.
     text: () => (body.querySelector('.git-pin__place--review') || body).textContent || '',

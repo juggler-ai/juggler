@@ -14,32 +14,33 @@ import (
 	"juggler/cmd/juggler/server/handlers"
 )
 
-// gitAttributeRequest is the body of POST /api/git/attribute: the file a tool
+// toolWriteRequest is the body of POST /api/tool-writes: the file a tool
 // wrote, as the tool named it, and who wrote it.
-type gitAttributeRequest struct {
+type toolWriteRequest struct {
 	Path   string `json:"path"`             // Absolute, or relative to the tree's root
 	Conv   string `json:"conv"`             // The conversation
 	Thread string `json:"thread,omitempty"` // Its thread item, "" for the root thread
 	Item   string `json:"item,omitempty"`   // The tool use
 }
 
-// handleGitAttribute handles POST /api/git/attribute?workspace=<id> with a
-// gitAttributeRequest body: an edit or write tool saying it has just written a
-// file. The server reads the file as it now is on disk, names it as the git
+// handleToolWrite handles POST /api/tool-writes?workspace=<id> with a
+// toolWriteRequest body: a tool saying it has just written a file
+// (ContextItem.reportFileWritten). What the server keeps of it is who wrote
+// which version: it reads the file as it now is on disk, names it as the git
 // views do and records it as the conversation's in the project's attribution
 // index (gitattr), strongly. It answers 204 whether or not anything was
 // recorded — a file outside the tree, in no repository, gone already, or in a
 // tree not on this machine records nothing — since the caller never waits on
 // it. A workspace that cannot be resolved, or a body naming no file or
 // conversation, is a 400; a file git could not hash, a 502.
-func (s *Server) handleGitAttribute(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleToolWrite(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("workspace")
 	ws, err := s.gitResolve(id)
 	if err != nil {
 		handlers.WriteErr(w, r, http.StatusBadRequest, err)
 		return
 	}
-	req, ok := handlers.DecodeJSON[gitAttributeRequest](w, r)
+	req, ok := handlers.DecodeJSON[toolWriteRequest](w, r)
 	if !ok {
 		return
 	}

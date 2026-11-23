@@ -15,6 +15,7 @@
  * @module _tests/git-worktree-helpers
  */
 
+import { providerContext } from '../../../js/services/provider-context.js';
 import {
   initializeRegistries,
   createTestSession,
@@ -443,19 +444,14 @@ export function offered(select) {
  * @returns {any} The provider, its container, and its fields — `repo` being null until the form decides to ask for one.
  */
 export function openForm(session, baseWorkspaceId, values) {
-  const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID, session);
+  const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID);
   if (!provider) throw new Error('the provider is not registered, so it has no form to render');
   const container = document.createElement('div');
-  provider.renderSetup(container, {
-    session,
+  provider.renderSetup(container, providerContext(session, {
     ops: createBoundOps(() => ({ workspaceId: baseWorkspaceId })),
     baseWorkspaceId,
-    values,
-    signal: new AbortController().signal,
-    rollback: { push: () => {} },
-    checkpoint: async () => {},
-    progress: () => {}
-  });
+    values
+  }));
   /**
    * @param {string} name - Which field.
    * @returns {any} The input, or null when the form does not have one.
@@ -479,15 +475,10 @@ export function openForm(session, baseWorkspaceId, values) {
  * @returns {any} A provider context.
  */
 export function reconcileCtx(session, ops) {
-  return {
-    session,
+  return providerContext(session, {
     ops,
-    baseWorkspaceId: '',
-    signal: new AbortController().signal,
-    rollback: { push: () => {} },
-    checkpoint: async () => {},
-    progress: () => {}
-  };
+    baseWorkspaceId: ''
+  });
 }
 
 /**

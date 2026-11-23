@@ -219,19 +219,13 @@
  */
 
 /**
- * gitChangeFrame is one batch of a watched workspace's git changes, sent to the
- * viewers that asked for it (git_watch.go).
- * @typedef {object} GitChangeFrame
- * @property {'git-change'} type
- * @property {string} workspace - The workspace id the viewer named; "" is the project
- * @property {GitChangeRepo[]} repos
- */
-
-/**
- * @typedef {object} GitJobFrame
- * @property {'git-job'} type
- * @property {string} workspace
- * @property {GitJob} job
+ * topicEventFrame is one event of a topic, sent to the connections subscribed
+ * to its key (topics.go). What event holds is the topic's to say.
+ * @typedef {object} TopicEventFrame
+ * @property {'topic-event'} type
+ * @property {string} topic
+ * @property {string} key
+ * @property {unknown} event
  */
 
 /**
@@ -351,12 +345,46 @@
  */
 
 /**
- * GitWatchRequest is a viewer naming every workspace whose git changes it wants
- * to hear of — "" for the project — in place of whatever it named before. An
- * empty list names none. See git_watch.go.
- * @typedef {object} GitWatchFrame
- * @property {'git-watch'} type
- * @property {string[]} workspaces - Workspace ids
+ * SubscriptionsRequest is a client naming every key of one topic it wants the
+ * events of, in place of whatever it named before. An empty list names none.
+ * See topics.go.
+ * @typedef {object} SubscriptionsFrame
+ * @property {'subscriptions'} type
+ * @property {string} topic - The topic's name
+ * @property {string[]} keys - What the topic keys its events by
+ */
+
+/**
+ * gitChangeEvent is one batch of a watched workspace's git changes.
+ * @typedef {object} GitChangeEvent
+ * @property {'git-change'} type
+ * @property {string} workspace - The workspace id the viewer named; "" is the project
+ * @property {GitChangeRepo[]} repos
+ */
+
+/**
+ * jobEvent is a job as it now stands, sent on each change and at its end.
+ * @typedef {object} JobEvent
+ * @property {'job'} type
+ * @property {string} workspace
+ * @property {Job} job
+ */
+
+/**
+ * gitJobDetail is what a git job says of itself while it runs and once it has
+ * ended.
+ * @typedef {object} GitJobDetail
+ * @property {string} repo
+ * @property {'stage'|'unstage'|'stage-all'|'unstage-all'|'stage-lines'|'unstage-lines'|'discard'|'discard-lines'|'undo-discard'|'ignore'|'commit'|'undo-commit'|'branch-create'|'switch'|'branch-rename'|'branch-upstream'|'branch-delete'|'merge'|'rebase'|'fast-forward'|'ref-restore'|'stash-save'|'stash-apply'|'stash-pop'|'stash-drop'|'stash-store'|'stash-branch'|'tag-create'|'tag-delete'|'worktree-lock'|'worktree-unlock'|'worktree-remove'|'worktree-prune'|'remote-add'|'remote-remove'|'remote-rename'|'remote-set-url'|'cherry-pick'|'revert'|'reset'|'reword'|'squash'|'fixup'|'drop'|'operation-continue'|'operation-skip'|'operation-abort'|'operation-quit'|'resolve'|'unresolve'|'fetch'|'pull'|'push'|'push-tag'|'push-tags'|'remote-branch-delete'|'submodule-update'} op
+ * @property {string[][]} commands - Every git command run so far, as argv after "git"
+ * @property {boolean} [auto] - Started unasked (fetch-on-show): its failure is quiet
+ * @property {string} [lockPath] - What a failed job's error kind needs said with it — which of gitops's refusals it was is the job's Error.Kind ("refused", "stale", "locked", "dirty", "unmerged", "checked-out", "conflicts", "markers", "diverged", "rejected", "remote", "auth" or "published"): LockPath, the lock a "locked" job was stopped by; Branch and Worktree, the branch a refusal was about and, for one checked out elsewhere, the tree that has it out; Prefer, the way into a "diverged" pull the repository puts first ("merge" or "rebase"); Rejected and Reason, the remote refs a "rejected" push was turned down for and git's word for why; Remotes, those a "remote" publish could go to.
+ * @property {string} [branch]
+ * @property {string} [worktree]
+ * @property {string} [prefer]
+ * @property {string[]} [rejected]
+ * @property {string} [reason]
+ * @property {string[]} [remotes]
  */
 
 /**
@@ -490,6 +518,15 @@
  */
 
 /**
+ * agentRunModelConfig is the resolved model the engine sets on the run's
+ * conversation.
+ * @typedef {object} AgentRunModelConfig
+ * @property {string} provider
+ * @property {string} model
+ * @property {string} [thinking]
+ */
+
+/**
  * gitChangeRepo is one repository's part of a git-change: its path in the tree,
  * as the status card names it ("" for the root repository), and which parts of
  * its git state changed — "index", "refs", "head", "worktree", "operation".
@@ -499,38 +536,20 @@
  */
 
 /**
- * gitJob is one write as the client is told of it.
- * @typedef {object} GitJob
+ * Job is one job as clients are told of it.
+ * @typedef {object} Job
  * @property {string} id
- * @property {string} workspace - The workspace id the run named; "" is the project
- * @property {string} repo
- * @property {'stage'|'unstage'|'stage-all'|'unstage-all'|'stage-lines'|'unstage-lines'|'discard'|'discard-lines'|'undo-discard'|'ignore'|'commit'|'undo-commit'|'branch-create'|'switch'|'branch-rename'|'branch-upstream'|'branch-delete'|'merge'|'rebase'|'fast-forward'|'ref-restore'|'stash-save'|'stash-apply'|'stash-pop'|'stash-drop'|'stash-store'|'stash-branch'|'tag-create'|'tag-delete'|'worktree-lock'|'worktree-unlock'|'worktree-remove'|'worktree-prune'|'remote-add'|'remote-remove'|'remote-rename'|'remote-set-url'|'cherry-pick'|'revert'|'reset'|'reword'|'squash'|'fixup'|'drop'|'operation-continue'|'operation-skip'|'operation-abort'|'operation-quit'|'resolve'|'unresolve'|'fetch'|'pull'|'push'|'push-tag'|'push-tags'|'remote-branch-delete'|'submodule-update'} kind
- * @property {string[][]} commands - Every git command run so far, as argv after "git"
- * @property {string} state - "running", "done", "failed" or "cancelled"
- * @property {string} output - The last gitJobOutputMax bytes hooks printed
- * @property {boolean} [auto] - Started unasked (fetch-on-show): its failure is quiet
- * @property {Progress} [progress] - Progress is a network write's latest meter reading; nil before the first.
- * @property {string} [error] - Why a failed job failed: Error in English, ErrorMessage the same for the viewer to show translated when there is one, ErrorKind which of gitops's refusals it was ("refused", "stale", "locked", "dirty", "unmerged", "checked-out", "conflicts", "markers", "diverged", "rejected", "remote", "auth" or "published"; "" for any other failure), and LockPath the lock a "locked" job was stopped by.
- * @property {ServerText} [errorMessage]
- * @property {string} errorKind
- * @property {string} [lockPath]
- * @property {string} [branch] - Branch and Worktree are the branch a refusal was about and, for one checked out elsewhere, the tree that has it out — what the viewer needs to offer "Go to worktree" or a forced delete.
- * @property {string} [worktree]
- * @property {string} [prefer] - What the viewer offers instead of a failed network write: Prefer, the way into a "diverged" pull the repository puts first ("merge" or "rebase"); Rejected and Reason, the remote refs a "rejected" push was turned down for and git's word for why; Remotes, those a "remote" publish could go to.
- * @property {string[]} [rejected]
- * @property {string} [reason]
- * @property {string[]} [remotes]
- * @property {GitJobPrompt} [prompt] - Prompt is the question git is waiting on the user to answer, while it waits (git_askpass.go). Never the answer.
- * @property {Result} result
- */
-
-/**
- * agentRunModelConfig is the resolved model the engine sets on the run's
- * conversation.
- * @typedef {object} AgentRunModelConfig
- * @property {string} provider
- * @property {string} model
- * @property {string} [thinking]
+ * @property {string} kind - Whose job it is: "git"
+ * @property {string} workspace - The workspace id it was started under; "" is the project
+ * @property {'running'|'done'|'failed'|'cancelled'} state
+ * @property {string} output - The last OutputMax bytes it printed
+ * @property {JobProgress} [progress] - Progress is its meter's latest reading; nil before the first.
+ * @property {JobQuestion} [prompt] - Prompt is the question it is waiting on, while it waits. Never the answer.
+ * @property {JobError} [error] - Error is why it failed; nil unless State is Failed.
+ * @property {unknown} [detail] - Detail is what its kind says of it while it runs; Result what it left, once ended. Each is its kind's own shape.
+ * @property {unknown} [result]
+ * @property {number} startedAt - Unix milliseconds
+ * @property {number} [endedAt] - Unix milliseconds; 0 while it runs
  */
 
 /**
@@ -573,46 +592,35 @@
  */
 
 /**
- * Progress is one reading of a network write's --progress meter: the phase
- * git is in ("Receiving objects"), said by the remote end when Remote is set,
- * and how far through it git is. Phases are git's English words — network
- * writes run under LC_ALL=C — for the client to translate the ones it knows.
- * @typedef {object} Progress
+ * Progress is one reading of a job's meter: the phase it is in, said by the far
+ * end it talks to when Source is "remote", and how far through that phase.
+ * @typedef {object} JobProgress
  * @property {string} phase
- * @property {boolean} [remote]
- * @property {number} percent - -1 when git gives only a count
- * @property {number} done - objects (or deltas) so far
+ * @property {string} [source] - "" the job itself, "remote" the far end
+ * @property {number} percent - -1 when only a count is known
+ * @property {number} done - units so far
  * @property {number} [total] - of how many; 0 when not known
- * @property {string} [rate] - e.g. "2.00 MiB/s", when git says
+ * @property {string} [rate] - e.g. "2.00 MiB/s", when known
  * @property {boolean} [finished]
  */
 
 /**
- * gitJobPrompt is a question a job is waiting on: Kind says what the viewer
- * shows for it (gitaskpass.Kind: "text", "secret" or "confirm").
- * @typedef {object} GitJobPrompt
+ * Question is what a job is waiting on the user to answer. Kind says how to
+ * ask it: "text" typed in the open, "secret" typed masked, "confirm" a yes or no.
+ * @typedef {object} JobQuestion
  * @property {string} id
  * @property {string} text
  * @property {string} kind
  */
 
 /**
- * Result is what a write leaves the client to know: the commit HEAD names
- * after a commit or an undo, and the recovery point a discard made, which is
- * what undoing it names. Sha, Stash and Message are what undoing a delete, a
- * drop, a stash or a reset needs. Saved is the recovery point a forced worktree
- * removal or a hard reset left: what undoing the reset names in Discard, and
- * for a removal, which nothing undoes, what the user can still reach. Branch,
- * with Sha, is where a submodule update found the submodule's HEAD, which
- * switching it back to undoes the update.
- * @typedef {object} Result
- * @property {string} [head]
- * @property {string} [discard]
- * @property {string} [sha]
- * @property {string} [stash]
- * @property {string} [message]
- * @property {string} [saved]
- * @property {string} [branch]
+ * Error is why a failed job failed: Message in English, Text the same for a
+ * client to show translated when there is one, and Kind which of its kind's
+ * refusals it was ("" for any other failure).
+ * @typedef {object} JobError
+ * @property {string} kind
+ * @property {string} message
+ * @property {ServerText} [text]
  */
 
 /**

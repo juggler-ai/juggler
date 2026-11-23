@@ -24,6 +24,15 @@ diff-viewer {
     box-shadow: var(--shadow-md);
 }
 
+/* createDiffViewer({fill: true}): the host frames it, and it takes the room. */
+diff-viewer.diff-viewer-fill {
+    flex: 1 1 auto;
+    max-height: none;
+    min-height: 0;
+    border: 0;
+    box-shadow: none;
+}
+
 diff-viewer diff-content {
     display: flex;
     flex-direction: column;
@@ -540,6 +549,13 @@ diff-viewer .diff-file-comment-list.stale .diff-comment {
     gap: var(--stack-gap-tight) var(--space-12);
     color: var(--text-secondary);
     font-size: var(--font-size-meta);
+}
+
+/* A host's control in the scope row (setScopeControl): as wide as it needs,
+   and never wider than the row. */
+.review-panel__scope-control {
+    flex: 0 1 auto;
+    max-width: 100%;
 }
 
 /* The description gives way to a host's control rather than squeezing it: below

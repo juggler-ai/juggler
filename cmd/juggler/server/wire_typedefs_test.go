@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"juggler/cmd/juggler/core"
+	"juggler/cmd/juggler/jobs"
 	"juggler/cmd/juggler/msg"
 	"juggler/cmd/juggler/wireschema"
 	"juggler/cmd/juggler/worker"
@@ -34,7 +35,9 @@ func frameTypes(types ...frameType) []string {
 
 // serverFrameTypedefs is every frame with a struct, as that struct. A type
 // two structs send (conversations-changed) has an entry for each, and one
-// struct sent under several types (a bare frame) is an entry per type.
+// struct sent under several types (a bare frame) is an entry per type. A
+// payload a frame carries opaquely (a topic's events) is an entry that travels
+// neither way.
 var serverFrameTypedefs = []frameTypedef{
 	{entry: wireschema.Entry{Name: "FileChangeFrame", Value: fileChangeFrame{}, Types: frameTypes(frameFileChange)}, out: true},
 	{entry: wireschema.Entry{Name: "PluginChangedFrame", Value: pluginChangedFrame{}, Types: frameTypes(framePluginChanged)}, out: true},
@@ -60,8 +63,7 @@ var serverFrameTypedefs = []frameTypedef{
 	{entry: wireschema.Entry{Name: "ErrorFrame", Value: textFrame{}, Types: frameTypes(frameError)}, out: true},
 	{entry: wireschema.Entry{Name: "ServerFullFrame", Value: messageFrame{}, Types: frameTypes(frameServerFull)}, out: true},
 	{entry: wireschema.Entry{Name: "ServerShutdownFrame", Value: messageFrame{}, Types: frameTypes(frameServerShutdown)}, out: true},
-	{entry: wireschema.Entry{Name: "GitChangeFrame", Value: gitChangeFrame{}, Types: frameTypes(frameGitChange)}, out: true},
-	{entry: wireschema.Entry{Name: "GitJobFrame", Value: gitJobFrame{}, Types: frameTypes(frameGitJob)}, out: true},
+	{entry: wireschema.Entry{Name: "TopicEventFrame", Value: topicEventFrame{}, Types: frameTypes(frameTopicEvent)}, out: true},
 	{entry: wireschema.Entry{Name: "RunAgentFrame", Value: runAgentFrame{}, Types: frameTypes(frameRunAgent)}, out: true},
 	{entry: wireschema.Entry{Name: "CancelAgentRunFrame", Value: cancelAgentRunFrame{}, Types: frameTypes(frameCancelAgentRun)}, out: true},
 	{entry: wireschema.Entry{Name: "AgentRunProgressFrame", Value: agentRunProgressFrame{}, Types: frameTypes(frameAgentRunProgress)}, out: true, in: true},
@@ -73,7 +75,13 @@ var serverFrameTypedefs = []frameTypedef{
 	{entry: wireschema.Entry{Name: "ShellStartFrame", Value: ShellStartRequest{}, Types: frameTypes(frameShellStart)}, in: true},
 	{entry: wireschema.Entry{Name: "ShellCancelFrame", Value: ShellCancelRequest{}, Types: frameTypes(frameShellCancel)}, in: true},
 	{entry: wireschema.Entry{Name: "ViewerRelayRequestFrame", Value: ViewerRelay{}, Types: frameTypes(frameViewerRelay)}, in: true},
-	{entry: wireschema.Entry{Name: "GitWatchFrame", Value: GitWatchRequest{}, Types: frameTypes(frameGitWatch)}, in: true},
+	{entry: wireschema.Entry{Name: "SubscriptionsFrame", Value: SubscriptionsRequest{}, Types: frameTypes(frameSubscriptions)}, in: true},
+
+	// What a topic-event carries for the git and jobs topics, and what a git
+	// job's detail holds. Not frames, so neither way.
+	{entry: wireschema.Entry{Name: "GitChangeEvent", Value: gitChangeEvent{}, Types: []string{gitEventChange}}},
+	{entry: wireschema.Entry{Name: "JobEvent", Value: jobEvent{}, Types: []string{jobEventType}}},
+	{entry: wireschema.Entry{Name: "GitJobDetail", Value: gitJobDetail{}}},
 	{entry: wireschema.Entry{Name: "AgentRunStartFrame", Value: AgentRunStart{}, Types: frameTypes(frameAgentRunStart)}, in: true},
 	{entry: wireschema.Entry{Name: "AgentRunCancelFrame", Value: AgentRunCancel{}, Types: frameTypes(frameAgentRunCancel)}, in: true},
 }
@@ -101,6 +109,9 @@ func TestWireTypedefs(t *testing.T) {
 		Rename: map[reflect.Type]string{
 			reflect.TypeFor[msg.Message]():   "ServerText",
 			reflect.TypeFor[workspace.Row](): "WorkspaceRow",
+			reflect.TypeFor[jobs.Error]():    "JobError",
+			reflect.TypeFor[jobs.Progress](): "JobProgress",
+			reflect.TypeFor[jobs.Question](): "JobQuestion",
 		},
 	}, entries)
 	if err != nil {

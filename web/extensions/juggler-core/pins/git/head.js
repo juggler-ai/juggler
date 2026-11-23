@@ -47,7 +47,7 @@ const SPIN_TURN_MS = 1200;
 /**
  * @typedef {object} HeadState
  * @property {string} repoName - The repository's name.
- * @property {import('juggler/pinboard-item-type').PinGitChanges|null} read - Its last changes read.
+ * @property {import('../../lib/git-client.js').GitChanges|null} read - Its last changes read.
  * @property {number} changed - Changed files.
  * @property {Primary} primary - The action.
  * @property {boolean} fetching - The repository is being fetched unasked.

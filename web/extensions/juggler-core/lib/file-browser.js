@@ -40,11 +40,12 @@
 import { expandDirectory, glob, openPath } from 'juggler/ops';
 import { translator, formatDate, formatNumber, formatRelativeTime } from 'juggler/i18n';
 import { formatFileSizeForDisplay } from 'juggler/item-utils';
-import { canPinSource, createElement, createFileActions, errorText, injectStylesOnce, pinSource } from 'juggler/ui';
+import { attachSplitDrag, canPinSource, createElement, createFileActions, errorText, injectStylesOnce, pinSource } from 'juggler/ui';
 import { debounce } from 'juggler/utils/debounce';
 import { reconcileRows, setText } from './reconcile.js';
 import { fetchLiveFile, renderLiveFileBody } from './live-file.js';
 import { KIND_LABELS, fileIconSvg, fileKind } from './file-kinds.js';
+import { gitClientOf } from './git-client.js';
 
 const t = translator('@juggler/core');
 
@@ -1231,7 +1232,7 @@ export function createFileBrowser(options) {
   const readGit = () => {
     gitLetters.clear();
     gitDirs.clear();
-    const snapshot = context().services?.git?.status?.();
+    const snapshot = git?.status();
     if (!snapshot?.root) return;
     for (const repo of snapshot.repos || []) {
       const repoRoot = repo.path ? childPath(snapshot.root, repo.path) : snapshot.root;
@@ -1846,24 +1847,15 @@ export function createFileBrowser(options) {
     }
   });
 
-  divider.addEventListener('pointerdown', (event) => {
-    event.preventDefault();
-    divider.setPointerCapture(event.pointerId);
-    const across = getComputedStyle(splitBox).flexDirection === 'row';
-    /** @param {PointerEvent} move - The drag. */
-    const onMove = (move) => {
-      const box = splitBox.getBoundingClientRect();
-      const share = across ? (move.clientX - box.left) / box.width : (move.clientY - box.top) / box.height;
+  attachSplitDrag(divider, {
+    box: () => splitBox.getBoundingClientRect(),
+    // Side by side or stacked, as the room the browser has decides.
+    axis: () => (getComputedStyle(splitBox).flexDirection === 'row' ? 'x' : 'y'),
+    onMove: (share) => {
       split = Math.round(Math.max(0.15, Math.min(0.85, share)) * 100) / 100;
       splitBox.style.setProperty('--fb-split', String(split));
-    };
-    const onUp = () => {
-      divider.removeEventListener('pointermove', onMove);
-      persist();
-    };
-    divider.addEventListener('pointermove', onMove);
-    divider.addEventListener('pointerup', onUp, { once: true });
-    divider.addEventListener('pointercancel', onUp, { once: true });
+    },
+    onEnd: persist,
   });
 
   const rereadPending = debounce(() => {
@@ -1877,6 +1869,7 @@ export function createFileBrowser(options) {
   // Only the directories on screen, and only when something in them moved: a
   // write to one file is one directory to re-read, not a tree.
   const services = context().services;
+  const git = services ? gitClientOf(services, signal) : null;
   const stopWatching = services?.files?.onChange?.((changes) => {
     for (const change of changes) {
       const dir = parentDir(change.path);
@@ -1887,7 +1880,7 @@ export function createFileBrowser(options) {
     rereadPending();
   }) || (() => {});
 
-  const stopGit = services?.git?.onChange?.(() => {
+  const stopGit = git?.onChange(() => {
     readGit();
     if (live()) render();
   }) || (() => {});
@@ -1903,7 +1896,7 @@ export function createFileBrowser(options) {
     for (const dir of [root, ...expanded]) {
       if (entries.has(dir)) void readDirectory(dir);
     }
-    void services?.git?.refresh?.();
+    void git?.refresh();
     if (previewPath) void showPreview(previewBody.scrollTop);
     if (filter) void runFilter();
   };

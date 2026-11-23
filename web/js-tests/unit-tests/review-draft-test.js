@@ -7,7 +7,7 @@
  * they will be sent to, in the conversation's own document.
  *
  * Two halves, because a draft is reached from two directions. The model half is
- * `MessageThread.gitReviewDraft` — the root's in conversation metadata, a
+ * `MessageThread.reviewDraft` — the root's in conversation metadata, a
  * sub-thread's on its own container, the same split the composer draft uses and
  * for the same reason. The seam half is `services.review`, which is all a pin
  * ever sees: it reads and writes the draft belonging to whichever thread the
@@ -74,7 +74,7 @@ class ReviewProbePin extends PinboardItemType {
  */
 const comment = (id, body, extra = {}) => ({
   id,
-  repo: '',
+  group: '',
   path: 'web/js/app.js',
   side: 'new',
   startLine: 12,
@@ -170,7 +170,7 @@ export async function runTests() {
     // --- the model ------------------------------------------------------------
 
     await run('an empty thread reads as a well-formed empty draft', () => {
-      const draft = root.gitReviewDraft;
+      const draft = root.reviewDraft;
       assert(draft.version === 1, `expected version 1, got ${JSON.stringify(draft.version)}`);
       assert(draft.base === 'head', `the only scope there is, got ${JSON.stringify(draft.base)}`);
       assert(Array.isArray(draft.comments) && draft.comments.length === 0,
@@ -178,8 +178,8 @@ export async function runTests() {
     });
 
     await run('a comment written on the root comes back from the root', () => {
-      root.gitReviewDraft = { comments: [comment('c1', 'This loop runs twice')] };
-      const draft = root.gitReviewDraft;
+      root.reviewDraft = { comments: [comment('c1', 'This loop runs twice')] };
+      const draft = root.reviewDraft;
       assert(draft.comments.length === 1, `expected the comment, got ${draft.comments.length}`);
       assert(draft.comments[0].body === 'This loop runs twice',
         `the reader's own words, got ${JSON.stringify(draft.comments[0].body)}`);
@@ -190,23 +190,23 @@ export async function runTests() {
     });
 
     await run('the root and a sub-thread are two different reviews', () => {
-      childThread.gitReviewDraft = { comments: [comment('c2', 'Only the child said this')] };
-      assert(root.gitReviewDraft.comments.length === 1, 'the root keeps its own');
-      assert(root.gitReviewDraft.comments[0].id === 'c1',
-        `the root's comment is the root's, got ${root.gitReviewDraft.comments[0].id}`);
-      assert(childThread.gitReviewDraft.comments.length === 1, 'and the child keeps its own');
-      assert(childThread.gitReviewDraft.comments[0].id === 'c2',
-        `a sub-thread's review is its own, got ${childThread.gitReviewDraft.comments[0].id}`);
+      childThread.reviewDraft = { comments: [comment('c2', 'Only the child said this')] };
+      assert(root.reviewDraft.comments.length === 1, 'the root keeps its own');
+      assert(root.reviewDraft.comments[0].id === 'c1',
+        `the root's comment is the root's, got ${root.reviewDraft.comments[0].id}`);
+      assert(childThread.reviewDraft.comments.length === 1, 'and the child keeps its own');
+      assert(childThread.reviewDraft.comments[0].id === 'c2',
+        `a sub-thread's review is its own, got ${childThread.reviewDraft.comments[0].id}`);
     });
 
     await run('a draft is a copy, not a handle on the document', () => {
-      const draft = root.gitReviewDraft;
+      const draft = root.reviewDraft;
       draft.comments.push(comment('c-not-really', 'Written into the copy'));
       draft.comments[0].body = 'Rewritten in the copy';
-      assert(root.gitReviewDraft.comments.length === 1,
+      assert(root.reviewDraft.comments.length === 1,
         'pushing into what a read handed back must not reach the document');
-      assert(root.gitReviewDraft.comments[0].body === 'This loop runs twice',
-        `nor must editing it, got ${JSON.stringify(root.gitReviewDraft.comments[0].body)}`);
+      assert(root.reviewDraft.comments[0].body === 'This loop runs twice',
+        `nor must editing it, got ${JSON.stringify(root.reviewDraft.comments[0].body)}`);
     });
 
     await run('a record made of junk normalises rather than throwing', () => {
@@ -231,7 +231,7 @@ export async function runTests() {
       const draft = normalizeReviewDraft({
         comments: [
           comment('scoped', 'On the branch', { scope: '  main...HEAD ', scopeLabel: 'main...HEAD · aaaaaaa..bbbbbbb' }),
-          comment('default', 'In the tree', { scope: '@uncommitted', scopeLabel: 'Working tree against HEAD' }),
+          comment('default', 'In the tree', { scope: '   ', scopeLabel: 'Working tree against HEAD' }),
           comment('old', 'Written before scopes'),
           comment('junk', 'Junk scope', { scope: 42, scopeLabel: ['x'] }),
         ],
@@ -244,11 +244,11 @@ export async function runTests() {
       assert(!('scope' in old), 'a comment written before scopes is a comment in the default one');
       assert(!('scope' in junk) && !('scopeLabel' in junk), `a scope that is not a string is no scope: ${JSON.stringify(junk)}`);
 
-      childThread.gitReviewDraft = { comments: [comment('round', 'Trip', { scope: '@staged', scopeLabel: 'Staged' })] };
-      const back = childThread.gitReviewDraft.comments[0];
+      childThread.reviewDraft = { comments: [comment('round', 'Trip', { scope: '@staged', scopeLabel: 'Staged' })] };
+      const back = childThread.reviewDraft.comments[0];
       assert(back.scope === '@staged' && back.scopeLabel === 'Staged',
         `the scope survives the document: ${JSON.stringify(back)}`);
-      childThread.gitReviewDraft = null;
+      childThread.reviewDraft = null;
     });
 
     await run('a quoted line is clamped, and the words around it are not', () => {
@@ -267,27 +267,77 @@ export async function runTests() {
     });
 
     await run('clearing a draft leaves nothing behind on either kind of thread', () => {
-      childThread.gitReviewDraft = null;
-      assert(childThread.gitReviewDraft.comments.length === 0,
+      childThread.reviewDraft = null;
+      assert(childThread.reviewDraft.comments.length === 0,
         'a cleared sub-thread draft reads as empty');
-      assert(childThread.container.get('gitReviewDraft') === undefined,
+      assert(childThread.container.get('reviewDraft') === undefined,
         'and the field goes, rather than being left as an empty husk');
-      root.gitReviewDraft = { comments: [] };
-      assert(root.gitReviewDraft.comments.length === 0, 'a cleared root draft reads as empty too');
+      root.reviewDraft = { comments: [] };
+      assert(root.reviewDraft.comments.length === 0, 'a cleared root draft reads as empty too');
     });
 
     await run('a review draft and a composer draft do not touch each other', () => {
       root.draft = { text: 'half-written question' };
-      root.gitReviewDraft = { comments: [comment('c3', 'A comment')] };
+      root.reviewDraft = { comments: [comment('c3', 'A comment')] };
       assert(root.draft.text === 'half-written question',
         `writing a review must not disturb the composer, got ${JSON.stringify(root.draft.text)}`);
       root.draft = { text: 'still here' };
-      assert(root.gitReviewDraft.comments.length === 1,
+      assert(root.reviewDraft.comments.length === 1,
         'and writing the composer must not disturb the review');
-      root.gitReviewDraft = null;
+      root.reviewDraft = null;
       assert(root.draft.text === 'still here',
         `nor must clearing one clear the other, got ${JSON.stringify(root.draft.text)}`);
       root.draft = null;
+    });
+
+    // --- a draft written by v0.8.2 --------------------------------------------
+    // That release kept the draft under `gitReviewDraft` — in conversation
+    // metadata for the root, on the thread container for a sub-thread — and
+    // named each comment's group `repo`. Conversations saved then still hold it.
+
+    await run('a v0.8.2 draft loads, round-trips in the new shape, and stays cleared', async () => {
+      const legacy = await createTestConversation(session);
+      const legacyRoot = legacy.rootMessageThread;
+      const legacyChild = legacy.resolveMessageThread(legacyRoot.createSubThread({ goal: 'Old review' }).threadId);
+      const old = (/** @type {string} */ id, /** @type {string} */ repo) => {
+        const { group: _group, repo: _repo, ...rest } = /** @type {any} */ (comment(id, `Written by 0.8.2 in ${repo}`));
+        return { ...rest, repo };
+      };
+      legacy.setMetadata('gitReviewDraft', { version: 1, base: 'head', comments: [old('r-old', 'juggler')] });
+      legacyChild.container.set('gitReviewDraft', { version: 1, base: 'head', comments: [old('c-old', 'sub/repo')] });
+
+      for (const [where, thread] of [['root', legacyRoot], ['sub-thread', legacyChild]]) {
+        const loaded = thread.reviewDraft;
+        assert(loaded.comments.length === 1, `${where}: the old draft must load, got ${JSON.stringify(loaded)}`);
+        const [only] = loaded.comments;
+        assert(only.group === (where === 'root' ? 'juggler' : 'sub/repo') && !('repo' in only),
+          `${where}: \`repo\` is read as \`group\`, got ${JSON.stringify(only)}`);
+        let told = 0;
+        const stop = thread.observeReviewDraft(() => { told++; });
+        thread.reviewDraft = loaded;
+        stop();
+        assert(told > 0, `${where}: a write is observed`);
+        const back = thread.reviewDraft.comments;
+        assert(back.length === 1 && back[0].id === only.id && back[0].group === only.group,
+          `${where}: it round-trips, got ${JSON.stringify(back)}`);
+      }
+
+      const rootStored = /** @type {any} */ (legacy.getMetadata('reviewDraft'));
+      assert(rootStored?.comments?.[0]?.group === 'juggler' && !('repo' in rootStored.comments[0]),
+        `the root writes only the new shape, got ${JSON.stringify(rootStored)}`);
+      assert(legacyChild.container.get('gitReviewDraft') === undefined,
+        'a sub-thread write takes the old key away');
+      const childStored = legacyChild.container.get('reviewDraft');
+      const childPlain = childStored?.toJSON ? childStored.toJSON() : childStored;
+      assert(childPlain?.comments?.[0]?.group === 'sub/repo' && !('repo' in childPlain.comments[0]),
+        `the sub-thread writes only the new shape, got ${JSON.stringify(childPlain)}`);
+
+      legacyRoot.reviewDraft = null;
+      legacyChild.reviewDraft = null;
+      assert(legacyRoot.reviewDraft.comments.length === 0,
+        'a cleared root draft must not bring the 0.8.2 comments back');
+      assert(legacyChild.reviewDraft.comments.length === 0,
+        'nor a cleared sub-thread draft');
     });
 
     // --- the seam a pin is handed ---------------------------------------------
@@ -307,7 +357,7 @@ export async function runTests() {
       const draft = service().draft();
       assert(draft.comments.length === 1, `expected the comment back, got ${draft.comments.length}`);
       assert(draft.comments[0].id === 's1', 'and it is the one that was saved');
-      assert(root.gitReviewDraft.comments[0].id === 's1',
+      assert(root.reviewDraft.comments[0].id === 's1',
         'a service write lands on the thread itself, not beside it');
     });
 
@@ -363,14 +413,14 @@ export async function runTests() {
       content.setActiveContext(activeContext(conversation, null));
       assert(service().draft().comments[0].id === 's1',
         'and the first conversation\'s comments stayed where they were written');
-      assert(other.rootMessageThread.gitReviewDraft.comments[0].id === 'o1',
+      assert(other.rootMessageThread.reviewDraft.comments[0].id === 'o1',
         'while the other\'s went to the other');
     });
 
     await run('clearing empties the draft and says so', async () => {
       await service().clear();
       assert(service().draft().comments.length === 0, 'a cleared review has no comments');
-      assert(root.gitReviewDraft.comments.length === 0, 'in the document as well as in the answer');
+      assert(root.reviewDraft.comments.length === 0, 'in the document as well as in the answer');
     });
 
     // --- what must be refused --------------------------------------------------
@@ -422,7 +472,7 @@ export async function runTests() {
       assert(detached.draft().comments[0].id === 'keep',
         'a board reading the same conversation reads the same comments');
       await detached.save({ comments: [comment('keep', 'The one already there'), comment('b1', 'From the board')] });
-      assert(root.gitReviewDraft.comments.length === 2,
+      assert(root.reviewDraft.comments.length === 2,
         'and what it writes goes to the conversation, not to the window');
     });
 

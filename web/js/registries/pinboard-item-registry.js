@@ -74,6 +74,48 @@ class PinboardItemRegistry extends BaseRegistry {
   }
 
   /**
+   * Every enabled type that can pin a source, each with the config to pin it
+   * with and what to call the action, in the order {@link resolveSource} asks
+   * them. For a surface that offers each of them — a workspace's panel draws a
+   * button per offer — where `resolveSource` is for one that offers the first.
+   * A type that throws while asked is skipped, as there.
+   * @param {import('juggler/pinboard-item-type').PinSource} source - The source on offer.
+   * @returns {{typeId: string, label: string, config: Record<string, unknown>}[]} The offers, possibly none.
+   */
+  offersFor(source) {
+    /** @type {{typeId: string, label: string, config: Record<string, unknown>}[]} */
+    const offers = [];
+    for (const { id, class: Type } of this._sourceOrder()) {
+      try {
+        if (!Type.canPinSource?.(source)) continue;
+        const config = Type.configFromSource?.(source) ?? null;
+        if (!config) continue;
+        const label = Type.sourceLabel?.(source);
+        offers.push({ typeId: id, label: typeof label === 'string' ? label : '', config });
+      } catch (err) {
+        console.error(`[PinboardItemRegistry] Item type "${id}" failed to offer for a source:`, err);
+      }
+    }
+    return offers;
+  }
+
+  /**
+   * The enabled types in the order a source is offered to them: registration
+   * order, with the `sourceFallback` types after every other.
+   * @returns {{id: string, class: typeof import('juggler/pinboard-item-type').default}[]} The types.
+   * @private
+   */
+  _sourceOrder() {
+    const all = this.getAll();
+    /**
+     * @param {{id: string, class: typeof import('juggler/pinboard-item-type').default}} entry - A registered item type.
+     * @returns {boolean} True when the type claims a whole kind of source.
+     */
+    const isFallback = (entry) => entry.class?.MANIFEST?.sourceFallback === true;
+    return [...all.filter((entry) => !isFallback(entry)), ...all.filter(isFallback)];
+  }
+
+  /**
    * Find the enabled type that can pin a source descriptor, and the config to pin
    * it with. This is the indirection that keeps a file properties panel from having
    * to name the File pin class: the panel describes what it has, the registry finds
@@ -88,15 +130,7 @@ class PinboardItemRegistry extends BaseRegistry {
    * @returns {{typeId: string, config: NonNullable<ReturnType<typeof import('juggler/pinboard-item-type').default.configFromSource>>}|null} The type and config, or null if nothing can pin it.
    */
   resolveSource(source) {
-    const all = this.getAll();
-    /**
-     * @param {{id: string, class: typeof import('juggler/pinboard-item-type').default}} entry - A registered item type.
-     * @returns {boolean} True when the type claims a whole kind of source.
-     */
-    const isFallback = (entry) => entry.class?.MANIFEST?.sourceFallback === true;
-    const ordered = [...all.filter((entry) => !isFallback(entry)), ...all.filter(isFallback)];
-
-    for (const { id, class: Type } of ordered) {
+    for (const { id, class: Type } of this._sourceOrder()) {
       let config = null;
       try {
         if (!Type.canPinSource?.(source)) continue;

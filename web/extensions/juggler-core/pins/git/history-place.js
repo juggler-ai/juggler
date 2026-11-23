@@ -135,16 +135,16 @@ const FILTER_FIELDS = /** @type {const} */ ([
 ]);
 
 /**
- * @typedef {import('juggler/pinboard-item-type').PinGitService} PinGitService
+ * @typedef {import('../../lib/git-client.js').GitClient} GitClient
  * @typedef {import('juggler/pinboard-item-type').PinWorkspaces} PinWorkspaces
- * @typedef {import('juggler/pinboard-item-type').PinGitLogRow} PinGitLogRow
- * @typedef {import('juggler/pinboard-item-type').PinGitCommit} PinGitCommit
+ * @typedef {import('../../lib/git-client.js').GitLogRow} GitLogRow
+ * @typedef {import('../../lib/git-client.js').GitCommit} GitCommit
  * @typedef {import('./history-model.js').Chip} Chip
  */
 
 /**
  * @typedef {object} HistoryHost
- * @property {() => PinGitService} git - The pin's git service, as it now is.
+ * @property {() => GitClient} git - The pin's git service, as it now is.
  * @property {() => PinWorkspaces|undefined} workspaces - The session's workspaces.
  * @property {() => {workspace?: string}} workspaceOption - The tree option for every call.
  * @property {() => string} root - The tree's root on disk.
@@ -216,9 +216,9 @@ function longDate(seconds) {
 export function createHistoryPlace(host) {
   let live = true;
   let opened = false;
-  /** @type {import('juggler/pinboard-item-type').PinGitRefs|null} */
+  /** @type {import('../../lib/git-client.js').GitRefs|null} */
   let refs = null;
-  /** @type {import('juggler/pinboard-item-type').PinGitWorktrees['trees']} */
+  /** @type {import('../../lib/git-client.js').GitWorktrees['trees']} */
   let trees = [];
   /** @type {Map<string, Chip[]>} */
   let chips = new Map();
@@ -237,10 +237,10 @@ export function createHistoryPlace(host) {
   let wanted = '';
   /** Whether it is shown by id, outside the list. */
   let outside = false;
-  /** @type {PinGitCommit|null} Its read, once it lands. */
+  /** @type {GitCommit|null} Its read, once it lands. */
   let commit = null;
   let commitError = '';
-  /** @type {PinGitCommit|null} The commit the panel was last given. */
+  /** @type {GitCommit|null} The commit the panel was last given. */
   let paneled = null;
   /** What the detail was last drawn from, so a read that changed none of it leaves it (and a click on it) alone. */
   let detailSig = '';
@@ -359,7 +359,7 @@ export function createHistoryPlace(host) {
   };
 
   /**
-   * @param {PinGitLogRow} row - The commit.
+   * @param {GitLogRow} row - The commit.
    * @param {number} _index - Its position.
    * @param {{entering: number[], columns: number, cap: number}} graph - Its lanes.
    * @returns {HTMLElement} Its row.
@@ -395,7 +395,7 @@ export function createHistoryPlace(host) {
    * The working tree's changes, as their row: what it is, how many files, and
    * that a click shows them.
    * @param {HTMLElement} el - The row.
-   * @param {PinGitLogRow} row - Its place in the graph.
+   * @param {GitLogRow} row - Its place in the graph.
    * @param {{entering: number[], columns: number, cap: number}} graph - Its lanes.
    * @returns {HTMLElement} The row.
    */
@@ -534,7 +534,7 @@ export function createHistoryPlace(host) {
     if (field === 'message' && SHA_LIKE.test(text)) {
       const abort = new AbortController();
       filterAbort = abort;
-      /** @type {PinGitCommit|null} */
+      /** @type {GitCommit|null} */
       let named = null;
       try {
         named = /** @type {any} */ (await git().read('commit', { repo: host.repo(), ...ws(), commit: text, signal: abort.signal }));
@@ -721,7 +721,7 @@ export function createHistoryPlace(host) {
    * @param {Element} anchor - What asked.
    */
   const reword = async (rev, expectHead, anchor) => {
-    /** @type {PinGitCommit|null} */
+    /** @type {GitCommit|null} */
     let known = commit?.sha === rev ? commit : null;
     if (!known) {
       rewordAbort?.abort();
@@ -1296,7 +1296,8 @@ export function createHistoryPlace(host) {
     handleKey: (event) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return false;
       const target = event.target instanceof Element ? event.target : null;
-      if (target?.closest('.review-panel') && event.key !== 'Escape') return false;
+      // The files panel reads its own keys; only Escape comes back out of it.
+      if (target && panel?.element.contains(target) && event.key !== 'Escape') return false;
       switch (event.key) {
         case 'j': case 'ArrowDown':
           holding = event.repeat;

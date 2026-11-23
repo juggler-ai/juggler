@@ -356,25 +356,20 @@ func (s *Server) setupRoutes() {
 
 	// API routes
 	api := s.router.PathPrefix("/api").Subrouter()
+	// The agent's tool calls, and the user's client acting for the user (see
+	// handlers.OpsAPI for who may call what through each).
 	api.HandleFunc("/ops/call", s.opsAPI.HandleOperationCall).Methods("POST")
+	api.HandleFunc("/ops/client", s.opsAPI.HandleClientCall).Methods("POST")
 	api.HandleFunc(apiRoute(apipaths.OneShot), s.handleOneShot).Methods("POST")
 	api.HandleFunc("/completions/files", s.completionsAPI.HandleFileCompletions).Methods("GET")
 	api.HandleFunc("/completions/path", s.completionsAPI.HandlePathCompletions).Methods("GET")
 	api.HandleFunc("/completions/exists", s.completionsAPI.HandlePathExists).Methods("GET")
-	api.HandleFunc("/git/diff", s.gitStatusAPI.HandleGitDiff).Methods("GET")
-	api.HandleFunc("/git/review", s.gitStatusAPI.HandleGitReview).Methods("GET")
-	api.HandleFunc("/git/status", s.gitStatusAPI.HandleGitStatus).Methods("GET")
-	api.HandleFunc("/git/read", s.gitStatusAPI.HandleGitRead).Methods("GET")
-	// The git client's writes, run as jobs (see git_jobs.go).
-	api.HandleFunc("/git/run", s.handleGitRun).Methods("POST")
-	api.HandleFunc("/git/jobs", s.handleGitJobs).Methods("GET")
-	api.HandleFunc("/git/jobs/cancel", s.handleGitJobCancel).Methods("POST")
-	api.HandleFunc("/git/jobs/answer", s.handleGitJobAnswer).Methods("POST")
-	api.HandleFunc("/git/fetch-on-show", s.handleGitFetchOnShow).Methods("POST")
-	// Which conversation wrote which file version (see git_attribute.go).
-	api.HandleFunc("/git/attribute", s.handleGitAttribute).Methods("POST")
-	// What a conversation says about why files changed, for a commit message (see git_digest.go).
-	api.HandleFunc("/git/conversation-digest", s.handleGitConversationDigest).Methods("GET")
+	// Every job, of any kind (see jobs.go).
+	api.HandleFunc("/jobs", s.handleJobs).Methods("GET")
+	api.HandleFunc("/jobs/cancel", s.handleJobCancel).Methods("POST")
+	api.HandleFunc("/jobs/answer", s.handleJobAnswer).Methods("POST")
+	// A tool saying it has just written a file (see tool_writes.go).
+	api.HandleFunc("/tool-writes", s.handleToolWrite).Methods("POST")
 	api.HandleFunc("/providers", s.handleProviders).Methods("GET")
 	api.HandleFunc("/providers/refresh", s.handleRefreshProviders).Methods("POST")
 	api.HandleFunc("/providers/usage", s.handleProviderUsageStats).Methods("GET")

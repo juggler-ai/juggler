@@ -812,6 +812,7 @@
   "Show every git command this pin ran": "Afficher toutes les commandes git exécutées par cette épingle",
   "Show how far the visible conversation is through its plan and todo list, while either has work left.": "Afficher où en est la conversation affichée dans son plan et sa liste de tâches, tant que l’un des deux a du travail restant.",
   "Show in Changes": "Afficher dans Modifications",
+  "Show in Git view": "Afficher dans la vue Git",
   "Show in History": "Afficher dans l’historique",
   "Show log": "Afficher le journal",
   "Show on Pinboard": "Afficher sur le Pinboard",
@@ -1337,5 +1338,8 @@
   "… (truncated)": "… (tronqué)",
   "…{count} more not shown": "…{count} autres non affichés",
   "↑{ahead} ↓{behind} {upstream}": "↑{ahead} ↓{behind} {upstream}",
-  "⚠ Write outside the project folder: {path}": "⚠ Écriture hors du dossier du projet : {path}"
+  "⚠ Write outside the project folder: {path}": "⚠ Écriture hors du dossier du projet : {path}",
+  "The git command failed.": "La commande git a échoué.",
+  "The git command was cancelled.": "La commande git a été annulée.",
+  "The server did not say which git job it started.": "Le serveur n’a pas indiqué quelle tâche git il a lancée."
 }

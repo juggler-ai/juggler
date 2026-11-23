@@ -311,9 +311,12 @@ export function pressesAnchor(target, anchor) {
  * @param {object} opts
  * @param {string} opts.id - Unique popup id (for mutual exclusion).
  * @param {() => void} opts.onClose - Idempotent callback that closes this popup.
- * @param {string[]} [opts.insideSelectors] - CSS selectors whose subtree counts
- *   as "inside". A click matching none of them dismisses the popup. Pass
- *   selectors (not elements): the popup surface is often detached to <body>.
+ * @param {(string|Element)[]} [opts.insideSelectors] - CSS selectors, or
+ *   elements, whose subtree counts as "inside". A click in none of them
+ *   dismisses the popup. An element is matched wherever it is in the document,
+ *   so a surface relocated to <body> can be passed as itself.
+ * @param {() => Iterable<Element>} [opts.insideAlso] - More elements counted as
+ *   inside, read at each press: the popups open from inside this one.
  * @param {boolean} [opts.nested=false] - The popup opens from a control inside
  *   another open popup (a field's completion list in the project picker): it
  *   does not announce itself, so the popup it sits in stays open. It still
@@ -324,7 +327,7 @@ export function pressesAnchor(target, anchor) {
  *   dismissing it and opening it again (see `pressesAnchor`).
  * @returns {() => void} release - Removes every listener and the open-state.
  */
-export function registerOpenPopup({ id, onClose, insideSelectors, nested = false, anchor }) {
+export function registerOpenPopup({ id, onClose, insideSelectors, insideAlso, nested = false, anchor }) {
   // Single-instance: close any popup already open under this id before this one
   // takes its place. Makes stacking structurally impossible for every caller —
   // the behaviour does not depend on each button guarding its own open-state.
@@ -344,8 +347,12 @@ export function registerOpenPopup({ id, onClose, insideSelectors, nested = false
    * @param {Element|null} target
    * @returns {boolean} whether target sits within any "inside" surface
    */
-  const isInside = (target) =>
-    !!(target && insideSelectors.some((sel) => target.closest?.(sel)));
+  const isInside = (target) => {
+    if (!target) return false;
+    if (insideSelectors.some((sel) => (typeof sel === 'string' ? !!target.closest?.(sel) : sel.contains(target)))) return true;
+    for (const el of insideAlso?.() || []) if (el.contains(target)) return true;
+    return false;
+  };
 
   // Track where the pressed gesture BEGAN. A native `click` fires on the nearest
   // common ancestor of the mousedown and mouseup targets, so selecting text

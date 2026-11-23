@@ -2,28 +2,28 @@
 //     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
-package handlers
+package server
 
 import (
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"juggler/cmd/juggler/core"
+	"juggler/cmd/juggler/server/handlers"
 	"juggler/cmd/juggler/workspace"
 )
 
-// Which tree a git endpoint reports on. All three are one conversation's view of
+// Which tree a git tool call reports on. All three are one conversation's view of
 // its own working tree, so all three resolve the workspace the same way and make
 // the same refusals the ops API makes — a status that quietly fell back to the
 // project would count one tree while the conversation edited another.
 
 // gitAPIOver builds the git API over a project path and a table of workspaces.
-func gitAPIOver(projectPath string, table map[string]core.Workspace) *GitStatusAPI {
-	return NewGitStatusAPI(workspace.NewResolver(
+func gitAPIOver(projectPath string, table map[string]core.Workspace) *handlers.OpsAPI {
+	return gitToolAPI(workspace.NewResolver(
 		func() string { return projectPath },
 		func(id string) (core.Workspace, bool) {
 			ws, ok := table[id]
@@ -34,17 +34,15 @@ func gitAPIOver(projectPath string, table map[string]core.Workspace) *GitStatusA
 }
 
 // askStatus calls the status endpoint for a workspace id ("" for the project).
-func askStatus(t *testing.T, api *GitStatusAPI, workspaceID string) (*httptest.ResponseRecorder, gitStatusResponse) {
+func askStatus(t *testing.T, api *handlers.OpsAPI, workspaceID string) (gitAnswer, gitStatusAnswer) {
 	t.Helper()
 	target := "/api/git/status"
 	if workspaceID != "" {
 		target += "?workspace=" + workspaceID
 	}
-	req := httptest.NewRequest(http.MethodGet, target, nil).WithContext(t.Context())
-	rec := httptest.NewRecorder()
-	api.HandleGitStatus(rec, req)
+	rec := askGit(t, api, t.Context(), target)
 
-	var resp gitStatusResponse
+	var resp gitStatusAnswer
 	if rec.Code == http.StatusOK {
 		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 			t.Fatalf("decoding the response: %v\n%s", err, rec.Body.String())
@@ -127,9 +125,8 @@ func TestGitAnswersNameTheTreeTheyDescribe(t *testing.T) {
 		if tc.id != "" {
 			target += "?workspace=" + tc.id
 		}
-		rec := httptest.NewRecorder()
-		api.HandleGitReview(rec, httptest.NewRequest(http.MethodGet, target, nil).WithContext(t.Context()))
-		var review gitReviewResponse
+		rec := askGit(t, api, t.Context(), target)
+		var review gitReviewAnswer
 		if err := json.Unmarshal(rec.Body.Bytes(), &review); err != nil {
 			t.Fatalf("decoding the review: %v\n%s", err, rec.Body.String())
 		}
@@ -196,14 +193,11 @@ func TestGitReviewAndDiffFollowTheSameWorkspace(t *testing.T) {
 		},
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/git/review?workspace=ws_tree", nil).
-		WithContext(t.Context())
-	rec := httptest.NewRecorder()
-	api.HandleGitReview(rec, req)
+	rec := askGit(t, api, t.Context(), "/api/git/review?workspace=ws_tree")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET review = %d, want 200\n%s", rec.Code, rec.Body.String())
 	}
-	var review gitReviewResponse
+	var review gitReviewAnswer
 	if err := json.Unmarshal(rec.Body.Bytes(), &review); err != nil {
 		t.Fatalf("decoding the review: %v\n%s", err, rec.Body.String())
 	}
@@ -214,10 +208,7 @@ func TestGitReviewAndDiffFollowTheSameWorkspace(t *testing.T) {
 		t.Fatalf("review = %+v, want the one edited file in the workspace", review.Repos)
 	}
 
-	req = httptest.NewRequest(http.MethodGet,
-		"/api/git/diff?workspace=ws_tree&repo=&path=shared-name.txt", nil).WithContext(t.Context())
-	rec = httptest.NewRecorder()
-	api.HandleGitDiff(rec, req)
+	rec = askGit(t, api, t.Context(), "/api/git/diff?workspace=ws_tree&repo=&path=shared-name.txt")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET diff = %d, want 200\n%s", rec.Code, rec.Body.String())
 	}

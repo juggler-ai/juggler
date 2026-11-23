@@ -1187,12 +1187,6 @@
 			]
 		},
 		{
-			"file": "web/extensions/juggler-core/pins/git-pin.js",
-			"classes": [
-				"review-panel__scope"
-			]
-		},
-		{
 			"file": "web/extensions/juggler-mcp/context-items/permission-section.js",
 			"classes": [
 				"no-patterns",

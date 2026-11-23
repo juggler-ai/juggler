@@ -20,6 +20,7 @@
  * @module _tests/project-folder-test
  */
 
+import { providerContext } from '../../../js/services/provider-context.js';
 import {
   initializeRegistries,
   createTestSession,
@@ -146,24 +147,21 @@ async function readIn(session, conversation, path) {
  * control that never came up.
  * @param {any} session - The test session.
  * @param {object} [values] - What the section last reported, for a form being rebuilt.
+ * @param {() => void} [setupChanged] - Told when the form changes with no field event of its own.
  * @returns {any} The provider, its container, the field, and how to put it away.
  */
-function openForm(session, values) {
-  const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID, session);
+function openForm(session, values, setupChanged) {
+  const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID);
   if (!provider) throw new Error('the provider is not registered, so it has no form to render');
   const container = document.createElement('div');
   document.body.appendChild(container);
-  provider.renderSetup(container, {
-    session,
+  provider.renderSetup(container, providerContext(session, {
     ops: createBoundOps(() => ({})),
     baseOps: createBoundOps(() => ({})),
     baseWorkspaceId: '',
     values,
-    signal: new AbortController().signal,
-    rollback: { push: () => {} },
-    checkpoint: async () => {},
-    progress: () => {}
-  });
+    setupChanged,
+  }));
   const element = container.querySelector('[data-field="folder"]');
   return {
     provider,
@@ -222,15 +220,7 @@ export async function runTests() {
    * A context for calling a provider's hooks directly, shaped as the host builds one.
    * @returns {import('../../../sdk/workspace-provider.js').ProviderContext} The context.
    */
-  const hookContext = () => ({
-    session,
-    ops,
-    baseWorkspaceId: '',
-    signal: new AbortController().signal,
-    rollback: { push: () => {} },
-    checkpoint: async () => {},
-    progress: () => {}
-  });
+  const hookContext = () => providerContext(session, { ops, baseWorkspaceId: '' });
   /**
    * A row rooted at a path, for the hooks that take one.
    * @param {string} root - Where the row is rooted.
@@ -254,7 +244,7 @@ export async function runTests() {
       assert(registerProvider() === '',
         'and asking a second time, as the next run of this suite in this lane does, finds it there');
 
-      const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID, session);
+      const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID);
       if (!provider) throw new Error('the provider is not in the registry under its own id');
       assert(provider.getSetupLabel() === 'A subfolder of this project',
         `the "New…" row would read ${JSON.stringify(provider.getSetupLabel())}`);
@@ -302,11 +292,11 @@ export async function runTests() {
       const tag = uniqueTag();
       const folder = `pf-${tag}`;
       await ops.writeFile({ path: `${folder}/inner/marker.txt`, content: `picked-${tag}` });
-      const form = openForm(session, undefined);
       let heard = 0;
       const listen = () => { heard++; };
-      form.container.addEventListener('input', listen);
-      form.container.addEventListener('change', listen);
+      // Only setupChanged: the pick raises an `input` of its own, but that is
+      // before the check has looked at the path, so it leaves Create as it was.
+      const form = openForm(session, undefined, listen);
       try {
         type(form, 'pf-');
         await waitFor(() => String(form.note.textContent ?? '').includes('no such folder'),
@@ -327,7 +317,7 @@ export async function runTests() {
         assert(form.provider.getSetupValue().valid === true,
           `so Create is live, got ${JSON.stringify(form.provider.getSetupValue())}`);
         assert(heard > 0,
-          'and the form says so in the events the panel listens to, or Create is never asked again');
+          'and the form tells the host through setupChanged, or Create is never asked again');
       } finally {
         form.close();
         await ops.shell({ command: `rm -rf ${folder}` }).catch(() => {});
@@ -356,7 +346,7 @@ export async function runTests() {
     });
 
     await run('a path that climbs out of the project is refused, however it is spelled', async () => {
-      const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID, session);
+      const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID);
       if (!provider) throw new Error('the provider is not registered');
       const ctx = hookContext();
 
@@ -589,10 +579,10 @@ export async function runTests() {
       await underPseudoLocale('project-folder-test', async () => {
         // Hooks called directly, with `stat` stubbed: nothing is registered and
         // nothing on disk is looked at.
-        const provider = new ProjectFolderWorkspaceProvider({});
+        const provider = new ProjectFolderWorkspaceProvider();
         /** @type {any} */
         let found = { exists: false };
-        const ctx = { session: { projectPath: '/1' }, ops: { stat: async () => found } };
+        const ctx = { projectPath: '/1', ops: { stat: async () => found } };
 
         const container = document.createElement('div');
         provider.renderSetup(container, { ...ctx, values: { folder: '2' } });
@@ -662,7 +652,7 @@ export async function runTests() {
       // the project above it is holding the instructions that say how anything
       // in here is built and tested, and that nothing inside the folder will
       // ever mention them.
-      const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID, session);
+      const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID);
       if (!provider) throw new Error('the provider is not registered');
       const ctx = hookContext();
 

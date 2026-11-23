@@ -27,7 +27,7 @@ const (
 	frameOneShotResult   frameType = "one-shot-result"
 	frameSessionChanged  frameType = "session-changed"
 	frameWorkerMessage   frameType = "worker-message"
-	frameGitWatch        frameType = "git-watch"
+	frameSubscriptions   frameType = "subscriptions"
 	// agent-run-start and agent-run-cancel come from whoever asks for a run;
 	// agent-run-progress and agent-run-result come from the engine carrying it
 	// out, and the server sends them on to the requester (agent_runs.go).
@@ -60,8 +60,7 @@ const (
 	frameError                  frameType = "error"
 	frameServerFull             frameType = "server-full"
 	frameServerShutdown         frameType = "server-shutdown"
-	frameGitChange              frameType = "git-change"
-	frameGitJob                 frameType = "git-job"
+	frameTopicEvent             frameType = "topic-event"
 	frameRunAgent               frameType = "run-agent"
 	frameCancelAgentRun         frameType = "cancel-agent-run"
 )
@@ -70,7 +69,7 @@ const (
 var allInboundFrames = []frameType{
 	frameEngineHeartbeat, frameViewerHeartbeat, frameViewerFault, frameShellStart, frameShellCancel,
 	frameEngineBridge, frameViewerRelay, frameOneShotResult, frameSessionChanged, frameWorkerMessage,
-	frameGitWatch, frameAgentRunStart, frameAgentRunCancel, frameAgentRunProgress, frameAgentRunResult,
+	frameSubscriptions, frameAgentRunStart, frameAgentRunCancel, frameAgentRunProgress, frameAgentRunResult,
 }
 
 // allOutboundFrames is every frame type the server sends.
@@ -81,5 +80,5 @@ var allOutboundFrames = []frameType{
 	frameUpdateStatus, frameClientsChanged, frameShellOutput, frameEngineBridge, frameHeartbeat, frameSession,
 	frameWorkerMessage, frameConversationsChanged, frameNotice, frameSessionMetadataChanged,
 	frameSessionChanged, frameRunOneShot, frameError, frameServerFull, frameServerShutdown,
-	frameGitChange, frameGitJob, frameRunAgent, frameCancelAgentRun, frameAgentRunProgress, frameAgentRunResult,
+	frameTopicEvent, frameRunAgent, frameCancelAgentRun, frameAgentRunProgress, frameAgentRunResult,
 }

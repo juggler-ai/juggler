@@ -3,8 +3,8 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 /**
- * What a pin gets when it asks for a review: `services.git.review()` and
- * `services.git.diff()`, end to end from the pin's hand to the HTTP request.
+ * What a pin gets when it asks for a review: its git client's `review()` and
+ * `diff()`, end to end from the pin's hand to the HTTP request.
  *
  * The ambient card and the explicit review are two different questions asked of
  * the same repository, and this suite exists to keep them apart. The card is
@@ -24,9 +24,8 @@ import { initializeRegistries, assert, waitFor, nextTask } from '../utilities/te
 import { isolateFocus } from '../utilities/isolate-focus.js';
 import pinboardItemRegistry from '../../js/registries/pinboard-item-registry.js';
 import PinboardItemType from 'juggler/pinboard-item-type';
-import gitStatusCache from '../../js/services/git-status-cache.js';
-import gitReviewService from '../../js/services/git-review-service.js';
-import { setGitWorkspace } from '../../js/services/git-workspace.js';
+import { gitClient, __resetGitStatus } from '../../extensions/juggler-core/lib/git-client.js';
+import { setVisibleWorkspace } from '../../js/services/visible-workspace.js';
 import wsService from '../../js/services/websocket.js';
 import '../../js/components/pinboard-content.js';
 import { createReviewPanel } from '../../js/components/review-panel.js';
@@ -168,8 +167,7 @@ export async function runTests() {
   pinboardItemRegistry.reset();
   pinboardItemRegistry.registerClass(GitProbePin, { extensionId: 'test' });
   probe.context = null;
-  gitStatusCache.reset();
-  gitReviewService.reset();
+  __resetGitStatus();
 
   // --- the fake server ------------------------------------------------------
 
@@ -179,7 +177,7 @@ export async function runTests() {
   const diffs = [];
   /** Requests the transport actually cancelled, by endpoint. */
   const cancelled = [];
-  /** What `/api/git/review` answers with next. */
+  /** What the git tool's review answers with next. */
   let reviewBody = manifest();
   /** When set, the next review fails with this instead of answering. */
   let reviewFailure = '';
@@ -234,25 +232,36 @@ export async function runTests() {
    */
   window.fetch = async (input, init) => {
     const url = typeof input === 'string' ? input : input?.url || '';
-    if (!url.includes('/api/git/')) return originalFetch(input, init);
+    if (!url.includes('/api/ops/client')) return originalFetch(input, init);
+    const call = JSON.parse(init?.body || '{}');
+    if (call.toolId !== 'git') return originalFetch(input, init);
     const signal = /** @type {AbortSignal|undefined} */ (init?.signal);
+    /**
+     * The git tool's answer.
+     * @param {any} data - What it answers.
+     * @returns {Response} The client entry's response.
+     */
+    const answer = (data) => new window.Response(JSON.stringify({ success: true, data }), { status: 200 });
+    const params = call.params || {};
 
-    if (url.includes('/api/git/status')) {
-      return new window.Response(JSON.stringify(STATUS), { status: 200 });
-    }
-    if (url.includes('/api/git/review')) {
-      reviews.push(url);
+    if (call.operation === 'status') return answer(STATUS);
+    if (call.operation === 'review') {
+      // Recorded as the query the review route this stands for would have had.
+      const named = new URLSearchParams();
+      for (const [name, value] of [['workspace', call.workspaceId], ['scope', params.scope], ['conv', params.conv]]) {
+        if (value) named.set(name, value);
+      }
+      reviews.push(`review?${named.toString()}`);
       await held('review', signal);
       if (reviewFailure) {
-        return new window.Response(JSON.stringify({ error: reviewFailure }), { status: 502 });
+        return new window.Response(JSON.stringify({ success: false, error: reviewFailure }), { status: 200 });
       }
-      return new window.Response(JSON.stringify(reviewBody), { status: 200 });
+      return answer(reviewBody);
     }
-    if (url.includes('/api/git/diff')) {
-      const query = new URLSearchParams(url.split('?')[1] || '');
-      diffs.push({ repo: query.get('repo'), path: query.get('path') });
+    if (call.operation === 'diff') {
+      diffs.push({ repo: params.repo, path: params.path });
       await held('diff', signal);
-      return new window.Response(JSON.stringify(patch()), { status: 200 });
+      return answer(patch());
     }
     return originalFetch(input, init);
   };
@@ -274,9 +283,9 @@ export async function runTests() {
 
   /**
    * The service under test, as a pin receives it.
-   * @returns {any} `services.git`.
+   * @returns {any} The pin's git client.
    */
-  const service = () => probe.context.services.git;
+  const service = () => gitClient(probe.context.services, probe.context.signal);
 
   try {
     content = /** @type {any} */ (document.createElement('pinboard-content'));
@@ -413,7 +422,7 @@ export async function runTests() {
       await waitFor(() => reviews.length > asked, 'the review was never requested');
       // Called directly: its cause is the user moving to a conversation bound
       // somewhere else, which resets this the same way.
-      gitReviewService.reset();
+      __resetGitStatus();
       open.release();
       gate = null;
       await waitFor(() => pending.done, 'the review never settled');
@@ -506,7 +515,7 @@ export async function runTests() {
       const asked = diffs.length;
       const pending = watch(service().diff('', 'README.md'));
       await waitFor(() => diffs.length > asked, 'the diff was never requested');
-      gitReviewService.reset();
+      __resetGitStatus();
       open.release();
       gate = null;
       await waitFor(() => pending.done, 'the diff never settled');
@@ -530,15 +539,16 @@ export async function runTests() {
 
     await run('watch hears the tree in view, and nothing once the pin has gone', async () => {
       const socket = /** @type {any} */ (wsService);
-      const originalSend = wsService.sendGitWatch;
+      const originalSend = wsService.sendSubscriptions;
       /** @type {string[][]} */
       const asked = [];
-      wsService.sendGitWatch = /** @type {any} */ ((/** @type {string[]} */ ids) => {
+      wsService.sendSubscriptions = /** @type {any} */ ((/** @type {string} */ topic, /** @type {string[]} */ ids) => {
+        if (topic !== 'git') return true;
         asked.push([...ids]);
         return true;
       });
       try {
-        setGitWorkspace('ws_seen');
+        setVisibleWorkspace('ws_seen');
         /** @type {any[]} */
         const heard = [];
         const watching = service();
@@ -546,8 +556,8 @@ export async function runTests() {
         assert(asked.some((ids) => ids.includes('ws_seen')),
           `the tree in view is watched, asked ${JSON.stringify(asked)}`);
 
-        socket._emit('git-change', { type: 'git-change', workspace: '', repos: [{ path: '', kinds: ['index'] }] });
-        socket._emit('git-change', { type: 'git-change', workspace: 'ws_seen', repos: [{ path: '', kinds: ['worktree'] }] });
+        socket._emit('topic-event', { type: 'topic-event', topic: 'git', key: '', event: { type: 'git-change', workspace: '', repos: [{ path: '', kinds: ['index'] }] } });
+        socket._emit('topic-event', { type: 'topic-event', topic: 'git', key: 'ws_seen', event: { type: 'git-change', workspace: 'ws_seen', repos: [{ path: '', kinds: ['worktree'] }] } });
         await waitFor(() => heard.length > 0, 'the change to the tree in view');
         await nextTask();
         const changes = heard.filter((e) => e.type === 'git-change');
@@ -557,12 +567,12 @@ export async function runTests() {
         content.setPin({ id: 'pin_watch_gone', type: 'git-review-probe', config: {} }, activeContext());
         await waitFor(() => probe.context.pin.id === 'pin_watch_gone', 'the next pin never mounted');
         const before = heard.length;
-        socket._emit('git-change', { type: 'git-change', workspace: 'ws_seen', repos: [{ path: '', kinds: ['head'] }] });
+        socket._emit('topic-event', { type: 'topic-event', topic: 'git', key: 'ws_seen', event: { type: 'git-change', workspace: 'ws_seen', repos: [{ path: '', kinds: ['head'] }] } });
         await nextTask();
         assert(heard.length === before, `a pin that has gone still heard ${JSON.stringify(heard.slice(before))}`);
       } finally {
-        wsService.sendGitWatch = originalSend;
-        setGitWorkspace('');
+        wsService.sendSubscriptions = originalSend;
+        setVisibleWorkspace('');
       }
     });
 
@@ -652,8 +662,7 @@ export async function runTests() {
     content?.remove();
     container.remove();
     pinboardItemRegistry.reset();
-    gitStatusCache.reset();
-    gitReviewService.reset();
+    __resetGitStatus();
     probe.context = null;
   }
 

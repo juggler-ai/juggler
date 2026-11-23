@@ -303,7 +303,9 @@ export async function runTests(_ctx) {
     await waitFor(() => logReads(m).some((q) => q.refresh), 'a refresh read');
     await nextTask();
     await nextTask();
-    assert(scroller(m).scrollTop === 4 * ROW + 5, `left alone: ${scroller(m).scrollTop}`);
+    // Within a device pixel: a scaled display snaps scrollTop to one.
+    assert(Math.abs(scroller(m).scrollTop - (4 * ROW + 5)) < 1 / window.devicePixelRatio,
+      `left alone: ${scroller(m).scrollTop}, want ${4 * ROW + 5}`);
     m.teardown();
   });
 
@@ -349,7 +351,9 @@ export async function runTests(_ctx) {
     m.emitChange([{ path: '', kinds: ['worktree'] }]);
     await waitFor(() => logReads(m).some((q) => q.refresh && q.worktree), 'a refresh asking for it');
     await waitFor(() => rowAt(m, 301)?.getAttribute('data-sha') === shaOf(300), 'the rows below it move down one');
-    assert(scroller(m).scrollTop === 301 * ROW + 5, `anchored: ${scroller(m).scrollTop}`);
+    // Within a device pixel: a scaled display snaps scrollTop to one.
+    assert(Math.abs(scroller(m).scrollTop - (301 * ROW + 5)) < 1 / window.devicePixelRatio,
+      `anchored: ${scroller(m).scrollTop}, want ${301 * ROW + 5}`);
     scrollTo(m, 0);
     const wip = /** @type {HTMLElement} */ (await drawn(m, 0));
     assert(wip.classList.contains('git-history__row--worktree'), 'it is the first row, above HEAD');

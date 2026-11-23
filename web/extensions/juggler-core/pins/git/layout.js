@@ -25,6 +25,8 @@
  * @module pins/git/layout
  */
 
+import { remPx } from 'juggler/ui';
+
 /** The height, in rem, below which the pin is a chip. */
 const CHIP_BELOW_REM = 5.5;
 /** The width, in rem, below which the pin is a stack rather than a split. */
@@ -41,7 +43,7 @@ const TALL_FROM_REM = 24;
  * @returns {PinMode} The mode its size puts it in; a split while it has no size.
  */
 export function measureMode(pinRoot) {
-  const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+  const rem = remPx();
   const width = pinRoot.clientWidth;
   const height = pinRoot.clientHeight;
   if (width <= 0) return 'split';
@@ -58,7 +60,7 @@ export function measureMode(pinRoot) {
  * @param {HTMLElement} pinRoot - The pin's root.
  */
 export function markHeight(pinRoot) {
-  const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+  const rem = remPx();
   const height = pinRoot.clientHeight;
   const px = `${height}px`;
   if (pinRoot.style.getPropertyValue('--git-pin-height') !== px) pinRoot.style.setProperty('--git-pin-height', px);

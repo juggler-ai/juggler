@@ -30,7 +30,7 @@ const t = translator('@juggler/core');
 /**
  * @typedef {object} GenerateHost
  * @property {import('./commit-box.js').CommitBox} box - The commit box.
- * @property {() => import('juggler/pinboard-item-type').PinGitService} git - The pin's git service.
+ * @property {() => import('../../lib/git-client.js').GitClient} git - The pin's git service.
  * @property {() => {workspace?: string}} workspaceOption - The tree option for every call.
  * @property {() => string} repo - The repository shown, '' for the root.
  * @property {() => string} root - The tree's absolute path.
@@ -229,8 +229,9 @@ export function createGenerateControl(host) {
       anchor,
       id: 'git-gen-menu',
       onClose: () => { if (releaseMenu === release) closeMenu(); },
-      insideSelectors: ['.git-gen-menu', '.git-commit__gen', '.git-commit__source'],
-      nested: Boolean(anchor.closest('.git-pop')),
+      insideSelectors: [surface, '.git-commit__gen', '.git-commit__source'],
+      // Inside the commit popover when the box is in one, which then stays open.
+      nested: 'auto',
     });
     releaseMenu = release;
     surface.addEventListener('click', (event) => {

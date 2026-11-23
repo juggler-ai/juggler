@@ -28,14 +28,14 @@ import { markForTranslation, translator } from 'juggler/i18n';
 
 const t = translator('@juggler/core');
 
-/** @typedef {import('juggler/pinboard-item-type').PinGitChanges} PinGitChanges */
-/** @typedef {import('juggler/pinboard-item-type').PinGitJob} PinGitJob */
+/** @typedef {import('../../lib/git-client.js').GitChanges} GitChanges */
+/** @typedef {import('../../lib/git-client.js').GitJob} GitJob */
 
 /** The kinds of write that talk to a remote: a submodule update may clone or fetch. */
 export const NETWORK_KINDS = new Set(['fetch', 'pull', 'push', 'push-tag', 'push-tags', 'remote-branch-delete', 'submodule-update']);
 
 /**
- * @param {PinGitJob|null|undefined} job - A job.
+ * @param {GitJob|null|undefined} job - A job.
  * @returns {boolean} Whether it is a network write still running.
  */
 export function isRunningNetworkJob(job) {
@@ -61,7 +61,7 @@ const PHASES = /** @type {Record<string, string>} */ ({
 
 /**
  * A meter reading in words: the phase, translated when known, and how far.
- * @param {PinGitJob['progress']} progress - The reading.
+ * @param {GitJob['progress']} progress - The reading.
  * @returns {string} e.g. 'Receiving objects 45% (450/1000), 2.00 MiB/s'; '' with none.
  */
 export function progressText(progress) {
@@ -93,7 +93,7 @@ export function commandOf(kind) {
 
 /**
  * What a running network write is doing, in a word or two with its percent.
- * @param {PinGitJob} job - The job.
+ * @param {GitJob} job - The job.
  * @returns {string} e.g. 'Pushing 45%'.
  */
 export function runningLabel(job) {
@@ -109,12 +109,12 @@ export function runningLabel(job) {
 
 /**
  * @typedef {object} PrimaryState
- * @property {PinGitChanges|null} read - The repository's last changes read.
+ * @property {GitChanges|null} read - The repository's last changes read.
  * @property {number} changed - Changed files.
  * @property {number} staged - Files with something staged.
  * @property {number} conflicts - Files still in conflict.
  * @property {boolean} committing - A commit is out.
- * @property {PinGitJob|null} job - A network write of the repository the user
+ * @property {GitJob|null} job - A network write of the repository the user
  *   started, while it runs.
  * @property {boolean} fetching - A fetch nobody asked for (on first showing) is running.
  */
@@ -130,7 +130,7 @@ export function runningLabel(job) {
  * @property {boolean} [spin] - Whether it shows a spinner.
  * @property {'up'|'down'|'sync'|'lock'} [icon] - Its glyph.
  * @property {string} [title] - Its tooltip.
- * @property {PinGitJob} [job] - The network write the user started, while it
+ * @property {GitJob} [job] - The network write the user started, while it
  *   runs: the head's Refresh says its progress, and stops it.
  */
 

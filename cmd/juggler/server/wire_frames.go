@@ -129,26 +129,13 @@ type fileChangeFrame struct {
 	Changes []core.FileChange `json:"changes"`
 }
 
-// gitChangeFrame is one batch of a watched workspace's git changes, sent to the
-// viewers that asked for it (git_watch.go).
-type gitChangeFrame struct {
-	Type      frameType       `json:"type"`
-	Workspace string          `json:"workspace"` // The workspace id the viewer named; "" is the project
-	Repos     []gitChangeRepo `json:"repos"`
-}
-
-// gitChangeRepo is one repository's part of a git-change: its path in the tree,
-// as the status card names it ("" for the root repository), and which parts of
-// its git state changed — "index", "refs", "head", "worktree", "operation".
-type gitChangeRepo struct {
-	Path  string   `json:"path"`
-	Kinds []string `json:"kinds"`
-}
-
-type gitJobFrame struct {
-	Type      frameType `json:"type"`
-	Workspace string    `json:"workspace"`
-	Job       gitJob    `json:"job"`
+// topicEventFrame is one event of a topic, sent to the connections subscribed
+// to its key (topics.go). What event holds is the topic's to say.
+type topicEventFrame struct {
+	Type  frameType `json:"type"`
+	Topic string    `json:"topic"`
+	Key   string    `json:"key"`
+	Event any       `json:"event"`
 }
 
 type pluginChangedFrame struct {

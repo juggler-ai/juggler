@@ -93,10 +93,10 @@ function commitFailure(output, reason) {
 /**
  * @typedef {import('./changes-model.js').ChangedFile} ChangedFile
  * @typedef {import('./changes-model.js').GroupId} GroupId
- * @typedef {import('juggler/pinboard-item-type').PinGitChanges} PinGitChanges
- * @typedef {import('juggler/pinboard-item-type').PinGitOp} PinGitOp
- * @typedef {import('juggler/pinboard-item-type').PinGitJob} PinGitJob
- * @typedef {import('juggler/pinboard-item-type').PinGitService} PinGitService
+ * @typedef {import('../../lib/git-client.js').GitChanges} GitChanges
+ * @typedef {import('../../lib/git-client.js').GitOp} GitOp
+ * @typedef {import('../../lib/git-client.js').GitJob} GitJob
+ * @typedef {import('../../lib/git-client.js').GitClient} GitClient
  */
 
 /** Section titles, by group (English source text). */
@@ -138,7 +138,7 @@ function splitPath(path) {
  * What taking each side of a conflict takes, for its tooltip. In a rebase,
  * git's "ours" is the branch being rebased onto and "theirs" the user's own
  * commit being replayed — the other way round from a merge, pick or revert.
- * @param {import('juggler/pinboard-item-type').PinGitStopped|undefined} stopped - The operation in progress.
+ * @param {import('../../lib/git-client.js').GitStopped|undefined} stopped - The operation in progress.
  * @param {string} head - HEAD's sha.
  * @returns {{ours: string, theirs: string}} The tooltips.
  */
@@ -156,7 +156,7 @@ function sideTitles(stopped, head) {
 
 /**
  * @typedef {object} ChangesHost
- * @property {() => PinGitService} git - The pin's git service, as it now is.
+ * @property {() => GitClient} git - The pin's git service, as it now is.
  * @property {() => {workspace?: string}} workspaceOption - The tree option for every call.
  * @property {() => string} treeKey - The tree's identity, for the draft.
  * @property {() => string} root - The tree's absolute path, for opening files.
@@ -166,8 +166,8 @@ function sideTitles(stopped, head) {
  *   picker this place fills.
  * @property {(state: ChangesState) => void} stateChanged - What the head
  *   shows of this place changed.
- * @property {(job: PinGitJob) => void} jobChanged - A job of the tree moved.
- * @property {(jobs: PinGitJob[]) => void} jobsLoaded - The tree's jobs were read, newest first.
+ * @property {(job: GitJob) => void} jobChanged - A job of the tree moved.
+ * @property {(jobs: GitJob[]) => void} jobsLoaded - The tree's jobs were read, newest first.
  * @property {() => void} levelChanged - The place's `data-level` changed.
  * @property {string} [initialRepo] - The repository to open at, by its path in
  *   the tree; the root repository when it is missing or the tree no longer holds it.
@@ -190,7 +190,7 @@ function sideTitles(stopped, head) {
  * @typedef {object} ChangesState
  * @property {string} repo - The repository's path in the tree.
  * @property {string} repoName - Its name.
- * @property {PinGitChanges|null} read - Its last read.
+ * @property {GitChanges|null} read - Its last read.
  * @property {number} changed - Changed files.
  * @property {number} staged - Files with something staged.
  * @property {number} conflicts - Files still in conflict.
@@ -229,7 +229,7 @@ export function createChangesPlace(host) {
   let repos = [];
 
   // --- reads ---------------------------------------------------------------
-  /** @type {PinGitChanges|null} */
+  /** @type {GitChanges|null} */
   let read = null;
   let readError = '';
   let generation = 0;
@@ -237,7 +237,7 @@ export function createChangesPlace(host) {
   /** @type {{generation: number, seq: number, abort: AbortController}|null} */
   let inFlight = null;
   let dirty = false;
-  /** @type {{op: PinGitOp, done: boolean, finishedAfter: number}[]} */
+  /** @type {{op: GitOp, done: boolean, finishedAfter: number}[]} */
   let overlays = [];
 
   // --- view state ----------------------------------------------------------
@@ -321,7 +321,7 @@ export function createChangesPlace(host) {
   body.append(listPane, detail);
   element.append(body);
 
-  const viewer = createDiffViewer({ readOnly: true, blame: true });
+  const viewer = createDiffViewer({ readOnly: true, blame: true, fill: true });
   viewerHost.append(viewer);
   // The diff's own toolbar (blame, layout, context) is drawn in the crumb, and
   // its counts beside the file's name there, so the file has one bar.
@@ -437,7 +437,7 @@ export function createChangesPlace(host) {
 
   /**
    * Take a read as the truth, keeping the writes it cannot have seen.
-   * @param {PinGitChanges} next - The answer.
+   * @param {GitChanges} next - The answer.
    * @param {number} seq - When it started.
    */
   const adopt = (next, seq) => {
@@ -452,9 +452,9 @@ export function createChangesPlace(host) {
   /**
    * Run one write. With `optimistic`, the list moves at once and moves back if
    * the write fails. A failure is explained unless `onError` takes it.
-   * @param {PinGitOp} op - The write.
+   * @param {GitOp} op - The write.
    * @param {{optimistic?: boolean, onError?: (e: any) => boolean}} [options] - How.
-   * @returns {Promise<PinGitJob|null>} The finished job, or null when it failed.
+   * @returns {Promise<GitJob|null>} The finished job, or null when it failed.
    */
   const runOp = async (op, options = {}) => {
     // Another write: what the toast said about the last one has had its say.
@@ -535,7 +535,7 @@ export function createChangesPlace(host) {
 
   /**
    * @param {string} text - What was discarded.
-   * @param {PinGitJob} job - The discard, whose result names its recovery point.
+   * @param {GitJob} job - The discard, whose result names its recovery point.
    */
   const offerDiscardUndo = (text, job) => {
     const id = job.result?.discard;
@@ -643,7 +643,7 @@ export function createChangesPlace(host) {
     if (!amend && stagedCount() === 0) return;
     const branch = read.branch;
     const amendedPushed = amend && Boolean(read.head?.pushed);
-    /** @type {PinGitOp} */
+    /** @type {GitOp} */
     const op = {
       kind: 'commit',
       repo,
@@ -1337,7 +1337,7 @@ export function createChangesPlace(host) {
    * Check a submodule of the repository out at the commit recorded for it.
    * @param {string} path - The submodule.
    */
-  const updateSub = (path) => { void updateSubmodule((op) => runOp(/** @type {PinGitOp} */ (op)), host.toast, repo, path); };
+  const updateSub = (path) => { void updateSubmodule((op) => runOp(/** @type {GitOp} */ (op)), host.toast, repo, path); };
 
   /** Fill the head's repository picker from the tree's repositories. */
   const drawRepos = () => {

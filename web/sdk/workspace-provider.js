@@ -312,6 +312,15 @@ import { t } from './lib/i18n.js';
  */
 
 /**
+ * The conversation a hook is carried out for, as far as a provider may reach it.
+ * @typedef {object} ProviderConversation
+ * @property {string} id - The conversation's id
+ * @property {(text: string) => Promise<void>} send - Send `text` to it as a
+ *   message from its user, into its root thread. What the user has typed in the
+ *   composer is left where it is
+ */
+
+/**
  * What a lifecycle hook is given.
  *
  * `ops` is the one way a provider touches anything: it is pinned to the **base**
@@ -319,9 +328,26 @@ import { t } from './lib/i18n.js';
  * itself everywhere else. That is what makes "a worktree on a remote machine"
  * need no ssh-awareness in a worktree provider — the transport is the facade's
  * business, not the provider's.
+ *
+ * A provider never gets the session or the conversation themselves: what it
+ * may know of the project is `projectPath`, `stateDir` and `workspaceRoot`, the
+ * table is `services.workspaces`, and what it may do to a conversation is
+ * `conversation.send`.
  * @typedef {object} ProviderContext
- * @property {import('../js/model/session.js').default} session - The session, for reading the project path and the table
- * @property {import('../js/model/conversation.js').default} [conversation] - The conversation this is being done for, where there is one
+ * @property {string} projectPath - The project's root, '' when the session has none
+ * @property {string} stateDir - The folder holding the project's local state:
+ *   `<projectPath>/.juggler`, or a folder outside the project when the session
+ *   keeps it there. '' when it is not known
+ * @property {(id: string) => string|null} workspaceRoot - The root to work in
+ *   for a workspace id, '' being the project; null when that workspace cannot
+ *   be worked in, never the project in its place
+ * @property {ProviderConversation} [conversation] - The conversation this is
+ *   being done for, where there is one
+ * @property {() => void} setupChanged - {@link WorkspaceProvider#renderSetup}
+ *   only: say that what {@link WorkspaceProvider#getSetupValue} reports may have
+ *   changed when no field raised an event of its own — a check that finished, a
+ *   choice made from a menu. The host already re-reads on `input` and `change`
+ *   from the section. A no-op outside setup
  * @property {import('./ops.js').BoundOps} ops - Operations, already rooted (see above)
  * @property {import('./ops.js').BoundOps} [baseOps] - Operations pinned to the
  *   workspace this one was made from, where the host knows which that is. `ops`
@@ -338,6 +364,9 @@ import { t } from './lib/i18n.js';
  *   host collected for this action — a commit message, an answered question. The
  *   provider declares nothing about it and the host asks for what the action it
  *   offered needs, which is what keeps `finish` headless and testable.
+ * @property {import('./services.js').Services} services - The host services a pin
+ *   or an info card is handed too, following the visible conversation. Their
+ *   reads take a signal of their own; pass this context's.
  * @property {AbortSignal} signal - Pass it to every op, in compensations too.
  *   While provisioning it is the signal a cancel aborts; once the host has begun
  *   unwinding it is a fresh one, so a compensation written the obvious way is
@@ -418,7 +447,7 @@ import { t } from './lib/i18n.js';
  *   };
  *
  *   async provision(values, ctx) {
- *     const root = `${ctx.session.projectPath}/.juggler/sandboxes/${values.name}`;
+ *     const root = `${ctx.projectPath}/.juggler/sandboxes/${values.name}`;
  *     ctx.progress('Copying the project', root);
  *     await ctx.checkpoint({ root });
  *     ctx.rollback.push(async () => {
@@ -446,18 +475,14 @@ class WorkspaceProvider {
    * Create a provider instance.
    *
    * An instance is short-lived and belongs to one job: a setup section the user
-   * is filling in, or a single provision. The things a hook needs arrive in that
-   * hook's `ctx` rather than being captured here, because a provider outlives
-   * a rebind.
-   * @param {{session?: import('../js/model/session.js').default}} [context] - What little is known before any hook runs
+   * is filling in, or a single provision. Everything a hook needs arrives in
+   * that hook's `ctx`, and nothing is handed to the constructor, because a
+   * provider outlives a rebind.
    */
-  constructor(context = {}) {
+  constructor() {
     if (new.target === WorkspaceProvider) {
       throw new Error('WorkspaceProvider is an abstract class and cannot be instantiated directly');
     }
-
-    /** @type {import('../js/model/session.js').default|undefined} */
-    this.session = context.session;
 
     validateManifest(this.constructor);
   }
@@ -472,8 +497,12 @@ class WorkspaceProvider {
    * The default renders nothing, which is a legitimate provider: one whose
    * every choice has an obvious default needs no form, and gets a bare
    * Create button.
+   *
+   * The host re-reads {@link getSetupValue} whenever the section raises `input`
+   * or `change`. A form whose value moves without one — a check that comes back,
+   * a pick from a menu — calls `ctx.setupChanged()` instead.
    * @param {HTMLElement} container - The panel section's body, to fill
-   * @param {ProviderContext} ctx - Session, operations, and the rest
+   * @param {ProviderContext} ctx - The project, operations, and the rest
    * @returns {void|Promise<void>} When it is rendered
    */
   renderSetup(container, ctx) {
@@ -619,6 +648,44 @@ class WorkspaceProvider {
     void workspace;
     void ctx;
     return [];
+  }
+
+  /**
+   * Whether this workspace IS the tree described — the place a surface that
+   * lists trees (the Git view's worktree list) should treat as that tree, with
+   * this workspace's endings as the tree's.
+   *
+   * Asked only of an open row rooted where the tree is, so a provider need not
+   * compare paths. Being rooted there is not enough on its own: a group or a
+   * folder of the project sits at a tree without being it. And the tree may
+   * have moved on from what the row was made for — a worktree checked out on
+   * another branch since — which only the provider can tell from its record.
+   *
+   * The default is false: a workspace that is not a tree in its own right
+   * leaves the tree to stand for itself.
+   * @param {import('../js/model/session.js').Workspace} workspace - An open row rooted at the tree
+   * @param {{path: string, branch?: string}} tree - The tree, as the version control lists it; `branch` is '' or absent when detached
+   * @returns {boolean} Whether the row is that tree's workspace
+   */
+  holdsTree(workspace, tree) {
+    void workspace;
+    void tree;
+    return false;
+  }
+
+  /**
+   * The branch this workspace was made to hold, and the one it was made from,
+   * for a surface that offers to compare the two (Show in Git view). Read from
+   * the row alone: it must not run anything.
+   *
+   * The default is null, which means the workspace holds no branch of its own;
+   * a surface then compares whatever the tree is on in its own default way.
+   * @param {import('../js/model/session.js').Workspace} workspace - The row
+   * @returns {{branch: string, base?: string}|null} Its branch and base, or null
+   */
+  branchOf(workspace) {
+    void workspace;
+    return null;
   }
 
   /**

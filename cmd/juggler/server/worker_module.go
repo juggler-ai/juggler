@@ -23,6 +23,7 @@ var workerSDKImports = map[string]string{
 	"juggler/strategy-type":          "/sdk/strategy-type.js",
 	"juggler/command-type":           "/sdk/command-type.js",
 	"juggler/info-card-type":         "/sdk/info-card-type.js",
+	"juggler/services":               "/sdk/services.js",
 	"juggler/pinboard":               "/sdk/pinboard.js",
 	"juggler/pinboard-item-type":     "/sdk/pinboard-item-type.js",
 	"juggler/file-viewer":            "/sdk/file-viewer.js",

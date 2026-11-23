@@ -5,7 +5,7 @@
 
 import EditBase from './edit-base.js';
 import { formatDisplayPath, normalizeFilePath } from 'juggler/item-utils';
-import { labeledSubsection } from 'juggler/ui';
+import { createFileView, labeledSubsection } from 'juggler/ui';
 import { fileSourceFromText } from 'juggler/file-source';
 import { recordWrittenHash, restageBaseline, acquirePathLock } from './read-history.js';
 import { absolutePathKey } from './path-approval.js';
@@ -283,7 +283,7 @@ class WriteFileContextItem extends EditBase {
       // the status tile can show a `+A -B` indicator beside the filename. A new
       // file has no prior content, so every line counts as added.
       if (result && /** @type {any} */ (result).success !== false) {
-        this._attributeWrite(anyWrite.path);
+        this.reportFileWritten(anyWrite.path);
         const stats = EditBase._lineStats(existingContent ?? '', /** @type {string} */ (anyWrite.content));
         if (stats) {
           /** @type {any} */ (result).linesAdded = stats.added;
@@ -438,7 +438,7 @@ class WriteFileContextItem extends EditBase {
       // path is already at the top of the wrapper, so the view omits its own.
       const section = document.createElement('div');
       section.className = 'context-item-expanded-content';
-      const view = /** @type {any} */ (document.createElement('file-view'));
+      const view = /** @type {any} */ (createFileView());
       view.showPath = false;
       view.setSource(fileSourceFromText({ path: filePath, text: content }));
       section.appendChild(view);

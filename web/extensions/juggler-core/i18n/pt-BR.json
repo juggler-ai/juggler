@@ -812,6 +812,7 @@
   "Show every git command this pin ran": "Mostrar todos os comandos do git que este pin executou",
   "Show how far the visible conversation is through its plan and todo list, while either has work left.": "Mostrar o quanto a conversa visível já avançou no plano e na lista de tarefas, enquanto qualquer um deles tiver trabalho pendente.",
   "Show in Changes": "Mostrar em Alterações",
+  "Show in Git view": "Mostrar na visualização do Git",
   "Show in History": "Mostrar no histórico",
   "Show log": "Mostrar o log",
   "Show on Pinboard": "Mostrar no Pinboard",
@@ -1337,5 +1338,8 @@
   "… (truncated)": "… (truncado)",
   "…{count} more not shown": "…mais {count} não mostrados",
   "↑{ahead} ↓{behind} {upstream}": "↑{ahead} ↓{behind} {upstream}",
-  "⚠ Write outside the project folder: {path}": "⚠ Gravação fora da pasta do projeto: {path}"
+  "⚠ Write outside the project folder: {path}": "⚠ Gravação fora da pasta do projeto: {path}",
+  "The git command failed.": "O comando do git falhou.",
+  "The git command was cancelled.": "O comando do git foi cancelado.",
+  "The server did not say which git job it started.": "O servidor não informou qual tarefa do git iniciou."
 }

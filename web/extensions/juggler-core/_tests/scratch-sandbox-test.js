@@ -21,6 +21,7 @@
  * @module _tests/scratch-sandbox-test
  */
 
+import { providerContext } from '../../../js/services/provider-context.js';
 import {
   initializeRegistries,
   createTestSession,
@@ -297,20 +298,15 @@ function typeInto(input, value) {
  * @returns {any} The provider, its container, and its one field.
  */
 function openForm(session, baseWorkspaceId, values) {
-  const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID, session);
+  const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID);
   if (!provider) throw new Error('the provider is not registered, so it has no form to render');
   const container = document.createElement('div');
-  provider.renderSetup(container, {
-    session,
+  provider.renderSetup(container, providerContext(session, {
     ops: createBoundOps(() => ({ workspaceId: baseWorkspaceId })),
     baseOps: createBoundOps(() => ({ workspaceId: baseWorkspaceId })),
     baseWorkspaceId,
-    values,
-    signal: new AbortController().signal,
-    rollback: { push: () => {} },
-    checkpoint: async () => {},
-    progress: () => {}
-  });
+    values
+  }));
   return {
     provider,
     container,
@@ -529,7 +525,7 @@ export async function runTests() {
       assert(registerProvider() === '',
         'and asking a second time, as the next run of this suite in this lane does, finds it there');
 
-      const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID, session);
+      const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID);
       assert(provider !== undefined, 'the provider is not in the registry under its own id');
       assert(provider?.getSetupLabel() === 'New scratch copy',
         `and the panel's row would say ${JSON.stringify(provider?.getSetupLabel())}`);
@@ -746,7 +742,7 @@ export async function runTests() {
       const tag = uniqueTag();
       const name = `held-${tag}`;
       const places = sandboxPlaces(projectPath, name);
-      const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID, session);
+      const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID);
       /**
        * The context the host gives this hook: pinned to the copy, with the base
        * workspace's operations beside it, because the snapshot is a sibling of
@@ -754,15 +750,10 @@ export async function runTests() {
        * @param {any} workspace - The row being asked about.
        * @returns {any} The hook's context.
        */
-      const contextFor = (workspace) => ({
-        session,
+      const contextFor = (workspace) => providerContext(session, {
         ops: createBoundOps(() => ({ workspaceId: workspace.id })),
         baseOps: ops,
-        baseWorkspaceId: '',
-        signal: new AbortController().signal,
-        rollback: { push: () => {} },
-        checkpoint: async () => {},
-        progress: () => {}
+        baseWorkspaceId: ''
       });
 
       /** @type {any} */
@@ -814,17 +805,12 @@ export async function runTests() {
       // what is in here", and it must never be read as "there is nothing in
       // here". The first refuses a carry; the second copies an empty list over
       // somebody's tree and reports that it brought everything.
-      const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID, session);
-      const context = {
-        session,
+      const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID);
+      const context = providerContext(session, {
         ops,
         baseOps: ops,
-        baseWorkspaceId: '',
-        signal: new AbortController().signal,
-        rollback: { push: () => {} },
-        checkpoint: async () => {},
-        progress: () => {}
-      };
+        baseWorkspaceId: ''
+      });
 
       const unrecorded = await provider?.heldWork(
         { id: 'ws_nameless', kind: 'local', root: '/nowhere/work', label: 'nameless', state: 'ready', available: true, meta: {} }, context);
@@ -839,19 +825,14 @@ export async function runTests() {
     });
 
     await run('a copy that is not there any more says so rather than guessing', async () => {
-      const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID, session);
+      const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID);
       const status = await provider?.status(
         { id: 'ws_gone', kind: 'local', root: '/nowhere/work', label: 'gone', state: 'ready', available: false, meta: { name: 'gone' } },
-        {
-          session,
+        providerContext(session, {
           ops,
           baseOps: ops,
-          baseWorkspaceId: '',
-          signal: new AbortController().signal,
-          rollback: { push: () => {} },
-          checkpoint: async () => {},
-          progress: () => {}
-        });
+          baseWorkspaceId: ''
+        }));
       assert(status?.available === false && String(status?.detail ?? '').includes('missing'),
         `an unavailable row is reported, not compared, got ${JSON.stringify(status)}`);
     });
@@ -1152,7 +1133,7 @@ export async function runTests() {
       try {
         await mustRun(ops, `mkdir -p ${strayPlaces.workRel} ${strayPlaces.pristineRel}`);
 
-        const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID, session);
+        const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID);
         /** @type {Workspace} */
         const row = {
           id: 'ws_vanished',
@@ -1163,15 +1144,10 @@ export async function runTests() {
           state: 'ready',
           meta: { name: vanished, baseDir: projectPath, dir: vanishedPlaces.dir }
         };
-        const report = await provider?.reconcile([row], {
-          session,
+        const report = await provider?.reconcile([row], providerContext(session, {
           ops,
-          baseWorkspaceId: '',
-          signal: new AbortController().signal,
-          rollback: { push: () => {} },
-          checkpoint: async () => {},
-          progress: () => {}
-        });
+          baseWorkspaceId: ''
+        }));
 
         const orphanedWorkspaces = /** @type {(Workspace & {tombstone?: boolean})[]} */ (report?.orphanedWorkspaces ?? []);
         const orphaned = orphanedWorkspaces.find(entry => entry.id === 'ws_vanished');
@@ -1229,17 +1205,12 @@ export async function runTests() {
           meta: { name, baseDir: projectPath, dir: places.dir }
         });
 
-        const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID, session);
-        const outcome = await provider?.cleanupPartial(row, {
-          session,
+        const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID);
+        const outcome = await provider?.cleanupPartial(row, providerContext(session, {
           ops,
           baseOps: ops,
-          baseWorkspaceId: '',
-          signal: new AbortController().signal,
-          rollback: { push: () => {} },
-          checkpoint: async () => {},
-          progress: () => {}
-        });
+          baseWorkspaceId: ''
+        }));
         assert(outcome?.removed === true,
           `the cleanup says it removed it, got ${JSON.stringify(outcome)}`);
         const left = await shell(ops, `test -e ${places.rel}`);
@@ -1253,7 +1224,7 @@ export async function runTests() {
     await run('with the state kept outside the project, a copy of the project lives in the state folder', async () => {
       // Hooks called directly, every operation recorded and stubbed: the test
       // server keeps its state in the project, so nothing real is outside.
-      const provider = new ScratchCopyWorkspaceProvider({});
+      const provider = new ScratchCopyWorkspaceProvider();
       /** @type {any} */
       const hooks = provider;
       /** @type {Array<[string, any]>} */
@@ -1272,10 +1243,8 @@ export async function runTests() {
         expandDirectory: rec('expandDirectory', { items: [{ isDir: true, name: 'loose' }] })
       };
       const outside = { projectPath: '/1', stateDir: '/s/1-ab', workspaceRoot: (/** @type {string} */ id) => (id ? '/w' : '/1') };
-      const ctx = (/** @type {string} */ baseWorkspaceId) => ({
-        session: outside, baseWorkspaceId, ops: stubOps, baseOps: stubOps,
-        signal: new AbortController().signal,
-        rollback: { push: () => {} }, checkpoint: async () => {}, progress: () => {}
+      const ctx = (/** @type {string} */ baseWorkspaceId) => providerContext(outside, {
+        baseWorkspaceId, ops: /** @type {any} */ (stubOps), baseOps: /** @type {any} */ (stubOps)
       });
 
       const made = await hooks.provision({ name: 'idea' }, ctx(''));
@@ -1340,7 +1309,7 @@ export async function runTests() {
       await underPseudoLocale('scratch-sandbox-test', async () => {
         // Hooks called directly, every operation stubbed: nothing is registered
         // and nothing on disk is made, looked at or removed.
-        const provider = new ScratchCopyWorkspaceProvider({});
+        const provider = new ScratchCopyWorkspaceProvider();
         /** @type {any} The private hooks, which a test may reach. */
         const hooks = provider;
         /** @type {any} */
@@ -1363,16 +1332,12 @@ export async function runTests() {
          */
         const compare = (answers) => { compared = answers; calls = 0; };
         const session = { projectPath: '/1', workspaceRoot: () => '/1' };
-        const ctx = {
-          session,
+        const ctx = providerContext(session, {
           baseWorkspaceId: '',
-          ops,
-          baseOps: ops,
-          signal: new AbortController().signal,
-          rollback: { push: () => {} },
-          checkpoint: async () => {},
+          ops: /** @type {any} */ (ops),
+          baseOps: /** @type {any} */ (ops),
           progress: (/** @type {string} */ step) => { steps.push(step); }
-        };
+        });
 
         const container = document.createElement('div');
         provider.renderSetup(container, { ...ctx, values: { name: '2' } });

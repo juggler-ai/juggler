@@ -25,6 +25,8 @@ import {
 } from '../../../js-tests/utilities/test-helpers.js';
 import { ensureFixtureProvider } from '../../../js-tests/utilities/conversation-workspace-helpers.js';
 import { fetchJson } from '../../../js/services/http.js';
+import { providerContext } from '../../../js/services/provider-context.js';
+import { createBoundOps } from '../../../sdk/ops.js';
 import { listWorkspaces, unregisterWorkspace } from '../../../js/services/workspaces.js';
 import {
   provisionWorkspace,
@@ -41,7 +43,6 @@ import { underPseudoLocale } from '../../../js-tests/utilities/pseudo-locale.js'
 import { isPseudoLocalized } from '../../../sdk/lib/i18n.js';
 
 /** @typedef {import('../../../js/model/session.js').Workspace} Workspace */
-/** @typedef {import('../../../sdk/workspace-provider.js').ProviderContext} ProviderContext */
 
 /** juggler-core's English for what a group says, standing in for its catalogue. */
 const CORE_TEXT = [
@@ -150,7 +151,7 @@ export async function runTests() {
       const refusal = registerProvider();
       assert(refusal === '', `the registry refused the provider: ${refusal}`);
 
-      const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID, session);
+      const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID);
       if (!provider) throw new Error('the provider is not in the registry under its own id');
       assert(provider.getSetupLabel() === 'New group',
         `the "New…" row would read ${JSON.stringify(provider.getSetupLabel())}`);
@@ -244,12 +245,12 @@ export async function runTests() {
         assert(!reported.dirty && !reported.badge && !reported.detail && !reported.problem,
           `and nothing else, since what is in its tree is the project's, got ${JSON.stringify(reported)}`);
 
-        const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID, session);
+        const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID);
         if (!provider) throw new Error('the provider is not registered');
-        const held = await provider.heldWork(outcome.workspace, /** @type {ProviderContext} */ ({ session }));
+        const held = await provider.heldWork(outcome.workspace, providerContext(session, { ops: createBoundOps(() => ({})) }));
         assert(held?.complete === true && held.paths.length === 0 && held.removed.length === 0,
           `a group holds no work, rather than leaving git to count the project's, got ${JSON.stringify(held)}`);
-        const roots = provider.instructionRoots(outcome.workspace, /** @type {ProviderContext} */ ({ session }));
+        const roots = provider.instructionRoots(outcome.workspace, providerContext(session, { ops: createBoundOps(() => ({})) }));
         assert(Array.isArray(roots) && roots.length === 0,
           `and names no instructions beyond the project's, which are already its own, got ${JSON.stringify(roots)}`);
 
@@ -329,7 +330,7 @@ export async function runTests() {
       await underPseudoLocale('group-test', async () => {
         // Hooks called directly with plain contexts: no row is registered, so
         // nothing here reaches the server's workspaces.
-        const provider = new GroupWorkspaceProvider({});
+        const provider = new GroupWorkspaceProvider();
 
         const container = document.createElement('div');
         provider.renderSetup(container, { values: {} });
@@ -338,13 +339,13 @@ export async function runTests() {
         shown['field note'] = String(container.querySelector('.setup-field-note')?.textContent);
 
         try {
-          await provider.provision({ name: '' }, { session: {} });
+          await provider.provision({ name: '' }, providerContext({}, { ops: createBoundOps(() => ({})) }));
           shown['no-project refusal'] = '(nothing thrown)';
         } catch (e) {
           shown['no-project refusal'] = e instanceof Error ? e.message : String(e);
         }
 
-        const made = await provider.provision({ name: '' }, { session: { projectPath: '/1', workspaces: [] } });
+        const made = await provider.provision({ name: '' }, providerContext({ projectPath: '/1', workspaces: [] }, { ops: createBoundOps(() => ({})) }));
         shown['default name'] = String(made?.workspace?.label);
 
         for (const option of provider.finishOptions({})) {

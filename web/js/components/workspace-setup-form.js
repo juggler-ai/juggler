@@ -20,6 +20,7 @@
 
 import workspaceProviderRegistry from '../registries/workspace-provider-registry.js';
 import { createBoundOps } from '../../sdk/ops.js';
+import { providerContext } from '../services/provider-context.js';
 import { t } from '../../sdk/lib/i18n.js';
 import { capabilityLabel } from '../utils/capability-label.js';
 // For the side effect of defining <path-input>: a provider builds its fields
@@ -78,7 +79,7 @@ export function buildProviderFields(request) {
   const fields = document.createElement('div');
   fields.className = 'setup-fields';
 
-  const provider = workspaceProviderRegistry.createProvider(providerId, session) ?? null;
+  const provider = workspaceProviderRegistry.createProvider(providerId) ?? null;
   if (!provider) {
     fields.textContent = t('This provider is not loaded.');
     return { element: fields, provider: null, getValue: () => ({ valid: false, values: {} }) };
@@ -87,22 +88,20 @@ export function buildProviderFields(request) {
   const advice = buildRecommendations(provider, providerId);
   if (advice) fields.appendChild(advice);
 
-  provider.renderSetup(fields, /** @type {any} */ ({
-    session,
+  const getValue = () => provider.getSetupValue();
+  const report = () => { onValue?.(getValue()); };
+
+  provider.renderSetup(fields, providerContext(session, {
     conversation,
     ops: createBoundOps(() => ({ workspaceId: baseWorkspaceId })),
     baseOps: createBoundOps(() => ({ workspaceId: baseWorkspaceId })),
     baseWorkspaceId,
     values,
-    signal: new AbortController().signal,
-    rollback: { push: () => {} },
-    checkpoint: async () => {},
-    progress: () => {}
+    // A form whose value moves with no field event of its own says so here.
+    setupChanged: report,
   }));
 
-  const getValue = () => provider.getSetupValue();
   if (onValue) {
-    const report = () => onValue(getValue());
     fields.addEventListener('input', report);
     fields.addEventListener('change', report);
     report();

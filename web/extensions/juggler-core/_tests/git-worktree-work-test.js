@@ -13,6 +13,7 @@
  * @module _tests/git-worktree-work-test
  */
 
+import { providerContext } from '../../../js/services/provider-context.js';
 import { waitFor, assert, withTimeout } from '../../../js-tests/utilities/test-helpers.js';
 import { unregisterWorkspace, listWorkspaces } from '../../../js/services/workspaces.js';
 import {
@@ -21,7 +22,7 @@ import {
   finishWorkspace
 } from '../../../js/services/workspace-provisioning.js';
 import GitWorktreeWorkspaceProvider, { defaultLocation } from '../workspaces/git-worktree-workspace-provider.js';
-import api from '../../../js/services/api.js';
+import { gitClient, __scriptGitClients } from '../lib/git-client.js';
 import { underPseudoLocale } from '../../../js-tests/utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../../sdk/lib/i18n.js';
 import {
@@ -264,7 +265,7 @@ export async function runTests() {
       // that says what to do about it, and put a plain lead above it saying
       // which of the two commands refused, because `git add` failing and `git
       // commit` failing want opposite reactions.
-      const provider = new GitWorktreeWorkspaceProvider({ session });
+      const provider = new GitWorktreeWorkspaceProvider();
       /** @type {any[]} */
       const asked = [];
       /**
@@ -290,13 +291,11 @@ export async function runTests() {
       const commit = (answer) => provider.finish(
         { meta: { branch: BRANCH, dir: 'the-tree' } },
         'commit',
-        {
-          session,
+        providerContext(session, {
           ops: recorder(answer),
           baseOps: recorder(answer),
-          input: { message: 'Did the thing' },
-          signal: new AbortController().signal
-        });
+          input: { message: 'Did the thing' }
+        }));
 
       const locked = await commit((command) => (command.startsWith('git add')
         ? { success: false, stdout: 'fatal: Unable to create \'.git/index.lock\': File exists.', exitCode: 128 }
@@ -390,7 +389,7 @@ export async function runTests() {
       const shown = {};
       /** @type {string[]} What the conversation was sent, which the model reads. */
       const sent = [];
-      const provider = new GitWorktreeWorkspaceProvider({});
+      const provider = new GitWorktreeWorkspaceProvider();
       /** @type {any} The private hooks, which a test may reach. */
       const hooks = provider;
       // The manifest's name is English by decision; it is data here.
@@ -403,11 +402,12 @@ export async function runTests() {
       const scrub = (text) => String(text).split(manifestName).join('9');
 
       // The status endpoint is the server's; this case owns its answer.
-      const realStatus = Object.prototype.hasOwnProperty.call(api, 'getGitStatus')
-        ? /** @type {any} */ (api).getGitStatus : null;
       /** @type {any} */
       let gitStatus = { repos: [] };
-      /** @type {any} */ (api).getGitStatus = async () => gitStatus;
+      const unscript = __scriptGitClients((services, signal) => ({
+        ...gitClient(services, signal),
+        statusOf: async () => gitStatus,
+      }));
       try {
         await underPseudoLocale('git-worktree-lifecycle-test', async () => {
           // Every shell command stubbed: nothing on disk is made, changed or looked at.
@@ -421,16 +421,12 @@ export async function runTests() {
           /** @type {string[]} */
           const steps = [];
           let root = '/1';
-          const ctx = {
-            session: { projectPath: '/1', workspaceRoot: () => root },
+          const ctx = providerContext({ projectPath: '/1', workspaceRoot: () => root }, {
             baseWorkspaceId: '',
-            ops,
-            baseOps: ops,
-            signal: new AbortController().signal,
-            rollback: { push: () => {} },
-            checkpoint: async () => {},
+            ops: /** @type {any} */ (ops),
+            baseOps: /** @type {any} */ (ops),
             progress: (/** @type {string} */ step) => { if (!steps.includes(step)) steps.push(step); }
-          };
+          });
           /**
            * What a call threw.
            * @param {() => any} fn - The call.
@@ -506,8 +502,8 @@ export async function runTests() {
           // Commit: nobody to write it, the conversation asked, and every git outcome.
           shown['commit nobody'] = (await provider.finish(named, 'commit', { ...ctx, input: {}, conversation: null })).message;
           const conversation = {
-            rootMessageThread: null,
-            sendMessage: async (/** @type {string} */ text) => { sent.push(text); }
+            id: 'c1',
+            send: async (/** @type {string} */ text) => { sent.push(text); }
           };
           shown['commit asked'] = (await provider.finish(named, 'commit', { ...ctx, input: {}, conversation })).message;
           await provider.finish(unnamed, 'commit', { ...ctx, input: {}, conversation });
@@ -565,7 +561,7 @@ export async function runTests() {
             return found ? found[1] : { success: true, stdout: '' };
           };
           const fail = (/** @type {string} */ stdout) => ({ success: false, stdout });
-          const handOff = { rootMessageThread: null, sendMessage: async (/** @type {string} */ text) => { sent.push(text); } };
+          const handOff = { id: 'c1', send: async (/** @type {string} */ text) => { sent.push(text); } };
           /** @type {Record<string, any>} */
           const tracks = {};
           for (const [state, read] of Object.entries(readings)) {
@@ -710,8 +706,7 @@ export async function runTests() {
           assert((await hooks.cleanupPartial(named, ctx)).removed === true, 'a tree that went is removed');
         }, { '@juggler/core': CORE_TEXT });
       } finally {
-        if (realStatus) /** @type {any} */ (api).getGitStatus = realStatus;
-        else delete (/** @type {any} */ (api)).getGitStatus;
+        unscript();
       }
 
       // The model reads what the conversation is sent, so it stays English.

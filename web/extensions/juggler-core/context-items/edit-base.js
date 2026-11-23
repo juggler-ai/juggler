@@ -9,7 +9,7 @@ import { isPathInsideAllowedRoots, canonicalRoot } from 'juggler/utils/path-cont
 import { renderWriteFilePermissionSection } from './edit/permission-section.js';
 import { tildeify } from './path-approval.js';
 import { translator, markUntranslated } from 'juggler/i18n';
-import { uploadAssetText, sendGitAttribution } from 'juggler/ops';
+import { uploadAssetText } from 'juggler/ops';
 import { injectStylesOnce } from 'juggler/ui';
 
 const t = translator('@juggler/core');
@@ -203,42 +203,6 @@ class EditBase extends ContextItem {
       return { ...params, outOfRootApproved: true };
     }
     return params;
-  }
-
-  /**
-   * Tell the server this item's conversation has just written `path`, so the
-   * git client can attribute the file's new version to it. Called from
-   * `execute()` once a write has landed and never before — not from the
-   * approval preview, which also runs for writes the user goes on to deny.
-   * Fire-and-forget: nothing it does can fail the write.
-   * @protected
-   * @param {string} path - The file as the tool named it
-   * @returns {void}
-   */
-  _attributeWrite(path) {
-    if (typeof path !== 'string' || !path || !this.conversation?.id) return;
-    try {
-      const sent = this._sendAttribution({
-        workspaceId: this.getWorkspaceId(),
-        path,
-        conv: this.conversation.id,
-        thread: /** @type {any} */ (this.messageThread)?.threadItemId || '',
-        item: this.toolUseId || '',
-      });
-      Promise.resolve(sent).catch(() => {});
-    } catch {
-      // A sender that throws has only failed to record who wrote the file.
-    }
-  }
-
-  /**
-   * Send one attribution to the server. Tests replace it on an instance.
-   * @protected
-   * @param {{workspaceId: string, path: string, conv: string, thread: string, item: string}} attribution - Who wrote which file
-   * @returns {Promise<void>|void} Settles when sent
-   */
-  _sendAttribution(attribution) {
-    return sendGitAttribution(attribution);
   }
 
   /**

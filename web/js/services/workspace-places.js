@@ -21,6 +21,7 @@
 import workspaceProviderRegistry from '../registries/workspace-provider-registry.js';
 import { registerWorkspace, isWorkspaceUsable } from './workspaces.js';
 import { createBoundOps } from '../../sdk/ops.js';
+import { providerContext } from './provider-context.js';
 import { t } from '../../sdk/lib/i18n.js';
 import { capabilityLabel } from '../utils/capability-label.js';
 
@@ -138,7 +139,7 @@ export function setupRows(session) {
     ...providerIds.filter((id) => id !== LEADING_PROVIDER_ID)
   ];
   for (const providerId of ordered) {
-    const provider = workspaceProviderRegistry.createProvider(providerId, session);
+    const provider = workspaceProviderRegistry.createProvider(providerId);
     if (!provider) continue;
     rows.push({
       kind: 'new',
@@ -176,7 +177,7 @@ export function setupRows(session) {
 export async function probeSetupAdoptions(session, signal) {
   const rows = session?.workspaces ?? [];
   await Promise.all(workspaceProviderRegistry.getIds().map(async (providerId) => {
-    const provider = workspaceProviderRegistry.createProvider(providerId, session);
+    const provider = workspaceProviderRegistry.createProvider(providerId);
     if (!provider) return;
     try {
       // Tombstones go too. A row that has been finished with lays no claim to
@@ -189,15 +190,7 @@ export async function probeSetupAdoptions(session, signal) {
       // them when matching, so their artifacts are offered again.
       const report = await provider.reconcile(
         rows.filter((/** @type {any} */ row) => row.providerId === providerId),
-        {
-          session,
-          ops: createBoundOps(() => ({})),
-          baseWorkspaceId: '',
-          signal: signal ?? new AbortController().signal,
-          rollback: { push: () => {} },
-          checkpoint: async () => {},
-          progress: () => {}
-        });
+        providerContext(session, { ops: createBoundOps(() => ({})), baseWorkspaceId: '', signal }));
       if (signal?.aborted) return;
       for (const found of report?.orphanedArtifacts ?? []) {
         const artifact = /** @type {any} */ (found);

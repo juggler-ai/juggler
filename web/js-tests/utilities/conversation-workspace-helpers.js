@@ -13,6 +13,7 @@
  * @module unit-tests/conversation-workspace-helpers
  */
 
+import { providerContext } from '../../js/services/provider-context.js';
 import {
   initializeRegistries,
   createTestSession,
@@ -167,7 +168,7 @@ function commandPath(root, dir) {
  * @returns {string} The root, or '' when the session cannot say.
  */
 function rootOf(ctx) {
-  return ctx?.session?.workspaceRoot?.(ctx?.baseWorkspaceId ?? '') ?? '';
+  return ctx?.workspaceRoot?.(ctx?.baseWorkspaceId ?? '') ?? '';
 }
 
 /**
@@ -526,7 +527,7 @@ export class FixtureProvider extends WorkspaceProvider {
     if (!dir) return { removed: false };
     // Against the project, because the sweep this runs in is rooted there
     // whatever the row was built from.
-    const here = commandPath(ctx?.session?.projectPath ?? '', dir);
+    const here = commandPath(ctx?.projectPath ?? '', dir);
     // `-f` and `-rf` throughout: a checkpoint is written BEFORE the step it
     // describes, so `meta` routinely names a file that was never created.
     await ctx.ops.shell({ command: `rm -f "${here}/made-here.txt"` }, ctx.signal);
@@ -583,7 +584,7 @@ export async function buildWorkspaceFor(session, conversation, providerId, value
  * @returns {Promise<any>} The row as the server holds it, mid-provision.
  */
 export async function abandonProvision(session, values, interruptAfter) {
-  const provider = workspaceProviderRegistry.createProvider(FixtureProvider.MANIFEST.id, session);
+  const provider = workspaceProviderRegistry.createProvider(FixtureProvider.MANIFEST.id);
   if (!provider) throw new Error('the fixture provider is not registered');
   const row = await registerWorkspace({
     kind: 'local',
@@ -592,15 +593,12 @@ export async function abandonProvision(session, values, interruptAfter) {
     state: 'provisioning'
   });
   const controller = new AbortController();
-  const settled = provider.provision(values, {
-    session,
+  const settled = provider.provision(values, providerContext(session, {
     ops: createBoundOps(() => ({})),
     baseWorkspaceId: '',
     signal: controller.signal,
-    rollback: { push: () => {} },
-    checkpoint: async (metaPatch) => { await patchWorkspace(row.id, { meta: metaPatch }); },
-    progress: () => {}
-  }).then(() => {}, () => {});
+    checkpoint: async (metaPatch) => { await patchWorkspace(row.id, { meta: metaPatch }); }
+  })).then(() => {}, () => {});
   if (interruptAfter) {
     await interruptAfter();
     controller.abort();

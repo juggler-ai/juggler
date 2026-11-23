@@ -24,8 +24,8 @@
  */
 
 /**
- * @typedef {import('juggler/pinboard-item-type').PinGitService} PinGitService
- * @typedef {import('juggler/pinboard-item-type').PinGitWatchEvent} PinGitWatchEvent
+ * @typedef {import('../../lib/git-client.js').GitClient} GitClient
+ * @typedef {import('../../lib/git-client.js').GitWatchEvent} GitWatchEvent
  */
 
 /** Every part of a repository a `git-change` can name: what a write may have touched. */
@@ -38,19 +38,19 @@ const FINAL = new Set(['done', 'failed', 'cancelled']);
 const REMEMBERED = 256;
 
 /**
- * @param {() => PinGitService} host - The host's git service, as it now is.
- * @returns {{git: () => PinGitService, stop: () => void}} The service to hand
+ * @param {() => GitClient} host - The host's git service, as it now is.
+ * @returns {{git: () => GitClient, stop: () => void}} The service to hand
  *   the places, and the end of every subscription it holds.
  */
 export function createTreeEvents(host) {
-  /** @type {Map<string, {listeners: Set<(event: PinGitWatchEvent) => void>, unwatch: (() => void)|undefined}>} By tree ('' for the one in view). */
+  /** @type {Map<string, {listeners: Set<(event: GitWatchEvent) => void>, unwatch: (() => void)|undefined}>} By tree ('' for the one in view). */
   const trees = new Map();
   /** @type {Set<string>} Jobs whose end has been told. */
   const ended = new Set();
 
   /**
    * @param {string} tree - The tree.
-   * @param {PinGitWatchEvent} event - What to tell its listeners.
+   * @param {GitWatchEvent} event - What to tell its listeners.
    */
   const deliver = (tree, event) => {
     const entry = trees.get(tree);
@@ -76,10 +76,10 @@ export function createTreeEvents(host) {
       if (ended.size >= REMEMBERED) ended.clear();
       ended.add(id);
     }
-    deliver(tree, /** @type {PinGitWatchEvent} */ ({ type: 'git-change', workspace: tree, repos: [{ path: repo || '', kinds: [...ALL_KINDS] }] }));
+    deliver(tree, /** @type {GitWatchEvent} */ ({ type: 'git-change', workspace: tree, repos: [{ path: repo || '', kinds: [...ALL_KINDS] }] }));
   };
 
-  /** @type {PinGitService['watch']} */
+  /** @type {GitClient['watch']} */
   const watch = (listener, options) => {
     const tree = options?.workspace || '';
     let entry = trees.get(tree);
@@ -107,7 +107,7 @@ export function createTreeEvents(host) {
     };
   };
 
-  /** @type {PinGitService['run']} */
+  /** @type {GitClient['run']} */
   const run = (op, options) => {
     const tree = options?.workspace || '';
     const repo = op?.repo || '';
@@ -120,7 +120,7 @@ export function createTreeEvents(host) {
     });
   };
 
-  /** @type {WeakMap<object, PinGitService>} The service made over each host service. */
+  /** @type {WeakMap<object, GitClient>} The service made over each host service. */
   const made = new WeakMap();
   return {
     git: () => {

@@ -17,8 +17,8 @@ import { translator } from 'juggler/i18n';
 const t = translator('@juggler/core');
 
 /**
- * @typedef {import('juggler/pinboard-item-type').PinGitRepo} GitRepo
- * @typedef {import('juggler/pinboard-item-type').PinGitFile} GitFile
+ * @typedef {import('./git-client.js').GitRepo} GitRepo
+ * @typedef {import('./git-client.js').GitFile} GitFile
  */
 
 /**

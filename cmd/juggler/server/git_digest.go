@@ -6,7 +6,6 @@ package server
 
 import (
 	"encoding/json"
-	"net/http"
 	"os"
 	"path"
 	"path/filepath"
@@ -17,7 +16,6 @@ import (
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/gitattr"
 	"juggler/cmd/juggler/msg"
-	"juggler/cmd/juggler/server/handlers"
 	"juggler/cmd/juggler/worker"
 )
 
@@ -33,7 +31,7 @@ const (
 // digestCut ends a message cut to its budget.
 const digestCut = " [… cut]"
 
-// conversationDigest is GET /api/git/conversation-digest's answer: what one
+// conversationDigest is the git tool's digest (git_ops.go): what one
 // conversation says about why some files changed, for a commit message.
 //
 // UserMessages are the text of the conversation's own user messages (not its
@@ -69,45 +67,30 @@ type digestScope struct {
 	recorded map[string][]string
 }
 
-// handleGitConversationDigest handles
-// GET /api/git/conversation-digest?conv=<id>&workspace=<id>&repo=<rel>&paths=<p>&paths=<p>…:
-// a digest of one conversation (conversationDigest) for the files named by
-// paths — relative to the repository repo of the tree workspace names, as an
-// attribution read's files are. It is a GET with the paths repeated in the
-// query, because the files asked about are the few one conversation made; a
-// query string carries thousands of them before any limit applies.
+// gitDigest is a digest of one conversation (conversationDigest) for the files
+// named by paths — relative to the repository repo of the tree rooted at root,
+// whose workspace id is workspaceID, as an attribution read's files are. It is
+// the git tool's "digest" (git_ops.go).
 //
 // The conversation is read live when it is loaded and from its stored
 // document otherwise, and is never changed. One the project does not have
-// (deleted, or in the bin) is a 404; a request naming no conversation, or a
-// workspace that cannot be resolved, a 400.
-func (s *Server) handleGitConversationDigest(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	conv := q.Get("conv")
+// (deleted, or in the bin), a request naming no conversation, and a repository
+// outside the tree are refused.
+func (s *Server) gitDigest(workspaceID, root, conv, rawRepo string, paths []string) (conversationDigest, error) {
 	if conv == "" {
-		handlers.WriteMessageError(w, r, http.StatusBadRequest, msg.New("A digest needs a conversation."))
-		return
+		return conversationDigest{}, msg.NewError("A digest needs a conversation.")
 	}
-	workspaceID := q.Get("workspace")
-	tree, err := s.gitResolve(workspaceID)
-	if err != nil {
-		handlers.WriteErr(w, r, http.StatusBadRequest, err)
-		return
-	}
-	repo, ok := cleanDigestRepo(q.Get("repo"))
+	repo, ok := cleanDigestRepo(rawRepo)
 	if !ok {
-		handlers.WriteMessageError(w, r, http.StatusBadRequest, msg.New("Not a path inside the project: repo"))
-		return
+		return conversationDigest{}, msg.NewError("Not a path inside the project: repo")
 	}
 	dir := conversationDirectory{s}
 	title, items, found := dir.Transcript(conv)
 	if !found {
-		handlers.WriteMessageError(w, r, http.StatusNotFound, msg.New("No such conversation"))
-		return
+		return conversationDigest{}, msg.NewError("No such conversation")
 	}
 
-	paths := q["paths"]
-	scope := digestScope{root: tree.Root(), repo: repo, paths: map[string]bool{}, recorded: map[string][]string{}}
+	scope := digestScope{root: root, repo: repo, paths: map[string]bool{}, recorded: map[string][]string{}}
 	for _, p := range paths {
 		scope.paths[p] = true
 	}
@@ -120,7 +103,7 @@ func (s *Server) handleGitConversationDigest(w http.ResponseWriter, r *http.Requ
 	}
 	d := digestItems(items, scope)
 	d.Conv, d.Title = conv, title
-	handlers.WriteJSON(w, r, 0, d)
+	return d, nil
 }
 
 // cleanDigestRepo is a repository named relative to the tree, slash-separated

@@ -42,7 +42,7 @@ const gitignoreRebuildDebounce = time.Second
 // watchedHiddenFiles are the project-relative paths inside a dot-directory that
 // are still reported to the frontend. Everything else under a dot-directory is
 // kept from the frontend — in the walk, and once more in handleEvent — and
-// that stays true (the git feed, FileWatcherOptions.GitFeed, hears the rest of
+// that stays true (the raw feed, FileWatcherOptions.RawFeed, hears the rest of
 // them, but never `.juggler/`'s): `.juggler/` is written continuously by Juggler itself
 // (conversation directories, transaction blobs, the session manifest), so
 // un-skipping it would be a flood rather than a fix.
@@ -98,9 +98,9 @@ type FileWatcher struct {
 
 	opts FileWatcherOptions
 
-	// gitChan is the git feed (see FileWatcherOptions.GitFeed), nil without it.
+	// rawChan is the raw feed (see FileWatcherOptions.RawFeed), nil without it.
 	// Owned by watchLoop, which closes it on exit.
-	gitChan chan FileChange
+	rawChan chan FileChange
 
 	// capped records whether the last walk met maxWatchedDirs.
 	capped atomic.Bool
@@ -114,13 +114,15 @@ type FileWatcher struct {
 
 // FileWatcherOptions are what a watcher is for beyond the viewers' stream.
 type FileWatcherOptions struct {
-	// GitFeed adds the git feed (GitChanges): every change to a file git status
-	// covers, which is more than the viewers hear of. It also watches the
-	// dot-directories that feed needs and the viewers' stream never reached.
-	GitFeed bool
+	// RawFeed adds the raw feed (RawChanges): every change to a file the
+	// tree's ignore rules do not exclude, dotfiles and dot-directories included
+	// (all but git's own directory and Juggler's state), which is more than the
+	// viewers hear of. It also watches the dot-directories that feed needs and
+	// the viewers' stream never reached.
+	RawFeed bool
 
 	// NoIndex builds no "@" path index: the watcher of a tree that is watched
-	// for git alone, which nothing completes paths in.
+	// for its raw feed alone, which nothing completes paths in.
 	NoIndex bool
 }
 
@@ -152,10 +154,10 @@ func NewFileWatcherWith(projectPath string, opts FileWatcherOptions) (*FileWatch
 	// Before the walk: its Adds are answered only while fsnotify's events are
 	// being taken (see pumpEvents).
 	go w.pumpEvents()
-	if opts.GitFeed {
+	if opts.RawFeed {
 		// Its reader only folds paths into a pending set, so it keeps up with a
 		// checkout far better than a viewer acking a frame; this absorbs the gap.
-		w.gitChan = make(chan FileChange, 512)
+		w.rawChan = make(chan FileChange, 512)
 	}
 
 	// One BFS walk registers directory watches and builds the path index.
@@ -226,7 +228,7 @@ func (w *FileWatcher) buildWatchesAndIndex(root string) (paths []string, partial
 		watched++
 	}
 
-	// hidden marks a dot-directory's subtree, walked only for the git feed: its
+	// hidden marks a dot-directory's subtree, walked only for the raw feed: its
 	// directories are watched, and nothing in it is indexed.
 	type queued struct {
 		abs, rel string
@@ -312,15 +314,15 @@ func (w *FileWatcher) buildWatchesAndIndex(root string) (paths []string, partial
 }
 
 // walksHiddenDir reports whether a dot-directory is walked and watched: only
-// for the git feed, and never git's own directory or Juggler's state, whose
+// for the raw feed, and never git's own directory or Juggler's state, whose
 // writes describe nothing in the working tree.
 func (w *FileWatcher) walksHiddenDir(name string) bool {
-	return w.gitChan != nil && name != ".git" && name != ".juggler"
+	return w.rawChan != nil && name != ".git" && name != ".juggler"
 }
 
-// gitPrivate reports whether a project-relative path lies in git's own
-// directory or Juggler's state, which the git feed never reports.
-func gitPrivate(relPath string) bool {
+// inToolState reports whether a project-relative path lies in git's own
+// directory or Juggler's state, which the raw feed never reports.
+func inToolState(relPath string) bool {
 	for _, segment := range strings.Split(filepath.ToSlash(relPath), "/") {
 		if segment == ".git" || segment == ".juggler" {
 			return true
@@ -385,7 +387,7 @@ func (w *FileWatcher) indexAdd(rel string) {
 }
 
 // watchCreatedHidden watches a directory created inside a dot-directory, and
-// whatever is already under it, for the git feed. Nothing there is indexed or
+// whatever is already under it, for the raw feed. Nothing there is indexed or
 // told to the viewers.
 func (w *FileWatcher) watchCreatedHidden(absPath, rel string) {
 	info, err := os.Stat(absPath)
@@ -409,7 +411,7 @@ func (w *FileWatcher) indexRemoved(absPath string) {
 // indexSubtree BFS-walks a subtree and feeds every non-skipped path into the
 // index, watching subdirectories as it goes and reporting the first
 // maxCreateWalkReports paths as created. Bounded by maxCreateWalk. A hidden
-// subtree (one inside a dot-directory, walked for the git feed) is watched and
+// subtree (one inside a dot-directory, walked for the raw feed) is watched and
 // reported to that feed alone.
 func (w *FileWatcher) indexSubtree(absRoot, relRoot string, hiddenRoot bool) {
 	type queued struct {
@@ -457,7 +459,7 @@ func (w *FileWatcher) indexSubtree(absRoot, relRoot string, hiddenRoot bool) {
 				if !hidden {
 					w.emitChange(filepath.FromSlash(rel), "create")
 				}
-				w.emitGit(abs, rel, "create")
+				w.emitRaw(abs, rel, "create")
 			}
 			if isDir {
 				if !hidden {
@@ -529,8 +531,8 @@ func (w *FileWatcher) watchLoop() {
 	defer func() {
 		w.watcher.Close()
 		close(w.changeChan)
-		if w.gitChan != nil {
-			close(w.gitChan)
+		if w.rawChan != nil {
+			close(w.rawChan)
 		}
 		if w.index != nil {
 			w.index.close()
@@ -678,7 +680,7 @@ func (w *FileWatcher) handleEvent(event fsnotify.Event) {
 		w.emitChange(relPath, eventType)
 		// Straight to the feed: the ignore matcher ignores all of `.juggler/`,
 		// but these are the files in it meant to be committed.
-		w.sendGit(event.Name, eventType)
+		w.sendRaw(event.Name, eventType)
 		return
 	}
 
@@ -690,15 +692,16 @@ func (w *FileWatcher) handleEvent(event fsnotify.Event) {
 	// `.juggler/`'s own writes — the session manifest, the instance file, the
 	// lock — straight through to every viewer.
 	//
-	// The git feed is the exception: git status covers tracked files in
-	// dot-directories and dotfiles, so those go to it — and to nothing else —
-	// unless they are git's own directory or Juggler's state.
+	// The raw feed is the exception: a tree's dotfiles and dot-directories are
+	// as much its content as anything else (git status covers the tracked ones;
+	// a build or a shell command writes them), so those go to it — and to
+	// nothing else — unless they are git's own directory or Juggler's state.
 	if hasHiddenSegment(relPath) {
-		if w.gitChan != nil && !gitPrivate(relPath) {
+		if w.rawChan != nil && !inToolState(relPath) {
 			if eventType == "create" {
 				w.watchCreatedHidden(event.Name, filepath.ToSlash(relPath))
 			}
-			w.emitGit(event.Name, relPath, eventType)
+			w.emitRaw(event.Name, relPath, eventType)
 		}
 		return
 	}
@@ -713,36 +716,37 @@ func (w *FileWatcher) handleEvent(event fsnotify.Event) {
 	}
 
 	w.emitChange(relPath, eventType)
-	w.emitGit(event.Name, relPath, eventType)
+	w.emitRaw(event.Name, relPath, eventType)
 }
 
-// emitGit sends one change to the git feed, by absolute path, unless there is
-// no feed or git ignores the file. Non-blocking, like emitChange.
-func (w *FileWatcher) emitGit(absPath, relPath, eventType string) {
-	if w.gitChan == nil || w.ign.Ignored(filepath.ToSlash(relPath), false) {
+// emitRaw sends one change to the raw feed, by absolute path, unless there is
+// no feed or the tree's ignore rules exclude the file. Non-blocking, like
+// emitChange.
+func (w *FileWatcher) emitRaw(absPath, relPath, eventType string) {
+	if w.rawChan == nil || w.ign.Ignored(filepath.ToSlash(relPath), false) {
 		return
 	}
-	w.sendGit(absPath, eventType)
+	w.sendRaw(absPath, eventType)
 }
 
-// sendGit sends one change to the git feed, if there is one, whatever git
-// ignores.
-func (w *FileWatcher) sendGit(absPath, eventType string) {
-	if w.gitChan == nil {
+// sendRaw sends one change to the raw feed, if there is one, whatever the
+// ignore rules say.
+func (w *FileWatcher) sendRaw(absPath, eventType string) {
+	if w.rawChan == nil {
 		return
 	}
 	select {
-	case w.gitChan <- FileChange{Path: absPath, Event: eventType}:
+	case w.rawChan <- FileChange{Path: absPath, Event: eventType}:
 	default:
-		jlog.Error("[FileWatcher] Dropped git feed event (channel full): %s (%s)", absPath, eventType)
+		jlog.Error("[FileWatcher] Dropped raw feed event (channel full): %s (%s)", absPath, eventType)
 	}
 }
 
-// GitChanges is the git feed, or nil for a watcher made without one (see
-// FileWatcherOptions.GitFeed). Its paths are absolute. It is closed when the
+// RawChanges is the raw feed, or nil for a watcher made without one (see
+// FileWatcherOptions.RawFeed). Its paths are absolute. It is closed when the
 // watcher stops.
-func (w *FileWatcher) GitChanges() <-chan FileChange {
-	return w.gitChan
+func (w *FileWatcher) RawChanges() <-chan FileChange {
+	return w.rawChan
 }
 
 // emitChange sends one change to the frontend. Immediate — no batching, no

@@ -22,6 +22,12 @@ type CodedError struct {
 
 func (e *CodedError) Error() string { return e.Msg }
 
+// CodeNoProject is an operation refused because no project is open: every
+// operation belongs to one (handlers.OpsAPI). A caller polling for something
+// that is simply absent with no project — the git status card — reads it as
+// that absence rather than as a failure.
+const CodeNoProject = "NO_PROJECT"
+
 // CodeSearchNotFound is an edit whose old_str matches nothing in the file. Its
 // detail carries `path` and `contentHash` (the file's current bytes), so a
 // caller can tell a stale read from a wrong old_str.

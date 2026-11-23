@@ -215,8 +215,8 @@ export async function runTests() {
   const registry = /** @type {any} */ (workspaceProviderRegistry);
   const ownCreate = Object.prototype.hasOwnProperty.call(registry, 'createProvider');
   const realCreate = registry.createProvider;
-  registry.createProvider = function (/** @type {string} */ id, /** @type {any} */ s) {
-    return id === 'group' ? new GroupStandIn(/** @type {any} */ ({ session: s })) : realCreate.call(this, id, s);
+  registry.createProvider = function (/** @type {string} */ id) {
+    return id === 'group' ? new GroupStandIn() : realCreate.call(this, id);
   };
   const realShowModal = /** @type {any} */ (window).showModal;
   const Dialog = /** @type {any} */ (customElements.get('modal-dialog'));

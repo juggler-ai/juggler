@@ -34,6 +34,14 @@
  *   does cannot be taken back
  * @property {() => boolean|Promise<boolean>} [onConfirm] - As for {@link ModalOptions}
  * @property {(() => void)|null} [onBack] - Adds a Back button, which runs it
+ * @property {() => void} [onCancel] - Run when the Cancel button is pressed,
+ *   before the dialog closes. Escape, the backdrop, Back and a close by the
+ *   caller dismiss it without running this: they answer nothing.
+ * @property {string} [confirmClass] - More classes for the confirm button, for
+ *   the caller (and its tests) to find it by
+ * @property {string} [cancelClass] - More classes for the Cancel button
+ * @property {boolean} [focusConfirm] - The confirm button takes the keyboard,
+ *   not the first field: for a yes or no whose fields are only a checkbox
  */
 
 /**
@@ -332,7 +340,8 @@ class ModalDialog extends JugglerElement {
       input.addEventListener('keydown', onPromptKeydown);
       this._showCleanups.push(() => input.removeEventListener('keydown', onPromptKeydown));
     } else if (type === 'form' && content) {
-      this.showStep({ title, message, content, confirmText, cancelText, danger, onConfirm });
+      // The rest of a form's options (its hooks and button classes) are its first step's.
+      this.showStep({ ...options, title, message, content, confirmText, cancelText, danger, onConfirm });
     } else if (type === 'choice') {
       // Choice type doesn't use footer buttons - everything is in the choice options
       footer.classList.add('hidden');
@@ -381,6 +390,10 @@ class ModalDialog extends JugglerElement {
       danger = false,
       onConfirm = () => true,
       onBack = null,
+      onCancel = null,
+      confirmClass = '',
+      cancelClass = '',
+      focusConfirm = false,
     } = step;
     this._runStepCleanups();
     const titleEl = this.querySelector('.modal-title');
@@ -405,10 +418,15 @@ class ModalDialog extends JugglerElement {
       backButton.classList.add('modal-back-button');
       footer.appendChild(backButton);
     }
-    footer.appendChild(this.createButton(cancelText, 'secondary', () => {
+    const cancelButton = this.createButton(cancelText, 'secondary', () => {
+      onCancel?.();
       this.close(null);
-    }));
+    });
+    if (cancelClass) cancelButton.classList.add(...cancelClass.split(/\s+/).filter(Boolean));
+    footer.appendChild(cancelButton);
     // A step with nothing to confirm (a list to pick from) has Cancel alone.
+    /** @type {HTMLButtonElement|null} */
+    let confirming = null;
     if (confirmText) {
       const confirmButton = this.createButton(confirmText, danger ? 'danger' : 'primary', async () => {
         if (confirmButton.disabled) return;
@@ -422,7 +440,11 @@ class ModalDialog extends JugglerElement {
           else confirmButton.disabled = false;
         }
       });
+      // Found again by this class when `setConfirm` restyles it.
+      confirmButton.classList.add('modal-confirm-button');
+      if (confirmClass) confirmButton.classList.add(...confirmClass.split(/\s+/).filter(Boolean));
       footer.appendChild(confirmButton);
+      confirming = confirmButton;
       const onFormKeydown = (/** @type {KeyboardEvent} */ e) => {
         if (e.key !== 'Enter' || e.isComposing) return;
         // A field confirms; a button, a link or a textarea keeps its own Enter.
@@ -433,8 +455,25 @@ class ModalDialog extends JugglerElement {
       content.addEventListener('keydown', onFormKeydown);
       this._stepCleanups.push(() => content.removeEventListener('keydown', onFormKeydown));
     }
-    const first = /** @type {HTMLElement|null} */ (content.querySelector('input, textarea, select, button'));
+    const first = focusConfirm && confirming ? confirming
+      : /** @type {HTMLElement|null} */ (content.querySelector('input, textarea, select, button'));
     if (first) focusWhenShown(first);
+  }
+
+  /**
+   * Retitle or restyle the open step's confirm button — for a choice in the
+   * form (a checkbox) that turns the answer into a riskier one.
+   * @param {{text?: string, danger?: boolean}} change - Its words, and whether
+   *   it is a danger button rather than a primary one.
+   */
+  setConfirm(change) {
+    const button = /** @type {HTMLButtonElement|null} */ (this.querySelector('button.modal-confirm-button'));
+    if (!button) return;
+    if (change.text !== undefined) button.textContent = change.text;
+    if (change.danger !== undefined) {
+      button.classList.toggle('btn-danger', change.danger);
+      button.classList.toggle('btn-primary', !change.danger);
+    }
   }
 
   /** @private */
@@ -769,7 +808,8 @@ window.showNotice = showNotice;
 
 /**
  * @typedef {FormStep & {className?: string}} FormDialogOptions - The first
- *   step, and a class for the dialog element to scope the fields' styles by.
+ *   step, and classes (space-separated) for the dialog element to scope the
+ *   fields' styles by.
  */
 
 /**
@@ -784,24 +824,33 @@ window.showNotice = showNotice;
  * confirmText (a list to pick from) has only Cancel, and moves on through
  * `step`, which puts the next step in its place.
  * @param {FormDialogOptions} options - What it shows and does.
- * @returns {{done: Promise<boolean>, close: (confirmed?: boolean) => void, step: (next: FormStep) => void}}
+ * @returns {{done: Promise<boolean>, close: (confirmed?: boolean) => void, step: (next: FormStep) => void,
+ *   setConfirm: (change: {text?: string, danger?: boolean}) => void}}
  *   `done` settles true once a confirm succeeded, or the caller closed it as
  *   done, and false when cancelled; `close` closes it, cancelled unless told
- *   otherwise; `step` shows the next step.
+ *   otherwise; `step` shows the next step; `setConfirm` retitles the open
+ *   step's confirm button or makes it a danger (or primary) one.
  */
 export function showFormDialog(options) {
   const { className, ...rest } = options;
   /** @type {any} */
   const modal = document.createElement('modal-dialog');
-  if (className) modal.classList.add(className);
+  if (className) modal.classList.add(...className.split(/\s+/).filter(Boolean));
   document.body.appendChild(modal);
   const done = modal.show({ type: 'form', confirmText: t('OK'), ...rest })
     .then((/** @type {any} */ result) => result === true)
     .finally(() => modal.remove());
   return {
     done,
-    close: (confirmed = false) => { if (modal.isConnected) modal.close(confirmed ? true : null); },
+    // Gone from the document at once (its scrim fades on without it), so a
+    // dialog the caller opens next is the only one there.
+    close: (confirmed = false) => {
+      if (!modal.isConnected) return;
+      modal.close(confirmed ? true : null);
+      modal.remove();
+    },
     step: (next) => { if (modal.isConnected) modal.showStep(next); },
+    setConfirm: (change) => { if (modal.isConnected) modal.setConfirm(change); },
   };
 }
 

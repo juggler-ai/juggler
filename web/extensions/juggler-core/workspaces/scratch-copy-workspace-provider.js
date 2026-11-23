@@ -127,15 +127,15 @@ export function sandboxPlaces(baseRoot, name, stateDir = '') {
 /**
  * The state folder a copy of `baseRoot` keeps its sandboxes in, when that is
  * outside the project: only a copy of the project itself, and only while the
- * session reports its state kept outside. '' means in the tree.
- * @param {any} session - The session.
+ * project's state is kept outside. '' means in the tree.
+ * @param {{projectPath?: string, stateDir?: string}|undefined} project - Where the project and its state are: a hook's context.
  * @param {string} baseRoot - The workspace being copied.
  * @returns {string} The outside state folder, or ''.
  */
-function sandboxStateDir(session, baseRoot) {
-  const projectPath = String(session?.projectPath ?? '');
+function sandboxStateDir(project, baseRoot) {
+  const projectPath = String(project?.projectPath ?? '');
   if (!projectPath || !baseRoot || !samePath(projectPath, baseRoot)) return '';
-  return sessionOutsideStateDir(session);
+  return sessionOutsideStateDir(project);
 }
 
 /**
@@ -146,13 +146,13 @@ function sandboxStateDir(session, baseRoot) {
  * itself is always rebuilt from the slugged name, so a record edited by hand
  * cannot name a directory outside the place sandboxes live.
  * @param {any} meta - The row's meta.
- * @param {any} session - The session.
+ * @param {{projectPath?: string, stateDir?: string}|undefined} project - Where the project and its state are: a hook's context.
  * @returns {ReturnType<typeof sandboxPlaces>} The places.
  */
-function recordedPlaces(meta, session) {
+function recordedPlaces(meta, project) {
   const baseDir = String(meta?.baseDir ?? '');
   const named = slug(String(meta?.name ?? ''));
-  const outside = sandboxStateDir(session, baseDir);
+  const outside = sandboxStateDir(project, baseDir);
   const candidates = [sandboxPlaces(baseDir, named, outside)];
   if (outside) candidates.push(sandboxPlaces(baseDir, named));
   // The directory first, then what is under it: the first of them the record
@@ -191,11 +191,8 @@ function refusedFor(name, paths) {
  * A copy of the tree, as a place a conversation can work.
  */
 class ScratchCopyWorkspaceProvider extends WorkspaceProvider {
-  /**
-   * @param {{session?: any}} [context] - What is known before any hook runs.
-   */
-  constructor(context = {}) {
-    super(context);
+  constructor() {
+    super();
 
     /** @type {any} The rendered form, while there is one. */
     this._form = null;
@@ -262,11 +259,11 @@ class ScratchCopyWorkspaceProvider extends WorkspaceProvider {
         : '', { error: true });
       return;
     }
-    const baseRoot = form.ctx?.session?.workspaceRoot?.(form.ctx?.baseWorkspaceId ?? '') ?? '';
+    const baseRoot = form.ctx?.workspaceRoot?.(form.ctx?.baseWorkspaceId ?? '') ?? '';
     showNote(
       form.note,
       baseRoot ? t('Work in a copy of the project, not your own files. Files git ignores are not copied.') : '',
-      { path: baseRoot ? sandboxPlaces(baseRoot, named, sandboxStateDir(form.ctx?.session, baseRoot)).work : '' }
+      { path: baseRoot ? sandboxPlaces(baseRoot, named, sandboxStateDir(form.ctx, baseRoot)).work : '' }
     );
   }
 
@@ -279,13 +276,13 @@ class ScratchCopyWorkspaceProvider extends WorkspaceProvider {
     if (!form) return { valid: false, values: {}, invalidFieldId: '' };
 
     const name = form.input.value.trim();
-    const baseRoot = form.ctx?.session?.workspaceRoot?.(form.ctx?.baseWorkspaceId ?? '') ?? '';
+    const baseRoot = form.ctx?.workspaceRoot?.(form.ctx?.baseWorkspaceId ?? '') ?? '';
     const named = slug(name);
     const values = {
       name,
       // Reported so the host can register the row where the copy is really
       // going before a single byte of it exists; `plannedRoot` reads it back.
-      location: named && baseRoot ? sandboxPlaces(baseRoot, named, sandboxStateDir(form.ctx?.session, baseRoot)).work : ''
+      location: named && baseRoot ? sandboxPlaces(baseRoot, named, sandboxStateDir(form.ctx, baseRoot)).work : ''
     };
     return named
       ? { valid: true, values }
@@ -314,14 +311,14 @@ class ScratchCopyWorkspaceProvider extends WorkspaceProvider {
    * project, because the operations that make it are pinned there and the ending
    * that lands the work has to reach the same tree it came from.
    * @param {any} values - What the setup form collected; only `name` is read.
-   * @param {any} ctx - The hook's context, for the session and the base workspace.
+   * @param {any} ctx - The hook's context, for the base workspace's root.
    * @returns {{baseRoot: string, places: any}} The tree and the places.
    * @throws {Error} When there is no base root, or nothing usable to call it.
    */
   _places(values, ctx) {
-    const baseRoot = ctx?.session?.workspaceRoot?.(ctx?.baseWorkspaceId ?? '');
+    const baseRoot = ctx?.workspaceRoot?.(ctx?.baseWorkspaceId ?? '');
     if (!baseRoot) throw new Error(t("Couldn't make a copy: the workspace it would be a copy of has no root."));
-    const places = sandboxPlaces(baseRoot, values?.name ?? '', sandboxStateDir(ctx?.session, baseRoot));
+    const places = sandboxPlaces(baseRoot, values?.name ?? '', sandboxStateDir(ctx, baseRoot));
     if (!places.name) {
       throw new Error(t("Couldn't make a copy: {name} leaves nothing that can be a directory name.",
         { name: JSON.stringify(String(values?.name ?? '')) }));
@@ -483,7 +480,7 @@ class ScratchCopyWorkspaceProvider extends WorkspaceProvider {
     if (!baseDir || workspace?.available === false) return null;
 
     const named = slug(String(meta?.name ?? '')) || workspace.label || baseName(workspace.root);
-    const places = recordedPlaces({ ...meta, name: named }, ctx?.session ?? this.session);
+    const places = recordedPlaces({ ...meta, name: named }, ctx);
     const ops = ctx.baseOps ?? ctx.ops;
     const difference = await ops.compareTrees(
       { left: places.pristineRel, right: places.workRel }, ctx.signal);
@@ -556,7 +553,7 @@ class ScratchCopyWorkspaceProvider extends WorkspaceProvider {
       return { done: false, message: t("Can't finish with this copy: there's no record of what it was copied from.") };
     }
 
-    const places = recordedPlaces(meta, ctx?.session ?? this.session);
+    const places = recordedPlaces(meta, ctx);
     const ops = ctx.baseOps ?? ctx.ops;
 
     if (actionId === 'keep') {
@@ -693,7 +690,7 @@ class ScratchCopyWorkspaceProvider extends WorkspaceProvider {
     /** @type {any[]} */
     const orphanedArtifacts = [];
 
-    const projectPath = ctx?.session?.projectPath ?? '';
+    const projectPath = ctx?.projectPath ?? '';
     if (!projectPath) return { orphanedWorkspaces, orphanedArtifacts, confirmed };
 
     // These operations are rooted at the project, so the project's copies are
@@ -702,7 +699,7 @@ class ScratchCopyWorkspaceProvider extends WorkspaceProvider {
     // having looked in the wrong place.
     // Where the project's copies go now: its state folder when that is outside
     // it, which the server moves them into along with the rest of the state.
-    const outside = sandboxStateDir(ctx?.session, projectPath);
+    const outside = sandboxStateDir(ctx, projectPath);
     const holder = sandboxPlaces(projectPath, '', outside).holderRel;
     const listing = await ctx.ops.expandDirectory({ path: holder }).catch(() => null);
     const present = new Set((listing?.items ?? [])
@@ -779,7 +776,7 @@ class ScratchCopyWorkspaceProvider extends WorkspaceProvider {
     // where the copy is: a sandbox of a worktree lives under the worktree, which
     // a pass rooted at the project cannot reach at all.
     const ops = ctx.baseOps ?? ctx.ops;
-    const places = recordedPlaces(meta, ctx?.session ?? this.session);
+    const places = recordedPlaces(meta, ctx);
     await ops.copyTree(places.removal, ctx.signal);
 
     // Asked rather than assumed: a removal succeeds for a copy that was never

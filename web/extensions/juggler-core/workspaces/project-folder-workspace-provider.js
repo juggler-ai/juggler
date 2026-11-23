@@ -54,11 +54,8 @@ const FOLDER_CHECK_DELAY_MS = 200;
  * A folder of the project, as the place a conversation works.
  */
 class ProjectFolderWorkspaceProvider extends UnbuiltWorkspaceProvider {
-  /**
-   * @param {{session?: any}} [context] - What is known before any hook runs.
-   */
-  constructor(context = {}) {
-    super(context);
+  constructor() {
+    super();
 
     /** @type {any} The rendered form, while there is one. */
     this._form = null;
@@ -176,12 +173,12 @@ class ProjectFolderWorkspaceProvider extends UnbuiltWorkspaceProvider {
 
   /**
    * Tell the host the form has changed when nothing the user did changed it —
-   * the verdict arriving is what turns Create on or off, and the panel only
-   * listens to the events a field would raise for itself.
+   * the verdict arriving is what turns Create on or off, and the panel hears
+   * only the events a field raises for itself.
    * @private
    */
   _report() {
-    this._form?.container?.dispatchEvent(new Event('change', { bubbles: true }));
+    this._form?.ctx?.setupChanged?.();
   }
 
   /**
@@ -225,12 +222,12 @@ class ProjectFolderWorkspaceProvider extends UnbuiltWorkspaceProvider {
    * typed: `join` resolves `..` segments, so this is what catches a path that
    * climbs out of the project by way of something that looks like it does not.
    * @param {any} values - What the setup form collected; only `folder` is read.
-   * @param {any} ctx - The hook's context, for the session.
+   * @param {any} ctx - The hook's context, for the project's path.
    * @returns {{project: string, rel: string, dir: string}} The project and the folder.
    * @throws {Error} When there is no project, or the folder is not one of its own.
    */
   _places(values, ctx) {
-    const project = String(ctx?.session?.projectPath ?? '');
+    const project = String(ctx?.projectPath ?? '');
     if (!project) throw new Error(t("Couldn't use that folder: the session has no project."));
 
     const typed = String(values?.folder ?? '').trim().replace(/[/\\]+$/, '');
@@ -297,11 +294,11 @@ class ProjectFolderWorkspaceProvider extends UnbuiltWorkspaceProvider {
    * project's is the one it would otherwise lose, and it is the one that says
    * how anything here is meant to be built and tested.
    * @param {any} workspace - The row about to be seeded for.
-   * @param {any} ctx - The hook's context, for the session.
+   * @param {any} ctx - The hook's context, for the project's path.
    * @returns {string[]} The project, or nothing.
    */
   instructionRoots(workspace, ctx) {
-    const project = String(ctx?.session?.projectPath ?? '');
+    const project = String(ctx?.projectPath ?? '');
     if (!project) return [];
     const rel = relativePath(project, String(workspace?.root ?? ''));
     // A row somehow rooted at the project itself has nothing above it, and

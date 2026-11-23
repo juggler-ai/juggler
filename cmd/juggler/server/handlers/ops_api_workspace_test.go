@@ -21,6 +21,11 @@ import (
 // there, reads out into the project, and is refused outright when the workspace
 // is not in a state to serve it.
 
+// routeOperation routes a request as the agent's entry does.
+func (api *OpsAPI) routeOperation(ctx context.Context, req OperationRequest) (any, error) {
+	return api.route(ctx, callerAgent, req)
+}
+
 // opsAPIForTest builds an OpsAPI over a fixed project path and a table of
 // workspaces, resolved as the server resolves them, with the real tool handlers
 // registered.

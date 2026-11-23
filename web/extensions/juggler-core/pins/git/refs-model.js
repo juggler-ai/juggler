@@ -22,17 +22,16 @@
  */
 
 import { translator } from 'juggler/i18n';
-import { tracksTree } from '../../workspaces/git-worktree-workspace-provider.js';
 
 const t = translator('@juggler/core');
 
 /**
- * @typedef {import('juggler/pinboard-item-type').PinGitRefs} PinGitRefs
- * @typedef {PinGitRefs['branches'][number]} Branch
- * @typedef {PinGitRefs['tags'][number]} Tag
- * @typedef {PinGitRefs['stashes'][number]} Stash
- * @typedef {import('juggler/pinboard-item-type').PinGitWorktrees['trees'][number]} Tree
- * @typedef {import('juggler/pinboard-item-type').PinGitSubmodules['submodules'][number]} Submodule
+ * @typedef {import('../../lib/git-client.js').GitRefs} GitRefs
+ * @typedef {GitRefs['branches'][number]} Branch
+ * @typedef {GitRefs['tags'][number]} Tag
+ * @typedef {GitRefs['stashes'][number]} Stash
+ * @typedef {import('../../lib/git-client.js').GitWorktrees['trees'][number]} Tree
+ * @typedef {import('../../lib/git-client.js').GitSubmodules['submodules'][number]} Submodule
  */
 
 /**
@@ -40,20 +39,20 @@ const t = translator('@juggler/core');
  * @typedef {object} TreeView
  * @property {Tree} tree - As `git worktree list` describes it.
  * @property {string} name - The last part of its path.
- * @property {{id: string}|null} workspace - The git-worktree workspace it is, if
- *   it is one: whose Finish options are its endings.
- * @property {boolean} otherWorkspace - Whether another provider's open workspace
- *   is rooted there.
+ * @property {{id: string}|null} workspace - The workspace that is this tree, if
+ *   one is (`workspaces.forTree`): whose Finish options are its endings.
+ * @property {boolean} otherWorkspace - Whether some other open workspace is
+ *   rooted there.
  * @property {{id: string, title: string}[]} conversations - The conversations working in it.
  * @property {{options: {id: string, label: string, description?: string, danger?: boolean}[], unavailableReason?: string}|null} finish -
- *   Its workspace's endings, for a git-worktree workspace.
+ *   Its workspace's endings, when a workspace is this tree.
  * @property {string|null} viewId - What `config.workspace` names to view it, null when it cannot be viewed.
  * @property {string} viewRepo - What `config.repo` names to view it there: '' for that tree's root.
  */
 
 /**
  * @typedef {object} RefsState
- * @property {PinGitRefs|null} refs - The last refs read.
+ * @property {GitRefs|null} refs - The last refs read.
  * @property {TreeView[]} trees - The last worktree read, annotated; the main tree first.
  * @property {Submodule[]} submodules - The last submodules read.
  * @property {number} dirty - Changed files in the viewed tree.
@@ -97,7 +96,8 @@ const t = translator('@juggler/core');
 function annotateTree(tree, workspaces) {
   const ids = new Set(tree.rows || []);
   const rows = ids.size ? (workspaces?.list() || []).filter((r) => ids.has(r.id) && r.state !== 'closed') : [];
-  const mine = rows.find((r) => r.providerId === 'git-worktree' && tracksTree(r, tree)) || null;
+  const id = rows.length ? (workspaces?.forTree({ path: tree.path, branch: tree.branch || '', rows: rows.map((r) => r.id) }) || '') : '';
+  const mine = (id && rows.find((r) => r.id === id)) || null;
   return {
     tree,
     name: baseName(tree.path),
@@ -113,7 +113,7 @@ function annotateTree(tree, workspaces) {
 /**
  * What the model is asked about, from the last reads and the pin.
  * @param {object} known - What is known.
- * @param {PinGitRefs|null} known.refs - The last refs read.
+ * @param {GitRefs|null} known.refs - The last refs read.
  * @param {Tree[]} known.trees - The last worktree read.
  * @param {Submodule[]} known.submodules - The last submodules read.
  * @param {import('juggler/pinboard-item-type').PinWorkspaces|undefined} known.workspaces - The session's workspaces.

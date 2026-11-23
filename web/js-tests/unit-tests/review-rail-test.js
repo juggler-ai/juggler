@@ -77,7 +77,7 @@ function fakeReview(comments = []) {
  * @param {string} id - The comment's id.
  * @returns {any} A whole-file comment on it.
  */
-const comment = (repo, path, id) => ({ id, repo, path, side: 'file', body: 'b', createdAt: 1, updatedAt: 1 });
+const comment = (repo, path, id) => ({ id, group: repo, path, side: 'file', body: 'b', createdAt: 1, updatedAt: 1 });
 
 /**
  * Let the stubs' promises, and the panel's awaits on them, run out. Every stub
@@ -144,7 +144,7 @@ export async function runTests() {
    * @returns {any} A panel, mounted.
    */
   const mount = (review = fakeReview()) => {
-    const panel = createReviewPanel({ scopeLabel: 'HEAD', loadPatch: async () => ({ hunks: [] }), review });
+    const panel = createReviewPanel({ scopeLabel: 'HEAD', loadPatch: async () => /** @type {any} */ ({ hunks: [] }), review });
     container.appendChild(panel.element);
     return panel;
   };

@@ -23,14 +23,14 @@ const t = translator('@juggler/core');
 const KEEP = 100;
 
 /**
- * @typedef {import('juggler/pinboard-item-type').PinGitJob} PinGitJob
+ * @typedef {import('../../lib/git-client.js').GitJob} GitJob
  * @typedef {object} CommandLogOptions
  * @property {(repo: string) => string} repoName - A repository's name, by its
  *   path in the tree ('' for its root).
  * @typedef {object} CommandLog
  * @property {HTMLElement} element - The strip, to be placed in the pin.
- * @property {(jobs: PinGitJob[]) => void} setJobs - Start from these, newest first.
- * @property {(job: PinGitJob) => void} upsert - A job started or moved.
+ * @property {(jobs: GitJob[]) => void} setJobs - Start from these, newest first.
+ * @property {(job: GitJob) => void} upsert - A job started or moved.
  * @property {() => void} toggle - Open or close it.
  * @property {() => void} reveal - Open it, with the newest failed command in view.
  * @property {() => boolean} isOpen - Whether it is open.
@@ -58,11 +58,11 @@ export function createCommandLog({ repoName }) {
   list.hidden = true;
   element.append(toggleButton, list);
 
-  /** @type {PinGitJob[]} Oldest first. */
+  /** @type {GitJob[]} Oldest first. */
   let jobs = [];
 
   /**
-   * @param {PinGitJob} job - A job.
+   * @param {GitJob} job - A job.
    * @returns {string[]} Its commands as typed, each at its repository's prompt.
    */
   const commandLines = (job) => {
@@ -108,11 +108,11 @@ export function createCommandLog({ repoName }) {
 
   const api = {
     element,
-    setJobs: (/** @type {PinGitJob[]} */ newestFirst) => {
+    setJobs: (/** @type {GitJob[]} */ newestFirst) => {
       jobs = [...newestFirst].reverse().slice(-KEEP);
       render();
     },
-    upsert: (/** @type {PinGitJob} */ job) => {
+    upsert: (/** @type {GitJob} */ job) => {
       const at = jobs.findIndex((j) => j.id === job.id);
       if (at >= 0) jobs[at] = job;
       else jobs.push(job);

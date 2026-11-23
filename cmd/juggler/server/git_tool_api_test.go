@@ -2,28 +2,34 @@
 //     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
-package handlers
+package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"juggler/cmd/juggler/gitview"
 	"juggler/cmd/juggler/gitview/gitviewtest"
+	"juggler/cmd/juggler/ops"
+	"juggler/cmd/juggler/server/handlers"
 	"juggler/cmd/juggler/workspace"
 )
 
-// What git says about a tree is gitview's to test. These are the API's own
-// questions: which tree a request is about, and what HTTP an answer or a
-// failure becomes.
+// What git says about a tree is gitview's to test. These are the git tool's
+// own questions: which tree a call is about, and what an answer or a failure
+// becomes.
 
 // gitProject is a throwaway project directory holding a throwaway repository.
 type gitProject struct {
@@ -81,29 +87,76 @@ func (p *gitProject) commit(message string) {
 	p.git("commit", "-qm", message)
 }
 
-// gitAPIOn builds the git API over a live project path and no session.
-func gitAPIOn(project func() string) *GitStatusAPI {
-	return NewGitStatusAPI(workspace.NewResolver(project, nil, nil).Resolve)
+// gitAPIOn builds the git tool's API over a live project path and no session.
+func gitAPIOn(project func() string) *handlers.OpsAPI {
+	return gitToolAPI(workspace.NewResolver(project, nil, nil).Resolve)
 }
 
-// askGit calls one of the git endpoints the way the router would.
-func askGit(t *testing.T, api *GitStatusAPI, ctx context.Context, target string) *httptest.ResponseRecorder {
+// gitToolAPI is an ops API whose only tool of its own is the git tool, of a
+// server with nothing else, over resolve.
+func gitToolAPI(resolve workspace.ResolveFunc) *handlers.OpsAPI {
+	table := ops.NewTable()
+	(&Server{}).registerGitTool(table)
+	return handlers.NewOpsAPI(resolve).WithTable(table).WithClientTrees(resolve)
+}
+
+// gitAnswer is one git tool call's answer, as these tests read it. Code sorts
+// it: 200 is an answer, whose Data is Body; a failure is 502 when its message
+// says the read itself could not be made ("Couldn't …") and 400 when it is a
+// refusal of the request — what was asked, or the tree it was asked in — and
+// Body is then the whole response.
+type gitAnswer struct {
+	Code int
+	Body *bytes.Buffer
+}
+
+// askGit calls the git tool's operation named by target, written as the URL
+// of the route it stands for (/api/git/<operation>?<params>), through the
+// client's entry as the viewer would. A parameter is a string, but for the
+// flags (=1) and the numbers of a log read; paths= repeats.
+func askGit(t *testing.T, api *handlers.OpsAPI, ctx context.Context, target string) gitAnswer {
 	t.Helper()
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, target, nil).WithContext(ctx)
-	switch {
-	case strings.HasPrefix(target, "/api/git/status"):
-		api.HandleGitStatus(rec, req)
-	case strings.HasPrefix(target, "/api/git/review"):
-		api.HandleGitReview(rec, req)
-	case strings.HasPrefix(target, "/api/git/diff"):
-		api.HandleGitDiff(rec, req)
-	case strings.HasPrefix(target, "/api/git/read"):
-		api.HandleGitRead(rec, req)
-	default:
-		t.Fatalf("not a git endpoint: %s", target)
+	u, err := url.Parse(target)
+	if err != nil {
+		t.Fatal(err)
 	}
-	return rec
+	params := map[string]any{}
+	for name, values := range u.Query() {
+		v := values[0]
+		switch name {
+		case "workspace":
+		case "paths":
+			params[name] = values
+		case "amend", "refresh", "worktree":
+			params[name] = v == "1"
+		case "offset", "limit":
+			if n, err := strconv.Atoi(v); err == nil {
+				params[name] = n
+			} else {
+				params[name] = v
+			}
+		default:
+			params[name] = v
+		}
+	}
+	body, _ := json.Marshal(handlers.OperationRequest{
+		ToolID: gitToolID, Operation: path.Base(u.Path), Params: params, WorkspaceID: u.Query().Get("workspace"),
+	})
+	rec := httptest.NewRecorder()
+	api.HandleClientCall(rec, httptest.NewRequest(http.MethodPost, "/api/ops/client", bytes.NewReader(body)).WithContext(ctx))
+	var resp handlers.OperationResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("%s: %v\n%s", target, err, rec.Body.String())
+	}
+	switch {
+	case resp.Success:
+		data, _ := json.Marshal(resp.Data)
+		return gitAnswer{Code: http.StatusOK, Body: bytes.NewBuffer(data)}
+	case resp.Message != nil && strings.HasPrefix(resp.Message.Key, "Couldn't"):
+		return gitAnswer{Code: http.StatusBadGateway, Body: bytes.NewBuffer(rec.Body.Bytes())}
+	default:
+		return gitAnswer{Code: http.StatusBadRequest, Body: bytes.NewBuffer(rec.Body.Bytes())}
+	}
 }
 
 // The project path is read on every request, so a switch retargets the review
@@ -116,16 +169,16 @@ func TestGitReviewFollowsAProjectSwitch(t *testing.T) {
 
 	open := first.root
 	api := gitAPIOn(func() string { return open })
-	manifest := func() gitReviewResponse {
+	manifest := func() gitReviewAnswer {
 		t.Helper()
 		rec := askGit(t, api, t.Context(), "/api/git/review")
-		var resp gitReviewResponse
+		var resp gitReviewAnswer
 		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 			t.Fatalf("decoding the response: %v\n%s", err, rec.Body.String())
 		}
 		return resp
 	}
-	files := func(resp gitReviewResponse) []string {
+	files := func(resp gitReviewAnswer) []string {
 		var paths []string
 		for _, repo := range resp.Repos {
 			for _, file := range repo.Files {
@@ -147,33 +200,15 @@ func TestGitReviewFollowsAProjectSwitch(t *testing.T) {
 	}
 }
 
-// A project nobody opened is not an empty review of one, nor a diff of nothing.
-// The card is polled, so it answers with no repositories instead.
+// With no project open nothing runs: the dispatcher refuses every operation,
+// the card's status read included, before the tool is built.
 func TestGitReviewWithNoProject(t *testing.T) {
 	api := gitAPIOn(func() string { return "" })
-	for target, want := range map[string]int{
-		"/api/git/review":          http.StatusBadRequest,
-		"/api/git/diff?path=f.txt": http.StatusBadRequest,
-		"/api/git/status":          http.StatusOK,
-	} {
-		rec := askGit(t, api, t.Context(), target)
-		if rec.Code != want {
-			t.Errorf("GET %s = %d, want %d\n%s", target, rec.Code, want, rec.Body.String())
-			continue
+	for _, target := range []string{"/api/git/review", "/api/git/diff?path=f.txt", "/api/git/status"} {
+		if rec := askGit(t, api, t.Context(), target); rec.Code != http.StatusBadRequest ||
+			!strings.Contains(rec.Body.String(), "no project loaded") {
+			t.Errorf("%s with no project = %d %s, want it refused saying no project is loaded", target, rec.Code, rec.Body.String())
 		}
-		if want == http.StatusBadRequest && !strings.Contains(rec.Body.String(), "No project is open") {
-			t.Errorf("GET %s refused with %s, want it to say no project is open", target, rec.Body.String())
-		}
-	}
-
-	// About nothing: a scan of whatever directory the server runs in would
-	// answer 200 too.
-	var status gitStatusResponse
-	if err := json.Unmarshal(askGit(t, api, t.Context(), "/api/git/status").Body.Bytes(), &status); err != nil {
-		t.Fatalf("decode status: %v", err)
-	}
-	if status.Root != "" || len(status.Repos) != 0 {
-		t.Errorf("status with no project = root %q, %d repos, want no root and no repositories", status.Root, len(status.Repos))
 	}
 }
 
@@ -191,7 +226,7 @@ func TestGitReviewAndDiffTakeAScope(t *testing.T) {
 	api := gitAPIOn(func() string { return p.root })
 
 	rec := askGit(t, api, t.Context(), "/api/git/review?scope=%40staged")
-	var resp gitReviewResponse
+	var resp gitReviewAnswer
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil || rec.Code != http.StatusOK {
 		t.Fatalf("review in @staged = %d %s", rec.Code, rec.Body.String())
 	}
@@ -231,7 +266,7 @@ func TestGitTurnScopeTakesItsConversation(t *testing.T) {
 	api := gitAPIOn(func() string { return p.root })
 
 	rec := askGit(t, api, t.Context(), "/api/git/review?scope=%40turn&conv=conv-1")
-	var resp gitReviewResponse
+	var resp gitReviewAnswer
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil || rec.Code != http.StatusOK {
 		t.Fatalf("review in @turn = %d %s", rec.Code, rec.Body.String())
 	}
@@ -274,5 +309,45 @@ func TestGitDiffStatusSaysWhoseProblemItIs(t *testing.T) {
 	var diff gitview.FileDiff
 	if err := json.Unmarshal(rec.Body.Bytes(), &diff); err != nil || rec.Code != http.StatusOK || diff.Status != "modified" {
 		t.Errorf("an ordinary diff = %d %s, want 200 and a modified file", rec.Code, rec.Body.String())
+	}
+}
+
+// A read's parameters, as the client sends them, ask gitview the query they
+// name — every read's own fields, and no other read's.
+func TestGitReadParamsAskTheirQuery(t *testing.T) {
+	for _, tc := range []struct {
+		params map[string]any
+		want   gitview.Query
+	}{
+		{map[string]any{"kind": "changes", "repo": "libs/inner"}, gitview.Query{Kind: gitview.QueryChanges, Repo: "libs/inner"}},
+		{map[string]any{"kind": "worktrees"}, gitview.Query{Kind: gitview.QueryWorktrees}},
+		{map[string]any{
+			"kind": "log", "repo": "sub", "graph": "g1", "scope": "ref", "ref": "main", "message": "fix it",
+			"author": "ann", "path": "a/b.go", "offset": 400, "limit": 200, "refresh": true, "find": "abc123",
+		}, gitview.Query{Kind: gitview.QueryLog, Repo: "sub", Log: gitview.LogQuery{
+			Graph: "g1", Scope: "ref", Ref: "main", Message: "fix it", Author: "ann", Path: "a/b.go",
+			Offset: 400, Limit: 200, Refresh: true, Find: "abc123",
+		}}},
+		{map[string]any{"kind": "commit", "commit": "abc123"}, gitview.Query{Kind: gitview.QueryCommit, Commit: "abc123"}},
+		{map[string]any{"kind": "blame", "repo": "sub", "path": "a/b.go", "rev": "@staged"},
+			gitview.Query{Kind: gitview.QueryBlame, Repo: "sub", Blame: gitview.BlameQuery{Path: "a/b.go", Rev: "@staged"}}},
+		{map[string]any{"kind": "attribution", "repo": "sub", "amend": true, "conv": "conv_seen"},
+			gitview.Query{Kind: gitview.QueryAttribution, Repo: "sub", Attribution: gitview.AttributionQuery{Amend: true, Conv: "conv_seen"}}},
+		{map[string]any{"kind": "attribution"}, gitview.Query{Kind: gitview.QueryAttribution}},
+		{map[string]any{"kind": "commit-context", "repo": "sub", "amend": true},
+			gitview.Query{Kind: gitview.QueryCommitContext, Repo: "sub", CommitContext: gitview.CommitContextQuery{Amend: true}}},
+		{map[string]any{"kind": "stranded", "ref": "refs/heads/x", "path": "ignored"},
+			gitview.Query{Kind: gitview.QueryStranded, Ref: "refs/heads/x"}},
+	} {
+		p, err := paramsAs[gitReadParams](tc.params)
+		if err != nil {
+			t.Fatalf("%v: %v", tc.params, err)
+		}
+		if got := p.query(); got != tc.want {
+			t.Errorf("%v asked %+v, want %+v", tc.params, got, tc.want)
+		}
+	}
+	if _, err := paramsAs[gitReadParams](map[string]any{"kind": "log", "offset": "many"}); err == nil {
+		t.Error("a log read with an offset that is not a number was read")
 	}
 }

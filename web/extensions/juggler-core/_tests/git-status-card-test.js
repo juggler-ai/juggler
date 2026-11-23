@@ -17,8 +17,9 @@
 
 import GitStatusCard from '../cards/git-status-card.js';
 import GitPin from '../pins/git-pin.js';
-import gitStatusCache from '../../../js/services/git-status-cache.js';
-import { setGitWorkspace } from '../../../js/services/git-workspace.js';
+import { gitClient, __resetGitStatus } from '../lib/git-client.js';
+import { servicesFor } from '../../../js/services/extension-services.js';
+import { setVisibleWorkspace } from '../../../js/services/visible-workspace.js';
 import pinboardItemRegistry from '../../../js/registries/pinboard-item-registry.js';
 import pinboardStore from '../../../js/services/pinboard-store.js';
 import pinboardView from '../../../js/services/pinboard-view.js';
@@ -43,11 +44,44 @@ const CORE_TEXT = [
  */
 
 /**
+ * Whether a request is the git tool's status read.
+ * @param {any} url - The request URL.
+ * @param {any} [opts] - The request options.
+ * @returns {boolean} Whether it is.
+ */
+function isGitStatus(url, opts) {
+  if (!String(url).includes('/api/ops/client')) return false;
+  const call = JSON.parse(opts?.body || '{}');
+  return call.toolId === 'git' && call.operation === 'status';
+}
+
+/**
+ * The git tool's answer, as the client entry sends it: the status, or a
+ * refusal with the server's words.
+ * @param {any} status - What the read answers, or an Error to refuse it with.
+ * @returns {any} The response.
+ */
+function gitAnswer(status) {
+  const body = status instanceof Error ? { success: false, error: status.message } : { success: true, data: status };
+  return { ok: true, json: async () => body };
+}
+
+/**
  * Run Git status card tests.
  * @param {object} _ctx - Test context (unused).
  * @returns {Promise<TestResult>} Test results.
  */
 export async function runTests(_ctx) {
+  // The window's status cache, as the card reads it: reset, read and held
+  // through a client of a surface that lives for the whole run.
+  const life = new AbortController();
+  const probe = gitClient(servicesFor(null, life.signal), life.signal);
+  const gitStatusCache = {
+    reset: __resetGitStatus,
+    refresh: () => probe.refresh(),
+    get: () => probe.status(),
+  };
+
   let passed = 0;
   let failed = 0;
   /** @type {string[]} */
@@ -106,7 +140,7 @@ export async function runTests(_ctx) {
    * Stand in for the server: serve a canned git status, and apply pinboard
    * operations to a board this test owns. Both go through window.fetch, which is
    * the one seam that covers the whole path from the card to the board.
-   * @param {any} status - What GET /api/git/status should answer.
+   * @param {any} status - What the git tool's status should answer.
    * @returns {any} The fake, its board, and its restore.
    */
   function stubServer(status) {
@@ -120,9 +154,9 @@ export async function runTests(_ctx) {
     };
     window.fetch = /** @type {any} */ (async (/** @type {any} */ url, /** @type {any} */ opts) => {
       const target = String(url);
-      if (target.includes('/git/status')) {
+      if (isGitStatus(target, opts)) {
         state.gitRequests++;
-        return { ok: true, json: async () => status };
+        return gitAnswer(status);
       }
       if (target.includes('/pinboard/operations')) {
         for (const op of JSON.parse(opts.body).operations) {
@@ -159,7 +193,9 @@ export async function runTests(_ctx) {
 
     const contentEl = document.createElement('div');
     document.body.appendChild(contentEl);
-    const stopCard = card.mount(contentEl);
+    const cardLife = new AbortController();
+    const mounted = card.mount(contentEl, undefined, { services: servicesFor(null, cardLife.signal), signal: cardLife.signal });
+    const stopCard = () => { mounted?.(); cardLife.abort(); };
 
     let done = false;
     const teardown = () => {
@@ -210,14 +246,7 @@ export async function runTests(_ctx) {
     const m = await mount({ root: '/tmp/proj', repos: [] });
     const original = window.fetch;
     window.fetch = /** @type {any} */ (async (/** @type {any} */ url, /** @type {any} */ opts) => {
-      if (String(url).includes('/git/status')) {
-        return {
-          ok: false,
-          status: 400,
-          statusText: 'Bad Request',
-          text: async () => JSON.stringify({ error: 'workspace ws_gone was closed' })
-        };
-      }
+      if (isGitStatus(url, opts)) return gitAnswer(new Error('workspace ws_gone was closed'));
       return original(url, opts);
     });
     try {
@@ -247,24 +276,16 @@ export async function runTests(_ctx) {
     let release = () => {};
     const gate = new Promise((resolve) => { release = () => resolve(undefined); });
     window.fetch = /** @type {any} */ (async (/** @type {any} */ url, /** @type {any} */ opts) => {
-      if (!String(url).includes('/git/status')) return original(url, opts);
+      if (!isGitStatus(url, opts)) return original(url, opts);
       await gate;
-      if (answer instanceof Error) {
-        return {
-          ok: false,
-          status: 400,
-          statusText: 'Bad Request',
-          text: async () => JSON.stringify({ error: answer.message }),
-        };
-      }
-      return { ok: true, json: async () => answer };
+      return gitAnswer(answer);
     });
     let restored = false;
     const restore = () => {
       if (restored) return;
       restored = true;
       window.fetch = original;
-      setGitWorkspace('');
+      setVisibleWorkspace('');
     };
     // Given back before the mount's own teardown, which restores the fetch
     // underneath this one.
@@ -284,7 +305,7 @@ export async function runTests(_ctx) {
     const observer = new MutationObserver((records) => { mutations += records.length; });
     observer.observe(m.contentEl, { childList: true, subtree: true, characterData: true });
     try {
-      setGitWorkspace('ws_other');
+      setVisibleWorkspace('ws_other');
       await nextTask();
       assert(!m.text().includes('Checking…'),
         `the last answer stays up while the new one is read, got ${JSON.stringify(m.text())}`);
@@ -306,7 +327,7 @@ export async function runTests(_ctx) {
     // name indefinitely.
     const m = await mount({ root: '/tmp/proj', repos: [repo({ changed: 2 })] });
     const held = holdStatus(new Error('workspace ws_gone was closed'));
-    setGitWorkspace('ws_gone');
+    setVisibleWorkspace('ws_gone');
     held.release();
     await gitStatusCache.refresh();
     await nextTask();
@@ -550,7 +571,9 @@ export async function runTests(_ctx) {
 
     const second = document.createElement('div');
     document.body.appendChild(second);
-    const stopSecond = card.mount(second);
+    const secondLife = new AbortController();
+    const secondMounted = card.mount(second, undefined, { services: servicesFor(null, secondLife.signal), signal: secondLife.signal });
+    const stopSecond = () => { secondMounted?.(); secondLife.abort(); };
     await nextTask();
 
     // Both surfaces share one in-flight fetch and one snapshot, which is the

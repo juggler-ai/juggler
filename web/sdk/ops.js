@@ -135,10 +135,6 @@ export {
 
 export { FileSystem, ReadOnlyFileSystem } from '../js/services/fs.js';
 
-// Telling the server which conversation wrote a file (POST /api/git/attribute),
-// once an edit or write tool's write has landed.
-export { sendGitAttribution } from '../js/services/git-attribution.js';
-
 // A prompt carried out by a strategy and a model in a throwaway conversation,
 // resolving with its answer: runAgent(request, signal).
 export { runAgent } from '../js/services/agent-runs.js';

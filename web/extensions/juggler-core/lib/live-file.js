@@ -20,7 +20,7 @@
 import { readFile, getTree } from 'juggler/ops';
 import { formatFileSizeForDisplay, injectFileContentStyles } from 'juggler/item-utils';
 import { fileSourceFromReadResult } from 'juggler/file-source';
-import { createElement } from 'juggler/ui';
+import { createElement, createFileView } from 'juggler/ui';
 import { translator } from 'juggler/i18n';
 
 const t = translator('@juggler/core');
@@ -231,7 +231,7 @@ export function renderLiveFileBody(container, result, options = {}) {
     return;
   }
 
-  const view = /** @type {any} */ (document.createElement('file-view'));
+  const view = /** @type {any} */ (createFileView());
   view.showPath = false;
   if (options.codeRefPath) {
     view.codeRefPath = options.codeRefPath;

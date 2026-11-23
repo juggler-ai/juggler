@@ -398,3 +398,14 @@ class PathInput extends JugglerElement {
 
 customElements.define('path-input', PathInput);
 export default PathInput;
+
+/**
+ * A path field with the app's completions, as `<path-input>`: its attributes
+ * (`placeholder`, `dirs-only`, `project-relative`) are set on what this
+ * returns. Asked for here, not with `document.createElement`, so the element
+ * is registered whatever else the window has loaded.
+ * @returns {PathInput} The element, not yet in the document.
+ */
+export function createPathInput() {
+  return /** @type {PathInput} */ (document.createElement('path-input'));
+}

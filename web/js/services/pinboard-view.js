@@ -699,6 +699,18 @@ const pinboardView = {
   },
 
   /**
+   * Every enabled type that would pin this source, with the config each would
+   * pin it with and what to call the action. For a surface that offers each
+   * one — a workspace's panel draws a button per offer — rather than only
+   * whichever {@link addSource} would pick. Pin one with {@link add}.
+   * @param {import('juggler/pinboard-item-type').PinSource} source - What is on offer.
+   * @returns {{typeId: string, label: string, config: Record<string, unknown>}[]} The offers, possibly none.
+   */
+  offersFor(source) {
+    return pinboardItemRegistry.offersFor(source);
+  },
+
+  /**
    * Pin something the user pointed at elsewhere in the UI — a file in a
    * properties panel, say. The registry decides which enabled type can take it,
    * so the caller describes what it has instead of naming a provider.

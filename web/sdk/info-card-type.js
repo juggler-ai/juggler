@@ -31,6 +31,13 @@ export const REQUIRED_INFO_CARD_MANIFEST_FIELDS = [...REQUIRED_MANIFEST_FIELDS, 
  *   column runs out of room. Defaults to 0.
  */
 
+/**
+ * What a card's `mount` is handed beside its content region and session.
+ * @typedef {object} InfoCardContext
+ * @property {import('./services.js').Services} services - Host services
+ * @property {AbortSignal} signal - Aborted when the card is removed
+ */
+
 // ============================================================================
 // InfoCardType Base Class
 // ============================================================================
@@ -54,7 +61,7 @@ export const REQUIRED_INFO_CARD_MANIFEST_FIELDS = [...REQUIRED_MANIFEST_FIELDS, 
  * 1. Import and extend InfoCardType: `import InfoCardType from 'juggler/info-card-type';`
  * 2. Define a static MANIFEST with the required fields (id, name, version,
  *    description, eyebrow).
- * 3. Implement `mount(contentEl, session)`; optionally override `hasContent()`,
+ * 3. Implement `mount(contentEl, session, {services, signal})`; optionally override `hasContent()`,
  *    `watchContent()` and `onEnabled()`.
  *
  * ```javascript
@@ -163,14 +170,21 @@ class InfoCardType {
   /**
    * Fill the card's content region. Return a teardown function to stop any timers
    * or listeners when the card is removed (a rail resize, a hide, teardown).
+   *
+   * `context.services` are the host services a pin is handed too
+   * (`juggler/services`), following the window's visible conversation and the
+   * thread focused in it. Every subscription made through them ends when
+   * `context.signal` aborts, which the rail does as the card is removed.
    * @abstract
    * @param {HTMLElement} contentEl - The content region to populate.
    * @param {import('../js/model/session.js').default} [session] - The owning conversation session.
+   * @param {InfoCardContext} [context] - The card's services and lifetime.
    * @returns {(() => void)|void} Optional teardown.
    */
-  mount(contentEl, session) {
+  mount(contentEl, session, context) {
     void contentEl;
     void session;
+    void context;
     throw new Error('mount() must be implemented by subclass');
   }
 }

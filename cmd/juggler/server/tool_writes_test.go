@@ -17,19 +17,19 @@ import (
 	"juggler/cmd/juggler/workspace"
 )
 
-// attribute posts one attribution as the engine does and returns the status.
+// attribute reports one tool write as the engine does and returns the status.
 func attribute(t *testing.T, s *Server, workspaceID, body string) int {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/git/attribute?workspace="+workspaceID, strings.NewReader(body)).WithContext(t.Context())
-	s.handleGitAttribute(rec, req)
+	req := httptest.NewRequest(http.MethodPost, "/api/tool-writes?workspace="+workspaceID, strings.NewReader(body)).WithContext(t.Context())
+	s.handleToolWrite(rec, req)
 	return rec.Code
 }
 
-// A write's attribution records the file as the git views name it, with the
-// blob id of what is on disk, against the workspace it was written in and in
-// the project's index. A file in no repository records nothing, quietly.
-func TestGitAttributeRoute(t *testing.T) {
+// A tool's write is attributed: the file is recorded as the git views name it,
+// with the blob id of what is on disk, against the workspace it was written in
+// and in the project's index. A file in no repository records nothing, quietly.
+func TestToolWriteRoute(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skipf("git is not installed here: %v", err)
 	}

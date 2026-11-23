@@ -26,14 +26,16 @@ import (
 // is on disk — a worktree made with the CLI in /tmp included — because it acts
 // for the user, who can reach all of them. The agent cannot, and nothing here
 // may change that: a tree reached this way is reached only through GitTrees,
-// which only the git API uses, and it refuses every one of the agent's tools.
+// which the ops dispatcher consults only for an AnyTree tool called by the
+// user's client (handlers.OpsAPI) — the git tool — and it refuses every other
+// tool besides.
 //
 // Such a tree is named by an id the worktree read mints (see Annotate): "wt:"
 // and the base64url of the workspace it was found from, the repository there,
 // and its path. Resolving the id asks git again whether the path is one of that
 // repository's worktrees, so an id forged or kept past the tree's removal names
 // nothing. Everywhere else the id is just a workspace id — the git watch, the
-// job routes and a pin's config carry it unchanged.
+// git tool's jobs and a pin's config carry it unchanged.
 
 const gitTreePrefix = "wt:"
 
@@ -102,7 +104,7 @@ func (g GitTrees) ResolveGit(id string) (Workspace, error) {
 	want := gitview.RealPath(ref.Path)
 	for _, t := range list.Trees {
 		if t.Path == want && !t.Prunable && !t.Bare {
-			return &gitTree{local: &local{id: id, name: filepath.Base(t.Path), root: t.Path, projectRoot: anchor.project(), git: anchor.git, queue: anchor.queue, graphs: anchor.graphs, convs: anchor.convs}}, nil
+			return &gitTree{local: &local{id: id, name: filepath.Base(t.Path), root: t.Path, projectRoot: anchor.project()}}, nil
 		}
 	}
 	return nil, msg.NewError("{path} is no longer a worktree of this repository.", "path", ref.Path)
@@ -173,8 +175,8 @@ func (g GitTrees) Annotate(read string, w *gitview.Worktrees) {
 	}
 }
 
-// gitTree is a working tree only the git client reaches: everything local does
-// for git, and nothing for the agent.
+// gitTree is a working tree only the git client reaches: an AnyTree tool's
+// handler, and nothing for the agent.
 type gitTree struct{ *local }
 
 func (g *gitTree) refusal() error {
@@ -184,8 +186,13 @@ func (g *gitTree) refusal() error {
 // LocalDir is none: no provider is spawned in a tree no conversation is in.
 func (g *gitTree) LocalDir() (string, bool) { return "", false }
 
-// Operations refuses every tool.
-func (g *gitTree) Operations(string, []string) (ops.Operations, error) { return nil, g.refusal() }
+// Operations refuses every tool but one registered to run in any tree.
+func (g *gitTree) Operations(reg ops.Registration, allowedPaths []string) (ops.Operations, error) {
+	if !reg.AnyTree {
+		return nil, g.refusal()
+	}
+	return g.local.Operations(reg, allowedPaths)
+}
 
 // StreamShell refuses the command and closes the stream.
 func (g *gitTree) StreamShell(_ context.Context, req ShellRequest, out chan<- ops.ShellStreamChunk) {

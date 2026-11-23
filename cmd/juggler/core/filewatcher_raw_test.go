@@ -15,7 +15,7 @@ import (
 )
 
 // git's status covers tracked files the viewers' stream never mentions — a
-// workflow under .github, a dotfile at the root, .gitignore itself — so the git
+// workflow under .github, a dotfile at the root, .gitignore itself — so the raw
 // feed carries them, and only it does: the viewers' stream and the "@" index stay
 // exactly as hidden-blind as they were. git's own directory and Juggler's state
 // are on neither.
@@ -23,8 +23,8 @@ import (
 // handleEvent emits synchronously, so "nothing was reported" is read without
 // waiting: whatever an event produced is already in the channel when it returns.
 
-// gitFeedWatcher builds a watcher with the git feed on, over a tree holding rels.
-func gitFeedWatcher(t *testing.T, opts FileWatcherOptions, rels ...string) (*FileWatcher, string) {
+// rawFeedWatcher builds a watcher with the raw feed on, over a tree holding rels.
+func rawFeedWatcher(t *testing.T, opts FileWatcherOptions, rels ...string) (*FileWatcher, string) {
 	t.Helper()
 	root := t.TempDir()
 	for _, dir := range []string{".juggler", ".git"} {
@@ -33,7 +33,7 @@ func gitFeedWatcher(t *testing.T, opts FileWatcherOptions, rels ...string) (*Fil
 		}
 	}
 	writeTree(t, root, rels)
-	opts.GitFeed = true
+	opts.RawFeed = true
 	w, err := NewFileWatcherWith(root, opts)
 	if err != nil {
 		t.Fatal(err)
@@ -42,12 +42,12 @@ func gitFeedWatcher(t *testing.T, opts FileWatcherOptions, rels ...string) (*Fil
 	return w, root
 }
 
-// drainGit returns every absolute path the git feed holds right now.
-func drainGit(w *FileWatcher) []string {
+// drainRaw returns every absolute path the raw feed holds right now.
+func drainRaw(w *FileWatcher) []string {
 	var paths []string
 	for {
 		select {
-		case c := <-w.GitChanges():
+		case c := <-w.RawChanges():
 			paths = append(paths, c.Path)
 		default:
 			return paths
@@ -70,12 +70,12 @@ func drainViewers(w *FileWatcher) []string {
 	}
 }
 
-func TestFileWatcher_GitFeedCarriesWhatGitStatusCovers(t *testing.T) {
-	w, root := gitFeedWatcher(t, FileWatcherOptions{}, ".github/workflows/ci.yml", ".eslintrc", "src/a.go")
+func TestFileWatcher_RawFeedCarriesWhatGitStatusCovers(t *testing.T) {
+	w, root := rawFeedWatcher(t, FileWatcherOptions{}, ".github/workflows/ci.yml", ".eslintrc", "src/a.go")
 
 	cases := []struct {
 		rel         string
-		toGit       bool
+		toRaw       bool
 		toViewers   bool
 		description string
 	}{
@@ -90,10 +90,10 @@ func TestFileWatcher_GitFeedCarriesWhatGitStatusCovers(t *testing.T) {
 	}
 	for _, tc := range cases {
 		feed(w, root, tc.rel, fsnotify.Write)
-		git, viewers := drainGit(w), drainViewers(w)
+		raw, viewers := drainRaw(w), drainViewers(w)
 		abs := filepath.Join(root, filepath.FromSlash(tc.rel))
-		if got := slices.Contains(git, abs); got != tc.toGit {
-			t.Errorf("%s (%s): on the git feed = %v, want %v (feed held %v)", tc.description, tc.rel, got, tc.toGit, git)
+		if got := slices.Contains(raw, abs); got != tc.toRaw {
+			t.Errorf("%s (%s): on the raw feed = %v, want %v (feed held %v)", tc.description, tc.rel, got, tc.toRaw, raw)
 		}
 		if got := slices.Contains(viewers, tc.rel); got != tc.toViewers {
 			t.Errorf("%s (%s): on the viewers' stream = %v, want %v (stream held %v)", tc.description, tc.rel, got, tc.toViewers, viewers)
@@ -103,8 +103,8 @@ func TestFileWatcher_GitFeedCarriesWhatGitStatusCovers(t *testing.T) {
 
 // A dot-directory has to be watched for its files' events to arrive at all;
 // git's directory and Juggler's state never are, and nothing hidden is indexed.
-func TestFileWatcher_GitFeedWatchesDotDirectoriesWithoutIndexingThem(t *testing.T) {
-	w, root := gitFeedWatcher(t, FileWatcherOptions{}, ".github/workflows/ci.yml", ".git/HEAD", "src/a.go")
+func TestFileWatcher_RawFeedWatchesDotDirectoriesWithoutIndexingThem(t *testing.T) {
+	w, root := rawFeedWatcher(t, FileWatcherOptions{}, ".github/workflows/ci.yml", ".git/HEAD", "src/a.go")
 
 	watched := w.watcher.WatchList()
 	if !slices.Contains(watched, filepath.Join(root, ".github", "workflows")) {
@@ -120,8 +120,8 @@ func TestFileWatcher_GitFeedWatchesDotDirectoriesWithoutIndexingThem(t *testing.
 
 // A directory made inside a dot-directory is watched as it appears, so the
 // file written into it next is heard.
-func TestFileWatcher_GitFeedFollowsNewDotDirectories(t *testing.T) {
-	w, root := gitFeedWatcher(t, FileWatcherOptions{}, ".github/ci.yml")
+func TestFileWatcher_RawFeedFollowsNewDotDirectories(t *testing.T) {
+	w, root := rawFeedWatcher(t, FileWatcherOptions{}, ".github/ci.yml")
 	dir := filepath.Join(root, ".github", "actions")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -138,19 +138,19 @@ func TestFileWatcher_GitFeedFollowsNewDotDirectories(t *testing.T) {
 
 // A file git ignores changes nothing git reports, so a build writing its
 // output is not a stream of status reads.
-func TestFileWatcher_GitFeedSkipsIgnoredFiles(t *testing.T) {
-	w, root := gitFeedWatcher(t, FileWatcherOptions{}, "src/a.go")
+func TestFileWatcher_RawFeedSkipsIgnoredFiles(t *testing.T) {
+	w, root := rawFeedWatcher(t, FileWatcherOptions{}, "src/a.go")
 	writeGitignore(t, root, "*.o\n")
 	w.rebuild()
 
 	feed(w, root, "src/a.o", fsnotify.Write)
-	if git := drainGit(w); len(git) != 0 {
-		t.Errorf("an ignored file reached the git feed: %v", git)
+	if raw := drainRaw(w); len(raw) != 0 {
+		t.Errorf("an ignored file reached the raw feed: %v", raw)
 	}
 }
 
-// Without the git feed nothing changes: no channel, no dot-directories watched.
-func TestFileWatcher_NoGitFeedByDefault(t *testing.T) {
+// Without the raw feed nothing changes: no channel, no dot-directories watched.
+func TestFileWatcher_NoRawFeedByDefault(t *testing.T) {
 	root := t.TempDir()
 	writeTree(t, root, []string{".github/workflows/ci.yml"})
 	w, err := newFileWatcher(root)
@@ -159,18 +159,18 @@ func TestFileWatcher_NoGitFeedByDefault(t *testing.T) {
 	}
 	t.Cleanup(w.Stop)
 
-	if w.GitChanges() != nil {
-		t.Error("a watcher without the git feed has a git channel")
+	if w.RawChanges() != nil {
+		t.Error("a watcher without the raw feed has a raw channel")
 	}
 	if slices.Contains(w.watcher.WatchList(), filepath.Join(root, ".github", "workflows")) {
-		t.Error("a watcher without the git feed watches dot-directories")
+		t.Error("a watcher without the raw feed watches dot-directories")
 	}
 }
 
-// A tree that is not the project's is watched for git alone, and builds no
+// A tree that is not the project's is watched for its raw feed alone, and builds no
 // index nobody will search.
 func TestFileWatcher_NoIndexBuildsNone(t *testing.T) {
-	w, root := gitFeedWatcher(t, FileWatcherOptions{NoIndex: true}, "src/main.go", "docs/readme.md")
+	w, root := rawFeedWatcher(t, FileWatcherOptions{NoIndex: true}, "src/main.go", "docs/readme.md")
 
 	if got := searchPaths(w.Index(), "main", 20); len(got) != 0 {
 		t.Errorf("an unindexed watcher indexed %v", got)
@@ -180,15 +180,15 @@ func TestFileWatcher_NoIndexBuildsNone(t *testing.T) {
 	if got := searchPaths(w.Index(), "new", 20); len(got) != 0 {
 		t.Errorf("an unindexed watcher indexed a created file: %v", got)
 	}
-	if git := drainGit(w); !slices.Contains(git, filepath.Join(root, "src", "new.go")) {
-		t.Errorf("the created file never reached the git feed: %v", git)
+	if raw := drainRaw(w); !slices.Contains(raw, filepath.Join(root, "src", "new.go")) {
+		t.Errorf("the created file never reached the raw feed: %v", raw)
 	}
 }
 
 // A tree too big to watch whole says so, because events from the part left
 // unwatched never arrive and something else has to cover it.
 func TestFileWatcher_SaysWhenTheWatchWasCapped(t *testing.T) {
-	small, _ := gitFeedWatcher(t, FileWatcherOptions{NoIndex: true}, "a/x.go")
+	small, _ := rawFeedWatcher(t, FileWatcherOptions{NoIndex: true}, "a/x.go")
 	if small.WatchCapped() {
 		t.Error("a two-directory tree reports a capped watch")
 	}
@@ -197,7 +197,7 @@ func TestFileWatcher_SaysWhenTheWatchWasCapped(t *testing.T) {
 	for i := 0; i <= maxWatchedDirs; i++ {
 		rels = append(rels, "d/n"+strconv.Itoa(i)+"/f")
 	}
-	big, _ := gitFeedWatcher(t, FileWatcherOptions{NoIndex: true}, rels...)
+	big, _ := rawFeedWatcher(t, FileWatcherOptions{NoIndex: true}, rels...)
 	if !big.WatchCapped() {
 		t.Error("a tree past the directory cap does not report a capped watch")
 	}

@@ -18,7 +18,7 @@
  * @module pins/git/splitter
  */
 
-import { createElement } from 'juggler/ui';
+import { attachSplitDrag, createElement, remPx } from 'juggler/ui';
 
 /**
  * @typedef {object} SplitSpec
@@ -116,49 +116,25 @@ export function createSplitHandle({ name, label, root, box, splits, onChange }) 
     applySplits(root, next);
     return next;
   };
-  /**
-   * @param {number} clientX - The pointer.
-   * @returns {number} The split it puts the handle at.
-   */
-  const at = (clientX) => {
-    const b = box();
-    if (spec.unit === 'share') return b.width > 0 ? (clientX - b.left) / b.width : spec.fallback;
-    const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-    return (clientX - b.left) / rem;
-  };
-
-  handle.addEventListener('pointerdown', (event) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    handle.setPointerCapture?.(event.pointerId);
-    handle.classList.add('git-split--dragging');
-    root.dataset.resizing = 'true';
-    /** @type {Splits|null} */
-    let last = null;
-    /** @param {PointerEvent} move - The drag. */
-    const onMove = (move) => {
-      last = moved(at(move.clientX));
-    };
-    const onUp = () => {
-      handle.removeEventListener('pointermove', onMove);
-      handle.removeEventListener('pointerup', onUp);
-      handle.removeEventListener('pointercancel', onUp);
-      handle.classList.remove('git-split--dragging');
+  /** @type {Splits|null} Where the drag under way has put the splits. */
+  let last = null;
+  attachSplitDrag(handle, {
+    box,
+    draggingClass: 'git-split--dragging',
+    onStart: () => {
+      last = null;
+      root.dataset.resizing = 'true';
+    },
+    onMove: (share, px) => {
+      last = moved(spec.unit === 'share' ? share : px / remPx());
+    },
+    onEnd: () => {
       delete root.dataset.resizing;
       if (last) onChange(last);
-    };
-    handle.addEventListener('pointermove', onMove);
-    handle.addEventListener('pointerup', onUp);
-    handle.addEventListener('pointercancel', onUp);
-  });
-  handle.addEventListener('dblclick', () => onChange(moved(undefined)));
-  handle.addEventListener('keydown', (event) => {
-    const by = event.key === 'ArrowLeft' ? -spec.step : event.key === 'ArrowRight' ? spec.step : 0;
-    if (!by) return;
+    },
     // The pin's own keys move the selection; these move only the split.
-    event.preventDefault();
-    event.stopPropagation();
-    onChange(moved(current() + by));
+    onStep: (direction) => onChange(moved(current() + direction * spec.step)),
+    onReset: () => onChange(moved(undefined)),
   });
   return handle;
 }

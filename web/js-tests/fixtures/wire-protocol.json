@@ -142,7 +142,7 @@
   "server": {
     "inbound": [
       "engine-heartbeat", "viewer-heartbeat", "viewer-fault", "shell-start", "shell-cancel", "engine-bridge",
-      "viewer-relay", "one-shot-result", "session-changed", "worker-message", "git-watch",
+      "viewer-relay", "one-shot-result", "session-changed", "worker-message", "subscriptions",
       "agent-run-start", "agent-run-cancel", "agent-run-progress", "agent-run-result"
     ],
 
@@ -173,8 +173,7 @@
         "note": "Only the engine (engine-worker-main.js) reads it; a viewer sent conversationGoneFrame passes it to generic 'message' subscribers." },
       { "type": "server-full", "handledBy": "routes" },
       { "type": "server-shutdown", "handledBy": "routes" },
-      { "type": "git-change", "handledBy": "routes" },
-      { "type": "git-job", "handledBy": "routes" },
+      { "type": "topic-event", "handledBy": "routes" },
       { "type": "run-agent", "handledBy": "engine" },
       { "type": "cancel-agent-run", "handledBy": "engine" },
       { "type": "agent-run-progress", "handledBy": "routes" },

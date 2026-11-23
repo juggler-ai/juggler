@@ -44,6 +44,7 @@ type PathScope struct {
 	root         string
 	projectRoot  string
 	workspace    string
+	name         string
 	allowedRoots []string
 }
 
@@ -84,6 +85,19 @@ func (s PathScope) WithWorkspace(id string) PathScope {
 // project's.
 func (s PathScope) Workspace() string {
 	return s.workspace
+}
+
+// WithName returns a copy that knows what an answer about its tree calls it:
+// a workspace's label, "" for the project's tree.
+func (s PathScope) WithName(name string) PathScope {
+	s.name = name
+	return s
+}
+
+// Name is what an answer about the scope's tree calls it, "" for the
+// project's.
+func (s PathScope) Name() string {
+	return s.name
 }
 
 // ProjectRoot returns the project this scope belongs to, which is the working

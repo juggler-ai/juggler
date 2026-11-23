@@ -230,6 +230,64 @@ export async function runTests() {
       assert(before.hidden === false, 'the revealed pin must not still be hidden');
     });
 
+    await run('every pin is told when it goes out of sight and comes back, for whichever reason', () => {
+      // A lane's window reports itself hidden and its pins sit off the screen,
+      // so both of those are scripted: the board, the tab and the window are
+      // each a reason of their own, and the pin is in sight only when none holds.
+      const hiddenOwn = Object.getOwnPropertyDescriptor(document, 'hidden');
+      let windowHidden = false;
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => windowHidden });
+      const RealObserver = window.IntersectionObserver;
+      /** @type {((entries: any[]) => void)[]} */
+      const observers = [];
+      window.IntersectionObserver = /** @type {any} */ (class {
+        /** @param {(entries: any[]) => void} callback - Told of each crossing. */
+        constructor(callback) { observers.push(callback); }
+        observe() {}
+        disconnect() {}
+      });
+      const seenPin = { id: 'pin_seen', type: 'retain-probe', config: { n: 7 } };
+      const plainSeen = { id: 'pin_plain_seen', type: 'plain-probe', config: {} };
+      try {
+        content.setVisible(true);
+        content.setPin(seenPin, active);
+        const sight = contexts.get('pin_seen').visibility;
+        /** @type {boolean[]} */
+        const heard = [];
+        sight.onChange((/** @type {boolean} */ visible) => { heard.push(visible); });
+        assert(sight.isVisible() === true, 'a pin on an open board, in a shown window, is in sight');
+
+        content.setVisible(false);
+        assert(sight.isVisible() === false && heard.join() === 'false', `the board put away hides it: ${heard}`);
+        windowHidden = true;
+        document.dispatchEvent(new Event('visibilitychange'));
+        content.setVisible(true);
+        assert(sight.isVisible() === false && heard.join() === 'false',
+          `still out of sight while the window is hidden, and not told twice: ${heard}`);
+        windowHidden = false;
+        document.dispatchEvent(new Event('visibilitychange'));
+        assert(sight.isVisible() === true && heard.join() === 'false,true', `back once the last reason ends: ${heard}`);
+
+        content.setPin(plainSeen, active);
+        assert(sight.isVisible() === false && heard.join() === 'false,true,false', `another tab hides a retained pin: ${heard}`);
+        const plainSight = contexts.get('pin_plain_seen').visibility;
+        assert(plainSight.isVisible() === true, 'and the pin on screen is in sight');
+        observers.at(-1)?.([{ isIntersecting: false }]);
+        assert(plainSight.isVisible() === false, 'a pin scrolled out of view is out of sight');
+        observers.at(-1)?.([{ isIntersecting: true }]);
+        assert(plainSight.isVisible() === true, 'and back when it scrolls in');
+
+        content.setPin(seenPin, active);
+        assert(sight.isVisible() === true && heard.join() === 'false,true,false,true', `its tab coming back shows it: ${heard}`);
+        assert(plainSight.isVisible() === false, 'a pin that was torn down is out of sight for good');
+      } finally {
+        window.IntersectionObserver = RealObserver;
+        if (hiddenOwn) Object.defineProperty(document, 'hidden', hiddenOwn);
+        else delete (/** @type {any} */ (document)).hidden;
+        content.setVisible(true);
+      }
+    });
+
     await run('a retained pin hears an active-context change while it is hidden', () => {
       const updates = tally('pin_kept').updates;
       content.setPin(plainPin, active);

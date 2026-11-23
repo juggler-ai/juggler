@@ -53,6 +53,7 @@ import infoCardRegistry from '../registries/info-card-registry.js';
 import { capabilityLabel } from '../utils/capability-label.js';
 import { WORD_OF_MOUTH_CARD } from './word-of-mouth.js';
 import { t } from '../../sdk/lib/i18n.js';
+import { servicesFor } from '../services/extension-services.js';
 import './info-cards-button.js';
 import JugglerElement from './juggler-element.js';
 
@@ -407,13 +408,25 @@ class InfoRail extends JugglerElement {
     content.className = 'info-card__content';
     card.appendChild(content);
 
+    // The card's lifetime: every subscription made through its services ends
+    // with the card, whether or not its own teardown remembered to.
+    const abort = new AbortController();
     let cleanup;
     try {
-      cleanup = provider.mount(content, this._session);
+      cleanup = provider.mount(content, this._session, {
+        services: servicesFor(this._session, abort.signal),
+        signal: abort.signal,
+      });
     } catch {
       cleanup = undefined;
     }
-    const teardown = typeof cleanup === 'function' ? cleanup : () => {};
+    const teardown = () => {
+      try {
+        if (typeof cleanup === 'function') cleanup();
+      } finally {
+        abort.abort();
+      }
+    };
     return { card, teardown };
   }
 }

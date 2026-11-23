@@ -203,7 +203,7 @@ export async function runTests() {
       container.style.cssText = 'position:absolute;left:-9999px;top:0;width:1200px;height:800px;';
       document.body.appendChild(container);
       mounted.push(container);
-      const comments = [{ id: 'c', repo: '', path: 'big.txt', side: 'new', startLine: 3, endLine: 3, body: 'b', revision: 'r1', scope: '' }];
+      const comments = [{ id: 'c', group: '', path: 'big.txt', side: 'new', startLine: 3, endLine: 3, body: 'b', revision: 'r1', scope: '' }];
       const panel = createReviewPanel({
         scopeLabel: 'x',
         loadPatch: () => new Promise((resolve) => { answer = resolve; }),

@@ -6,8 +6,6 @@ package server
 
 import (
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -16,24 +14,30 @@ import (
 
 	"juggler/cmd/juggler/gitops"
 	"juggler/cmd/juggler/gitview/gitviewtest"
+	"juggler/cmd/juggler/jobs"
 	"juggler/cmd/juggler/workspace"
 )
 
-// fetchOnShow asks the route as the router would, and returns its answer.
-func fetchOnShow(t *testing.T, s *Server, workspaceID, repo string) gitFetchOnShowAnswer {
+// testFetchOnShowAnswer is the fetch-on-show answer as a client reads it.
+type testFetchOnShowAnswer struct {
+	Job     *testGitJob `json:"job,omitempty"`
+	Skipped bool        `json:"skipped,omitempty"`
+}
+
+// fetchOnShow asks the git tool's fetchOnShow, and returns its answer.
+func fetchOnShow(t *testing.T, s *Server, workspaceID, repo string) testFetchOnShowAnswer {
 	t.Helper()
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/git/fetch-on-show?workspace="+workspaceID+"&repo="+repo, nil).WithContext(t.Context())
-	s.handleGitFetchOnShow(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("fetch-on-show %q = %d %s, want 200", workspaceID, rec.Code, rec.Body.String())
+	got, err := callGitTool(s, t.Context(), workspaceID, "fetchOnShow", map[string]any{"repo": repo})
+	if err != nil {
+		t.Fatalf("fetch-on-show %q: %v", workspaceID, err)
 	}
-	var answer gitFetchOnShowAnswer
-	if err := json.Unmarshal(rec.Body.Bytes(), &answer); err != nil {
-		t.Fatalf("fetch-on-show answer: %v\n%s", err, rec.Body.String())
+	raw, _ := json.Marshal(got)
+	var answer testFetchOnShowAnswer
+	if err := json.Unmarshal(raw, &answer); err != nil {
+		t.Fatalf("fetch-on-show answer: %v\n%s", err, raw)
 	}
 	if (answer.Job == nil) == !answer.Skipped {
-		t.Fatalf("fetch-on-show answered %s: want a job or skipped, not both or neither", rec.Body.String())
+		t.Fatalf("fetch-on-show answered %s: want a job or skipped, not both or neither", raw)
 	}
 	return answer
 }
@@ -68,24 +72,17 @@ func TestFetchOnShowOncePerRepository(t *testing.T) {
 	gitIn(t, main, "worktree", "add", "-q", "-b", "side", linked)
 	elsewhere := newRepo()
 
-	queue := gitops.NewQueue()
-	t.Cleanup(queue.Close)
-	tree := func(root string) workspace.Workspace {
-		ws, err := workspace.NewResolver(func() string { return root }, nil, nil).
-			WithGitQueue(func() *gitops.Queue { return queue }).Resolve("")
-		if err != nil {
-			t.Fatal(err)
-		}
-		return ws
+	trees := map[string]workspace.Workspace{
+		"": localTreeAs(t, "", main), "wt_main": localTreeAs(t, "wt_main", main),
+		"ws_linked": localTreeAs(t, "ws_linked", linked), "ws_elsewhere": localTreeAs(t, "ws_elsewhere", elsewhere),
 	}
-	trees := map[string]workspace.Workspace{"": tree(main), "wt_main": tree(main), "ws_linked": tree(linked), "ws_elsewhere": tree(elsewhere)}
 
 	s := newTestServerState(t)
-	s.gitWatchResolve = resolveTrees(trees)
-	t.Cleanup(s.stopGitJobs)
+	scriptGit(t, s, resolveTrees(trees))
+	t.Cleanup(s.stopJobs)
 
 	first := fetchOnShow(t, s, "ws_linked", "")
-	if first.Job == nil || !first.Job.Auto || first.Job.Kind != gitops.OpFetch {
+	if first.Job == nil || !first.Job.Detail.Auto || first.Job.Detail.Op != gitops.OpFetch {
 		t.Fatalf("the first showing = %+v, want an auto fetch", first)
 	}
 	for _, id := range []string{"", "wt_main", "ws_linked"} {
@@ -95,7 +92,7 @@ func TestFetchOnShowOncePerRepository(t *testing.T) {
 	}
 	gitJobEnded(t, s, first.Job.ID)
 	done := readGitJob(t, s, "ws_linked", first.Job.ID)
-	if done.State != gitJobDone || !slices.EqualFunc(done.Commands, [][]string{{"fetch", "--all", "--prune", "--progress"}}, slices.Equal) {
+	if done.State != jobs.Done || !slices.EqualFunc(done.Detail.Commands, [][]string{{"fetch", "--all", "--prune", "--progress"}}, slices.Equal) {
 		t.Errorf("the fetch = %+v, want it done, fetching every remote", done)
 	}
 
@@ -107,8 +104,8 @@ func TestFetchOnShowOncePerRepository(t *testing.T) {
 	}
 
 	fresh := newTestServerState(t)
-	fresh.gitWatchResolve = resolveTrees(trees)
-	t.Cleanup(fresh.stopGitJobs)
+	scriptGit(t, fresh, resolveTrees(trees))
+	t.Cleanup(fresh.stopJobs)
 	if again := fetchOnShow(t, fresh, "", ""); again.Job == nil {
 		t.Error("a new server session did not fetch on first showing")
 	} else {

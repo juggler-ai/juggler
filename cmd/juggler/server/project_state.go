@@ -9,11 +9,11 @@ import (
 	"time"
 
 	"juggler/cmd/juggler/core"
-	"juggler/cmd/juggler/gitattr"
 	"juggler/cmd/juggler/gitops"
 	"juggler/cmd/juggler/gitview"
 	"juggler/cmd/juggler/ops"
 	"juggler/cmd/juggler/providers/provider"
+	"juggler/cmd/juggler/shellattr"
 	"juggler/cmd/juggler/workspace"
 )
 
@@ -25,9 +25,11 @@ type projectState struct {
 	projectPath    string
 	sessionManager *core.SessionManager
 	fileWatcher    *core.FileWatcher
-	gitWatcher     *gitops.Watcher // every git watch's, fed the file watcher's git feed for the project's tree
-	gitQueue       *gitops.Queue   // every git write's, one repository at a time
-	gitGraphs      *gitview.Graphs // every History list a client is showing
+	gitWatcher     *gitops.Watcher     // every git watch's, fed the file watcher's raw feed for the project's tree
+	shellRecorder  *shellattr.Recorder // which shell command wrote which file, fed the same raw feed
+	stopShellFeed  func()              // stops telling shellRecorder of processes starting and ending
+	gitQueue       *gitops.Queue       // every git write's, one repository at a time
+	gitGraphs      *gitview.Graphs     // every History list a client is showing
 	lock           *core.InstanceLock
 	fileChangesCh  chan struct{} // closed when the file-change forwarder for this state has exited
 
@@ -79,13 +81,13 @@ func (s *Server) Workspaces() *workspace.Resolver {
 			return fw.Index()
 		}
 		return nil
-	}).WithGitWatcher(s.GitWatcher).WithGitQueue(s.GitQueue).WithGitGraphs(s.GitGraphs).
-		WithConversations(func() gitattr.Directory { return conversationDirectory{s} })
+	})
 }
 
 // GitTrees is the git surface's resolver: Workspaces, and the worktrees no
 // workspace names that only the git client may reach (see workspace.GitTrees).
-// Nothing but the git API and its watches and jobs resolves through it.
+// Nothing but the git tool (through the ops dispatcher) and the git topic
+// resolves through it.
 func (s *Server) GitTrees() workspace.GitTrees {
 	return workspace.GitTrees{Resolve: s.Workspaces().Resolve, Rows: func() []core.Workspace {
 		mgr := s.SessionManager()

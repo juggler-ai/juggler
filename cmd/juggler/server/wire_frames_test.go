@@ -11,6 +11,7 @@ import (
 
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/gitops"
+	"juggler/cmd/juggler/jobs"
 	"juggler/cmd/juggler/msg"
 	"juggler/cmd/juggler/ops"
 	"juggler/cmd/juggler/workspace"
@@ -87,12 +88,17 @@ func TestFramesKeepTheirShape(t *testing.T) {
 			providersUpdateFrame{Type: frameProvidersUpdate, Providers: []ProviderStatus{{}}, Ready: true}},
 		{"file-change", map[string]any{"type": "file-change", "changes": []core.FileChange{{}}},
 			fileChangeFrame{Type: frameFileChange, Changes: []core.FileChange{{}}}},
-		{"git-change", map[string]any{"type": "git-change", "workspace": "", "repos": []map[string]any{{"path": "", "kinds": []string{"index"}}}},
-			gitChangeFrame{Type: frameGitChange, Repos: []gitChangeRepo{{Kinds: []string{"index"}}}}},
-		{"git-job", map[string]any{"type": "git-job", "workspace": "ws", "job": map[string]any{
-			"id": "j", "workspace": "ws", "repo": "", "kind": "stage", "commands": [][]string{{"add"}},
-			"state": "running", "output": "", "errorKind": "", "result": map[string]any{}}},
-			gitJobFrame{Type: frameGitJob, Workspace: "ws", Job: gitJob{ID: "j", Workspace: "ws", Kind: gitops.OpStage, Commands: [][]string{{"add"}}, State: "running"}}},
+		{"topic-event", map[string]any{"type": "topic-event", "topic": "git", "key": "ws", "event": map[string]any{"type": "git-change"}},
+			topicEventFrame{Type: frameTopicEvent, Topic: "git", Key: "ws", Event: map[string]any{"type": "git-change"}}},
+		// The git topic's events are the git frames they replaced, whole; a
+		// git job is a job whose detail is git's.
+		{"git-change event", map[string]any{"type": "git-change", "workspace": "", "repos": []map[string]any{{"path": "", "kinds": []string{"index"}}}},
+			gitChangeEvent{Type: gitEventChange, Repos: []gitChangeRepo{{Kinds: []string{"index"}}}}},
+		{"job event", map[string]any{"type": "job", "workspace": "ws", "job": map[string]any{
+			"id": "j", "kind": "git", "workspace": "ws", "state": "running", "output": "", "startedAt": 7,
+			"detail": map[string]any{"repo": "", "op": "stage", "commands": [][]string{{"add"}}}}},
+			jobEvent{Type: jobEventType, Workspace: "ws", Job: jobs.Job{ID: "j", Kind: gitJobKind, Workspace: "ws", State: jobs.Running, StartedAt: 7,
+				Detail: gitJobDetail{Op: gitops.OpStage, Commands: [][]string{{"add"}}}}}},
 		{"plugin-changed", map[string]any{"type": "plugin-changed", "path": "config/plugins"},
 			pluginChangedFrame{Type: framePluginChanged, Path: "config/plugins"}},
 		{"settings-changed", map[string]any{"type": "settings-changed", "settings": core.GlobalSettings{}},

@@ -28,6 +28,9 @@ export {
 // One-shot stylesheet injection for modules that ship their own CSS
 export { injectStylesOnce } from './lib/inject-styles.js';
 
+// A handle that moves the line between two panes, and what a rem is in pixels
+export { attachSplitDrag, remPx } from './lib/split-drag.js';
+
 // Output truncation / token budgets
 export { smartTruncate } from './lib/smart-truncate.js';
 
@@ -78,6 +81,10 @@ export { createDiffViewer } from '../js/components/diff-viewer.js';
 // The review panel around it: a file rail, one diff at a time, and the draft
 export { createReviewPanel } from '../js/components/review-panel.js';
 
+// A file's contents as the app shows them, and a path field with its completions
+export { createFileView } from '../js/components/file-view.js';
+export { createPathInput } from '../js/components/path-input.js';
+
 // Syntax highlighting (Prism-backed, safe fallback)
 export { highlightCode, highlightCodeLines, createHighlightedCode } from './lib/syntax-highlight.js';
 
@@ -108,8 +115,9 @@ export { FormattingHelpers } from './lib/formatting-helpers.js';
 // token-count renderer (`12.3k`), for the same reason
 export { formatRelativeDateTime, formatTokens } from '../js/utils/format.js';
 
-// Keyboard navigation for a role="menu" popup (arrow keys, Home/End, Escape)
-export { attachMenuKeyboard, focusMenuItem } from '../js/utils/menu-roles.js';
+// Keyboard navigation for a role="menu" popup (arrow keys, Home/End, Escape),
+// and focus on its checked item once the popup is on screen (a picker's open)
+export { attachMenuKeyboard, focusMenuItem, focusMenuChoice } from '../js/utils/menu-roles.js';
 
 // The app's context menu, opened at a point (for a long-press, or a ⋯ button)
 // or on a right-click within an element an extension draws, with the same

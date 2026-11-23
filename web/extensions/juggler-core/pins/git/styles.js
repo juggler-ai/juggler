@@ -1829,18 +1829,6 @@ export function injectGitClientStyles() {
   overflow: auto;
 }
 
-/* The working tree's changes, as their row of the graph, right above HEAD's:
-   tinted, its ring hollow and its edge into HEAD dashed — a commit still to
-   come. A click shows them in Changes. */
-.git-history__row--worktree {
-  background: color-mix(in srgb, var(--accent-yellow) 10%, transparent);
-  cursor: pointer;
-}
-
-.git-history__row--worktree:hover {
-  background: color-mix(in srgb, var(--accent-yellow) 18%, transparent);
-}
-
 .git-graph__dot--worktree {
   fill: var(--bg-secondary);
   stroke: var(--accent-yellow);
@@ -1900,6 +1888,20 @@ export function injectGitClientStyles() {
 
 .git-history__row:hover {
   background: var(--wash-1);
+}
+
+/* The working tree's changes, as their row of the graph, right above HEAD's:
+   tinted, its ring hollow and its edge into HEAD dashed — a commit still to
+   come. A click shows them in Changes, so it takes the pointer that other rows,
+   which only select, do not. After the plain row's rules, which match it at the
+   same specificity; before the selected row's, which it gives way to. */
+.git-history__row--worktree {
+  background: color-mix(in srgb, var(--accent-yellow) 10%, transparent);
+  cursor: pointer;
+}
+
+.git-history__row--worktree:hover {
+  background: color-mix(in srgb, var(--accent-yellow) 18%, transparent);
 }
 
 .git-history__row[aria-selected="true"] {

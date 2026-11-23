@@ -88,7 +88,7 @@ export function menuFor(ctx, sha, state) {
     const rewrite = (/** @type {string} */ kind) => ({ type: 'rewrite', op: { kind, rev: sha, expectHead: head } });
     const reset = (/** @type {string} */ mode) => ({ type: 'reset', rev: sha, mode, branch, expectHead: head });
     items.push(
-      { label: t('Reword…'), action: { type: 'reword', rev: sha, expectHead: head } },
+      { label: t('Edit commit message…'), action: { type: 'reword', rev: sha, expectHead: head } },
       { label: t('Fix up with staged changes'), hint: t('Fold what is staged into this commit'), action: rewrite('fixup') },
       { label: t('Drop commit'), danger: true, hint: t('Take this commit out of the branch (undoable)'), action: rewrite('drop') },
       { separator: true },

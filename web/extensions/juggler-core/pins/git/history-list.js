@@ -85,9 +85,10 @@ const OVERSCAN = 15;
  * @property {() => void} refresh - Catch up with moved refs, keeping the top row in view.
  * @property {(index: number) => void} select - Select a row, scrolling it into view; the
  *   working tree's row is not selected.
- * @property {(sha: string) => Promise<number|null>} selectSha - Select a commit, scrolling
- *   it into view: its row, or -1 when the list does not hold it, or null when a later
- *   `selectSha` or a reset came first (nothing is selected by it then).
+ * @property {(sha: string, fresh?: boolean) => Promise<number|null>} selectSha - Select a
+ *   commit, scrolling it into view: its row, or -1 when the list does not hold it, or null
+ *   when a later `selectSha` or a reset came first (nothing is selected by it then).
+ *   `fresh` says it may be newer than the list's refs, which are caught up first.
  * @property {(by: number) => void} move - Move the selection, stepping over the working tree's row.
  * @property {() => {index: number, row: GitLogRow|null}} selected - The selection.
  * @property {(index: number) => GitLogRow|null} rowAt - A held row.
@@ -336,9 +337,11 @@ export function createHistoryList(options) {
 
   /**
    * @param {string} sha - A full commit id.
+   * @param {boolean} [fresh] - It may be newer than the session's refs: the read
+   *   that looks for it refreshes them first, or the session would not reach it.
    * @returns {Promise<number|null>} Its row, -1 when not held, null when superseded.
    */
-  const selectSha = async (sha) => {
+  const selectSha = async (sha, fresh = false) => {
     finding?.abort();
     finding = null;
     const held = indexOf(sha);
@@ -354,7 +357,7 @@ export function createHistoryList(options) {
       const taken = await new Promise((resolve) => { waiting.push(resolve); });
       if (asked !== epoch || mine.signal.aborted) return null;
       if (!taken) return -1;
-      return selectSha(sha);
+      return selectSha(sha, fresh);
     }
     const { first } = windowOf();
     const p = Math.floor(first / PAGE);
@@ -362,7 +365,7 @@ export function createHistoryList(options) {
     session.signal.addEventListener('abort', () => mine.abort(), { once: true });
     let page;
     try {
-      page = await options.fetch({ offset: p * PAGE, limit: PAGE, graph, find: sha }, signal);
+      page = await options.fetch({ offset: p * PAGE, limit: PAGE, graph, find: sha, ...(fresh ? { refresh: true } : {}) }, signal);
     } catch (e) {
       if (asked !== epoch || signal.aborted) return null;
       options.onError(e);

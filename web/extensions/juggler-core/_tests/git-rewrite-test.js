@@ -133,20 +133,20 @@ export async function runTests(_ctx) {
    */
   const opAt = (m, index) => m.runs()[index]?.op;
 
-  await test('the menu offers Reword, Fix up and Drop between Revert and the resets', async () => {
+  await test('the menu offers Edit commit message, Fix up and Drop between Revert and the resets', async () => {
     const m = await mounted();
     openMore(m, 3);
     const labels = menuItems().map((el) => el.textContent || '');
     const at = labels.indexOf('Revert');
-    assert(JSON.stringify(labels.slice(at + 1, at + 4)) === JSON.stringify(['Reword…', 'Fix up with staged changes', 'Drop commit']),
+    assert(JSON.stringify(labels.slice(at + 1, at + 4)) === JSON.stringify(['Edit commit message…', 'Fix up with staged changes', 'Drop commit']),
       `after Revert: ${JSON.stringify(labels)}`);
     assert((labels[at + 4] || '').startsWith('Reset main here'), `then the resets: ${JSON.stringify(labels)}`);
     m.teardown();
   });
 
-  await test('Reword asks for the message, prefilled, and Undo resets back softly', async () => {
+  await test('Edit commit message asks for the message, prefilled, and Undo resets back softly', async () => {
     const m = await mounted();
-    choose(m, 3, 'Reword…');
+    choose(m, 3, 'Edit commit message…');
     const box = /** @type {HTMLTextAreaElement} */ (await inPop('textarea.git-pop__input'));
     await waitFor(() => box.value === 'Subject of 0003\n\nBody of 0003', `the commit's message: ${JSON.stringify(box.value)}`);
     box.value = 'Better words\n\nAnd why';
@@ -199,12 +199,12 @@ export async function runTests(_ctx) {
 
   /** The pin's own words the case below draws, registered pseudo-localised. */
   const CORE_TEXT = [
-    'Reword…', 'Fix up with staged changes', 'Drop commit', 'Rewrite anyway', 'Cancel', 'Undo', 'Reword',
+    'Edit commit message…', 'Fix up with staged changes', 'Drop commit', 'Rewrite anyway', 'Cancel', 'Undo', 'Save message',
     'Checkout (detached)', 'Branch here…', 'Tag here…', 'New worktree from here…', 'Cherry-pick onto {branch}', 'Revert',
     'Reset {branch} here — keep changes staged', 'Reset {branch} here — keep changes', 'Reset {branch} here — discard changes…', 'Copy SHA',
     'New message for {sha}',
     '{sha} is already pushed. Rewriting it means the branch can only be pushed by force afterwards.',
-    'Dropped {sha}', 'Reworded {sha}',
+    'Dropped {sha}', 'Changed the message of {sha}',
   ];
 
   await test('en-XA: the rewrites speak the user\u2019s language', async () => {

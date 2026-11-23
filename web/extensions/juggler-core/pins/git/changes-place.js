@@ -112,6 +112,19 @@ const LETTER_IDS = /** @type {Record<string, string>} */ ({
   M: 'modified', A: 'added', D: 'deleted', R: 'renamed', C: 'copied', T: 'typechange', '?': 'untracked',
 });
 
+/**
+ * Whether a row's change can be discarded: an unstaged change or an untracked
+ * file. Not a submodule's, which is the commit it is checked out at — a discard
+ * saves and restores files, and Update is what puts that commit back.
+ * @param {ChangedFile} file - The file.
+ * @param {GroupId} group - Its group.
+ * @returns {boolean} Whether to offer Discard.
+ */
+function isDiscardable(file, group) {
+  if (file.submodule) return false;
+  return (group === 'changes' && isToggleable(file, group)) || group === 'untracked';
+}
+
 /** Each tree's draft commit message, by pin, tree and repository. */
 const drafts = new Map();
 
@@ -181,7 +194,8 @@ function sideTitles(stopped, head) {
  * @property {import('./command-log.js').CommandLog} log - The pin's command log.
  * @property {() => void} showChanges - Bring this place forward (the head's
  *   primary and `c` act on it).
- * @property {(target: {sha: string}) => void} showHistory - Show a commit in History.
+ * @property {(target: {sha: string, fresh?: boolean}) => void} showHistory - Show a commit in
+ *   History; `fresh` when it was just made.
  * @property {(path: string) => void} showFileHistory - Show one file's history.
  */
 
@@ -521,7 +535,7 @@ export function createChangesPlace(host) {
    */
   const discard = (key) => {
     const hit = lookup(key);
-    if (!hit) return;
+    if (!hit || !isDiscardable(hit.file, hit.group)) return;
     const path = hit.file.path;
     if (selected === key) {
       selected = null;
@@ -670,6 +684,8 @@ export function createChangesPlace(host) {
       if (commitPopover) closePopover();
       drafts.delete(draftKey());
       const sha = job.result?.head || '';
+      // What a commit is for is the history it joins: show it there, selected.
+      if (sha) host.showHistory({ sha, fresh: true });
       const text = t('Committed {sha} to {branch}', { sha: sha.slice(0, 7), branch });
       host.toast.show(text, sha && !amendedPushed ? () => {
         void runOp({ kind: 'undo-commit', repo, expectHead: sha }).then((undone) => {
@@ -1069,7 +1085,7 @@ export function createChangesPlace(host) {
       acts.append(update);
     }
     if (group === 'changes') acts.append(discardLinesButton);
-    if ((group === 'changes' && isToggleable(file, group)) || group === 'untracked') {
+    if (isDiscardable(file, group)) {
       const discardButton = /** @type {HTMLButtonElement} */ (createElement('button', 'git-changes__crumb-discard btn btn-xs btn-danger-quiet', t('Discard')));
       discardButton.type = 'button';
       discardButton.title = t('Discard the changes to this file (undoable)');
@@ -1180,7 +1196,7 @@ export function createChangesPlace(host) {
     if (file.submodule && file.submoduleCommit && group === 'changes') {
       items.push({ label: t('Update submodule'), onClick: () => updateSub(file.path) });
     }
-    if ((group === 'changes' && isToggleable(file, group)) || group === 'untracked') {
+    if (isDiscardable(file, group)) {
       items.push({ label: t('Discard changes (undoable)'), danger: true, onClick: () => discard(key) });
     }
     if (group === 'untracked') {

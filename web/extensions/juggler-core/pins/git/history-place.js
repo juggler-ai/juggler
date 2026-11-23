@@ -170,9 +170,10 @@ const FILTER_FIELDS = /** @type {const} */ ([
  * @property {() => void} refresh - Read again.
  * @property {() => void} setTree - Another tree or repository: start again.
  * @property {() => void} dirtyChanged - The tree's count of changed files moved.
- * @property {(target: {sha: string, stash?: string}) => Promise<void>} reveal - Select a
+ * @property {(target: {sha: string, stash?: string, fresh?: boolean}) => Promise<void>} reveal - Select a
  *   commit: in the scope shown, or among all refs when that does not reach it; a
- *   stash, which no other scope holds, as a history of its own.
+ *   stash, which no other scope holds, as a history of its own. `fresh`: the commit
+ *   was just made, so the list's refs may not reach it yet.
  * @property {(path: string) => void} showPath - Show one file's history: the
  *   list filtered to the path, followed across renames.
  * @property {(event: KeyboardEvent) => boolean} handleKey - A key outside a text field; true when used.
@@ -739,9 +740,9 @@ export function createHistoryPlace(host) {
     askText(anchor, element, {
       label: t('New message for {sha}', { sha: rev.slice(0, 7) }),
       value: known.body ? `${known.subject}\n\n${known.body}` : known.subject,
-      ok: t('Reword'),
+      ok: t('Save message'),
       multiline: true,
-      onSubmit: (message) => rewrite({ kind: 'reword', rev, message, expectHead }, anchor, t('Reworded {sha}', { sha: rev.slice(0, 7) })),
+      onSubmit: (message) => rewrite({ kind: 'reword', rev, message, expectHead }, anchor, t('Changed the message of {sha}', { sha: rev.slice(0, 7) })),
     });
   };
 
@@ -1265,7 +1266,7 @@ export function createHistoryPlace(host) {
       renderNote();
       showCommit('');
     },
-    reveal: async ({ sha, stash }) => {
+    reveal: async ({ sha, stash, fresh }) => {
       if (!live) return;
       if (stash !== undefined) {
         const key = `ref:${sha}`;
@@ -1274,11 +1275,11 @@ export function createHistoryPlace(host) {
         await jump(sha);
         return;
       }
-      let at = await list.selectSha(sha);
+      let at = await list.selectSha(sha, fresh);
       if (!live || at === null) return;
       if (at < 0 && scope !== 'all') {
         setScope('all');
-        at = await list.selectSha(sha);
+        at = await list.selectSha(sha, fresh);
       }
       if (live && at === -1) showCommit(sha, true);
     },

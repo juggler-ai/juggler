@@ -183,7 +183,7 @@ export async function runTests(_ctx) {
     const want = [
       'Checkout (detached)', 'Branch here…', 'Tag here…', 'New worktree from here…',
       'Cherry-pick onto main', 'Revert',
-      'Reword…', 'Fix up with staged changes', 'Drop commit',
+      'Edit commit message…', 'Fix up with staged changes', 'Drop commit',
       'Reset main here — keep changes staged', 'Reset main here — keep changes', 'Reset main here — discard changes…',
       'Copy SHA',
     ];
@@ -390,7 +390,7 @@ export async function runTests(_ctx) {
   const CORE_TEXT = [
     'Checkout (detached)', 'Branch here…', 'Tag here…', 'New worktree from here…', 'Cherry-pick onto {branch}', 'Revert',
     'Reset {branch} here — keep changes staged', 'Reset {branch} here — keep changes', 'Reset {branch} here — discard changes…',
-    'Copy SHA', 'Cancel', 'Reset', 'Undo', 'Reword…', 'Fix up with staged changes', 'Drop commit',
+    'Copy SHA', 'Cancel', 'Reset', 'Undo', 'Edit commit message…', 'Fix up with staged changes', 'Drop commit',
     'Fold what is staged into this commit', 'Take this commit out of the branch (undoable)',
     'Reset {branch} to {sha}, throwing away the changes to tracked files? They are saved first, so Undo can put them back.',
     'Reset {branch} to {sha}. Undo puts back your changes, but not what was staged.',

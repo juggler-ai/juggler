@@ -14,7 +14,7 @@
 import GitPin from '../pins/git-pin.js';
 import { assert, nextTask, waitFor } from '../../../js-tests/utilities/test-helpers.js';
 import { isolateFocus } from '../../../js-tests/utilities/isolate-focus.js';
-import { changesOf, mountPin } from './git-pin-helpers.js';
+import { changesOf, historyOf, mountPin, shaOf } from './git-pin-helpers.js';
 
 /**
  * @param {object} _ctx - Test context (unused).
@@ -275,6 +275,35 @@ export async function runTests(_ctx) {
     /** @type {HTMLElement} */ (m.body.querySelector('.git-pin__toast-undo')).click();
     const op = m.runs()[1]?.op;
     assert(op?.kind === 'undo-commit' && op.expectHead === 'abcdef1234567', `undo ${JSON.stringify(op)}`);
+    m.teardown();
+  });
+
+  await test('a commit brings History forward with the new commit selected, though its list read before it', async () => {
+    // As the server's session: what a list opened before the commit reads is the
+    // history it opened on, until a read refreshes it or opens another.
+    const before = historyOf(3);
+    const after = historyOf(3, { top: 1, gen: 1 });
+    let landed = false;
+    let caught = false;
+    const log = (/** @type {any} */ q) => {
+      if (landed && (q.refresh || !q.graph)) caught = true;
+      return (caught ? after : before)(q);
+    };
+    const m = mountPin(pin, { place: 'history', changes: changesOf([partly]), log });
+    await waitFor(() => m.body.querySelector('.git-history__row'), 'History\u2019s list');
+    const root = /** @type {HTMLElement} */ (m.body.querySelector('.git-pin'));
+    /** @type {HTMLElement} */ (m.body.querySelector('.git-pin__place-btn[data-place="changes"]')).click();
+    await waitFor(() => message(m), 'the commit box');
+    message(m).value = 'Did a thing';
+    message(m).dispatchEvent(new Event('input', { bubbles: true }));
+    m.holdRuns(true);
+    /** @type {HTMLElement} */ (m.body.querySelector('.git-commit__go')).click();
+    landed = true;
+    m.finishRun(0, { result: { head: shaOf(0, 'f') } });
+    await waitFor(() => root.dataset.place === 'history', `History comes forward: ${root.dataset.place}`);
+    const chosen = /** @type {HTMLElement} */ (await waitFor(
+      () => m.body.querySelector('.git-history__row[aria-selected="true"]'), 'a selected row'));
+    assert(chosen.dataset.sha === shaOf(0, 'f'), `the new commit is selected: ${chosen.dataset.sha}`);
     m.teardown();
   });
 

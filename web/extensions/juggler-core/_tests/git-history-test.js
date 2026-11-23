@@ -851,7 +851,7 @@ export async function runTests(_ctx) {
     'Review what changed between the marked commit and this one',
     'Checkout (detached)', 'Branch here…', 'Tag here…', 'New worktree from here…', 'Cherry-pick onto {branch}', 'Revert',
     'Reset {branch} here — keep changes staged', 'Reset {branch} here — keep changes', 'Reset {branch} here — discard changes…',
-    'Copy SHA', 'Reflog', 'Reword…', 'Fix up with staged changes', 'Drop commit', 'Squash {count} commits',
+    'Copy SHA', 'Reflog', 'Edit commit message…', 'Fix up with staged changes', 'Drop commit', 'Squash {count} commits',
     'Make the commits from the marked one to this one a single commit, their messages joined',
     'Fold what is staged into this commit', 'Take this commit out of the branch (undoable)', 'Resize the commit list',
   ];

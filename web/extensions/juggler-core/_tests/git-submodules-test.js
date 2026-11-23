@@ -115,7 +115,7 @@ export async function runTests(_ctx) {
     }
   });
 
-  await test('a submodule changed in Changes offers Update, in its menu and its detail', async () => {
+  await test('a submodule changed in Changes offers Update, in its menu and its detail, and no Discard', async () => {
     const lib = { path: 'lib', index: '.', worktree: 'M', submodule: true, submoduleCommit: true };
     const m = mountPin(pin, { place: 'changes', changes: changesOf([lib]) });
     try {
@@ -123,10 +123,14 @@ export async function runTests(_ctx) {
       row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }));
       const labels = [...document.querySelectorAll('.juggler-context-menu .menu-item')].map((el) => el.textContent);
       assert(labels.includes('Update submodule'), `its menu: ${JSON.stringify(labels)}`);
+      // Its change is the commit it is checked out at: Update is what puts that
+      // back, and a discard, which saves and restores files, has no file to save.
+      assert(!labels.includes('Discard changes (undoable)'), `its menu offers no Discard: ${JSON.stringify(labels)}`);
       for (const el of document.querySelectorAll('.juggler-context-menu')) el.remove();
 
       /** @type {HTMLElement} */ (row.querySelector('.git-changes__path') || row).click();
       const update = /** @type {HTMLButtonElement} */ (await waitFor(() => m.body.querySelector('.git-changes__crumb-update'), 'the detail\u2019s Update'));
+      assert(!m.body.querySelector('.git-changes__crumb-discard'), 'its detail offers no Discard');
       update.click();
       const op = m.runs()[0]?.op;
       assert(op?.kind === 'submodule-update' && op.path === 'lib', `Update's write: ${JSON.stringify(op)}`);

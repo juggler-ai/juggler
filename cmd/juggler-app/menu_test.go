@@ -45,3 +45,40 @@ func TestWindowsMenuLeavesEditingKeysToTheWebview(t *testing.T) {
 		t.Error("the macOS menu has no Edit menu")
 	}
 }
+
+// pageChords are the menu accelerators whose keys the page binds itself
+// (key-shortcut-manager.js: new-conversation, new-window, zoom-in, zoom-out).
+var pageChords = map[string]bool{
+	"CmdOrCtrl+n": true, "CmdOrCtrl+Shift+n": true, "CmdOrCtrl+plus": true, "CmdOrCtrl+-": true,
+}
+
+func menuAccels(nodes []menuNode, into map[string]bool) map[string]bool {
+	for _, n := range nodes {
+		if n.accel != "" {
+			into[n.accel] = true
+		}
+		menuAccels(n.children, into)
+	}
+	return into
+}
+
+// TestWindowsMenuLeavesPageChordsToThePage: for the same reason, a Windows
+// menu item carrying a chord the page also binds acts twice — Ctrl+Shift+N
+// opened two windows. macOS keeps them: its menu accelerator preempts the
+// webview's keydown, and is the only way ⌘N reaches the app at all.
+func TestWindowsMenuLeavesPageChordsToThePage(t *testing.T) {
+	a := &appState{}
+	win := menuAccels(menuSpec(a, false, "windows"), map[string]bool{})
+	mac := menuAccels(menuSpec(a, false, "darwin"), map[string]bool{})
+	for chord := range pageChords {
+		if win[chord] {
+			t.Errorf("the Windows menu binds %s, which the page handles too", chord)
+		}
+		if !mac[chord] {
+			t.Errorf("the macOS menu lost %s", chord)
+		}
+	}
+	if !win["CmdOrCtrl+o"] {
+		t.Error("the Windows menu lost Ctrl+O, which the page does not bind")
+	}
+}

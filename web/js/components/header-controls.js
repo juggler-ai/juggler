@@ -342,8 +342,8 @@ export function setupHeaderControls(session) {
   // ⇧⌘N / Ctrl+Shift+N — same action as the button. Desktop only: a plain browser
   // tab has no native host to open a window, so we return false and leave ⇧⌘N to
   // the browser (its own new-window/incognito) rather than swallowing it as a
-  // no-op. On the desktop this is the sole handler for the chord — the native File
-  // ▸ New Window menu item shares the accelerator for display and click.
+  // no-op. In the Windows desktop app this is the sole handler for the chord: the
+  // native menu there carries no accelerator for it (menu.go, pageKey).
   keyShortcutManager.register('new-window', () => {
     if (!hasNativeHost()) return false;
     void openNewWindow();
@@ -351,9 +351,9 @@ export function setupHeaderControls(session) {
   });
 
   // The native Session ▸ New Window menu item and its ⇧⌘N accelerator dispatch this
-  // event on the focused window. The native accelerator preempts the webview
-  // keydown in the desktop app, so the keyShortcutManager binding above only runs
-  // in browser tabs; routing the menu/keyboard case back through openNewWindow()
+  // event on the focused window. On macOS the native accelerator preempts the
+  // webview keydown, so the keyShortcutManager binding above runs only in browser
+  // tabs and the Windows app; routing the menu/keyboard case back through openNewWindow()
   // means such a window carries THIS window's live theme and font size to the
   // child — the same single path as the header button, never a global last-used
   // seed.

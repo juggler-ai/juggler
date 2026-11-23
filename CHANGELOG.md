@@ -20,6 +20,7 @@ the current release). The project follows semantic versioning.
 - Long, often-compacted conversations no longer stall for seconds after every save
 - Windows opening while the computer is busy no longer show "This session stopped"
 - A window onto another computer's server keeps trying at launch, then connects itself
+- On Windows, Ctrl+Shift+N opens one window, not two
 - Settings → Project files can delete transaction records older than a chosen age
 - Import Claude Code, Codex, Pi and OpenCode conversations on first launch.
 - Claude models via OpenRouter use prompt caching, and show cache writes

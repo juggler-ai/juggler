@@ -76,18 +76,29 @@ func menuSpec(a *appState, devMode bool, goos string) []menuNode {
 	dispatch := func(event string) func(*application.Context) {
 		return exec("window.dispatchEvent(new CustomEvent('" + event + "'))")
 	}
+	// pageKey is the accelerator of an item whose chord the page binds itself
+	// (key-shortcut-manager.js). On macOS the menu accelerator preempts the
+	// webview's keydown, so the menu is the only path the chord takes. On
+	// Windows the menu is never displayed, and Wails turns its accelerators into
+	// key bindings that run alongside the page's keydown — so the item would act
+	// a second time (two windows for one Ctrl+Shift+N). There the page alone
+	// handles the chord.
+	pageKey := func(accel string) string {
+		if goos == "darwin" {
+			return accel
+		}
+		return ""
+	}
 
 	session := menuNode{label: msg.New("Session"), children: []menuNode{
 		{label: msg.New("Open or connect to a new session..."), accel: "CmdOrCtrl+o", onClick: dispatch("juggler:open-project")},
 		// New Conversation owns Cmd+N (the browser new-tab key most people reach for) and
 		// creates a conversation in the focused window by dispatching the same
-		// event the in-app Cmd+N shortcut fires. The native menu accelerator
-		// preempts the webview keydown, so this is the only path Cmd+N takes here
-		// — no double trigger. It is also the only path Cmd+N has anywhere: a
-		// browser reserves that chord for its own New window and never delivers
-		// it to the page, which is why the frontend binds Alt+N as an alias (see
-		// key-shortcut-manager.js).
-		{label: msg.New("New Conversation"), accel: "CmdOrCtrl+n", onClick: exec("document.dispatchEvent(new CustomEvent('juggler:new-conversation'))")},
+		// event the in-app Cmd+N shortcut fires. On macOS this is the only path
+		// Cmd+N takes (pageKey). A browser reserves that chord for its own New
+		// window and never delivers it to the page, which is why the frontend
+		// binds Alt+N as an alias (see key-shortcut-manager.js).
+		{label: msg.New("New Conversation"), accel: pageKey("CmdOrCtrl+n"), onClick: exec("document.dispatchEvent(new CustomEvent('juggler:new-conversation'))")},
 		// New Window moves to the Shift variant so it stops shadowing New
 		// Conversation's Cmd+N. Like New Conversation, it dispatches into the focused window's page rather
 		// than opening the window here: the page's own newWindow() carries THIS
@@ -96,7 +107,7 @@ func menuSpec(a *appState, devMode bool, goos string) []menuNode {
 		// last-used values, not the source window's — which is what made a new
 		// window adopt the last-active appearance instead of the one it was
 		// launched from.
-		{label: msg.New("New Window"), accel: "CmdOrCtrl+Shift+n", onClick: dispatch("juggler:new-window")},
+		{label: msg.New("New Window"), accel: pageKey("CmdOrCtrl+Shift+n"), onClick: dispatch("juggler:new-window")},
 		menuSeparator,
 		{label: msg.NewCtx("menu", "Close"), role: application.CloseWindow},
 	}}
@@ -129,8 +140,8 @@ func menuSpec(a *appState, devMode bool, goos string) []menuNode {
 	// own page zoom — that breaks the fixed layout. The page also handles the
 	// Cmd +/− keypresses directly for browser tabs that have no native menu.
 	view := []menuNode{
-		{label: msg.New("Zoom In"), accel: "CmdOrCtrl+plus", onClick: dispatch("juggler:zoom-in")},
-		{label: msg.New("Zoom Out"), accel: "CmdOrCtrl+-", onClick: dispatch("juggler:zoom-out")},
+		{label: msg.New("Zoom In"), accel: pageKey("CmdOrCtrl+plus"), onClick: dispatch("juggler:zoom-in")},
+		{label: msg.New("Zoom Out"), accel: pageKey("CmdOrCtrl+-"), onClick: dispatch("juggler:zoom-out")},
 		menuSeparator,
 	}
 	if devMode {

@@ -231,8 +231,8 @@ type ProxySettings struct {
 	URL string `json:"url,omitempty"`
 }
 
-// ConnectivitySettings holds the machine server's connectivity preferences,
-// each read once when it starts unless it says otherwise. Additive — like GlobalSettings,
+// ConnectivitySettings holds the machine server's start-time connectivity
+// preferences, each read once when it starts. Additive — like GlobalSettings,
 // unknown keys are tolerated on read.
 type ConnectivitySettings struct {
 	// AllowedHosts are extra Host names a server accepts on top of the names
@@ -251,11 +251,6 @@ type ConnectivitySettings struct {
 	// that cannot start on this machine, opens nothing and stays saved, so it
 	// comes back with the mode. Under --test it is not read.
 	WANOnLaunch string `json:"wanOnLaunch,omitempty"`
-	// AllowRemoteRelaunch lets a viewer on another device relaunch the machine
-	// server into a build installed under it, as one on this machine always
-	// may. Read at each request, so a change applies at once; written only
-	// from this machine.
-	AllowRemoteRelaunch bool `json:"allowRemoteRelaunch,omitempty"`
 }
 
 // ProjectSettings holds preferences about how Juggler keeps each project's own

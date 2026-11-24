@@ -96,10 +96,8 @@ const LOCAL_NETWORK_SETTINGS_URL = 'x-apple.systempreferences:com.apple.preferen
  */
 
 /**
- * What opens whenever Juggler starts: LAN access, and one tunnel mode ('' for
- * none); and whether a device off this machine may relaunch the server, which
- * this machine alone says, as it says these.
- * @typedef {{lanOnLaunch: boolean, wanOnLaunch: string, allowRemoteRelaunch?: boolean}} LaunchState
+ * What opens whenever Juggler starts: LAN access, and one tunnel mode ('' for none).
+ * @typedef {{lanOnLaunch: boolean, wanOnLaunch: string}} LaunchState
  */
 
 /**
@@ -270,27 +268,24 @@ function firewallNote(port) {
 }
 
 /**
- * A way in's "Start whenever Juggler starts" checkbox, or, with text, another
- * saved choice's.
+ * A way in's "Start whenever Juggler starts" checkbox.
  * @param {boolean} checked - Whether it is saved to start.
  * @param {string} mode - The tunnel mode it stands for, or '' for LAN access.
  * @param {(checked: boolean) => void} onChange - Called with the new state.
- * @param {string} [text] - What it says, for a choice other than a way in's
- *   start, which is drawn as a setting (connectivity-setting) rather than as one.
  * @returns {HTMLElement} The labelled checkbox.
  */
-function launchCheckbox(checked, mode, onChange, text = '') {
+function launchCheckbox(checked, mode, onChange) {
   const label = document.createElement('label');
-  label.className = text ? 'connectivity-setting' : 'connectivity-launch';
+  label.className = 'connectivity-launch';
   const input = document.createElement('input');
   input.type = 'checkbox';
   input.checked = checked;
   if (mode) input.dataset.mode = mode;
   input.addEventListener('change', () => onChange(input.checked));
-  const span = document.createElement('span');
-  span.textContent = text || t('Start whenever Juggler starts');
+  const text = document.createElement('span');
+  text.textContent = t('Start whenever Juggler starts');
   label.appendChild(input);
-  label.appendChild(span);
+  label.appendChild(text);
   return label;
 }
 
@@ -298,7 +293,7 @@ function launchCheckbox(checked, mode, onChange, text = '') {
  * An inline error line, hidden while empty.
  * @returns {HTMLElement} The line.
  */
-export function errorLine() {
+function errorLine() {
   const p = document.createElement('div');
   p.className = 'connectivity-error';
   p.setAttribute('role', 'alert');
@@ -348,13 +343,8 @@ export class ExposureView {
    * @param {((url: string) => void)|null} [options.openSettings] - Opens a
    *   system settings URL. By default, the desktop app does, when the page
    *   is in one of its windows; null, as for a plain browser, which cannot.
-   * @param {() => void} [options.onLaunchShown] - Told when what is saved
-   *   changes on screen, for a page that draws the server's row itself, with
-   *   its relaunchSwitch.
    */
-  constructor({ serverSection, lanSection, tunnelSection, api, chrome, launch = { lanOnLaunch: false, wanOnLaunch: '' }, openAddress, openSettings, onLaunchShown }) {
-    /** @private */
-    this._onLaunchShown = onLaunchShown || null;
+  constructor({ serverSection, lanSection, tunnelSection, api, chrome, launch = { lanOnLaunch: false, wanOnLaunch: '' }, openAddress, openSettings }) {
     /** @private */
     this._openAddress = openAddress || null;
     /** @private */
@@ -363,8 +353,6 @@ export class ExposureView {
     this._serverSection = serverSection || null;
     /** @type {string} @private - What the server section last drew. */
     this._serverDrawn = '';
-    /** @type {ServerStatus|null} @private - The machine server as last shown. */
-    this._server = null;
     /** @private */
     this._lanSection = lanSection;
     /** @private */
@@ -473,7 +461,7 @@ export class ExposureView {
       this._api.getLaunch().catch(() => null),
     ]);
     if (launch && saves === this._launchSaves) {
-      this.launch = { lanOnLaunch: !!launch.lanOnLaunch, wanOnLaunch: launch.wanOnLaunch || '', allowRemoteRelaunch: !!launch.allowRemoteRelaunch };
+      this.launch = { lanOnLaunch: !!launch.lanOnLaunch, wanOnLaunch: launch.wanOnLaunch || '' };
     }
     if (server) this._showServer(server);
     if (this._busy) return;
@@ -484,13 +472,11 @@ export class ExposureView {
   /**
    * Name the machine server: its process and address, and whether the desktop
    * app started it — and so starts it again if it stops — or someone at a
-   * terminal, where it is theirs to start again; with whether a device off
-   * this machine may relaunch it, into a build installed in its place.
+   * terminal, where it is theirs to start again.
    * @private
    * @param {ServerStatus} server
    */
   _showServer(server) {
-    this._server = server;
     const section = this._serverSection;
     if (!section) return;
     section.hidden = false;
@@ -498,32 +484,11 @@ export class ExposureView {
     const description = server.appStarted
       ? t('Started by the Juggler app, which restarts it if it stops. Process {pid} on {addr}.', params)
       : t('Started from a terminal. If it stops, restart it there, or let the app start a new one. Process {pid} on {addr}.', params);
-    const drawn = JSON.stringify([description, !!this.launch.allowRemoteRelaunch]);
-    if (drawn === this._serverDrawn) return;
-    const errorText = shownError(section);
-    this._serverDrawn = drawn;
-    const row = this._chrome.row(t('Juggler server'), description, [this.relaunchSwitch(section)], '');
+    if (description === this._serverDrawn) return;
+    this._serverDrawn = description;
+    const row = this._chrome.row(t('Juggler server'), description, [], '');
     row.classList.add('connectivity-server');
-    const line = errorLine();
-    showError(line, errorText);
-    row.appendChild(line);
     section.replaceChildren(row);
-  }
-
-  /**
-   * Whether a device off this machine may relaunch the server, into a build
-   * installed in its place: this machine's choice, saved as what opens at
-   * start is (_saveLaunch). For the server's row, drawn here or by the page.
-   * @param {HTMLElement} section - The section whose error line says why a
-   *   save failed.
-   * @returns {HTMLElement} The labelled checkbox.
-   */
-  relaunchSwitch(section) {
-    const allow = launchCheckbox(!!this.launch.allowRemoteRelaunch, '', (on) => {
-      this.pending = this._saveLaunch({ allowRemoteRelaunch: on }, section);
-    }, t('Allow relaunching from other devices'));
-    /** @type {HTMLInputElement} */ (allow.querySelector('input')).dataset.setting = 'allowRemoteRelaunch';
-    return allow;
   }
 
   /**
@@ -532,8 +497,6 @@ export class ExposureView {
    */
   showLaunch(launch) {
     this.launch = launch;
-    if (this._server) this._showServer(this._server);
-    this._onLaunchShown?.();
     if (this._lan) this._showLAN(this._lan);
     if (this._tunnel) this._showTunnel(this._tunnel);
   }
@@ -543,16 +506,13 @@ export class ExposureView {
    * back, with why, if the server refuses it. Only the key changed is put
    * back, so a change to the other one meanwhile stands.
    * @private
-   * @param {{lanOnLaunch: boolean}|{wanOnLaunch: string}|{allowRemoteRelaunch: boolean}} change - One key.
+   * @param {{lanOnLaunch: boolean}|{wanOnLaunch: string}} change - One key.
    * @param {HTMLElement} section - The section whose error line says why.
    * @returns {Promise<void>} Resolves once the answer is shown.
    */
   async _saveLaunch(change, section) {
-    const { lanOnLaunch, wanOnLaunch, allowRemoteRelaunch } = this.launch;
-    /** @type {Partial<LaunchState>} */
-    let undo = { wanOnLaunch };
-    if ('lanOnLaunch' in change) undo = { lanOnLaunch };
-    else if ('allowRemoteRelaunch' in change) undo = { allowRemoteRelaunch };
+    const { lanOnLaunch, wanOnLaunch } = this.launch;
+    const undo = 'lanOnLaunch' in change ? { lanOnLaunch } : { wanOnLaunch };
     this._launchSaves++;
     this.showLaunch({ ...this.launch, ...change });
     let failure = '';

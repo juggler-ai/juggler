@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"juggler/internal/basepath"
-	"juggler/internal/ingress"
 )
 
 // TestSessionRelaysOpenStopAndFolders: a project page's switcher opens and
@@ -87,39 +86,35 @@ func TestStoppingItsOwnSessionAnswersAtOnce(t *testing.T) {
 	}
 }
 
-// TestARelaunchIsRelayedForWhoAsked: a project page asks for the machine
-// server's relaunch through its child, which passes it on with the control
-// token — and, for a viewer off this machine, says so, since the machine
-// server sees every call from here as this machine's and would otherwise let a
-// remote viewer relaunch it whether or not this machine allows that. The
-// answer comes back as it stands.
-func TestARelaunchIsRelayedForWhoAsked(t *testing.T) {
-	type asked struct{ path, token, body, forRemote string }
+// TestARelaunchIsRelayed: a project page asks for the machine server's
+// relaunch through its child, which passes it on with the control token, for
+// a viewer on this machine or off it, and hands back the answer as it stands.
+func TestARelaunchIsRelayed(t *testing.T) {
+	type asked struct{ path, token, body string }
 	got := make(chan asked, 1)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
-		got <- asked{r.URL.Path, r.Header.Get("X-Juggler-Token"), string(b), r.Header.Get(ingress.ForRemoteViewerHeader)}
-		w.WriteHeader(http.StatusForbidden)
-		_, _ = io.WriteString(w, `{"error":"off"}`)
+		got <- asked{r.URL.Path, r.Header.Get("X-Juggler-Token"), string(b)}
+		w.WriteHeader(http.StatusConflict)
+		_, _ = io.WriteString(w, `{"error":"busy"}`)
 	}))
 	t.Cleanup(srv.Close)
 	s := connectivityServer(t, strings.TrimPrefix(srv.URL, "http://"))
 	for _, c := range []struct {
-		name      string
-		req       *http.Request
-		forRemote string
+		name string
+		req  *http.Request
 	}{
-		{"a viewer on this machine", localRequest(http.MethodPost, "/api/machine/relaunch", `{"expect":{}}`), ""},
-		{"a viewer off it", remoteRequest(http.MethodPost, "/api/machine/relaunch", `{"expect":{}}`), "1"},
+		{"a viewer on this machine", localRequest(http.MethodPost, "/api/machine/relaunch", `{"expect":{}}`)},
+		{"a viewer off it", remoteRequest(http.MethodPost, "/api/machine/relaunch", `{"expect":{}}`)},
 	} {
 		rec := httptest.NewRecorder()
 		s.router.ServeHTTP(rec, c.req)
-		if rec.Code != http.StatusForbidden || rec.Body.String() != `{"error":"off"}` {
+		if rec.Code != http.StatusConflict || rec.Body.String() != `{"error":"busy"}` {
 			t.Errorf("%s: %d %s, want the machine server's answer as it stands", c.name, rec.Code, rec.Body.String())
 		}
 		select {
 		case a := <-got:
-			want := asked{"/api/server/relaunch", "control-token", `{"expect":{}}`, c.forRemote}
+			want := asked{"/api/server/relaunch", "control-token", `{"expect":{}}`}
 			if a != want {
 				t.Errorf("%s: machine server got %+v, want %+v", c.name, a, want)
 			}

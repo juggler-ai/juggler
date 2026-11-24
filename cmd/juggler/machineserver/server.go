@@ -269,7 +269,6 @@ func (s *Server) routes() http.Handler {
 	api.HandleFunc("/events", s.handleEvents).Methods("GET")
 	api.HandleFunc("/folders", s.handleCreateFolder).Methods("POST")
 	api.HandleFunc("/shutdown", s.localOnly(s.handleShutdown)).Methods("POST")
-	// A relaunch from off this machine is the machine's to allow (mayRelaunch).
 	api.HandleFunc("/relaunch", s.handleRelaunch).Methods("POST")
 	api.HandleFunc("/hold", s.localOnly(s.handleHold)).Methods("POST")
 	// Reading the ways in is this machine's alone, as switching them is: a
@@ -417,9 +416,6 @@ type statusResponse struct {
 	// while it is another than the one running, which a relaunch takes up
 	// (relaunch.go); empty otherwise.
 	InstalledBuild string `json:"installedBuild,omitempty"`
-	// RemoteRelaunch is whether a caller off this machine may relaunch the
-	// server (connectivity.allowRemoteRelaunch); one on it always may.
-	RemoteRelaunch bool `json:"remoteRelaunch,omitempty"`
 	// LAN is whether LAN access is on (lan.go).
 	LAN bool `json:"lan"`
 	// Tunnel is the mode of the running tunnel, if any (tunnel.go).
@@ -451,7 +447,6 @@ func (s *Server) status() statusResponse {
 		LAN:       s.lan.Load(),
 		// The build a relaunch would take up, while there is another.
 		InstalledBuild: s.installedBuild(),
-		RemoteRelaunch: remoteRelaunchAllowed(),
 		// The same reading of the hold as heldUp's.
 		AwaitingStarter: s.starter > 0 && !s.starterGone.Load(),
 		AppStarted:      s.starter > 0 || s.appStarted,

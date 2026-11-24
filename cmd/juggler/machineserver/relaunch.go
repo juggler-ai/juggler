@@ -23,7 +23,6 @@ import (
 	"juggler/cmd/juggler/msg"
 	"juggler/cmd/juggler/tunnel"
 	"juggler/internal/binwatch"
-	"juggler/internal/ingress"
 	"juggler/internal/jlog"
 )
 
@@ -355,22 +354,6 @@ func (s *Server) installedBuild() string {
 	return ""
 }
 
-// remoteRelaunchAllowed is whether this machine lets another device relaunch
-// the server (connectivity.allowRemoteRelaunch), as saved now.
-func remoteRelaunchAllowed() bool {
-	gs, err := core.LoadGlobalSettings()
-	return err == nil && gs.Connectivity.AllowRemoteRelaunch
-}
-
-// mayRelaunch is whether r's caller may relaunch the server: one on this
-// machine always, one off it once this machine has allowed it. A session
-// child's call for a viewer off this machine (ingress.ForRemoteViewerHeader)
-// counts as that viewer's.
-func (s *Server) mayRelaunch(r *http.Request) bool {
-	local := s.callerKind(r) == "" && r.Header.Get(ingress.ForRemoteViewerHeader) == ""
-	return local || remoteRelaunchAllowed()
-}
-
 // relaunchRequest is the body of POST /api/server/relaunch: with Expect, a
 // relaunch only if the server holds no more than it, as a shutdown's; with
 // Quiet, only if no session runs a turn or a background task
@@ -384,15 +367,9 @@ type relaunchRequest struct {
 // handleShutdown stops it, with or without "expect"; the answer is the same,
 // and a 409 for a server that holds more than expected. With "quiet" it is a
 // 409 saying what runs ("running", relaunchBusy) for a server with work
-// running. A
-// caller off this machine is refused unless this machine allows it
-// (mayRelaunch).
+// running.
 // POST /api/server/relaunch [{"expect": Occupancy} | {"quiet": true}].
 func (s *Server) handleRelaunch(w http.ResponseWriter, r *http.Request) {
-	if !s.mayRelaunch(r) {
-		writeMessageError(w, http.StatusForbidden, msg.New("Relaunching Juggler from another device is off. Allow it in Settings on the machine it runs on."))
-		return
-	}
 	var req relaunchRequest
 	body, _ := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
 	if len(body) > 0 {

@@ -40,7 +40,6 @@ import { needsAcross } from '../utils/session-attention.js';
  * @property {string} installedBuild - The build installed in the machine
  *   server's place, which it opens no session from until it is relaunched; ''
  *   while it is the server's own.
- * @property {boolean} mayRelaunch - Whether this page may relaunch the server.
  */
 
 /** A relay that answered no machine server: nothing to follow. */
@@ -172,9 +171,6 @@ export function createMachineFeed({
     },
     get installedBuild() {
       return snapshot?.installedBuild || '';
-    },
-    get mayRelaunch() {
-      return snapshot?.mayRelaunch === true;
     },
   };
 }

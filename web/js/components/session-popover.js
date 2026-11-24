@@ -81,8 +81,8 @@ export function placePopover({ chipLeft, chipBottom, viewportWidth }) {
  * What the popover works with: the page's own by default (createSessionPopover).
  * @typedef {object} PopoverDeps
  * @property {HTMLElement} chip - The project chip, which is its button.
- * @property {{sessions: any[], recents: any, mayRelaunch?: boolean, subscribe: (fn: () => void) => () => void}} feed - The
- *   machine's sessions, and whether this page may relaunch the machine server.
+ * @property {{sessions: any[], recents: any, subscribe: (fn: () => void) => () => void}} feed - The
+ *   machine's sessions.
  * @property {string} ownLink - This window's session's link.
  * @property {'tab'|'url'|'local'} surface - Where the page is (project-navigation's).
  * @property {(to: import('../services/project-navigation.js').Destination) => Promise<void>} go - Moves this window.
@@ -345,18 +345,13 @@ export class SessionPopover {
   /**
    * Relaunch the machine server, for a session that opens again only once it
    * is relaunched into the build installed in its place: at once if no work
-   * runs in it, and otherwise once the user agrees to what it stops. A page
-   * that may not relaunch it — a viewer off the machine it has not allowed —
-   * is told where it may be done.
+   * runs in it, and otherwise once the user agrees to what it stops.
    * @returns {Promise<void>} Resolves once asked, or given up.
    * @private
    */
   async _relaunch() {
     const d = this._deps;
-    if (!d.feed.mayRelaunch || !d.relaunch || !d.confirm) {
-      d.showError(t('Relaunching Juggler from another device is off. Allow it in Settings on the machine it runs on.'));
-      return;
-    }
+    if (!d.relaunch || !d.confirm) return;
     this.close();
     try {
       await relaunchMachineServer({ relaunch: d.relaunch, confirm: d.confirm });

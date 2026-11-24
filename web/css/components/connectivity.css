@@ -14,10 +14,8 @@
    address cards. The rows are grids on both pages, so a row's addresses and
    error line span it under its title and controls. */
 
-/* Under a way in's Start or Stop, whether to start it whenever Juggler starts;
-   and, beside the server, another choice saved with it (connectivity-setting). */
-.connectivity-launch,
-.connectivity-setting {
+/* Under a way in's Start or Stop, whether to start it whenever Juggler starts. */
+.connectivity-launch {
     display: inline-flex;
     align-items: center;
     align-self: flex-start;
@@ -27,8 +25,7 @@
     cursor: pointer;
 }
 
-.connectivity-launch input,
-.connectivity-setting input {
+.connectivity-launch input {
     cursor: pointer;
 }
 

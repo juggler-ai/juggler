@@ -93,13 +93,6 @@ func TakeSupervisor() (addr, token, session string) {
 	return take(SupervisorAddrEnv), take(SupervisorTokenEnv), take(SupervisorSessionEnv)
 }
 
-// ForRemoteViewerHeader, set to "1" on a call a session child passes on to
-// its machine server, says the child makes it for a viewer off this machine.
-// Every such call reaches the machine server from loopback, so without it the
-// machine server would take it for this machine's own. It can only narrow what
-// a call may do, so the machine server need not ask who set it.
-const ForRemoteViewerHeader = "X-Juggler-For-Remote-Viewer"
-
 // SupervisorBuildEnv is the Go build ID of the binary a machine server spawns
 // its session children from, as that binary was when the server started. A
 // child of another build — one installed at that path since — exits rather

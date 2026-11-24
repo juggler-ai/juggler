@@ -581,8 +581,6 @@ export function mountSessionsPage(root, {
   let stream = null;
   /** The build installed in the server's place, as the events stream last said ('' for none). */
   let installedBuild = '';
-  /** Whether this page may relaunch the server: on this machine always, off it as the stream says. */
-  let mayRelaunch = config.local === true;
   /** An open was refused until the server is relaunched, which the stream may not have said yet. */
   let refusedForRelaunch = false;
   /** The server is relaunching: the page waits, and loads again from the one that replaces it. */
@@ -1262,15 +1260,11 @@ export function mountSessionsPage(root, {
   /**
    * Relaunch the server into the build installed in its place: at once if no
    * work runs in it, and otherwise once the user, asked on the banner, agrees
-   * to what it stops. A viewer that may not relaunch it is told where it may.
+   * to what it stops.
    * @returns {Promise<void>} Resolves once the server is relaunching, or was kept.
    */
   async function relaunchNow() {
     if (relaunchAsked || relaunching || !api.relaunch) return;
-    if (!mayRelaunch) {
-      showLaunchError(t('Relaunching Juggler from another device is off. Allow it in Settings on the machine it runs on.'));
-      return;
-    }
     const relaunch = api.relaunch;
     relaunchAsked = true;
     showLaunchError('');
@@ -1305,7 +1299,7 @@ export function mountSessionsPage(root, {
 
   /**
    * The banner saying another build is installed in the server's place, with
-   * its relaunch: offered, asked about, or where it may be done.
+   * its relaunch: offered, or asked about.
    * @returns {HTMLElement} The banner.
    */
   function relaunchBanner() {
@@ -1323,10 +1317,8 @@ export function mountSessionsPage(root, {
           button(t('Keep working'), 'btn-secondary ms-relaunch-keep', () => ask.answer(false)),
         ]),
       ];
-    } else if (mayRelaunch) {
-      rest = [button(t('Relaunch server'), 'btn-secondary ms-relaunch-go', () => { void relaunchNow(); }, relaunchAsked)];
     } else {
-      rest = [el('span', { className: 'ms-relaunch-text', text: t('Relaunching Juggler from another device is off. Allow it in Settings on the machine it runs on.') })];
+      rest = [button(t('Relaunch server'), 'btn-secondary ms-relaunch-go', () => { void relaunchNow(); }, relaunchAsked)];
     }
     return el('div', { className: 'ms-relaunch' }, [el('span', { className: 'ms-relaunch-text', text }), ...rest]);
   }
@@ -1494,13 +1486,12 @@ export function mountSessionsPage(root, {
   /**
    * Show the sessions and recents of a snapshot, as asked for or as the
    * events stream pushed it.
-   * @param {{sessions?: Session[]|null, recents?: Partial<import('./control-api.js').Recents>|null, installedBuild?: string, mayRelaunch?: boolean}} snapshot
+   * @param {{sessions?: Session[]|null, recents?: Partial<import('./control-api.js').Recents>|null, installedBuild?: string}} snapshot
    */
   function takeSnapshot(snapshot) {
     sessions = snapshot.sessions || [];
     // Only the stream says these; a snapshot asked for leaves them as said.
     if (typeof snapshot.installedBuild === 'string') installedBuild = snapshot.installedBuild;
-    if (typeof snapshot.mayRelaunch === 'boolean') mayRelaunch = snapshot.mayRelaunch || config.local === true;
     recents = {
       paths: snapshot.recents?.paths || [],
       links: snapshot.recents?.links || {},

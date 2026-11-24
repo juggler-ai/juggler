@@ -14,7 +14,7 @@ import wsService from '../../services/websocket.js';
 import { ProxySettings } from './proxy-settings.js';
 import * as settingsApi from '../../services/settings-api.js';
 import { t } from '../../../sdk/lib/i18n.js';
-import { ExposureView, errorLine } from '../connectivity/exposure-view.js';
+import { ExposureView } from '../connectivity/exposure-view.js';
 
 /** Polling interval (ms) for refreshing the Connectivity tab while it's open. */
 const CONNECTIVITY_POLL_MS = 2000;
@@ -449,13 +449,8 @@ export class ConnectivityTab {
     if (!section) return;
     const place = this._place();
     const { title, description } = serverPlaceText(place, place.origin === 'local' ? this._server : null, window.location.host);
-    // Whether another device may relaunch the server is this machine's to
-    // say, so only a window that may switch the ways in is offered it.
-    const exposure = (/** @type {any} */ (this.connectivity)).exposure ? this._exposure : null;
-    const failed = section.querySelector('.connectivity-error');
-    const row = fieldRow(title, description, exposure ? [exposure.relaunchSwitch(section)] : []);
+    const row = fieldRow(title, description, []);
     row.classList.add('connectivity-server');
-    if (exposure) row.appendChild(failed || errorLine());
     section.replaceChildren(row);
   }
 
@@ -514,7 +509,6 @@ export class ConnectivityTab {
       api: sessionExposureApi,
       chrome: { row: fieldRow, button: settingsButton },
       launch: this._exposure?.launch,
-      onLaunchShown: () => this._refreshStatusSection(),
     });
 
     this._refreshStatusSection();

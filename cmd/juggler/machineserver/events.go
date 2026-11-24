@@ -26,12 +26,6 @@ type eventsPayload struct {
 	// InstalledBuild is statusResponse.InstalledBuild: the build a relaunch
 	// would take up, while there is another.
 	InstalledBuild string `json:"installedBuild,omitempty"`
-	// RemoteRelaunch is statusResponse.RemoteRelaunch: whether a caller off
-	// this machine may take that build up.
-	RemoteRelaunch bool `json:"remoteRelaunch,omitempty"`
-	// MayRelaunch is whether the page reading the stream may take it up
-	// (mayRelaunch): always on this machine, off it once RemoteRelaunch.
-	MayRelaunch bool `json:"mayRelaunch,omitempty"`
 }
 
 // handleEvents streams the sessions page's state as server-sent events: a
@@ -65,8 +59,6 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 			Sessions:       sessionsUnder(base, s.reg.snapshot()),
 			Recents:        s.recentsNow().under(base),
 			InstalledBuild: s.installedBuild(),
-			RemoteRelaunch: remoteRelaunchAllowed(),
-			MayRelaunch:    s.mayRelaunch(r),
 		})
 		if err != nil {
 			jlog.Error("[machineserver] encoding a sessions event: %v", err)

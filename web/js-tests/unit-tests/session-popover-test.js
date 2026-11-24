@@ -526,32 +526,24 @@ export async function runTests() {
   });
 
   // A session that failed for the build installed in the server's place opens
-  // again only once the server relaunches: its row relaunches it, where this
-  // page may, and otherwise says where that may be done — never a retry that
-  // fails the same way.
-  await test('a session needing a relaunch relaunches the server, or says where that may be done', async () => {
+  // again only once the server relaunches: its row relaunches it — never a
+  // retry that fails the same way.
+  await test('a session needing a relaunch relaunches the server', async () => {
     const needing = session('eps', {
       state: 'error', relaunchNeeded: true, error: 'Another build of Juggler is installed in place of the one this server runs. Relaunch the Juggler server to open sessions.',
     });
-    for (const may of [true, false]) {
-      const { calls, chip, done } = mount({ tweak: (m) => { m.sessions.push(needing); m.mayRelaunch = may; } });
-      try {
-        chip.click();
-        const name = popover()?.querySelector('.session-switcher-row[data-key="s:eps"] .session-switcher-name');
-        assert(!!name, 'no row for the session needing a relaunch');
-        name?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-        await nextTask();
-        await nextTask();
-        assert(!calls.some((c) => c.startsWith('open:')), `may ${may}: the project was opened again: ${calls.join()}`);
-        if (may) {
-          assert(calls.includes('relaunch:quiet'), `a page that may relaunch did not: ${calls.join()}`);
-        } else {
-          assert(!calls.some((c) => c.startsWith('relaunch')), `a page that may not relaunch did: ${calls.join()}`);
-          assert(calls.some((c) => c.includes('Allow it in Settings on the machine it runs on')), `not told where it may be done: ${calls.join()}`);
-        }
-      } finally {
-        done();
-      }
+    const { calls, chip, done } = mount({ tweak: (m) => { m.sessions.push(needing); } });
+    try {
+      chip.click();
+      const name = popover()?.querySelector('.session-switcher-row[data-key="s:eps"] .session-switcher-name');
+      assert(!!name, 'no row for the session needing a relaunch');
+      name?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      await nextTask();
+      await nextTask();
+      assert(!calls.some((c) => c.startsWith('open:')), `the project was opened again: ${calls.join()}`);
+      assert(calls.includes('relaunch:quiet'), `the server was not relaunched: ${calls.join()}`);
+    } finally {
+      done();
     }
   });
 

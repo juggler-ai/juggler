@@ -6,19 +6,16 @@ package machineserver
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
 	"juggler/cmd/juggler/tunnel"
-	"juggler/internal/ingress"
 	"juggler/internal/userpaths/userpathstest"
 )
 
@@ -152,82 +149,6 @@ func TestARelaunchTellsItsAttachmentsSo(t *testing.T) {
 		if att.Relaunching() != relaunch {
 			t.Errorf("relaunch %v: attachment says relaunching %v", relaunch, att.Relaunching())
 		}
-	}
-}
-
-// TestARemoteRelaunchIsTheMachinesToAllow: a caller off this machine may
-// relaunch the server only once this machine has allowed it, which only this
-// machine can do; the status says whether it has, for the page that offers it.
-// A caller on this machine may always.
-func TestARemoteRelaunchIsTheMachinesToAllow(t *testing.T) {
-	userpathstest.Isolate(t)
-	s := &Server{reg: newRegistry(), token: testToken, shutdownReq: make(chan struct{}, 1)}
-	local := httptest.NewServer(s.routes())
-	defer local.Close()
-	s.lan.Store(true)
-	remote := httptest.NewServer(asCaller("192.168.1.20:54321", s.routes()))
-	defer remote.Close()
-	allowed := func(front string) bool {
-		t.Helper()
-		code, body := lanCall(t, "GET", front+"/api/server/status", "")
-		var st struct {
-			RemoteRelaunch bool `json:"remoteRelaunch"`
-		}
-		if err := json.Unmarshal([]byte(body), &st); code != http.StatusOK || err != nil {
-			t.Fatalf("GET status via %s: %d %s", front, code, body)
-		}
-		return st.RemoteRelaunch
-	}
-
-	if code, body := lanCall(t, "POST", remote.URL+"/api/server/relaunch", ""); code != http.StatusForbidden || s.ending.relaunching() {
-		t.Fatalf("relaunch from the LAN, not allowed: %d %s; want 403, nothing begun", code, body)
-	}
-	if code, _ := lanCall(t, "PUT", remote.URL+"/api/server/launch", `{"allowRemoteRelaunch":true}`); code != http.StatusForbidden {
-		t.Fatalf("allowing remote relaunch from the LAN: %d, want 403", code)
-	}
-	if allowed(remote.URL) {
-		t.Fatal("status says remote relaunch is allowed before this machine allowed it")
-	}
-	if code, body := lanCall(t, "PUT", local.URL+"/api/server/launch", `{"allowRemoteRelaunch":true}`); code != http.StatusOK || !strings.Contains(body, `"allowRemoteRelaunch":true`) {
-		t.Fatalf("allowing remote relaunch from this machine: %d %s", code, body)
-	}
-	if !allowed(remote.URL) {
-		t.Fatal("status does not say remote relaunch is allowed once this machine allowed it")
-	}
-	if code, body := lanCall(t, "POST", remote.URL+"/api/server/relaunch", ""); code != http.StatusAccepted || !s.ending.relaunching() {
-		t.Fatalf("relaunch from the LAN, allowed: %d %s; want 202, begun", code, body)
-	}
-}
-
-// TestARelaunchForARemoteViewerIsJudgedRemote: a session child passes on its
-// viewers' relaunches from loopback, so one it makes for a viewer off this
-// machine (ingress.ForRemoteViewerHeader) is held to what a remote caller may
-// do, not waved through as this machine's.
-func TestARelaunchForARemoteViewerIsJudgedRemote(t *testing.T) {
-	userpathstest.Isolate(t)
-	s := &Server{reg: newRegistry(), token: testToken, shutdownReq: make(chan struct{}, 1)}
-	front := httptest.NewServer(s.routes())
-	defer front.Close()
-	relaunchFor := func() int {
-		t.Helper()
-		req, _ := http.NewRequest(http.MethodPost, front.URL+"/api/server/relaunch", nil)
-		req.Header.Set(TokenHeader, testToken)
-		req.Header.Set(ingress.ForRemoteViewerHeader, "1")
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		resp.Body.Close()
-		return resp.StatusCode
-	}
-	if code := relaunchFor(); code != http.StatusForbidden || s.ending.relaunching() {
-		t.Fatalf("relaunch for a remote viewer, not allowed: %d; want 403, nothing begun", code)
-	}
-	if code, body := lanCall(t, "PUT", front.URL+"/api/server/launch", `{"allowRemoteRelaunch":true}`); code != http.StatusOK {
-		t.Fatalf("allowing remote relaunch: %d %s", code, body)
-	}
-	if code := relaunchFor(); code != http.StatusAccepted || !s.ending.relaunching() {
-		t.Fatalf("relaunch for a remote viewer, allowed: %d; want 202, begun", code)
 	}
 }
 
@@ -601,51 +522,6 @@ func TestAQuietRelaunchSaysWhatItWouldStop(t *testing.T) {
 	sc.backgroundTasks.Store(0)
 	if relaunched, _, err := c.RelaunchIfQuiet(); err != nil || !relaunched || !s.ending.relaunching() {
 		t.Fatalf("quiet relaunch of a quiet server: relaunched %v, %v", relaunched, err)
-	}
-}
-
-// TestTheEventsSayWhetherTheirReaderMayRelaunch: the events stream tells the
-// page reading it whether it may relaunch the server (mayRelaunch): a page on
-// this machine may, and one off it — or a session child's relay for a viewer
-// off it — once this machine allows it.
-func TestTheEventsSayWhetherTheirReaderMayRelaunch(t *testing.T) {
-	userpathstest.Isolate(t)
-	s := &Server{reg: newRegistry(), token: testToken, shutdownReq: make(chan struct{}, 1)}
-	t.Cleanup(s.endLifetime)
-	local := httptest.NewServer(s.routes())
-	defer local.Close()
-	s.lan.Store(true)
-	remote := httptest.NewServer(asCaller("192.168.1.20:54321", s.routes()))
-	defer remote.Close()
-	mayRelaunch := func(front string, forRemote bool) bool {
-		t.Helper()
-		req, _ := http.NewRequest(http.MethodGet, front+"/api/server/events", nil)
-		req.Header.Set(TokenHeader, testToken)
-		if forRemote {
-			req.Header.Set(ingress.ForRemoteViewerHeader, "1")
-		}
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer resp.Body.Close()
-		ev := nextEvent(t, readEvents(resp.Body))
-		var body struct {
-			MayRelaunch bool `json:"mayRelaunch"`
-		}
-		if ev.name != "sessions" || json.Unmarshal([]byte(ev.data), &body) != nil {
-			t.Fatalf("first event = %+v", ev)
-		}
-		return body.MayRelaunch
-	}
-	if !mayRelaunch(local.URL, false) || mayRelaunch(remote.URL, false) || mayRelaunch(local.URL, true) {
-		t.Fatal("before this machine allows it: want only this machine's own page told it may relaunch")
-	}
-	if code, body := lanCall(t, "PUT", local.URL+"/api/server/launch", `{"allowRemoteRelaunch":true}`); code != http.StatusOK {
-		t.Fatalf("allowing remote relaunch: %d %s", code, body)
-	}
-	if !mayRelaunch(remote.URL, false) || !mayRelaunch(local.URL, true) {
-		t.Fatal("once this machine allows it: want every page told it may relaunch")
 	}
 }
 

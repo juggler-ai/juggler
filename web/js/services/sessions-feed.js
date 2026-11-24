@@ -93,8 +93,6 @@
  * @property {string} [installedBuild] - The build installed in the server's
  *   place, which it opens no session from until it is relaunched; '' or absent
  *   while it is the server's own.
- * @property {boolean} [mayRelaunch] - Whether this reader may relaunch the
- *   server: always on this machine, off it once this machine allows it.
  */
 
 /** What reading a stream to its end answers when the server ended it to relaunch. */
@@ -140,7 +138,6 @@ function streamEvent(block) {
       sessions: Array.isArray(body?.sessions) ? body.sessions : [],
       recents: asRecents(body?.recents),
       installedBuild: typeof body?.installedBuild === 'string' ? body.installedBuild : '',
-      mayRelaunch: body?.mayRelaunch === true,
     };
   } catch {
     return null;

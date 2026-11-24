@@ -1079,7 +1079,7 @@ export async function runTests() {
     const m = await mount(api, { config: local });
     try {
       await waitFor(() => !!api.push, { description: 'the events stream followed' });
-      api.push({ sessions, recents: { paths: [], links: {}, waiting: {} }, installedBuild: 'v9.9.9', mayRelaunch: true });
+      api.push({ sessions, recents: { paths: [], links: {}, waiting: {} }, installedBuild: 'v9.9.9' });
       await waitFor(() => banner(m.root).includes('v9.9.9'), { description: 'the build installed said' });
       const go = /** @type {HTMLButtonElement|null} */ (m.root.querySelector('.ms-relaunch-go'));
       assert(!!go, 'no Relaunch server on the banner');
@@ -1095,16 +1095,18 @@ export async function runTests() {
     }
   });
 
-  // A viewer that may not relaunch the server is told where it can be.
-  await test('a viewer that may not relaunch the server is told where it can be', async () => {
+  // A viewer off this machine is offered the relaunch as one on it is.
+  await test('a viewer off this machine is offered the relaunch too', async () => {
     const api = withRelaunch(stubApi(sessions), null);
     const m = await mount(api);
     try {
       await waitFor(() => !!api.push, { description: 'the events stream followed' });
-      api.push({ sessions, recents: { paths: [], links: {}, waiting: {} }, installedBuild: 'v9.9.9', mayRelaunch: false });
+      api.push({ sessions, recents: { paths: [], links: {}, waiting: {} }, installedBuild: 'v9.9.9' });
       await waitFor(() => banner(m.root).includes('v9.9.9'), { description: 'the build installed said' });
-      assert(!m.root.querySelector('.ms-relaunch-go'), 'a viewer that may not relaunch was offered it');
-      assert(banner(m.root).includes('Allow it in Settings on the machine it runs on'), `the banner says ${JSON.stringify(banner(m.root))}`);
+      const go = /** @type {HTMLButtonElement|null} */ (m.root.querySelector('.ms-relaunch-go'));
+      assert(!!go, 'a viewer off this machine was not offered Relaunch server');
+      go?.click();
+      await waitFor(() => api.calls.some((c) => c[0] === 'relaunch'), { description: 'the relaunch asked for' });
     } finally {
       m.dispose();
     }
@@ -1190,7 +1192,7 @@ export async function runTests() {
       const m = await mount(api, { config: local });
       try {
         await waitFor(() => !!api.push, { description: 'the events stream followed' });
-        api.push({ sessions: [needing], recents: { paths: [], links: {}, waiting: {} }, installedBuild: '9.9', mayRelaunch: true });
+        api.push({ sessions: [needing], recents: { paths: [], links: {}, waiting: {} }, installedBuild: '9.9' });
         await waitFor(() => banner(m.root).includes('9.9'), { description: 'the build installed said' });
         const notice = m.root.querySelector('.ms-relaunch-text')?.textContent || '';
         assert(isPseudoLocalized(notice), `the banner is not translated: ${JSON.stringify(notice)}`);

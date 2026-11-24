@@ -955,6 +955,10 @@ export function injectGitClientStyles() {
   background: var(--selection-bg);
 }
 
+.git-changes__row[aria-selected="true"]:hover {
+  background: linear-gradient(var(--wash-2), var(--wash-2)), var(--selection-bg);
+}
+
 .git-changes__row[data-pending="true"] {
   opacity: 0.6;
 }
@@ -1583,6 +1587,10 @@ export function injectGitClientStyles() {
   background: var(--selection-bg);
 }
 
+.git-refs__row[aria-selected="true"]:hover {
+  background: linear-gradient(var(--wash-2), var(--wash-2)), var(--selection-bg);
+}
+
 .git-refs__more {
   visibility: hidden;
 }
@@ -1908,6 +1916,12 @@ export function injectGitClientStyles() {
 .git-history__row[aria-selected="true"],
 .git-history__row--in-run {
   background: var(--selection-bg);
+}
+
+/* Hovering a selected row tints the selection rather than replacing it. */
+.git-history__row[aria-selected="true"]:hover,
+.git-history__row--in-run:hover {
+  background: linear-gradient(var(--wash-2), var(--wash-2)), var(--selection-bg);
 }
 
 .git-history__more {

@@ -25,6 +25,7 @@
  */
 
 import { presentInlineMenu, presentPopup } from '../../js/utils/popup-surface.js';
+import { attachMenuTrigger } from '../../js/utils/menu-roles.js';
 import { positionDropdown } from '../../sdk/lib/dropdown-positioning.js';
 import {
   registerOpenPopup,
@@ -548,6 +549,105 @@ export async function runTests() {
         releaseChild?.();
         releaseOuter?.();
         trigger.remove();
+        __resetPopupManagerForTests();
+      }
+    });
+
+    // A menu button works as a platform menu does under a mouse: press it and
+    // the menu is up at once, drag to a row and let go to choose it. A plain
+    // click still opens the menu and leaves it open, and the keyboard's click
+    // opens it as it always did.
+    await run('a menu trigger opens on the press and chooses the row the drag is released on', async () => {
+      __resetPopupManagerForTests();
+      const button = document.createElement('button');
+      button.style.cssText = 'position:fixed;left:10px;top:10px;width:80px;height:20px;';
+      document.body.append(button);
+      let opens = 0;
+      /** @type {string[]} */
+      const chosen = [];
+      /** @type {(() => void)|null} */
+      let release = null;
+      /** @type {HTMLElement|null} */
+      let surface = null;
+      const close = () => { release?.(); release = null; surface = null; };
+      // Shaped as the Git pin's picker is: a click on the open button closes it.
+      const open = () => {
+        if (release) { close(); return; }
+        opens++;
+        const menu = document.createElement('menu');
+        menu.className = 'dropdown-menu is-open trigger-test-menu';
+        menu.setAttribute('role', 'menu');
+        for (const value of ['a', 'b', 'off']) {
+          const row = document.createElement('li');
+          row.className = 'menu-item';
+          row.setAttribute('role', 'menuitemradio');
+          row.dataset.value = value;
+          row.textContent = value;
+          if (value === 'off') row.setAttribute('aria-disabled', 'true');
+          row.addEventListener('click', () => { close(); if (value !== 'off') chosen.push(value); });
+          menu.append(row);
+        }
+        surface = menu;
+        release = presentPopup({ surface: menu, anchor: button, id: 'trigger-test', onClose: close, insideSelectors: [menu] });
+      };
+      const detach = attachMenuTrigger(button, open);
+      /**
+       * One press of the mouse: down on the button, through `path`, up on its
+       * last element, and the click the browser then sends their common ancestor.
+       * @param {(Element|(() => Element))[]} path - Where the pointer goes after the press.
+       * @param {Element} clickOn - Where the browser's click lands.
+       */
+      const gesture = (path, clickOn) => {
+        const at = (/** @type {string} */ type, /** @type {Element} */ el, /** @type {number} */ x) => {
+          const Ctor = type.startsWith('pointer') ? PointerEvent : MouseEvent;
+          el.dispatchEvent(new Ctor(type, {
+            pointerId: 1, pointerType: 'mouse', button: 0, buttons: type.endsWith('up') ? 0 : 1,
+            clientX: 20 + x, clientY: 20 + x, bubbles: true, cancelable: true,
+          }));
+        };
+        at('pointerdown', button, 0);
+        at('mousedown', button, 0);
+        let last = /** @type {Element} */ (button);
+        path.forEach((step, i) => {
+          last = typeof step === 'function' ? step() : step;
+          at('pointermove', last, 10 * (i + 1));
+        });
+        const x = 10 * path.length;
+        at('pointerup', last, x);
+        at('mouseup', last, x);
+        at('click', clickOn, x);
+      };
+      const row = (/** @type {string} */ value) => /** @type {HTMLElement} */ (surface?.querySelector(`[data-value="${value}"]`));
+      try {
+        gesture([() => row('a'), () => row('b')], document.body);
+        await nextTask();
+        assert(opens === 1, `the press opens the menu once, got ${opens} opens`);
+        assert(chosen.join() === 'b', `releasing on a row chooses it, got [${chosen}]`);
+        assert(!release && !isAnyPopupOpen(), 'choosing a row closes the menu');
+
+        gesture([], button);
+        await nextTask();
+        assert(opens === 2 && release !== null && isAnyPopupOpen(), 'a plain click opens the menu and leaves it open');
+        gesture([], button);
+        await nextTask();
+        assert(opens === 2 && !release && !isAnyPopupOpen(), 'a click on the open menu\'s button closes it');
+
+        gesture([() => row('off')], document.body);
+        await nextTask();
+        assert(chosen.join() === 'b' && release !== null, 'releasing on a disabled row chooses nothing and leaves the menu up');
+        close();
+
+        gesture([() => row('a'), document.body], document.body);
+        await nextTask();
+        assert(chosen.join() === 'b' && !release && !isAnyPopupOpen(), 'dragging off the menu and letting go closes it, choosing nothing');
+
+        button.click();
+        await nextTask();
+        assert(opens === 5 && release !== null, 'the keyboard\'s click, with no press before it, still opens the menu');
+      } finally {
+        close();
+        detach();
+        button.remove();
         __resetPopupManagerForTests();
       }
     });

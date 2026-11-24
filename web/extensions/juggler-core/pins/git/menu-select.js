@@ -7,14 +7,15 @@
  * The Git pin's picker: a button naming the current choice, which opens the
  * app's own menu of the choices — the chosen one filled, as every picker in
  * the app shows it — rather than the platform's `<select>` menu. Choices may
- * fall in groups, each under a plain header.
+ * fall in groups, each under a plain header. As a platform menu button, it
+ * opens on the press, and a drag released on a choice picks it.
  *
  * Like a `<select>`, `value` is what is chosen and `set` changes the choices
  * without telling anyone; only a pick by the user calls `onChoose`.
  * @module pins/git/menu-select
  */
 
-import { attachMenuKeyboard, createElement, focusMenuChoice, presentPopup } from 'juggler/ui';
+import { attachMenuKeyboard, attachMenuTrigger, createElement, focusMenuChoice, presentPopup } from 'juggler/ui';
 import { icon } from './icons.js';
 
 /**
@@ -32,7 +33,7 @@ import { icon } from './icons.js';
  * @property {(choices: MenuChoice[], value: string) => void} set - The choices, and which is chosen.
  * @property {(value: string) => void} setValue - Choose one, quietly.
  * @property {() => string} value - The chosen value.
- * @property {() => void} open - Open the menu, as a click would.
+ * @property {() => void} open - Open the menu, as a click would; toggles it closed when open.
  * @property {() => void} close - Close it, if open.
  */
 
@@ -125,7 +126,7 @@ export function createMenuSelect({ className, label, onChoose, expand, bare = fa
     if (current) focusMenuChoice(surface);
   };
 
-  button.addEventListener('click', open);
+  attachMenuTrigger(button, open);
   button.addEventListener('keydown', (event) => {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();

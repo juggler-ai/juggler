@@ -89,6 +89,25 @@ export function whenRevealed(el, fn) {
 const openSurfaces = new Map();
 
 /**
+ * What each open surface hangs off, and how it is closed.
+ * @type {Map<HTMLElement, {anchor: HTMLElement, onClose: () => void}>}
+ */
+const surfaceAnchors = new Map();
+
+/**
+ * The open surface presented off `anchor`, if there is one.
+ * @param {HTMLElement} anchor - A trigger.
+ * @returns {{surface: HTMLElement, close: () => void}|null} The surface, and its
+ *   `onClose`; null when nothing is open off that trigger.
+ */
+export function openSurfaceAnchoredTo(anchor) {
+  for (const [surface, held] of surfaceAnchors) {
+    if (held.anchor === anchor) return { surface, close: held.onClose };
+  }
+  return null;
+}
+
+/**
  * @param {HTMLElement} surface - An open surface.
  * @returns {HTMLElement[]} The popups open from inside it, and from inside those.
  */
@@ -193,6 +212,7 @@ export function presentPopup({
     anchor,
   });
   openSurfaces.set(surface, new Set());
+  surfaceAnchors.set(surface, { anchor, onClose });
   if (parent) openSurfaces.get(parent)?.add(surface);
 
   /** @type {HTMLElement|null} */
@@ -335,6 +355,7 @@ export function presentPopup({
     surface.remove();
     releaseDismiss();
     openSurfaces.delete(surface);
+    surfaceAnchors.delete(surface);
     if (parent) openSurfaces.get(parent)?.delete(surface);
 
     // A popup may take focus with it when it closes. Return that focus to the

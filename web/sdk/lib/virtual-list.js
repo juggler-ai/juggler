@@ -12,7 +12,10 @@
  * height and headers another. While the two are the same, or there are no
  * headers, an item's offset is its index times that height; otherwise the
  * offsets are a prefix sum, taken when the items are set. Each drawn element
- * is placed absolutely at its offset, at its height.
+ * is placed absolutely at its offset, at its height. A height read anew —
+ * when the items are set, or the scroller resized — places every drawn
+ * element again, retained ones too, so none is left at the old pitch over
+ * the rows drawn at the new one.
  *
  * **Drawing** reads `scrollTop` and `clientHeight` (layout reads, no paint)
  * to find the window, then makes sure each item in it has its element. An
@@ -130,7 +133,9 @@ export function createVirtualList(options) {
   let rowPx = 1;
   /** @type {Float64Array|null} Each item's offset, and the total last, while heights differ. */
   let offsets = null;
-  /** @type {Map<string, {el: HTMLElement, index: number}>} Drawn elements, by key. */
+  /** Counts the measures, so an element placed before the last one is placed again. */
+  let layout = 0;
+  /** @type {Map<string, {el: HTMLElement, index: number, layout: number}>} Drawn elements, by key, with the place they were given. */
   const drawn = new Map();
   /** @type {Map<number, string>} The key drawn at each index. */
   const keyAt = new Map();
@@ -150,6 +155,7 @@ export function createVirtualList(options) {
   };
 
   const measure = () => {
+    layout++;
     rowPx = Math.max(1, heightOf(options.rowHeight));
     const headerPx = options.headerHeight === undefined ? rowPx : Math.max(1, heightOf(options.headerHeight));
     offsets = null;
@@ -211,6 +217,18 @@ export function createVirtualList(options) {
     return { first, count: rows, from: Math.max(0, first - overscan), to: first + rows + overscan };
   };
 
+  /**
+   * Put a drawn element at an item's place, at the heights as last measured.
+   * @param {{el: HTMLElement, index: number, layout: number}} entry - The element and where it was put.
+   * @param {number} index - The item.
+   */
+  const place = (entry, index) => {
+    entry.index = index;
+    entry.layout = layout;
+    entry.el.style.top = `${offsetOf(index)}px`;
+    entry.el.style.height = `${sizeOf(index)}px`;
+  };
+
   const render = () => {
     if (frame) {
       cancelAnimationFrame(frame);
@@ -235,13 +253,11 @@ export function createVirtualList(options) {
         el.style.position = 'absolute';
         el.style.left = '0';
         el.style.right = '0';
-        entry = { el, index: -1 };
+        entry = { el, index: -1, layout: -1 };
         drawn.set(key, entry);
       }
-      if (entry.index !== index || !entry.el.isConnected) {
-        entry.index = index;
-        entry.el.style.top = `${offsetOf(index)}px`;
-        entry.el.style.height = `${sizeOf(index)}px`;
+      if (entry.index !== index || entry.layout !== layout || !entry.el.isConnected) {
+        place(entry, index);
         if (entry.el.parentNode !== spacer) spacer.append(entry.el);
       }
       options.decorate?.(entry.el, item, index);
@@ -252,7 +268,10 @@ export function createVirtualList(options) {
       // what stands there now is another item's element (its key changed),
       // so keeping it would draw it over that one.
       const outside = entry.index < win.from || entry.index >= end;
-      if (outside && options.retain?.(entry.el)) continue;
+      if (outside && options.retain?.(entry.el)) {
+        if (entry.layout !== layout) place(entry, entry.index);
+        continue;
+      }
       release(entry.el);
       drawn.delete(key);
     }
@@ -288,12 +307,13 @@ export function createVirtualList(options) {
     drawnEnd = 0;
   };
 
-  scroller.addEventListener('scroll', () => {
+  const onScroll = () => {
     const { first, count: rows } = windowOf();
     const missing = first < drawnFrom || Math.min(first + rows, count) > drawnEnd;
     if (missing) render();
     else if (!frame) frame = requestAnimationFrame(() => { frame = 0; render(); });
-  });
+  };
+  scroller.addEventListener('scroll', onScroll);
   const resizes = typeof ResizeObserver === 'function' ? new ResizeObserver(() => {
     measure();
     render();
@@ -326,6 +346,7 @@ export function createVirtualList(options) {
     },
     clear,
     destroy: () => {
+      scroller.removeEventListener('scroll', onScroll);
       resizes?.disconnect();
       if (frame) cancelAnimationFrame(frame);
       frame = 0;

@@ -259,6 +259,46 @@ export async function runTests(_ctx) {
     }
   });
 
+  // A commit's file rail is built while its panel is hidden, so its rows are
+  // first placed at a fallback height and the real one is measured once it
+  // shows. Rows already drawn, and retained ones out of the window, must move
+  // to the new pitch, or they lie over the rows drawn after it.
+  await test('a change of row height moves every element already drawn, retained ones too', () => {
+    const scroller = createElement('div');
+    scroller.style.cssText = 'position: fixed; left: 0; top: 0; width: 200px; height: 100px; overflow: auto;';
+    document.body.append(scroller);
+    try {
+      let px = 10;
+      const items = Array.from({ length: 100 }, (_, i) => String(i));
+      /** @type {import('juggler/utils/virtual-list').VirtualList<string>} */
+      const list = createVirtualList({
+        scroller,
+        rowHeight: () => px,
+        overscan: 2,
+        keyOf: (item) => item,
+        build: (item) => createElement('div', 'vl-probe', item),
+        retain: (el) => el.textContent === '3',
+      });
+      scroller.append(list.spacer);
+      list.setItems(items);
+      list.render();
+      scroller.scrollTop = 300;
+      list.render();
+      px = 14;
+      list.setItems(items);
+      list.render();
+      const misplaced = [...list.spacer.children]
+        .map((el) => /** @type {HTMLElement} */ (el))
+        .filter((el) => el.style.top !== `${Number(el.textContent) * 14}px` || el.style.height !== '14px')
+        .map((el) => `${el.textContent}@${el.style.top}/${el.style.height}`);
+      assert(list.spacer.querySelector('.vl-probe') !== null, 'something is drawn');
+      assert([...list.spacer.children].some((el) => el.textContent === '3'), 'the retained row is still there');
+      assert(misplaced.length === 0, `every element at the new pitch: ${misplaced.join(', ')}`);
+    } finally {
+      scroller.remove();
+    }
+  });
+
   await test('the conflict jump reaches a conflict in a big list', async () => {
     const files = bigChanges().files;
     files.push({ path: 'zz-conflict.txt', index: 'U', worktree: 'U', conflicted: true });

@@ -117,7 +117,7 @@ export { formatRelativeDateTime, formatTokens } from '../js/utils/format.js';
 
 // Keyboard navigation for a role="menu" popup (arrow keys, Home/End, Escape),
 // and focus on its checked item once the popup is on screen (a picker's open)
-export { attachMenuKeyboard, focusMenuItem, focusMenuChoice } from '../js/utils/menu-roles.js';
+export { attachMenuKeyboard, attachMenuTrigger, focusMenuItem, focusMenuChoice } from '../js/utils/menu-roles.js';
 
 // The app's context menu, opened at a point (for a long-press, or a ⋯ button)
 // or on a right-click within an element an extension draws, with the same

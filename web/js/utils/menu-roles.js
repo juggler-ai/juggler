@@ -3,9 +3,11 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 /**
- * ARIA roles and keyboard behaviour for menus: `applyMenuRoles` for a
- * button-opened menu built from the shared `.menu-item` rows, and
- * `attachMenuKeyboard` for any element carrying `role="menu"`.
+ * ARIA roles, keyboard and pointer behaviour for menus: `applyMenuRoles` for a
+ * button-opened menu built from the shared `.menu-item` rows,
+ * `attachMenuKeyboard` for any element carrying `role="menu"`, and
+ * `attachMenuTrigger` for the button that opens one, so a press can be dragged
+ * to a row and released to choose it.
  *
  * The roles are applied to the finished surface rather than by the row builders
  * because the `/` and `$` autocomplete renders the same rows, and that is a list
@@ -13,7 +15,7 @@
  * @module utils/menu-roles
  */
 
-import { whenRevealed } from './popup-surface.js';
+import { openSurfaceAnchoredTo, whenRevealed } from './popup-surface.js';
 
 /**
  * Give a fully built menu its ARIA. The element is a named `menu`; each
@@ -166,6 +168,108 @@ export function attachMenuKeyboard(menu, { close, autoFocus = true }) {
     const first = focusableItems(menu)[0];
     if (first) focusMenuItem(menu, first);
   });
+}
+
+/** How far (px) a press must travel to count as a drag onto the menu. */
+const DRAG_PX = 4;
+/** How long (ms) a press must be held for its release to choose, without moving. */
+const HOLD_MS = 250;
+
+/**
+ * Stop the click the current release becomes from reaching the page. The
+ * browser sends it in the same task as the release, so a click that has not
+ * come by the next task never will.
+ */
+function swallowNextClick() {
+  /** @param {Event} e */
+  const stop = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    off();
+  };
+  const off = () => {
+    window.removeEventListener('click', stop, true);
+    clearTimeout(timer);
+  };
+  window.addEventListener('click', stop, true);
+  const timer = setTimeout(off, 0);
+}
+
+/**
+ * Make `anchor` the button of a menu that `open` presents with `presentPopup`,
+ * working as a platform menu button does: the keyboard's click opens it, and
+ * so does a mouse or pen press, at once rather than on the release. A press
+ * dragged to an enabled item and released there chooses it, by clicking it; one
+ * dragged off the menu and released closes it; a plain click leaves it open.
+ * A press of the button while its menu is open is left to `presentPopup`, which
+ * closes it. Touch is left alone: a finger's drag is a scroll.
+ *
+ * Use it instead of a `click` listener calling `open`.
+ * @param {HTMLElement} anchor - The button, the `anchor` `open` presents the menu against.
+ * @param {() => void} open - Opens the menu.
+ * @returns {() => void} Detaches it.
+ */
+export function attachMenuTrigger(anchor, open) {
+  /** @type {(() => void)|null} */
+  let endGesture = null;
+
+  /** @param {PointerEvent} press */
+  const onPress = (press) => {
+    if (press.button !== 0 || press.pointerType === 'touch' || press.ctrlKey) return;
+    if (anchor.matches(':disabled') || openSurfaceAnchoredTo(anchor)) return;
+    endGesture?.();
+    open();
+    if (!openSurfaceAnchoredTo(anchor)) return;
+    let dragged = false;
+
+    /** @param {PointerEvent} e */
+    const onMove = (e) => {
+      if (e.pointerId !== press.pointerId || dragged) return;
+      dragged = Math.hypot(e.clientX - press.clientX, e.clientY - press.clientY) > DRAG_PX;
+    };
+    /** @param {PointerEvent} e */
+    const onUp = (e) => {
+      if (e.pointerId !== press.pointerId) return;
+      end();
+      const shown = openSurfaceAnchoredTo(anchor);
+      if (shown && (dragged || e.timeStamp - press.timeStamp >= HOLD_MS)) {
+        // A pen's pointer is captured by the button it pressed; a mouse's
+        // release lands where it is.
+        const target = e.target instanceof Element ? e.target : null;
+        const hit = target && !anchor.contains(target)
+          ? target
+          : document.elementFromPoint(e.clientX, e.clientY) ?? target;
+        if (hit && shown.surface.contains(hit)) {
+          const item = hit.closest(ITEM_SELECTOR);
+          if (item instanceof HTMLElement && shown.surface.contains(item)
+            && item.getAttribute('aria-disabled') !== 'true') item.click();
+        } else if (!hit || !anchor.contains(hit)) {
+          shown.close();
+        }
+      }
+      // After the item's click: the browser's own, on what the press and the
+      // release have in common, would reach the page as a press of the button.
+      swallowNextClick();
+    };
+    const end = () => {
+      window.removeEventListener('pointermove', onMove, true);
+      window.removeEventListener('pointerup', onUp, true);
+      window.removeEventListener('pointercancel', end, true);
+      endGesture = null;
+    };
+    window.addEventListener('pointermove', onMove, true);
+    window.addEventListener('pointerup', onUp, true);
+    window.addEventListener('pointercancel', end, true);
+    endGesture = end;
+  };
+
+  anchor.addEventListener('pointerdown', onPress);
+  anchor.addEventListener('click', open);
+  return () => {
+    endGesture?.();
+    anchor.removeEventListener('pointerdown', onPress);
+    anchor.removeEventListener('click', open);
+  };
 }
 
 /**

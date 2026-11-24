@@ -6,13 +6,10 @@ the current release). The project follows semantic versioning.
 
 ## [Unreleased]
 
-- Git pin: force push, skip commit hooks, no-fast-forward and squash merges, push to any branch
-- Git pin: add, edit and remove remotes, and push every tag at once
-- Git pin: the mouse wheel scrolls its lists and panes on Windows
-- Git pin: ⌘R / F5 refreshes, ⇧⌘R / Shift+F5 fetches
-- Git pin: rebasing no longer refuses when only a submodule has moved
-- Without git, the Git pin says what to install; macOS no longer prompts for Xcode tools
-- Git pin opens on History; Git status card shows each repo's branch on one line, click to open it
+- Git pin: force push, squash merges, skipping hooks, and managing remotes
+- Git pin opens on History, with refresh and fetch shortcuts
+- Without git, the Git pin says what to install instead of prompting for Xcode tools
+- Git status card shows each repo's branch on one line; click to open it
 - The Usage card shows usage for a second Codex, OpenRouter, DeepSeek or Z.AI account
 - JUGGLER_SERVER_DIR runs a separate server, sharing config, e.g. one per sandbox
 - Long conversations no longer fill the disk with old request records

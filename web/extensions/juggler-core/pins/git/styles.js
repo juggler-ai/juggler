@@ -1912,6 +1912,14 @@ export function injectGitClientStyles() {
   background: color-mix(in srgb, var(--accent-yellow) 18%, transparent);
 }
 
+/* The checked-out commit: tinted, its subject bold (below), so it is found at
+   a glance and not only by reading its branch's chip. Before the selected
+   row's rules and the marked run's, which match it at the same specificity and
+   which it gives way to. */
+.git-history__row--head {
+  background: color-mix(in srgb, var(--accent-blue) 8%, transparent);
+}
+
 /* A marked run is drawn as one selection, every row of it alike. */
 .git-history__row[aria-selected="true"],
 .git-history__row--in-run {
@@ -1965,12 +1973,6 @@ export function injectGitClientStyles() {
   flex: 1;
   min-width: 0;
   padding-inline: var(--space-4) var(--space-8);
-}
-
-/* The checked-out commit: tinted, its subject bold, so it is found at a
-   glance and not only by reading its branch's chip. */
-.git-history__row--head {
-  background: color-mix(in srgb, var(--accent-blue) 8%, transparent);
 }
 
 .git-history__row--head .git-history__subject {

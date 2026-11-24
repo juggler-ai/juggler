@@ -107,6 +107,7 @@ export const createFileRefLink = () => domUnavailable('createFileRefLink');
 export const attachMenuKeyboard = () => domUnavailable('attachMenuKeyboard');
 export const focusMenuItem = () => domUnavailable('focusMenuItem');
 export const focusMenuChoice = () => domUnavailable('focusMenuChoice');
+export const attachMenuTrigger = () => domUnavailable('attachMenuTrigger');
 export const attachSplitDrag = () => domUnavailable('attachSplitDrag');
 export const remPx = () => domUnavailable('remPx');
 export const createFileView = () => domUnavailable('createFileView');

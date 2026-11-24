@@ -17,6 +17,7 @@ the current release). The project follows semantic versioning.
 - JUGGLER_SERVER_DIR runs a separate server, sharing config, e.g. one per sandbox
 - Long conversations no longer fill the disk with old request records
 - Conversations no longer fail to load at startup on a slow disk
+- Sending a message no longer waits for a git snapshot of the project
 - The request timer no longer starts negative or jumps backward on a busy machine
 - Long, often-compacted conversations no longer stall for seconds after every save
 - Windows opening while the computer is busy no longer show "This session stopped"

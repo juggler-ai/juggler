@@ -138,6 +138,11 @@ type ConversationWorker struct {
 	// and task_delivery.go for what a pump does.
 	pumps deliveryPumps
 
+	// turnSnapshots is the conversation's @turn snapshots, taken in the
+	// background as each user turn starts and waited for before its tools. See
+	// turn_snapshot.go.
+	turnSnapshots turnSnapshots
+
 	// tape is a per-worker ring buffer that records timestamped events when
 	// JUGGLER_TRACE is set. Used by the test runner's failure-dump endpoint
 	// to splice the worker's view alongside JS-side iframe tapes so cross-

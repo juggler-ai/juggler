@@ -1216,6 +1216,10 @@ func (r *run) processLLMResponse(response *LLMResponse) (bool, error) {
 		return false, nil
 	}
 
+	// Every side effect the agent has starts below, so the @turn snapshot it is
+	// measured against has to be taken first.
+	r.awaitTurnSnapshot()
+
 	// Categorize and execute tools:
 	//   Meta tools    → no tool-action, execute in worker (drop_context_items)
 	//   create_thread → creates thread item, returns immediately (reducer dispatches child)

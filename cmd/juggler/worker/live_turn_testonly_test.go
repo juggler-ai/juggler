@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"juggler/cmd/juggler/providers/provider"
+	"sync"
 	"testing"
 	"time"
 
@@ -827,10 +828,81 @@ func TestTurnSnapshotFiresOncePerUserTurn(t *testing.T) {
 		t.Fatalf("a sub-thread's dispatch took a snapshot: %v", got)
 	}
 
-	// The next user turn takes the next one.
+	// The next user turn takes the next one. A turn that runs no tool does not
+	// wait for its snapshot, so it may settle before the snapshot is taken.
 	sendUserMessage(t, w, "again")
 	waitFor("the second user turn", settled(0))
+	waitFor("the second user turn's snapshot", func() bool { return len(taken()) >= 2 })
 	if got := taken(); len(got) != 2 || got[1] != want[0] {
 		t.Fatalf("after a second user turn, snapshots = %v, want two of %v", got, want[0])
 	}
+}
+
+// TestTurnSnapshotHoldsToolsNotTheModelCall pins where a slow @turn snapshot is
+// waited for: not before the turn's model call — a git command on a slow disk
+// must never hold up sending a message — but before the turn's first tool, so
+// the snapshot is still the tree from before the agent changed anything.
+func TestTurnSnapshotHoldsToolsNotTheModelCall(t *testing.T) {
+	enableEventTape(t)
+	mc := newMsgChan()
+	w := startDelegatingWorker(t, mc, []ToolDefinition{{Name: "bash"}}, nil)
+	releaseParkedRuns(t, w)
+
+	started := make(chan struct{})
+	var startOnce sync.Once
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseSnapshot := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(releaseSnapshot)
+	w.SetTurnSnapshot(func(string, string) {
+		startOnce.Do(func() { close(started) })
+		<-release
+	})
+
+	w.setMockResponses([]MockResponse{
+		{
+			Blocks:     []LLMResponseBlock{{Type: "tool_use", ID: "tu-held", Name: "bash", Input: json.RawMessage(`{"command":"true"}`)}},
+			StopReason: "tool_use",
+		},
+	})
+
+	waitFor := func(what string, cond func() bool) {
+		t.Helper()
+		deadline := time.After(10 * time.Second)
+		for !cond() {
+			select {
+			case <-deadline:
+				t.Fatalf("timed out waiting for %s (%d scripted turns left)", what, w.mock().remaining())
+			case <-time.After(5 * time.Millisecond):
+			}
+		}
+	}
+	hasTool := func() bool {
+		for _, item := range w.doc.GetItems() {
+			if item.ToolUseID == "tu-held" {
+				return true
+			}
+		}
+		return false
+	}
+
+	sendUserMessage(t, w, "run the tool")
+	waitFor("the snapshot to start", func() bool {
+		select {
+		case <-started:
+			return true
+		default:
+			return false
+		}
+	})
+	waitFor("the model call, with the snapshot still being taken", func() bool { return w.mock().remaining() == 0 })
+	waitFor("the turn's tools to wait for the snapshot", func() bool {
+		return len(tapeEventsOfKind(w.tape.DumpAll(), "turn-snapshot-wait")) > 0
+	})
+	if hasTool() {
+		t.Fatal("the turn's tool-action was created while its snapshot was still being taken")
+	}
+
+	releaseSnapshot()
+	waitFor("the tool-action once the snapshot is taken", hasTool)
 }

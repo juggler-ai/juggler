@@ -785,19 +785,10 @@ func (r *run) dispatchCallLLMOnThread(threadItemID string) {
 	tr.batcher.Flush()
 	r.runTurn(tr, func(tr *run) {
 		if snapshot {
-			tr.snapshotTurn()
+			tr.startTurnSnapshot()
 		}
 		tr.runStrategyLoopWithIntent("", true, explicitContinuation)
 	})
-}
-
-// snapshotTurn hands the turn-start snapshot to the server's callback. Called on
-// the turn's goroutine, so a slow snapshot delays this turn's first model call
-// and never the run loop.
-func (r *run) snapshotTurn() {
-	if fn := r.deps().turnSnapshot; fn != nil {
-		fn(r.conversationID, r.workspaceID())
-	}
 }
 
 // selectThreadFallbackResult returns a run's trailing assistant text — what a

@@ -221,8 +221,9 @@ type AutoNameFunc func(convID, firstMessage, provider, model, thinking string, f
 // turn starts on the root thread, so the server can record the working tree the
 // turn begins from (the git pin's @turn scope diffs against it). It receives the
 // conversation id and the workspace the conversation is bound to, "" for the
-// project. It runs on the turn's goroutine before the strategy loop, never on
-// the run loop; a nil callback takes no snapshot.
+// project. It runs on a goroutine of its own while the turn's model call is in
+// flight, and the turn's tools wait for it to return (turn_snapshot.go), so it
+// must be bounded; a nil callback takes no snapshot.
 type TurnSnapshotFunc func(convID, workspaceID string)
 
 // =============================================================================

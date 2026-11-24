@@ -13,9 +13,10 @@ import (
 	"juggler/internal/jlog"
 )
 
-// turnSnapshotTimeout bounds one turn-start snapshot. The snapshot runs on the
-// turn's goroutine ahead of its first model call, so a repository slow enough to
-// reach it costs the turn its @turn baseline rather than holding the turn up.
+// turnSnapshotTimeout bounds one turn-start snapshot. The snapshot runs beside
+// the turn's first model call, but the turn's tools wait for it, so a repository
+// slow enough to reach it costs the turn its @turn baseline rather than holding
+// its tools up.
 const turnSnapshotTimeout = 5 * time.Second
 
 // turnSnapshotter is the worker's TurnSnapshotFunc: it records the working tree

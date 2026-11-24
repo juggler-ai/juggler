@@ -54,7 +54,7 @@ export { escapeHtml, escapeAttr, escapeJsonContent } from './lib/html.js';
 // one naming keys or fetching a served asset does it there. Neither touches the
 // DOM at call time (the key map is plain data; the asset prefix is read off
 // globalThis).
-export { shortcutTableForPlatform, isMac } from '../js/services/key-shortcut-manager.js';
+export { shortcutTableForPlatform, isMac, shortcutMatches } from '../js/services/key-shortcut-manager.js';
 export { resolveAssetUrl } from '../js/utils/asset-url.js';
 
 /** @param {string} name */

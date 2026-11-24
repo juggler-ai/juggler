@@ -145,8 +145,9 @@ export { copyToClipboard } from './lib/clipboard.js';
 // What "reveal" is called on this platform (Finder, Explorer, file manager)
 export { revealLabel } from '../js/components/reveal-button.js';
 
-// The app's key map as plain data, and the platform it formats for by default
-export { shortcutTableForPlatform, isMac } from '../js/services/key-shortcut-manager.js';
+// The app's key map as plain data, the platform it formats for by default, and
+// whether a keydown is one of a command's keys
+export { shortcutTableForPlatform, isMac, shortcutMatches } from '../js/services/key-shortcut-manager.js';
 
 // A served asset path as a fetchable URL (cache-busting prefix, base path)
 export { resolveAssetUrl } from '../js/utils/asset-url.js';

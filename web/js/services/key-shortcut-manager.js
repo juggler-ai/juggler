@@ -814,6 +814,36 @@ const SHORTCUT_DEFS = [
     // to be used.
     allowInInput: true,
   },
+  {
+    id: 'git-refresh',
+    label: markForTranslation('Refresh Git'),
+    description: markForTranslation('Read the Git pin\u2019s repository again: its changes, branches and '
+      + 'history. Works while focus is in the Git pin.'),
+    category: markForTranslation('Git'),
+    // ⌘R on macOS and F5 elsewhere: each platform's own refresh key, which a
+    // page showing a repository means as "read it again" rather than "reload
+    // me". shift:false is load-bearing: the Shift-ed twin is git-fetch.
+    defaultBinding: { mod: true, shift: false, key: 'r', platform: 'mac' },
+    aliasBindings: [{ shift: false, key: 'F5', platform: 'other' }],
+    // The commit message box is in the pin, and the command modifier (or a
+    // function key) never lands as typed text.
+    allowInInput: true,
+    // Dispatched by the Git pin, which owns the keys while focus is inside it
+    // and only then: anywhere else they are the page's or the browser's.
+    external: true,
+  },
+  {
+    id: 'git-fetch',
+    label: markForTranslation('Fetch from the remotes'),
+    description: markForTranslation('Fetch the Git pin\u2019s repository from its remotes, as its Fetch '
+      + 'button does. Works while focus is in the Git pin.'),
+    category: markForTranslation('Git'),
+    // The Shift-ed twin of git-refresh, as a hard reload is of a reload.
+    defaultBinding: { mod: true, shift: true, key: 'r', platform: 'mac' },
+    aliasBindings: [{ shift: true, key: 'F5', platform: 'other' }],
+    allowInInput: true,
+    external: true,
+  },
 ];
 
 /**
@@ -1175,6 +1205,19 @@ class KeyShortcutManager {
 /** The shared singleton. */
 const keyShortcutManager = new KeyShortcutManager();
 export default keyShortcutManager;
+
+/**
+ * Does a keydown press any key of a command, on this platform and surface? For
+ * a surface that dispatches an `external` command of its own — exposed to
+ * extensions as `juggler/ui`'s `shortcutMatches`, so a pin matches the central
+ * table rather than hard-coding a key.
+ * @param {string} id - The command.
+ * @param {KeyboardEvent} e - The keydown.
+ * @returns {boolean} True when it is one of the command's keys; false for an unknown id.
+ */
+export function shortcutMatches(id, e) {
+  return keyShortcutManager.getBindings(id).some((binding) => eventMatchesBinding(binding, e));
+}
 
 /**
  * The live key map as plain data for one platform: each category in declaration

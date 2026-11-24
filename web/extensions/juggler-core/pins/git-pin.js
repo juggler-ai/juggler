@@ -5,7 +5,7 @@
 
 import PinboardItemType from 'juggler/pinboard-item-type';
 import { translator, formatNumber, markForTranslation, markUntranslated, serverText } from 'juggler/i18n';
-import { createElement, createReviewPanel, errorText, injectStylesOnce } from 'juggler/ui';
+import { createElement, createReviewPanel, errorText, injectStylesOnce, shortcutMatches } from 'juggler/ui';
 import { pinEmpty } from '../lib/pin-empty.js';
 import {
   branchPhrase,
@@ -1607,6 +1607,18 @@ class GitPin extends PinboardItemType {
 
     root.addEventListener('keydown', (event) => {
       const target = /** @type {HTMLElement} */ (event.target);
+      // Refresh and Fetch are the pin's while focus is in it, the commit box
+      // included. The keys are claimed even when there is nothing to fetch:
+      // they are the page's reload keys, and a reload is never what was meant.
+      const refreshing = shortcutMatches('git-refresh', event);
+      if (!event.isComposing && (refreshing || shortcutMatches('git-fetch', event))) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.repeat) return;
+        if (refreshing) head.refresh();
+        else head.fetch();
+        return;
+      }
       if (target.matches('input, textarea, select')) {
         if (event.key === 'Escape' && target.closest('.git-commit')) {
           event.preventDefault();

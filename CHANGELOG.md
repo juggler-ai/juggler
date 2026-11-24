@@ -9,6 +9,7 @@ the current release). The project follows semantic versioning.
 - Git pin: force push, skip commit hooks, no-fast-forward and squash merges, push to any branch
 - Git pin: add, edit and remove remotes, and push every tag at once
 - Git pin: the mouse wheel scrolls its lists and panes on Windows
+- Git pin: ⌘R / F5 refreshes, ⇧⌘R / Shift+F5 fetches
 - Git pin: rebasing no longer refuses when only a submodule has moved
 - Without git, the Git pin says what to install; macOS no longer prompts for Xcode tools
 - Git pin opens on History; Git status card shows each repo's branch on one line, click to open it

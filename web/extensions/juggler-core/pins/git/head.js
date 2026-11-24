@@ -77,6 +77,10 @@ const SPIN_TURN_MS = 1200;
  * @property {HTMLButtonElement} moreButton - What the ⋯ menu hangs off.
  * @property {HTMLButtonElement} primaryButton - What the primary's popovers hang off.
  * @property {HeadHandlers} handlers - What the buttons do; set by the pin and the places.
+ * @property {() => void} refresh - Read again, as Refresh does when no write is
+ *   running: the key's, which never stops a write.
+ * @property {() => boolean} fetch - Fetch, as the Fetch control showing does.
+ *   Says whether one was offered: not without remotes, nor while one runs.
  * @property {(repos: {value: string, label: string}[], value: string) => void} setRepos - The repository menu's choices, and which is shown.
  * @property {(state: HeadState) => void} update - Draw this.
  * @property {(switcher: HTMLElement, inline: boolean) => boolean} fit - Lay the
@@ -232,11 +236,8 @@ export function createHead() {
     refreshButton.setAttribute('aria-label', words);
   };
   nameRefresh(t('Refresh'));
-  refreshButton.addEventListener('click', () => {
-    if (stoppable) {
-      handlers.cancel();
-      return;
-    }
+  /** Read again, spinning until the read settles; a read already out is left to finish. */
+  const refresh = () => {
     if (refreshing) return;
     refreshing = true;
     drawSpin();
@@ -244,6 +245,10 @@ export function createHead() {
       refreshing = false;
       drawSpin();
     });
+  };
+  refreshButton.addEventListener('click', () => {
+    if (stoppable) handlers.cancel();
+    else refresh();
   });
 
   /**
@@ -283,6 +288,21 @@ export function createHead() {
     moreButton,
     primaryButton: primary,
     handlers,
+    refresh,
+    fetch: () => {
+      // Whichever control offers Fetch, as the user would see it: the primary
+      // when it is Fetch, the command otherwise — enabled only when there are
+      // remotes and no fetch is already running.
+      const command = /** @type {HTMLButtonElement} */ (commandButtons.get('fetch'));
+      if (primary.dataset.kind === 'fetch') {
+        if (primary.disabled) return false;
+        handlers.primary(primary);
+        return true;
+      }
+      if (command.hidden || command.disabled) return false;
+      handlers.action('fetch', command);
+      return true;
+    },
     setRepos: (repos, value) => {
       repoPicker.element.disabled = repos.length < 2;
       repoChoices = repos;

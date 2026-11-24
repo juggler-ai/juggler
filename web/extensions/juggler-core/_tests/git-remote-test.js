@@ -17,6 +17,7 @@ import { assert, nextTask, waitFor } from '../../../js-tests/utilities/test-help
 import { changesOf, confirmPop, mountPin, refsOf } from './git-pin-helpers.js';
 import { underPseudoLocale, shownStrings } from '../../../js-tests/utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../../sdk/lib/i18n.js';
+import { isMac } from '../../../js/services/key-shortcut-manager.js';
 
 /**
  * @param {object} _ctx - Test context (unused).
@@ -360,6 +361,45 @@ export async function runTests(_ctx) {
     '{kind, select, fetch {Fetching {percent}%} pull {Pulling {percent}%} push {Pushing {percent}%} push-tag {Pushing {percent}%} submodule-update {Updating {percent}%} other {Deleting {percent}%}}',
     '{count, plural, one {# changed file} other {# changed files}}', 'Repository',
   ];
+
+  /**
+   * Press the pin's Refresh or Fetch key, as this platform has it, in the pin.
+   * @param {any} m - The mounted pin.
+   * @param {boolean} fetch - The Fetch key, ⇧⌘R / Shift+F5; else Refresh, ⌘R / F5.
+   * @returns {KeyboardEvent} The press, to ask whether the pin claimed it.
+   */
+  const pressKey = (m, fetch) => {
+    const event = new KeyboardEvent('keydown', isMac()
+      ? { key: fetch ? 'R' : 'r', metaKey: true, shiftKey: fetch, bubbles: true, cancelable: true }
+      : { key: 'F5', shiftKey: fetch, bubbles: true, cancelable: true });
+    m.body.querySelector('.git-pin').dispatchEvent(event);
+    return event;
+  };
+
+  await test('the Refresh key reads again and never stops a write; the Fetch key fetches only where Fetch is offered', async () => {
+    const m = await mounted(changesOf([], { upstream: 'origin/develop', ahead: 2, remotes: 1 }));
+    m.holdRuns(true);
+    press(m);
+    await ran(m, 1);
+    assert(Boolean(cancelButton(m)), 'a click on Refresh would not stop the push');
+    const asked = m.changesAsked().length;
+    assert(pressKey(m, false).defaultPrevented, 'the Refresh key was left to the page, to reload it');
+    await waitFor(() => m.changesAsked().length > asked, 'the Refresh key to read the repository again');
+    assert(m.cancels().length === 0, 'the Refresh key stopped the running push');
+
+    m.setChanges(changesOf([], { upstream: 'origin/develop', remotes: 1 }));
+    m.finishRun(0);
+    await waitFor(() => primary(m).dataset.kind === 'fetch' && !primary(m).disabled, 'Fetch offered once the push ends');
+    assert(pressKey(m, true).defaultPrevented, 'the Fetch key was left to the page');
+    assert((await ran(m, 2)).kind === 'fetch', 'the Fetch key did not run a fetch');
+    assert(m.runs().length === 2, 'the Fetch key ran more than one write');
+
+    const bare = await mounted(changesOf([], {}));
+    const runs = bare.runs().length;
+    assert(pressKey(bare, true).defaultPrevented, 'the Fetch key reloads the page where there is nothing to fetch');
+    for (let i = 0; i < 4; i++) await nextTask();
+    assert(bare.runs().length === runs, 'the Fetch key fetched a repository with no remotes');
+  });
 
   await test('en-XA: a question and a network write\u2019s progress are in the user\u2019s language; git\u2019s own words are not', async () => {
     await underPseudoLocale('git-remote-test', async () => {

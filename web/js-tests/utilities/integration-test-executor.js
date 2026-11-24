@@ -365,6 +365,7 @@ import { runTests as runProjectPickerRecentsTests } from '../unit-tests/project-
 import { runTests as runStarterPromptsTests } from '../unit-tests/starter-prompts-test.js';
 import { runTests as runColumnFileDropTests } from '../unit-tests/column-file-drop-test.js';
 import { runTests as runComposerAttachButtonTests } from '../unit-tests/composer-attach-button-test.js';
+import { runTests as runComposerVideoAttachmentsTests } from '../unit-tests/composer-video-attachments-test.js';
 import { runTests as runComposerRowTests } from '../unit-tests/composer-row-test.js';
 import { runTests as runColumnNavigationTests } from '../unit-tests/column-navigation-test.js';
 import { runTests as runDeleteSelectionNeighbourTests } from '../unit-tests/delete-selection-neighbour-test.js';
@@ -1017,6 +1018,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:starter-prompts', run: runStarterPromptsTests },
   { name: 'unit:column-file-drop', run: runColumnFileDropTests },
   { name: 'unit:composer-attach-button', run: runComposerAttachButtonTests },
+  { name: 'unit:composer-video-attachments', run: runComposerVideoAttachmentsTests },
   { name: 'unit:composer-row', run: runComposerRowTests },
   // Exclusive: it asserts ⌥↑ leaves the composer focused, and a sibling lane
   // taking the window's focus mid-case blurs it whatever the code under test did.

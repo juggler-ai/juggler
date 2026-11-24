@@ -26,17 +26,49 @@ export function isFileDrag(dataTransfer) {
 }
 
 /**
+ * The video type of each extension a recording commonly arrives with, for a
+ * file the platform handed over with no type (a download from a chat app, a
+ * drag from some file managers).
+ * @type {Readonly<Record<string, string>>}
+ */
+const VIDEO_MIME_BY_EXT = Object.freeze({
+  mp4: 'video/mp4',
+  m4v: 'video/mp4',
+  mov: 'video/quicktime',
+  webm: 'video/webm',
+  ogv: 'video/ogg',
+  mkv: 'video/x-matroska',
+  avi: 'video/x-msvideo',
+});
+
+/**
+ * The video type of a file — its own when it has one, else the one its
+ * extension names — or '' when it is not a video.
+ * @param {File} file - The file.
+ * @returns {string} The video mime type, or ''.
+ */
+export function videoMime(file) {
+  if (file.type) return file.type.startsWith('video/') ? file.type : '';
+  const dot = file.name.lastIndexOf('.');
+  return dot > 0 ? VIDEO_MIME_BY_EXT[file.name.slice(dot + 1).toLowerCase()] || '' : '';
+}
+
+/**
  * Split files by how they are staged: images upload to the asset store as
- * bytes, and everything else is inlined as a text snapshot. A mixed set —
- * dropped or picked — therefore has to be routed one kind at a time.
+ * bytes, videos go only to a model that takes video (and are refused with an
+ * explanation otherwise), and everything else is inlined as a text snapshot. A
+ * mixed set — dropped or picked — therefore has to be routed one kind at a
+ * time.
  * @param {FileList|File[]|null|undefined} fileList - The files to stage.
- * @returns {{images: File[], texts: File[]}} The files, split by kind.
+ * @returns {{images: File[], videos: File[], texts: File[]}} The files, split by kind.
  */
 export function splitFiles(fileList) {
   const files = Array.from(fileList || []);
+  const isImage = (/** @type {File} */ f) => f.type.startsWith('image/');
   return {
-    images: files.filter((f) => f.type.startsWith('image/')),
-    texts: files.filter((f) => !f.type.startsWith('image/')),
+    images: files.filter(isImage),
+    videos: files.filter((f) => !!videoMime(f)),
+    texts: files.filter((f) => !isImage(f) && !videoMime(f)),
   };
 }
 

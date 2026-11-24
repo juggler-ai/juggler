@@ -498,7 +498,7 @@
 
 /**
  * AssetRef is a small, doc-storable reference to a content-addressed binary
- * asset (e.g. an image attached to a message). The bytes themselves live
+ * asset (an image or video attached to a message). The bytes themselves live
  * out-of-doc under <convDir>/assets/<ID>.<ext>; only this reference is stored
  * in the Yjs doc, so attachments are never re-synced to every client or
  * re-sent to the model as part of doc state.

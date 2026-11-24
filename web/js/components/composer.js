@@ -53,6 +53,8 @@ import {
 import {
   handleFiles,
   handleTextFiles,
+  handleVideoFiles,
+  stagedVideoRefusal,
   pasteImagesFromAsyncClipboard,
   renderAttachmentChips,
   setPendingAttachments,
@@ -1551,6 +1553,15 @@ class Composer extends JugglerElement {
       return 'message too large';
     }
 
+    // A video staged for a model that took it, when the target has since
+    // changed to one that does not: the server would send a note in its place,
+    // so say so now, while the user can still switch back or remove it.
+    const videoRefusal = stagedVideoRefusal(this);
+    if (videoRefusal) {
+      this.showWarning(videoRefusal);
+      return 'video not accepted';
+    }
+
     // Held for the whole resolve-and-dispatch body below. Released in the
     // `finally` so a mention read that rejects (an unreadable path, a dropped
     // connection) leaves the box usable rather than latched shut — sendMessage()
@@ -2046,16 +2057,17 @@ class Composer extends JugglerElement {
   /**
    * Stage files however they arrived — dropped on the box or the column around
    * it, or chosen in the attach button's picker — so the two can never treat
-   * the same file differently. Images upload to the asset store as bytes and
-   * everything else is inlined as a text snapshot, so a mixed set is routed one
-   * kind at a time.
+   * the same file differently. Images and videos upload to the asset store as
+   * bytes (a video only for a model that takes it) and everything else is
+   * inlined as a text snapshot, so a mixed set is routed one kind at a time.
    * @param {FileList|File[]|null|undefined} fileList - The files to stage.
    * @returns {boolean} True when files were taken.
    */
   acceptFiles(fileList) {
-    const { images, texts } = splitFiles(fileList);
-    if (images.length === 0 && texts.length === 0) return false;
+    const { images, videos, texts } = splitFiles(fileList);
+    if (images.length === 0 && videos.length === 0 && texts.length === 0) return false;
     if (images.length > 0) this._handleFiles(images);
+    if (videos.length > 0) handleVideoFiles(this, videos);
     if (texts.length > 0) this._handleTextFiles(texts);
     return true;
   }

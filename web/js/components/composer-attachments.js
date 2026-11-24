@@ -3,13 +3,13 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 /**
- * composer-attachments — the composer's image and text-file staging, for
- * composer.js.
+ * composer-attachments — the composer's image, video and text-file staging,
+ * for composer.js.
  *
  * Everything between a file arriving (drop, paste, picker, a restored draft)
  * and it being staged on the composer as a pending attachment or dropped-file
- * chip: the per-provider size gates, the upload, the chip row, and the
- * re-staging of a draft's saved references.
+ * chip: the per-provider size gates, the video capability check, the upload,
+ * the chip row, and the re-staging of a draft's saved references.
  *
  * Each function takes the Composer element as its first argument and reads or
  * writes its state through it, mirroring conversation-area-rendering.js.
@@ -20,6 +20,9 @@
  */
 
 import apiService from '../services/api.js';
+import providersCache from '../services/providers-cache.js';
+import { modelLabelFromList } from '../model/model-display.js';
+import { videoMime } from '../utils/file-drop.js';
 import { createImageThumb } from '../utils/image-lightbox.js';
 import { errorText } from '../../sdk/lib/error-utils.js';
 import { t, formatNumber, markUntranslated } from '../../sdk/lib/i18n.js';
@@ -54,8 +57,28 @@ const PROVIDER_MAX_IMAGE_BYTES = {
   gemini: 20 * 1024 * 1024, // Gemini inline data: 20 MB request cap
 };
 
-/** Reject a send whose attachments sum past this aggregate (bytes). */
+/** Reject a send whose image attachments sum past this aggregate (bytes). */
 const MAX_TURN_ATTACHMENT_BYTES = 50 * 1024 * 1024;
+
+/**
+ * Fallback per-video byte ceiling: what the asset route accepts for a video
+ * (`maxVideoUploadBytes`). A provider whose API documents a lower one gets an
+ * entry in {@link PROVIDER_MAX_VIDEO_BYTES} alongside its video support.
+ */
+const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
+
+/**
+ * Per-provider limit on a single video's byte size, keyed like
+ * {@link PROVIDER_MAX_IMAGE_BYTES}. Empty while no provider takes video.
+ * @type {Record<string, number>}
+ */
+const PROVIDER_MAX_VIDEO_BYTES = {};
+
+/**
+ * The video types the asset store keeps (`videoAssetExts` server-side); any
+ * other is refused at upload, so it is refused here first.
+ */
+const UPLOADABLE_VIDEO_TYPES = new Set(['video/mp4', 'video/quicktime', 'video/webm']);
 
 /**
  * Reject any single dropped TEXT file larger than this (bytes). Much smaller
@@ -124,11 +147,104 @@ export function looksBinary(str) {
  * @returns {number} Max bytes for a single image attachment.
  */
 function maxImageBytes(composer) {
+  return PROVIDER_MAX_IMAGE_BYTES[sendTarget(composer).provider] || MAX_ATTACHMENT_BYTES;
+}
+
+/**
+ * The model this composer will send to (thread override → conversation
+ * default). Both are empty when the model is automatic: which one serves the
+ * turn is decided server-side, so the browser cannot know it.
+ * @param {any} composer - Composer instance
+ * @returns {{provider: string, model: string}} The send target.
+ */
+function sendTarget(composer) {
   const cfg = composer._messageThread?.getEffectiveModelConfig?.()
     || composer._conversation?.modelConfig
     || null;
-  const provider = cfg && cfg.provider ? cfg.provider : '';
-  return PROVIDER_MAX_IMAGE_BYTES[provider] || MAX_ATTACHMENT_BYTES;
+  return cfg && cfg.provider && cfg.model ? { provider: cfg.provider, model: cfg.model } : { provider: '', model: '' };
+}
+
+/**
+ * Whether a published model takes video input. Only a provider whose
+ * converters send video publishes "video" (`PublishedInputModalities`
+ * server-side), so this is exactly whether a staged video would reach it.
+ * @param {any} model - A `modelsWithContext` entry
+ * @returns {boolean} True when the model takes video.
+ */
+function takesVideo(model) {
+  return Array.isArray(model?.inputModalities) && model.inputModalities.includes('video');
+}
+
+/**
+ * Why a video cannot be sent to this composer's model, as the notice to show,
+ * or null when it can. The notice says what the file is, which model will not
+ * take it (unless the model is automatic, when the browser cannot name it),
+ * and what to do: switch to a model that takes video when one is available,
+ * else attach screenshots.
+ *
+ * Unlike an image, a video's capability IS checked here: no model the user is
+ * likely to be on takes video, so letting the provider refuse at send time
+ * would make every video a failed turn — and leave it in the history to be
+ * withheld on every turn after.
+ * @param {any} composer - Composer instance
+ * @param {string} name - The video's file name
+ * @returns {string|null} The refusal, or null when the model takes video.
+ */
+function videoRefusal(composer, name) {
+  const providers = providersCache.get();
+  const { provider, model } = sendTarget(composer);
+  if (provider) {
+    const entry = providers.find((p) => p.name === provider)?.modelsWithContext?.find((m) => m.id === model);
+    if (takesVideo(entry)) return null;
+  }
+  /** @type {string} */
+  let alternative = '';
+  for (const p of providers) {
+    if (!p.available || p.decisionOnly) continue;
+    const found = (p.modelsWithContext || []).find((m) => takesVideo(m) && !(/** @type {any} */ (m).hidden));
+    if (found) {
+      alternative = modelLabelFromList(providers, p.name, found.id);
+      break;
+    }
+  }
+  if (provider) {
+    const label = modelLabelFromList(providers, provider, model);
+    return alternative
+      ? t('"{name}" is a video, and {model} doesn\'t accept video input. Switch to a model that does, such as {alternative}, to send it.',
+        { name, model: label, alternative })
+      : t('"{name}" is a video, and {model} doesn\'t accept video input. Attach screenshots of the moments that matter instead.',
+        { name, model: label });
+  }
+  return alternative
+    ? t('"{name}" is a video, and the automatic model choice may not accept video input. Choose a model that does, such as {alternative}, to send it.',
+      { name, alternative })
+    : t('"{name}" is a video, and none of the models available here accept video input. Attach screenshots of the moments that matter instead.',
+      { name });
+}
+
+/**
+ * Whether a staged attachment is a video.
+ * @param {{mime?: string}} ref - A pending attachment
+ * @returns {boolean} True for a video.
+ */
+function isVideoRef(ref) {
+  return typeof ref.mime === 'string' && ref.mime.startsWith('video/');
+}
+
+/**
+ * The refusal for the first staged video the current model would not be sent,
+ * or null when every staged video can go. A send is blocked on it: the video
+ * was staged for a model that took it, and the target has changed since.
+ * @param {any} composer - Composer instance
+ * @returns {string|null} The refusal to show, or null.
+ */
+export function stagedVideoRefusal(composer) {
+  for (const a of composer._pendingAttachments) {
+    if (!isVideoRef(a)) continue;
+    const refusal = videoRefusal(composer, a.filename || t('video'));
+    if (refusal) return refusal;
+  }
+  return null;
 }
 
 /**
@@ -171,8 +287,9 @@ export async function pasteImagesFromAsyncClipboard(composer) {
  * oversized files (single or aggregate) are rejected with a warning.
  *
  * Image attachments are staged regardless of the current model's *capability*
- * — that is never gated client-side; a model that can't accept images rejects
- * the request at send time. Image *size* IS gated here, to the send target's
+ * — that is never gated client-side for images; a model that can't accept
+ * them rejects the request at send time. (Video is the exception, checked in
+ * {@link handleVideoFiles}.) Image *size* IS gated here, to the send target's
  * per-provider limit ({@link maxImageBytes}), so an image the provider would
  * reject never enters the conversation in the first place.
  * @param {any} composer - Composer instance
@@ -192,8 +309,11 @@ export function handleFiles(composer, fileList) {
       ));
       continue;
     }
-    const pendingTotal = composer._pendingAttachments.reduce(
-      (/** @type {number} */ sum, /** @type {any} */ a) => sum + (a.bytes || 0), 0);
+    // Videos are bounded on their own (handleVideoFiles), so they are left out
+    // of what the images may add up to.
+    const pendingTotal = composer._pendingAttachments
+      .filter((/** @type {any} */ a) => !isVideoRef(a))
+      .reduce((/** @type {number} */ sum, /** @type {any} */ a) => sum + (a.bytes || 0), 0);
     if (pendingTotal + file.size > MAX_TURN_ATTACHMENT_BYTES) {
       composer.showWarning(t(
         'Attachments exceed the {max} MB per-message limit.',
@@ -202,6 +322,43 @@ export function handleFiles(composer, fileList) {
       break;
     }
     composer._uploadAndAdd(file);
+  }
+}
+
+/**
+ * Stage a set of dropped/pasted/picked videos, for a model that takes video.
+ *
+ * The model is checked first, before any size or format, so a video the model
+ * cannot be sent gets the one notice that says so ({@link videoRefusal}) at
+ * any size, rather than a size limit that implies a smaller one would do.
+ * Then the format (only those the asset store keeps), then the per-video size
+ * limit, then the upload, through the same path as an image.
+ * @param {any} composer - Composer instance
+ * @param {FileList|File[]} fileList - Files {@link videoMime} names a video
+ */
+export function handleVideoFiles(composer, fileList) {
+  for (const file of Array.from(fileList)) {
+    const refusal = videoRefusal(composer, file.name);
+    if (refusal) {
+      composer.showWarning(refusal);
+      continue;
+    }
+    const mime = videoMime(file);
+    if (!UPLOADABLE_VIDEO_TYPES.has(mime)) {
+      composer.showWarning(t('"{name}" is in a video format that can\'t be attached. Convert it to MP4, MOV or WebM.', { name: file.name }));
+      continue;
+    }
+    const max = PROVIDER_MAX_VIDEO_BYTES[sendTarget(composer).provider] || MAX_VIDEO_BYTES;
+    if (file.size > max) {
+      composer.showWarning(t(
+        '"{name}" is too large ({size} MB, max {max} MB per video for the current model).',
+        { name: file.name, size: formatMegabytes(file.size), max: formatLimit(max / 1024 / 1024) }
+      ));
+      continue;
+    }
+    // A file handed over with no type is uploaded as the type its name gives,
+    // which is what the asset route stores it by.
+    composer._uploadAndAdd(file.type ? file : new window.File([file], file.name, { type: mime }));
   }
 }
 
@@ -320,7 +477,13 @@ async function stageExtractedFile(composer, file, Viewer) {
   }
   const content = result.text || '';
   if (!content) {
-    composer.showWarning(t('Couldn\'t read "{name}".', { name: file.name }));
+    // A viewer that claims the file and yields only a warning (audio, an image
+    // format no model is given) has said what it is and that it has no text.
+    // The warning itself is written for the model, so the user is told in
+    // their own words; a viewer that failed outright gets the plain notice.
+    composer.showWarning(result.warning
+      ? t('"{name}" can\'t be attached: it can\'t be read as text.', { name: file.name })
+      : t('Couldn\'t read "{name}".', { name: file.name }));
     return;
   }
   const stagedTotal = composer._pendingTextFiles.reduce(
@@ -359,9 +522,12 @@ function removeTextFile(composer, entry) {
  * @param {File} file
  */
 export async function uploadAndAdd(composer, file) {
+  const isVideo = file.type.startsWith('video/');
   const convId = composer._conversation?.id;
   if (!convId) {
-    composer.showWarning(t("Couldn't attach the image: no conversation is open."));
+    composer.showWarning(isVideo
+      ? t("Couldn't attach the video: no conversation is open.")
+      : t("Couldn't attach the image: no conversation is open."));
     return;
   }
   // Placeholder chip while the bytes upload. Carries a local preview URL so
@@ -393,7 +559,9 @@ export async function uploadAndAdd(composer, file) {
     if (idx !== -1) composer._pendingAttachments.splice(idx, 1);
     if (placeholder._previewURL) URL.revokeObjectURL(placeholder._previewURL);
     renderAttachmentChips(composer);
-    composer.showWarning(t('Image upload failed: {error}', { error: errorText(err) }));
+    composer.showWarning(isVideo
+      ? t('Video upload failed: {error}', { error: errorText(err) })
+      : t('Image upload failed: {error}', { error: errorText(err) }));
   }
 }
 
@@ -514,22 +682,30 @@ export function renderAttachmentChips(composer) {
   const convId = composer._conversation?.id;
 
   for (const ref of composer._pendingAttachments) {
+    const isVideo = isVideoRef(ref);
     const chip = document.createElement('div');
-    chip.className = 'attachment-chip' + (ref._uploading ? ' uploading' : '');
+    chip.className = 'attachment-chip' + (isVideo ? ' video' : '') + (ref._uploading ? ' uploading' : '');
 
-    // Click the thumbnail to preview the staged image full-size — the same
-    // lightbox used for attachments inside a sent user-message item.
-    const src = ref._previewURL || (ref.id && convId ? apiService.assetURL(convId, ref.id) : '');
-    const thumb = createImageThumb({
-      src,
-      alt: ref.filename || '',
-      className: src ? 'attachment-thumb clickable' : 'attachment-thumb',
-    });
-    chip.appendChild(thumb);
+    if (isVideo) {
+      // A video gets a glyph: an <img> of it would draw as a broken image.
+      const icon = document.createElement('span');
+      icon.className = 'attachment-icon icon-play';
+      chip.appendChild(icon);
+    } else {
+      // Click the thumbnail to preview the staged image full-size — the same
+      // lightbox used for attachments inside a sent user-message item.
+      const src = ref._previewURL || (ref.id && convId ? apiService.assetURL(convId, ref.id) : '');
+      const thumb = createImageThumb({
+        src,
+        alt: ref.filename || '',
+        className: src ? 'attachment-thumb clickable' : 'attachment-thumb',
+      });
+      chip.appendChild(thumb);
+    }
 
     const name = document.createElement('span');
     name.className = 'attachment-name text-truncate';
-    name.textContent = ref.filename || t('image');
+    name.textContent = ref.filename || (isVideo ? t('video') : t('image'));
     chip.appendChild(name);
 
     const remove = document.createElement('button');

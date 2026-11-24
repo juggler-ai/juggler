@@ -153,6 +153,23 @@ func TestCapImagesForModelKeepsTheCurrentPromptThroughToolCalls(t *testing.T) {
 	}
 }
 
+// A video is not an image for this budget: a 60 MB recording early in the
+// history neither pushes the images after it out nor is dropped itself.
+func TestCapImagesForModelLeavesVideoOutOfTheImageBudget(t *testing.T) {
+	msgs := []provider.Message{{Type: "user", Content: "watch", Parts: []provider.MediaPart{
+		{Type: provider.MediaTypeVideo, AssetID: "clip", Data: make([]byte, 60*mib)},
+	}}}
+	msgs = append(msgs, imageHistory(repeated(4, mib)...)...)
+	CapImagesForModel(msgs)
+	want := []string{"clip", "img-0", "img-1", "img-2", "img-3"}
+	if got := keptImages(msgs); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("kept %v, want %v", got, want)
+	}
+	if msgs[0].Content != "watch" {
+		t.Errorf("the video's message was annotated: %q", msgs[0].Content)
+	}
+}
+
 // Many small images are capped by count: Anthropic rejects a request with
 // more than 100.
 func TestCapImagesForModelCapsTheCount(t *testing.T) {

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
 	"time"
 
 	"juggler/cmd/juggler/msg"
@@ -54,21 +55,33 @@ type Message struct {
 	EventType string `json:"eventType,omitempty"` // Event type for system messages
 	Source    string `json:"source,omitempty"`    // Source for system-reminder
 
-	// Parts carries non-text inputs attached to this message (v1: images).
-	// Only user-role messages carry parts. The bytes live out-of-doc in the
+	// Parts carries non-text inputs attached to this message: images, and
+	// video for a provider that takes it (ProviderInfo.VideoInput). Only user-role
+	// messages carry parts. The bytes live out-of-doc in the
 	// asset store; what travels in the worker→provider request JSON is the
 	// reference (AssetID + mime + dims), never the bytes — see MediaPart.
 	Parts []MediaPart `json:"parts,omitempty"`
 }
 
-// MediaPart is one non-text input attached to a message (v1: images).
+// The kinds of MediaPart. A converter sends the kinds it handles and skips the
+// rest, so a kind no converter knows is never put on the wire by accident.
+const (
+	MediaTypeImage = "image"
+	// MediaTypeVideo reaches a provider only when its ProviderInfo.VideoInput
+	// accepts video for the model; for every other
+	// provider the server replaces each video part with a note (WithholdVideo)
+	// before the request is built.
+	MediaTypeVideo = "video"
+)
+
+// MediaPart is one non-text input attached to a message: an image, or a video.
 // Bytes live out-of-doc in the asset store and are resolved into Data at the
 // server LLM-call boundary; Data is intentionally json:"-" so it never enters
 // the worker→provider request JSON nor the cost estimator's marshaling — the
 // stable identity on the wire is AssetID.
 type MediaPart struct {
-	Type    string `json:"type"`              // "image"
-	Mime    string `json:"mime"`              // e.g. "image/png"
+	Type    string `json:"type"`              // MediaTypeImage or MediaTypeVideo
+	Mime    string `json:"mime"`              // e.g. "image/png", "video/mp4"
 	AssetID string `json:"assetId,omitempty"` // sha256 hex; resolves bytes from the asset store
 	Data    []byte `json:"-"`                 // raw bytes, filled server-side before Submit; never serialized
 	Width   int    `json:"width,omitempty"`
@@ -431,7 +444,7 @@ func EstimateImageTokens(p MediaPart) int {
 // floored at the flat estimate and capped so one attachment cannot alone blow
 // the window.
 func estimateImageTokens64(p MediaPart) int64 {
-	if p.Type != "image" {
+	if p.Type != MediaTypeImage {
 		return 0
 	}
 	if p.Width > 0 && p.Height > 0 {
@@ -453,6 +466,95 @@ func estimateImageTokens64(p MediaPart) int64 {
 		return maxFallbackImageTokens
 	}
 	return byteEstimate
+}
+
+// Video token estimate bounds. Vendors charge video by duration and sampled
+// frame rate (Gemini: about 300 tokens a second at default resolution), and a
+// part carries neither, so the charge is derived from its encoded size: a
+// screen recording runs at roughly 0.5 MB a second, which this prices at about
+// that rate. A provider that declares ProviderInfo.VideoInput should replace it
+// with its own measure once it knows one.
+const (
+	videoBytesPerToken    int64 = 2048
+	minVideoTokenEstimate int64 = 1300
+	maxVideoTokenEstimate int64 = 200_000
+)
+
+// estimateVideoTokens64 charges a video part by its byte length, within
+// [minVideoTokenEstimate, maxVideoTokenEstimate] (the floor when its bytes are
+// not resolved). Non-video parts cost nothing here.
+func estimateVideoTokens64(p MediaPart) int64 {
+	if p.Type != MediaTypeVideo {
+		return 0
+	}
+	return min(max(int64(len(p.Data))/videoBytesPerToken, minVideoTokenEstimate), maxVideoTokenEstimate)
+}
+
+// PublishedInputModalities is the input-modality list a model is advertised
+// with: modalities as the provider reported it, minus "video" unless the
+// provider declares it takes video for that model (ProviderInfo.VideoInput). A
+// catalogue (models.dev, OpenRouter) may say a model takes video when the
+// provider's converters cannot send it, and the client offers video exactly
+// where this list says so.
+func PublishedInputModalities(info ProviderInfo, model string, modalities []string) []string {
+	if !slices.Contains(modalities, MediaTypeVideo) || info.AcceptsVideoInput(model) {
+		return modalities
+	}
+	out := make([]string, 0, len(modalities)-1)
+	for _, m := range modalities {
+		if m != MediaTypeVideo {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// WithholdVideo returns msgs with every video part removed, and each message
+// that carried one told so in its text, for a model that does not take video.
+//
+// The composer refuses a video for such a model, but one still reaches a
+// request through history: a video sent to a model that took it, then the
+// conversation switched to one that does not, or a restored draft. The note
+// tells the model a video was there and that it has not seen it, so it asks
+// rather than reasoning as if it had. msgs is returned as is, uncopied, when
+// it holds no video.
+func WithholdVideo(msgs []Message, model string) []Message {
+	var out []Message
+	for i, msg := range msgs {
+		videos := 0
+		for _, part := range msg.Parts {
+			if part.Type == MediaTypeVideo {
+				videos++
+			}
+		}
+		if videos == 0 {
+			if out != nil {
+				out = append(out, msg)
+			}
+			continue
+		}
+		if out == nil {
+			out = append(make([]Message, 0, len(msgs)), msgs[:i]...)
+		}
+		kept := make([]MediaPart, 0, len(msg.Parts)-videos)
+		for _, part := range msg.Parts {
+			if part.Type != MediaTypeVideo {
+				kept = append(kept, part)
+			}
+		}
+		note := fmt.Sprintf("[%d video(s) not sent: %s does not accept video input]", videos, model)
+		if msg.Content == "" {
+			msg.Content = note
+		} else {
+			msg.Content += "\n\n" + note
+		}
+		msg.Parts = kept
+		out = append(out, msg)
+	}
+	if out == nil {
+		return msgs
+	}
+	return out
 }
 
 // StreamChunk represents a chunk of streaming content with type information
@@ -995,6 +1097,18 @@ type ProviderInfo struct {
 	// may make a network request, so it is asked only of a provider that is
 	// switched on.
 	Successor func(ctx context.Context) *Successor
+	// VideoInput reports whether the provider sends MediaTypeVideo parts to
+	// model. Set it only once the provider's converters put video on the wire:
+	// until then — nil, as for every provider today — the server replaces each
+	// video part with a note before the request is built (WithholdVideo), and
+	// "video" is never published among its models' input modalities
+	// (PublishedInputModalities), which is what the composer offers video by.
+	VideoInput func(model string) bool
+}
+
+// AcceptsVideoInput reports whether the provider sends video to model.
+func (p ProviderInfo) AcceptsVideoInput(model string) bool {
+	return p.VideoInput != nil && p.VideoInput(model)
 }
 
 // Successor names a provider better suited than the asking one to the server

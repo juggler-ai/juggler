@@ -725,6 +725,11 @@ user-message .user-message-attachment {
     cursor: zoom-in;
 }
 
+/* A video plays in place, through its own controls, rather than zooming. */
+user-message .user-message-video {
+    cursor: auto;
+}
+
 /* Assistant messages: No background, plain text */
 assistant-message article.assistant {
     background: transparent;

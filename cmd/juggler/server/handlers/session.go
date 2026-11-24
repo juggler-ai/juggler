@@ -899,25 +899,20 @@ func (api *SessionAPI) HandleGetAsset(w http.ResponseWriter, r *http.Request) {
 // assetContentType derives the response mime type from a stored asset's file
 // extension. Unknown extensions fall back to a generic binary type.
 func assetContentType(path string) string {
-	switch strings.ToLower(strings.TrimPrefix(filepath.Ext(path), ".")) {
-	case "png":
-		return "image/png"
-	case "jpeg", "jpg":
-		return "image/jpeg"
-	case "gif":
-		return "image/gif"
-	case "webp":
-		return "image/webp"
-	case "txt":
-		return worker.TextAssetMime + "; charset=utf-8"
-	default:
-		return "application/octet-stream"
+	mime := worker.MimeForExt(strings.TrimPrefix(filepath.Ext(path), "."))
+	if mime == worker.TextAssetMime {
+		return mime + "; charset=utf-8"
 	}
+	return mime
 }
 
 // maxAssetUploadBytes caps an uploaded attachment. The raw bytes are the request
 // body, so this bounds memory per upload.
 const maxAssetUploadBytes = 25 << 20 // 25 MiB
+
+// maxVideoUploadBytes caps an uploaded video: the most the media viewer plays,
+// and above any vendor's inline video limit.
+const maxVideoUploadBytes = 100 << 20 // 100 MiB
 
 // maxTextAssetBytes caps an uploaded text asset — one side of an edit's diff,
 // which is a whole source file. A file past it is kept inline by the client.
@@ -940,8 +935,8 @@ func textUploadType(header string) bool {
 	return true
 }
 
-// HandleUploadAsset accepts the raw bytes of an image, or of UTF-8 text (the
-// sides of an edit's diff), as the request body (mime in the Content-Type
+// HandleUploadAsset accepts the raw bytes of an image, a video (mp4, QuickTime
+// or WebM), or UTF-8 text (the sides of an edit's diff), as the request body (mime in the Content-Type
 // header), stores them content-addressed via worker.AssetStore, and returns the
 // resulting AssetRef as JSON. HandleGetAsset serves them back.
 func (api *SessionAPI) HandleUploadAsset(w http.ResponseWriter, r *http.Request) {
@@ -956,10 +951,11 @@ func (api *SessionAPI) HandleUploadAsset(w http.ResponseWriter, r *http.Request)
 		contentType = strings.TrimSpace(mediaType)
 	}
 	isText := textUploadType(header)
+	isVideo := worker.IsVideoAssetMime(contentType)
 	if isText {
 		contentType = worker.TextAssetMime
-	} else if !strings.HasPrefix(contentType, "image/") {
-		WriteMessageError(w, r, http.StatusBadRequest, msg.New("Only image/* uploads are accepted"))
+	} else if !isVideo && !strings.HasPrefix(contentType, "image/") {
+		WriteMessageError(w, r, http.StatusBadRequest, msg.New("Only image and video uploads are accepted"))
 		return
 	}
 
@@ -968,8 +964,11 @@ func (api *SessionAPI) HandleUploadAsset(w http.ResponseWriter, r *http.Request)
 	assetStore := worker.NewAssetStore(api.convDirOf)
 
 	limit := int64(maxAssetUploadBytes)
-	if isText {
+	switch {
+	case isText:
 		limit = maxTextAssetBytes
+	case isVideo:
+		limit = maxVideoUploadBytes
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	data, err := io.ReadAll(r.Body)

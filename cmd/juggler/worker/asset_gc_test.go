@@ -477,3 +477,32 @@ func TestAssetStore_TextKeepsItsTypeThroughACopy(t *testing.T) {
 		t.Fatalf("stored at %q, want a .txt file", p)
 	}
 }
+
+// TestAssetStore_VideoKeepsItsTypeAndIsSentAsVideo pins that a stored video
+// reads back with its own type rather than as an anonymous binary, and that an
+// attachment of it reaches the request as a video part, which is what the
+// server withholds from a model that does not take video.
+func TestAssetStore_VideoKeepsItsTypeAndIsSentAsVideo(t *testing.T) {
+	store, _ := testAssetStore(t)
+	for mime, ext := range map[string]string{"video/quicktime": ".mov", "video/mp4": ".mp4", "video/webm": ".webm"} {
+		ref, err := store.Save("src", []byte("not really "+mime), mime)
+		if err != nil {
+			t.Fatalf("save %s: %v", mime, err)
+		}
+		if ref.Width != 0 || ref.Height != 0 {
+			t.Errorf("%s: dimensions %dx%d, want none", mime, ref.Width, ref.Height)
+		}
+		if _, got, err := store.Get("src", ref.ID); err != nil || got != mime {
+			t.Errorf("Get = %q, %v; want %s", got, err, mime)
+		}
+		if p, ok := store.Path("src", ref.ID); !ok || filepath.Ext(p) != ext {
+			t.Errorf("stored at %q, want a %s file", p, ext)
+		}
+
+		m := buildUserMessageMap(ConversationItem{Content: "this", Attachments: []AssetRef{ref}})
+		parts, _ := m["parts"].([]map[string]any)
+		if len(parts) != 1 || parts[0]["type"] != "video" || parts[0]["mime"] != mime {
+			t.Errorf("%s attachment sent as %#v, want one video part", mime, m["parts"])
+		}
+	}
+}

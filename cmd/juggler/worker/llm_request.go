@@ -305,33 +305,43 @@ func providerHonorsForcedTools(providerName string) bool {
 	return !info.ForcedToolChoiceUnsupported
 }
 
-// imagePartsFromAttachments renders an item's attachment refs as the wire
-// "parts" array (one image entry per attachment, referencing the asset by id).
-// The server resolves each assetId to bytes at the LLM-call boundary. Returns
-// nil when the item has no attachments. Shared by user messages and tool-result
-// messages — both map to the user role, so both may carry image parts.
-func imagePartsFromAttachments(item ConversationItem) []map[string]any {
+// mediaPartsFromAttachments renders an item's attachment refs as the wire
+// "parts" array (one image or video entry per attachment, by its mime,
+// referencing the asset by id). The server resolves each assetId to bytes at
+// the LLM-call boundary, and withholds video from a model that does not take
+// it. Returns nil when the item has no attachments. Shared by user messages and
+// tool-result messages — both map to the user role, so both may carry parts.
+func mediaPartsFromAttachments(item ConversationItem) []map[string]any {
 	if len(item.Attachments) == 0 {
 		return nil
 	}
 	parts := make([]map[string]any, 0, len(item.Attachments))
 	for _, att := range item.Attachments {
-		parts = append(parts, map[string]any{
-			"type":    "image",
-			"mime":    att.Mime,
-			"assetId": att.ID,
-			"width":   att.Width,
-			"height":  att.Height,
-		})
+		parts = append(parts, mediaPart(att))
 	}
 	return parts
 }
 
+// mediaPart is one attachment as a wire part: a video by its mime alone, an
+// image with the dimensions admission prices it by.
+func mediaPart(att AssetRef) map[string]any {
+	if MediaTypeForMime(att.Mime) == "video" {
+		return map[string]any{"type": "video", "mime": att.Mime, "assetId": att.ID}
+	}
+	return map[string]any{
+		"type":    "image",
+		"mime":    att.Mime,
+		"assetId": att.ID,
+		"width":   att.Width,
+		"height":  att.Height,
+	}
+}
+
 // buildUserMessageMap returns a user message map carrying the item's text
-// content plus, when the item has attachments, an image "parts" array.
+// content plus, when the item has attachments, a media "parts" array.
 func buildUserMessageMap(item ConversationItem) map[string]any {
 	m := map[string]any{"type": "user", "content": item.Content}
-	if parts := imagePartsFromAttachments(item); parts != nil {
+	if parts := mediaPartsFromAttachments(item); parts != nil {
 		m["parts"] = parts
 	}
 	return m
@@ -402,8 +412,8 @@ func buildToolResultMap(item ConversationItem) map[string]any {
 	}
 	// A tool that produced image output (e.g. read on a PNG) carries the asset
 	// refs at the item level, exactly like a user attachment; tool-result maps to
-	// the user role, so the same image "parts" array applies.
-	if parts := imagePartsFromAttachments(item); parts != nil {
+	// the user role, so the same media "parts" array applies.
+	if parts := mediaPartsFromAttachments(item); parts != nil {
 		m["parts"] = parts
 	}
 	return m

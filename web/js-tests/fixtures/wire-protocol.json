@@ -46,7 +46,7 @@
 
     "providerTypes": {
       "$comment": "Type strings in provider request bodies (llm_request.go, compaction_*.go), not worker messages. Listed so the Go scan can tell them apart.",
-      "types": ["user", "assistant", "thinking", "tool-use", "tool-result", "image", "provider-state", "message"]
+      "types": ["user", "assistant", "thinking", "tool-use", "tool-result", "image", "video", "provider-state", "message"]
     },
 
     "itemTypes": [

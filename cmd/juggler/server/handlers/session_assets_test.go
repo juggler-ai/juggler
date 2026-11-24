@@ -134,3 +134,29 @@ func TestAssetRoutes_RefusesWhatIsNotText(t *testing.T) {
 	wantStatus(t, "empty text", assetUpload(api, convID, "text/plain", nil), http.StatusBadRequest)
 	wantStatus(t, "image still accepted", assetUpload(api, convID, "image/png", []byte("not really a png")), http.StatusOK)
 }
+
+// TestAssetRoutes_VideoRoundTrip pins that the video types the composer can
+// stage are stored past the image size cap and served back as themselves, so
+// the chip plays them, and that any other video type is refused.
+func TestAssetRoutes_VideoRoundTrip(t *testing.T) {
+	api, convID := newProgramsFixture(t)
+	// Over the 25 MiB image cap, under the video one.
+	clip := bytes.Repeat([]byte("frame"), (maxAssetUploadBytes+1<<20)/5)
+
+	for _, mime := range []string{"video/quicktime", "video/mp4", "video/webm"} {
+		rr := assetUpload(api, convID, mime, append([]byte(mime), clip...))
+		wantStatus(t, mime+" upload", rr, http.StatusOK)
+		var ref struct {
+			ID   string `json:"id"`
+			Mime string `json:"mime"`
+		}
+		if err := json.Unmarshal(rr.Body.Bytes(), &ref); err != nil || ref.Mime != mime {
+			t.Fatalf("%s: ref = %+v, %v", mime, ref, err)
+		}
+		if ct := assetGet(api, convID, ref.ID).Header().Get("Content-Type"); ct != mime {
+			t.Errorf("%s served as %q", mime, ct)
+		}
+	}
+	wantStatus(t, "video/x-msvideo", assetUpload(api, convID, "video/x-msvideo", []byte("avi")), http.StatusBadRequest)
+	wantStatus(t, "video over its cap", assetUpload(api, convID, "video/mp4", make([]byte, maxVideoUploadBytes+1)), http.StatusBadRequest)
+}

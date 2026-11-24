@@ -207,7 +207,7 @@ func publishedModels(pInfo provider.ProviderInfo, modelInfos []provider.ModelInf
 			MaxOutputTokens:      modelInfo.MaxOutputTokens,
 			FromAPI:              modelInfo.FromAPI,
 			WindowAssumed:        modelInfo.WindowAssumed,
-			InputModalities:      modelInfo.InputModalities,
+			InputModalities:      provider.PublishedInputModalities(pInfo, modelInfo.ID, modelInfo.InputModalities),
 			ThinkingLevels:       modelInfo.ThinkingLevels,
 			DefaultThinkingLevel: modelInfo.DefaultThinkingLevel,
 			ServiceTiers:         modelInfo.ServiceTiers,

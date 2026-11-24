@@ -27,7 +27,7 @@ type RequestTokenEstimate struct {
 	MessageTokens          int64
 	ToolTokens             int64
 	MetadataTokens         int64
-	ImageTokens            int64
+	ImageTokens            int64 // every media part: images and video
 	FramingTokens          int64
 	ProviderOverheadTokens int64
 	Total                  int64
@@ -297,6 +297,7 @@ func EstimateMessageRequestTokenBreakdown(req MessageRequest, providerOverhead i
 		addEstimate(&estimate.Total, &estimate.MessageTokens, marshaledTokenCount(msg))
 		for _, part := range msg.Parts {
 			addEstimate(&estimate.Total, &estimate.ImageTokens, estimateImageTokens64(part))
+			addEstimate(&estimate.Total, &estimate.ImageTokens, estimateVideoTokens64(part))
 		}
 	}
 

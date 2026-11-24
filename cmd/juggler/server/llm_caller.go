@@ -18,6 +18,20 @@ import (
 	"juggler/internal/jlog"
 )
 
+// withholdUnsentMedia returns the history a model is sent media in: as given,
+// or with every video part replaced by a note when the model's provider does
+// not declare it sends video (provider.ProviderInfo.VideoInput). The composer
+// refuses a video for such a model; this is what holds when one arrives anyway
+// — through a model switched after a video was sent, a restored draft, or an
+// unknown provider — so no provider adapter ever has to cope with a video part
+// it cannot send.
+func withholdUnsentMedia(providerName, model string, msgs []provider.Message) []provider.Message {
+	if info, ok := provider.GetProviderInfo(providerName); ok && info.AcceptsVideoInput(model) {
+		return msgs
+	}
+	return provider.WithholdVideo(msgs, model)
+}
+
 // toLLMResponseBlocks converts a provider's accumulated content blocks into the
 // worker's LLMResponseBlock shape, marshaling each block's tool input to JSON.
 // Shared by the solicited-turn caller (createLLMCaller) and the autonomous-turn
@@ -230,6 +244,10 @@ func (s *Server) createLLMCaller() worker.LLMCallFunc {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+
+		// Video goes only to a model whose provider sends it; for any other
+		// the parts become a note here, before their bytes are loaded.
+		req.Messages = withholdUnsentMedia(req.ModelConfig.Provider, req.ModelConfig.Model, req.Messages)
 
 		// Resolve image attachments: the worker→caller JSON carries only an
 		// asset reference (AssetID + mime + dims), never the bytes. Load the

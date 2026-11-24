@@ -251,7 +251,8 @@ function renderUser(item, ctx) {
   const { doc } = ctx;
   const content = textOf(item);
   const refs = imageRefs(item);
-  if (!content && !refs.length) return null;
+  const videos = videoNames(item);
+  if (!content && !refs.length && !videos.length) return null;
 
   const article = doc.createElement('article');
   article.className = 'user';
@@ -269,6 +270,14 @@ function renderUser(item, ctx) {
   }
   const images = renderImages(refs, ctx, true);
   if (images) article.appendChild(images);
+  // A video is named, never embedded: a recording inlined as a data URI would
+  // swell the page by its whole size.
+  for (const name of videos) {
+    const note = doc.createElement('span');
+    note.className = 'export-withheld';
+    note.textContent = t('[video not included: {name}]', { name });
+    article.appendChild(note);
+  }
   if (!article.childNodes.length) return null;
   return fillRow(doc.createElement('user-message'), article);
 }
@@ -583,6 +592,23 @@ function imageRefs(item) {
     if (!ref || typeof ref.id !== 'string' || !ref.id) return [];
     if (ref.mime && !String(ref.mime).startsWith('image/')) return [];
     return [/** @type {ImageRef} */ (ref)];
+  });
+}
+
+/**
+ * The names of the videos an item carries.
+ * @param {unknown} item - A thread item.
+ * @returns {string[]} Each video's file name, else its asset id.
+ */
+function videoNames(item) {
+  /** @type {unknown} */
+  const refs = plain(itemField(item, 'attachments'));
+  if (!Array.isArray(refs)) return [];
+  return refs.flatMap((entry) => {
+    const ref = asRecord(entry);
+    if (!ref || typeof ref.mime !== 'string' || !ref.mime.startsWith('video/')) return [];
+    const name = typeof ref.filename === 'string' && ref.filename ? ref.filename : ref.id;
+    return typeof name === 'string' && name ? [name] : [];
   });
 }
 

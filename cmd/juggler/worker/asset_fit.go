@@ -296,8 +296,8 @@ func (c *fitCache) put(id string, fitted FittedImage) {
 // would decode and scale them all again.
 var modelFitCache = newFitCache(fitCacheBudget)
 
-// ResolveForModel fills every asset-backed image part in msgs with what the
-// model is sent — the asset's bytes fitted by FitImageForModel — and sets the
+// ResolveForModel fills every asset-backed part in msgs with what the model is
+// sent — a video's bytes as stored, an image's fitted by FitImageForModel — and sets the
 // part's mime and dimensions to those of the bytes, so admission prices the
 // image the provider receives rather than the one uploaded. Parts that
 // already carry bytes are left alone. A missing asset is logged and its part
@@ -322,6 +322,17 @@ func (s *AssetStore) ResolveForModel(convID string, msgs []provider.Message) {
 }
 
 func (s *AssetStore) resolvePartForModel(convID string, part *provider.MediaPart) {
+	if part.Type == provider.MediaTypeVideo {
+		// A video is sent as stored: there is no fitting for it, and its bytes
+		// stay out of the fit cache, which is sized for images.
+		data, mime, err := s.Get(convID, part.AssetID)
+		if err != nil {
+			jlog.Error("asset store: could not resolve asset %s for conversation %s: %v", part.AssetID, convID, err)
+			return
+		}
+		part.Data, part.Mime = data, mime
+		return
+	}
 	fitted, cached := modelFitCache.get(part.AssetID)
 	if !cached {
 		data, mime, err := s.Get(convID, part.AssetID)

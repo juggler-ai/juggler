@@ -54,6 +54,13 @@ func CapImagesForModel(msgs []provider.Message) {
 	for _, msg := range msgs {
 		parts := make([]position, len(msg.Parts))
 		for j, part := range msg.Parts {
+			if part.Type != provider.MediaTypeImage {
+				// Only images are budgeted here: a video is far larger than the
+				// image budget and is bounded at upload instead, so counting it
+				// would push every image out of the request.
+				parts[j] = position{startByte: -1}
+				continue
+			}
 			parts[j] = position{startByte: totalBytes, index: totalCount}
 			totalBytes += len(part.Data)
 			totalCount++
@@ -72,7 +79,7 @@ func CapImagesForModel(msgs []provider.Message) {
 		kept := msg.Parts[:0:0]
 		for j, part := range msg.Parts {
 			at := positions[i][j]
-			if at.startByte < byteCut || at.index < countCut {
+			if at.startByte >= 0 && (at.startByte < byteCut || at.index < countCut) {
 				droppedBytes += len(part.Data)
 				continue
 			}

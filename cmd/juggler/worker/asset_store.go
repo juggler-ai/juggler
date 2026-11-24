@@ -24,6 +24,7 @@ import (
 	_ "golang.org/x/image/webp"
 
 	"juggler/cmd/juggler/core"
+	"juggler/cmd/juggler/providers/provider"
 	"juggler/internal/atomicio"
 )
 
@@ -37,7 +38,7 @@ import (
 const AssetStagingGrace = 5 * time.Minute
 
 // AssetRef is a small, doc-storable reference to a content-addressed binary
-// asset (e.g. an image attached to a message). The bytes themselves live
+// asset (an image or video attached to a message). The bytes themselves live
 // out-of-doc under <convDir>/assets/<ID>.<ext>; only this reference is stored
 // in the Yjs doc, so attachments are never re-synced to every client or
 // re-sent to the model as part of doc state.
@@ -106,7 +107,7 @@ func (s *AssetStore) find(convID, sha string) (path, ext string, ok bool) {
 // The write is content-addressed and idempotent: if a file with the same hash
 // already exists, the bytes are by definition identical, so the rewrite is
 // skipped. Width/Height are populated best-effort by decoding image dimensions
-// (png/jpeg/gif/webp; any other format left 0). Returns an error if the conversation
+// (png/jpeg/gif/webp; any other format, video included, left 0). Returns an error if the conversation
 // is unknown to the path provider.
 func (s *AssetStore) Save(convID string, data []byte, mime string) (AssetRef, error) {
 	sum := sha256.Sum256(data)
@@ -152,7 +153,7 @@ func (s *AssetStore) Get(convID, sha string) (data []byte, mime string, err erro
 	if err != nil {
 		return nil, "", err
 	}
-	return data, mimeForExt(ext), nil
+	return data, MimeForExt(ext), nil
 }
 
 // Open returns a reader over an asset's bytes plus its resolved mime type, for
@@ -167,7 +168,7 @@ func (s *AssetStore) Open(convID, sha string) (rc *os.File, mime string, err err
 	if err != nil {
 		return nil, "", err
 	}
-	return f, mimeForExt(ext), nil
+	return f, MimeForExt(ext), nil
 }
 
 // Path returns the on-disk path for an asset and whether it exists.
@@ -284,9 +285,36 @@ func (s *AssetStore) Sweep(convID string, liveSet map[string]bool, grace time.Du
 // as one side of an edit's diff. It is kept as a .txt file.
 const TextAssetMime = "text/plain"
 
+// videoAssetExts maps each video type an attachment may be stored as to its
+// on-disk extension: the containers every desktop webview plays and the
+// video-capable vendor APIs accept. Another video type is refused at upload.
+var videoAssetExts = map[string]string{
+	"video/mp4":       "mp4",
+	"video/quicktime": "mov",
+	"video/webm":      "webm",
+}
+
+// IsVideoAssetMime reports whether mime is a video type the asset store keeps.
+func IsVideoAssetMime(mime string) bool {
+	_, ok := videoAssetExts[mime]
+	return ok
+}
+
+// MediaTypeForMime is the provider.MediaPart kind an attachment of this mime
+// is sent to a model as.
+func MediaTypeForMime(mime string) string {
+	if strings.HasPrefix(mime, "video/") {
+		return provider.MediaTypeVideo
+	}
+	return provider.MediaTypeImage
+}
+
 // extForMime maps a supported mime type to its on-disk file extension.
 // Unknown types fall back to "bin".
 func extForMime(mime string) string {
+	if ext, ok := videoAssetExts[mime]; ok {
+		return ext
+	}
 	switch mime {
 	case TextAssetMime:
 		return "txt"
@@ -303,10 +331,16 @@ func extForMime(mime string) string {
 	}
 }
 
-// mimeForExt maps a stored file extension back to its mime type. Unknown
+// MimeForExt maps a stored file extension back to its mime type. Unknown
 // extensions fall back to a generic binary type.
-func mimeForExt(ext string) string {
-	switch strings.ToLower(ext) {
+func MimeForExt(ext string) string {
+	ext = strings.ToLower(ext)
+	for mime, videoExt := range videoAssetExts {
+		if ext == videoExt {
+			return mime
+		}
+	}
+	switch ext {
 	case "txt":
 		return TextAssetMime
 	case "png":

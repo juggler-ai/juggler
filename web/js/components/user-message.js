@@ -111,9 +111,11 @@ class UserMessage extends BaseMessage {
   }
 
   /**
-   * Build the image grid: one lazy-loading <img> per attachment, sized down to
+   * Build the attachment grid: one lazy-loading <img> per image, sized down to
    * a thumbnail (CSS) while preserving intrinsic aspect ratio via the
-   * width/height attributes. Clicking an image opens it full-size.
+   * width/height attributes — clicking one opens it full-size — and a player
+   * per video, which streams from the asset route (it answers Range requests,
+   * so only what is played is fetched).
    * @param {Array<{id:string,mime:string,filename:string,bytes:number,width:number,height:number}>} attachments
    * @returns {HTMLElement} The image-grid container element.
    * @private
@@ -125,6 +127,17 @@ class UserMessage extends BaseMessage {
     const conversationId = this._getConversation()?.id || '';
 
     for (const ref of attachments) {
+      if (typeof ref.mime === 'string' && ref.mime.startsWith('video/')) {
+        const video = document.createElement('video');
+        video.className = 'user-message-attachment user-message-video';
+        video.controls = true;
+        video.preload = 'metadata';
+        video.playsInline = true;
+        video.setAttribute('aria-label', ref.filename || t('video'));
+        video.src = apiService.assetURL(conversationId, ref.id);
+        grid.appendChild(video);
+        continue;
+      }
       grid.appendChild(createImageThumb({
         src: apiService.assetURL(conversationId, ref.id),
         alt: ref.filename || t('attachment'),

@@ -151,17 +151,35 @@ func (lt *laneTrace) booting(id string) {
 }
 
 // pending returns h, the queue's destructive next-entry read, behind the lane's
-// poll mark and the fence a given-up wait puts up. A lane whose page has not
-// been served since the give-up is one of the load its caller is replacing, so
-// work handed to it would be destroyed with its page; it is answered as an
-// empty queue. A poll that passes the fence was marked in the same hold, so a
-// wait deciding after it sees it and does not give up.
+// poll mark and two fences, each answering as an empty queue.
+//
+// The first is the one a given-up wait puts up. A lane whose page has not been
+// served since the give-up is one of the load its caller is replacing, so work
+// handed to it would be destroyed with its page. A poll that passes the fence
+// was marked in the same hold, so a wait deciding after it sees it and does not
+// give up.
+//
+// The second keeps a pool's work to its lanes. Once the /test-pool page has
+// been served, every lane of this server is one of its iframes and polls as
+// lane=N, so a poll with no lane comes from a page outside the pool: a window a
+// test opened, which WebView2 makes a real top-level window, and whose app page
+// the test-mode module turns into a slot. The harness counts only the pool's
+// lanes, so work handed to that page would run beside them unaccounted — and
+// from the top level, where a unit suite resets the fixture they all share. A
+// lone test window, on a server that serves no pool, is unlabelled and gets
+// work as before.
 func (lt *laneTrace) pending(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.URL.Query().Get("lane")
-		fenced, first := false, false
+		fenced, stray, first := false, false, false
 		lt.with(func(s *laneTraceState) {
 			m := s.lane(id)
+			// Refused, and not counted as a lane polling: it is not one.
+			if stray = id == "" && s.poolPage.count > 0; stray {
+				m.refused++
+				first = m.refused == 1
+				return
+			}
 			m.poll.hit(lt.now())
 			if m.poll.count == 1 {
 				s.release()
@@ -171,7 +189,14 @@ func (lt *laneTrace) pending(h http.HandlerFunc) http.HandlerFunc {
 				first = m.refused == 1
 			}
 		})
-		if fenced {
+		switch {
+		case stray:
+			if first {
+				jlog.Info("[test-pool] a page outside the pool (no lane) asked for work, referer %q; it gets none — a test opened a window", r.Referer())
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		case fenced:
 			if first {
 				jlog.Info("[test-pool] lane %q asked for work from the load being replaced; it gets none until its page is served again", id)
 			}
@@ -274,7 +299,8 @@ type LaneReport struct {
 	Booting    LaneMark `json:"booting"`
 	Polled     LaneMark `json:"polled"`
 	// Refused counts the polls answered with no work because the lane was one
-	// of a load being replaced.
+	// of a load being replaced — or, for lane "?" on a pool server, because the
+	// page was outside the pool (pending).
 	Refused int `json:"refused"`
 }
 

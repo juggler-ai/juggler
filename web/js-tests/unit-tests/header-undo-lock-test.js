@@ -102,6 +102,11 @@ export async function runTests() {
   const history = /** @type {HTMLElement} */ (footer.querySelector('.footer-history'));
   const shownHistory = () => !!history && !history.classList.contains('hidden');
 
+  // The header's window listeners and shortcut handlers outlive this suite
+  // unless removed: a later suite in this lane that sends juggler:open-project
+  // would reach the real chooseProject, whose window.open is a real window.
+  /** @type {() => void} */
+  let unwire = () => {};
   try {
     const session = await createTestSession();
     const conversation = await createTestConversation(session);
@@ -116,7 +121,7 @@ export async function runTests() {
       return realSubscribe.call(session, fn);
     });
     try {
-      setupHeaderControls(session);
+      unwire = setupHeaderControls(session);
     } finally {
       session.subscribe = realSubscribe;
     }
@@ -352,6 +357,7 @@ export async function runTests() {
     failed++;
     errors.push(e instanceof Error ? `${e.message}\n${e.stack}` : String(e));
   } finally {
+    unwire();
     root.remove();
     footer.remove();
   }

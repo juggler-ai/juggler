@@ -263,9 +263,19 @@ function localizeHeaderMarkup(root = document) {
 /**
  * Wire up header controls (project path, network clients count) and the
  * window's undo/redo shortcuts.
+ *
+ * What it hangs on the page's singletons — the window's listeners, the shortcut
+ * handlers, the session subscription — outlives the header it was given, so it
+ * returns their removal. The app's header lives as long as its page and never
+ * calls it; a test page hosting one does, or a later test there that sends
+ * `juggler:open-project` reaches the real chooseProject.
  * @param {Session} session
+ * @returns {() => void} Removes what this wired up.
  */
 export function setupHeaderControls(session) {
+  const wired = new AbortController();
+  /** @type {Array<() => void>} */
+  const teardown = [() => wired.abort()];
   const pathDisplay = /** @type {HTMLElement|null} */ (document.getElementById('project-path-display'));
   const pathChip = /** @type {HTMLElement|null} */ (document.getElementById('project-path-chip'));
   const pathLabel = /** @type {HTMLElement|null} */ (pathDisplay?.querySelector('.project-path-display__path') ?? null);
@@ -301,7 +311,11 @@ export function setupHeaderControls(session) {
   // The header's width is what the chip gets to share: watched rather than
   // the chip's, whose width follows the label this sets.
   const pathRoom = pathDisplay?.closest('.app-header') ?? pathDisplay?.parentElement;
-  if (pathRoom && pathLabel) new ResizeObserver(fitPathLabel).observe(pathRoom);
+  if (pathRoom && pathLabel) {
+    const roomWatch = new ResizeObserver(fitPathLabel);
+    roomWatch.observe(pathRoom);
+    teardown.push(() => roomWatch.disconnect());
+  }
   // A web font arriving changes the path's width, not the header's.
   void document.fonts?.ready.then(fitPathLabel);
   const updateProjectPath = (/** @type {string} */ projectPath) => {
@@ -344,11 +358,11 @@ export function setupHeaderControls(session) {
   // the browser (its own new-window/incognito) rather than swallowing it as a
   // no-op. In the Windows desktop app this is the sole handler for the chord: the
   // native menu there carries no accelerator for it (menu.go, pageKey).
-  keyShortcutManager.register('new-window', () => {
+  teardown.push(keyShortcutManager.register('new-window', () => {
     if (!hasNativeHost()) return false;
     void openNewWindow();
     return true;
-  });
+  }));
 
   // The native Session ▸ New Window menu item and its ⇧⌘N accelerator dispatch this
   // event on the focused window. On macOS the native accelerator preempts the
@@ -357,14 +371,14 @@ export function setupHeaderControls(session) {
   // means such a window carries THIS window's live theme and font size to the
   // child — the same single path as the header button, never a global last-used
   // seed.
-  window.addEventListener('juggler:new-window', () => { void openNewWindow(); });
+  window.addEventListener('juggler:new-window', () => { void openNewWindow(); }, { signal: wired.signal });
 
   const networkButton = document.getElementById('network-button');
   if (networkButton) bindNetworkClients(networkButton);
 
   // Session ▸ Open… (native menu, ⌘O, the overflow menu) bridges to
   // chooseProject via this event, since the Go side can't import the JS module.
-  window.addEventListener('juggler:open-project', openProjectCommand());
+  window.addEventListener('juggler:open-project', openProjectCommand(), { signal: wired.signal });
 
   // Keyboard shortcuts (undo / redo), on the visible conversation — bindings and
   // platform handling live in the KeyShortcutManager; here we only supply the
@@ -372,24 +386,26 @@ export function setupHeaderControls(session) {
   // preventDefaults exactly then (and a no-op — busy, or nothing to undo — falls
   // through untouched). The manager's own input-field guard keeps ⌘Z out of the
   // composer, which has native undo.
-  keyShortcutManager.register('undo', () => {
+  teardown.push(keyShortcutManager.register('undo', () => {
     const conversation = session.getVisibleConversation();
     if (!historyState(conversation).canUndo) return false;
     void conversation?.undo();
     return true;
-  });
-  keyShortcutManager.register('redo', () => {
+  }));
+  teardown.push(keyShortcutManager.register('redo', () => {
     const conversation = session.getVisibleConversation();
     if (!historyState(conversation).canRedo) return false;
     void conversation?.redo();
     return true;
-  });
+  }));
 
   // Keep the path display fresh.
-  session.subscribe((event) => {
+  teardown.push(session.subscribe((event) => {
     if (event.type === 'session:loaded') updateProjectPath(session.projectPath || '');
-  });
+  }));
 
   // Initial state
   updateProjectPath(session.projectPath || '');
+
+  return () => { for (const fn of teardown) fn(); };
 }

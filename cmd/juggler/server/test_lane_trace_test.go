@@ -169,6 +169,44 @@ func TestAGivenUpPoolHandsNoWorkToTheLanesBeingReloaded(t *testing.T) {
 	}
 }
 
+// TestAPoolHandsNoWorkToAPageWithoutALane: a pool server's lanes are the
+// iframes of its /test-pool page, each polling as lane=N. A page polling with no
+// lane on such a server is a window a test opened — WebView2 gives window.open
+// a real top-level window — whose app page the test-mode module turns into a
+// slot. Work handed to it runs unaccounted beside the pool's lanes, and from the
+// top level, where a unit suite resets the shared fixture under them. It gets
+// none, and the lane still does. A lone test window, on a server that serves no
+// pool, polls unlabelled and is handed work.
+func TestAPoolHandsNoWorkToAPageWithoutALane(t *testing.T) {
+	serveOn := func(s *Server) func(method, path, body string) *httptest.ResponseRecorder {
+		return func(method, path, body string) *httptest.ResponseRecorder {
+			t.Helper()
+			rec := httptest.NewRecorder()
+			s.router.ServeHTTP(rec, httptest.NewRequest(method, path, strings.NewReader(body)))
+			return rec
+		}
+	}
+
+	pool, _ := ownershipGuardServer(t)
+	serve := serveOn(pool)
+	serve(http.MethodGet, "/test-pool?n=1", "")
+	serve(http.MethodGet, "/headless-test?lane=0", "")
+	serve(http.MethodPost, "/api/test/run", `{"name":"unit:x"}`)
+	if rec := serve(http.MethodGet, "/api/test/pending", ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("a page polling with no lane on a pool server was handed work: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := serve(http.MethodGet, "/api/test/pending?lane=0", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"unit:x"`) {
+		t.Fatalf("the pool's lane was not handed the queued work: %d %s", rec.Code, rec.Body.String())
+	}
+
+	lone, _ := ownershipGuardServer(t)
+	serve = serveOn(lone)
+	serve(http.MethodPost, "/api/test/run", `{"name":"unit:y"}`)
+	if rec := serve(http.MethodGet, "/api/test/pending", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"unit:y"`) {
+		t.Fatalf("the lone test window was not handed the queued work: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
 // TestALanePageServedOnTheGiveUpsClockTickIsOfTheNewLoad: which load a lane
 // belongs to is decided by order, not by the clock. A clock as coarse as
 // Windows' stamps the give-up and the page served straight after it with the

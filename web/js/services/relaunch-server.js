@@ -27,7 +27,7 @@ import { t } from '../../sdk/lib/i18n.js';
  * @param {unknown} err - What the relaunch threw.
  * @returns {Running|null} The work that runs; null for any other failure.
  */
-export function runningOf(err) {
+function runningOf(err) {
   const body = err && typeof err === 'object' ? /** @type {{body?: unknown}} */ (err).body : null;
   const running = body && typeof body === 'object' ? /** @type {{running?: unknown}} */ (body).running : null;
   if (!running || typeof running !== 'object') return null;
@@ -40,7 +40,7 @@ export function runningOf(err) {
  * @param {Running} running - The work that runs.
  * @returns {string} The warning.
  */
-export function relaunchStopsText({ conversations, tasks }) {
+function relaunchStopsText({ conversations, tasks }) {
   if (conversations && tasks) {
     return t('{conversations, plural, one {A conversation is still working} other {# conversations are still working}} and {tasks, plural, one {a background task is running} other {# background tasks are running}}. Relaunching will stop them all.', { conversations, tasks });
   }

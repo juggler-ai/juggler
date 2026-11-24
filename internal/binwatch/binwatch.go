@@ -210,9 +210,6 @@ func NewFrom(path, base string) *Watcher {
 	return &Watcher{path: path, base: base}
 }
 
-// Path is the path being watched.
-func (w *Watcher) Path() string { return w.path }
-
 // Poll looks at the file at the path and returns the build there if it is
 // another build than the watched one, complete, and unchanged since the
 // previous Poll; otherwise nil. It keeps returning that build for as long as

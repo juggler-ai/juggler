@@ -217,11 +217,13 @@ func TestMachineServerTakesUpABuildInstalledWhileIdle(t *testing.T) {
 	installAnotherBuild(t, bin)
 	// Bounded by the test's own deadline: the server looks every couple of
 	// seconds, relaunches once two looks agree, and server.json names the
-	// next server once it has started — and nothing between the two.
+	// next server once it has started — and nothing between the two. The next
+	// server writes its token before it listens and its address after
+	// (MachineLock.UpdateAddr), so it is waited for with both.
 	var info machineserver.ServerInfo
 	for {
 		b, err := os.ReadFile(filepath.Join(ms.ConfigDir, "server.json"))
-		if err == nil && json.Unmarshal(b, &info) == nil && info.Token != "" && info.Token != ms.Token {
+		if err == nil && json.Unmarshal(b, &info) == nil && info.Token != "" && info.Token != ms.Token && info.Addr != "" {
 			break
 		}
 		time.Sleep(250 * time.Millisecond)

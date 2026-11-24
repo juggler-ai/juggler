@@ -96,7 +96,7 @@
  */
 
 /** What reading a stream to its end answers when the server ended it to relaunch. */
-export const RELAUNCHING = 'relaunching';
+const RELAUNCHING = 'relaunching';
 
 /**
  * The wait before a feed is opened again after it failed or ended, doubling

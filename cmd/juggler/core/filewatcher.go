@@ -29,6 +29,11 @@ type FileChange struct {
 	Event string `json:"event"` // write, create, remove, rename
 }
 
+// EventsLost is the Event of a raw-feed change, by the project's path, saying
+// fsnotify reported an error: changes may have gone unreported, so whoever
+// follows the feed re-reads everything it holds (FileWatcher.recoverLost).
+const EventsLost = "lost"
+
 // ChangeNotification represents a batch of file changes
 type ChangeNotification struct {
 	Changes []FileChange `json:"changes"`
@@ -96,6 +101,11 @@ type FileWatcher struct {
 	rebuildC     chan struct{}
 	rebuildTimer *time.Timer
 
+	// lostC signals watchLoop that fsnotify reported an error, after which
+	// events may be missing (recoverLost). Buffered by one, so errors arriving
+	// before the recovery runs ask for it once.
+	lostC chan struct{}
+
 	opts FileWatcherOptions
 
 	// rawChan is the raw feed (see FileWatcherOptions.RawFeed), nil without it.
@@ -149,6 +159,7 @@ func NewFileWatcherWith(projectPath string, opts FileWatcherOptions) (*FileWatch
 		changeChan: make(chan ChangeNotification, 100),
 		stopChan:   make(chan struct{}),
 		rebuildC:   make(chan struct{}, 1),
+		lostC:      make(chan struct{}, 1),
 		events:     make(chan fsnotify.Event),
 	}
 	// Before the walk: its Adds are answered only while fsnotify's events are
@@ -493,6 +504,7 @@ func (w *FileWatcher) Start() {
 // The queue is unbounded because it holds only events the kernel already
 // produced and watchLoop is already behind on. It runs until fsnotify closes
 // its channels, which Close does, and drops what is queued once the watcher stops.
+// An error asks watchLoop to recover what it may have cost (recoverLost).
 func (w *FileWatcher) pumpEvents() {
 	defer close(w.events)
 	var queue []fsnotify.Event
@@ -515,6 +527,10 @@ func (w *FileWatcher) pumpEvents() {
 				errs = nil
 			} else {
 				jlog.Error("[FileWatcher] Error: %v", err)
+				select {
+				case w.lostC <- struct{}{}:
+				default:
+				}
 			}
 		case out <- next:
 			queue[0] = fsnotify.Event{}
@@ -549,7 +565,10 @@ func (w *FileWatcher) watchLoop() {
 			w.handleEvent(event)
 
 		case <-w.rebuildC:
-			w.rebuild()
+			w.rebuild("a .gitignore change")
+
+		case <-w.lostC:
+			w.recoverLost()
 
 		case <-w.stopChan:
 			return
@@ -630,12 +649,22 @@ func (w *FileWatcher) scheduleRebuild() {
 // rebuild re-walks the tree with a fresh matcher and swaps the index contents.
 // Stale watches on now-ignored directories are left in place (harmless: their
 // events are filtered by the fresh matcher); newly un-ignored dirs get watched.
-func (w *FileWatcher) rebuild() {
+// why names what asked for it, for the log.
+func (w *FileWatcher) rebuild(why string) {
 	paths, partial := w.buildWatchesAndIndex(w.projectPath)
 	if w.index != nil {
 		w.index.replace(paths, partial)
 	}
-	jlog.Info("[FileWatcher] Rebuilt after .gitignore change (%d paths indexed)", len(paths))
+	jlog.Info("[FileWatcher] Rebuilt after %s (%d paths indexed)", why, len(paths))
+}
+
+// recoverLost makes good what an fsnotify error may have cost: the walk
+// (rebuild) watches any directory whose create went unreported and indexes
+// what the index missed, and the raw feed says EventsLost, so its readers
+// re-read rather than wait for news of each change. On watchLoop.
+func (w *FileWatcher) recoverLost() {
+	w.rebuild("a watcher error")
+	w.sendRaw(w.projectPath, EventsLost)
 }
 
 // handleEvent processes a single file system event

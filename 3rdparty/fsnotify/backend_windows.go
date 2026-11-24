@@ -565,8 +565,14 @@ func (w *readDirChangesW) readEvents() {
 				// The i/o succeeded but the buffer is full.
 				// In theory we should be building up a full packet.
 				// In practice we can get away with just carrying on.
-				n = uint32(unsafe.Sizeof(watch.buf))
+				n = uint32(len(watch.buf))
 			}
+		case windows.ERROR_NOTIFY_ENUM_DIR:
+			// The system could not record every change: report the overflow
+			// and keep reading this directory.
+			w.sendError(ErrEventOverflow)
+			w.startRead(watch)
+			continue
 		case windows.ERROR_ACCESS_DENIED:
 			// Watched directory was probably removed
 			w.sendEvent(watch.path, "", watch.mask&sysFSDELETESELF)

@@ -141,11 +141,45 @@ func TestFileWatcher_RawFeedFollowsNewDotDirectories(t *testing.T) {
 func TestFileWatcher_RawFeedSkipsIgnoredFiles(t *testing.T) {
 	w, root := rawFeedWatcher(t, FileWatcherOptions{}, "src/a.go")
 	writeGitignore(t, root, "*.o\n")
-	w.rebuild()
+	w.rebuild("a test")
 
 	feed(w, root, "src/a.o", fsnotify.Write)
 	if raw := drainRaw(w); len(raw) != 0 {
 		t.Errorf("an ignored file reached the raw feed: %v", raw)
+	}
+}
+
+// An fsnotify error means events may be missing, so the watcher recovers: a
+// directory whose create went unheard is watched and indexed, and the raw feed
+// says EventsLost. The directory is made while nothing takes events (watchLoop
+// is not started), so the walk is the only way it can be found.
+func TestFileWatcher_AnErrorRecoversWhatItMayHaveCost(t *testing.T) {
+	w, root := rawFeedWatcher(t, FileWatcherOptions{}, "src/a.go")
+	dir := filepath.Join(root, "unheard")
+	writeTree(t, root, []string{"unheard/lost-widget.go"})
+
+	w.watcher.Errors <- fsnotify.ErrEventOverflow
+	<-w.lostC // bounded by the test's own deadline
+	w.recoverLost()
+
+	if !slices.Contains(w.watcher.WatchList(), dir) {
+		t.Error("a directory made while events were lost is not watched")
+	}
+	if got := searchPaths(w.Index(), "lost-widget", 20); !contains(got, "unheard/lost-widget.go") {
+		t.Errorf("a file made while events were lost is not indexed: %v", got)
+	}
+	var lost bool
+	for {
+		select {
+		case c := <-w.RawChanges():
+			lost = lost || (c.Event == EventsLost && c.Path == root)
+			continue
+		default:
+		}
+		break
+	}
+	if !lost {
+		t.Error("the raw feed did not say events were lost")
 	}
 }
 

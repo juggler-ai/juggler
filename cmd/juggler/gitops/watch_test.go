@@ -297,6 +297,21 @@ func TestWatch_WorkingTreeChangesNameTheirRepositories(t *testing.T) {
 	expect(t, "a file in the nested repository", flushed(t, w, r.dir, ch), map[string]Kinds{"": KindWorktree, "libs/inner": KindWorktree})
 }
 
+// Lost project-watcher events may have been any change, so every repository
+// of a tree the lost path holds hears everything, nested ones included.
+func TestWatch_LostEventsReportEverything(t *testing.T) {
+	r := newRepo(t)
+	r.write("a.txt", "x\n")
+	r.commit("init")
+	inner := initRepo(t, filepath.Join(r.dir, "libs", "inner"))
+	inner.write("b.txt", "y\n")
+	w := manualWatcher(t)
+	ch := watch(t, w, r.dir)
+
+	treeEvent(w, r.dir, core.EventsLost)
+	expect(t, "lost events", flushed(t, w, r.dir, ch), map[string]Kinds{"": AllKinds, "libs/inner": AllKinds})
+}
+
 // A repository made after the watch began is found, watched and announced.
 func TestWatch_NewRepositoryIsPickedUp(t *testing.T) {
 	r := newRepo(t)

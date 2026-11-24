@@ -469,9 +469,16 @@ func (w *Watcher) noteEverything() {
 }
 
 // workingTreeChanged tells every tree holding path that a file in its working
-// tree changed. On the watcher's goroutine.
+// tree changed; for core.EventsLost, every tree path holds as well, whose
+// changes the lost events may have been. On the watcher's goroutine.
 func (w *Watcher) workingTreeChanged(path, event string) {
 	for t := range w.trees {
+		if event == core.EventsLost {
+			if _, inside := relWithin(path, t.root); inside || path == t.root {
+				t.workingTreeChanged(path, event)
+				continue
+			}
+		}
 		if path == t.root {
 			t.workingTreeChanged(path, event)
 			continue
@@ -508,9 +515,16 @@ func (t *tree) wake() {
 // workingTreeChanged records a change to a file of the working tree: news to
 // the repository holding it and to every repository enclosing that one, since a
 // superproject reports its submodules' changes. A directory appearing, or one
-// holding a repository going, sends the tree looking for repositories again. On
-// the watcher's goroutine.
+// holding a repository going, sends the tree looking for repositories again, as
+// do lost events (core.EventsLost), which may have been any of these. On the
+// watcher's goroutine.
 func (t *tree) workingTreeChanged(path, event string) {
+	if event == core.EventsLost {
+		t.noteAll(AllKinds)
+		t.rediscover = true
+		t.wake()
+		return
+	}
 	if path == t.root && (event == "remove" || event == "rename") {
 		t.noteAll(AllKinds)
 		return

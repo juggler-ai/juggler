@@ -138,9 +138,9 @@ directive; the submodule pointer is the source of truth. Its local patches,
 their upstream status and the rebase procedure are in
 [`docs/wails-fork.md`](docs/wails-fork.md).
 
-`3rdparty/fsnotify` is a plain copy of an fsnotify release with one fix, also
-wired in by a `replace`. [`docs/fsnotify-fork.md`](docs/fsnotify-fork.md) says
-what the fix is and when to drop the copy.
+`3rdparty/fsnotify` is a plain copy of an fsnotify release with two fixes,
+also wired in by a `replace`. [`docs/fsnotify-fork.md`](docs/fsnotify-fork.md)
+says what the fixes are and when to drop the copy.
 
 ## Licensing and contributor agreements
 

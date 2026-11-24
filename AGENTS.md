@@ -340,6 +340,7 @@ patch ledger and the full procedure. In short, to rebase:
 5. Update the ledger. Tag the old `juggler-changes` tip before force-pushing
    over it — older checkouts still fetch it by SHA.
 
-`3rdparty/fsnotify` is a plain copy of fsnotify v1.10.1 with one fix (Windows
-`Close` hanging), also wired in by a `replace`. Never edit it except to carry
-an upstream fix; `docs/fsnotify-fork.md` says when to drop it.
+`3rdparty/fsnotify` is a plain copy of fsnotify v1.10.1 with two Windows fixes
+(`Close` hanging, events dropped on a full buffer), also wired in by a
+`replace`. Never edit it except to carry a fix that `docs/fsnotify-fork.md`
+records; that page also says when to drop it.

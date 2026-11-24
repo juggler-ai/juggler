@@ -139,14 +139,14 @@ func TestFileWatcher_RebuildPicksUpGitignoreChange(t *testing.T) {
 	// Un-ignore secret/ (empty .gitignore; different size busts the parse cache)
 	// and rebuild — the previously ignored file should now be indexed.
 	writeGitignore(t, root, "")
-	w.rebuild()
+	w.rebuild("a test")
 	if got := searchPaths(w.Index(), "hidden-widget", 20); !contains(got, "secret/hidden-widget.go") {
 		t.Errorf("after un-ignoring, secret/hidden-widget.go should be indexed, got %v", got)
 	}
 
 	// Now ignore visible/ instead — the rebuild should drop it.
 	writeGitignore(t, root, "visible-widget.go\n")
-	w.rebuild()
+	w.rebuild("a test")
 	if got := searchPaths(w.Index(), "visible-widget", 20); len(got) != 0 {
 		t.Errorf("after ignoring, visible-widget.go should be dropped, got %v", got)
 	}

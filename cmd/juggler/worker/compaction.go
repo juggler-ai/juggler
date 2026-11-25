@@ -667,17 +667,30 @@ func (r *run) foldConversationForCompaction(dest threadContext, opts compactFold
 		prefixEnd++
 	}
 
+	// keep is the current turn's request when the tail opens partway through that
+	// turn: it stays in place, ahead of the summary, while the rest folds.
+	var keep []int
 	if opts.keepRecent {
-		prefixEnd = min(prefixEnd, r.manualTailStart(dest, items, prefixStart, pinnedInvocation))
-		if prefixEnd <= prefixStart || estimateItemsWireTokens(items[prefixStart:prefixEnd], items) < minManualFoldTokens {
-			return "", false, nil
+		tailStart, request := r.manualTailStart(dest, items, prefixStart, pinnedInvocation)
+		prefixEnd = min(prefixEnd, tailStart)
+		if request >= prefixStart && request < prefixEnd {
+			keep = []int{request}
 		}
+	}
+	folding := make([]ConversationItem, 0, prefixEnd-prefixStart)
+	for i := prefixStart; i < prefixEnd; i++ {
+		if len(keep) == 0 || i != keep[0] {
+			folding = append(folding, items[i])
+		}
+	}
+	if opts.keepRecent && (len(folding) == 0 || estimateItemsWireTokens(folding, items) < minManualFoldTokens) {
+		return "", false, nil
 	}
 
 	// A range holding nothing but already-summarized compaction threads would
 	// only re-summarize existing summaries — nothing new to compact.
 	hasFresh := false
-	for _, it := range items[prefixStart:prefixEnd] {
+	for _, it := range folding {
 		if !summarizedCompactionThread(it) {
 			hasFresh = true
 			break
@@ -708,8 +721,8 @@ func (r *run) foldConversationForCompaction(dest threadContext, opts compactFold
 		ItemID:  promptID,
 		Content: DefaultSummarizationPrompt,
 	}
-	nested := make([]ConversationItem, 0, prefixEnd-prefixStart+1)
-	for _, it := range items[prefixStart:prefixEnd] {
+	nested := make([]ConversationItem, 0, len(folding)+1)
+	for _, it := range folding {
 		nested = append(nested, condenseForRefold(it))
 	}
 	nested = append(nested, promptItem)
@@ -731,10 +744,10 @@ func (r *run) foldConversationForCompaction(dest threadContext, opts compactFold
 		NoContextSeed:          true,
 		HandoffPromote:         opts.handoffPromote,
 		Items:                  nestedJSON,
-		FoldedRuns:             foldedRunsIn(items[prefixStart:prefixEnd]),
+		FoldedRuns:             foldedRunsIn(folding),
 	}
 
-	if !r.foldPrefixIntoSummaryTracked(dest.itemID, prefixStart, prefixEnd-prefixStart, nil, summaryItem, promptID, fingerprint) {
+	if !r.foldPrefixIntoSummaryTracked(dest.itemID, prefixStart, prefixEnd-prefixStart, keep, summaryItem, promptID, fingerprint) {
 		return "", false, &BoundedCompactionError{Reason: BoundedCompactionSourceChanged, Message: "conversation changed during compaction; nothing was folded"}
 	}
 	return threadID, true, nil
@@ -750,7 +763,11 @@ func (r *run) foldConversationForCompaction(dest threadContext, opts compactFold
 // floor. That overstates B by the envelope, which matters only at the top of
 // the setting's range on a conversation already near the window. With no known
 // window there is no headroom bound and the share alone decides.
-func (r *run) manualTailStart(dest threadContext, items []ConversationItem, foldStart, pinnedInvocation int) int {
+//
+// request is the item index of the user message the tail's turn began with,
+// when it lies before the tail and stays verbatim ahead of the summary
+// (tailCut.request); -1 when there is none.
+func (r *run) manualTailStart(dest threadContext, items []ConversationItem, foldStart, pinnedInvocation int) (start, request int) {
 	units := recoveryAtomicUnits(items)
 	lo := 0
 	for lo < len(units) && units[lo].start < foldStart {
@@ -772,10 +789,14 @@ func (r *run) manualTailStart(dest threadContext, items []ConversationItem, fold
 		}
 		return tailFoldable
 	}, bounds)
-	if cut.k >= len(units) {
-		return len(items)
+	request = -1
+	if cut.request >= 0 {
+		request = units[cut.request].start
 	}
-	return units[cut.k].start
+	if cut.k >= len(units) {
+		return len(items), request
+	}
+	return units[cut.k].start, request
 }
 
 // foldPrefixIntoSummaryTracked commits a recovery fold as a single, atomically

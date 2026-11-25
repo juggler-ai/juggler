@@ -15,9 +15,14 @@ package worker
 // − summary floor) and h compactionHeadroomFraction. The share is what a user
 // can predict; the headroom bound keeps a fold of a full conversation from
 // freeing too little to matter. The walk keeps whole units (a tool batch never
-// splits), always keeps the newest unit if it fits B at all, and then moves the
-// cut back to the user message the tail begins inside, if that stays within
-// h · B — so the tail opens on a request, and at 0% is the latest user turn.
+// splits) and always keeps the newest unit if it fits B at all.
+//
+// A tail that opens partway through a turn also keeps the user message the
+// turn began with, within h · B: the cut moves back to it when nothing else
+// lies between, so at 0% the tail is the latest user turn. Otherwise the request
+// alone stays verbatim, ahead of the summary, and the turn's work before the
+// cut folds with the history before it — a single long turn is most of a long
+// conversation, and keeping it whole would leave a fold almost nothing to take.
 // The automatic fold folds nothing when the whole conversation already fits
 // h · B (keepAllWithinHeadroom).
 
@@ -70,6 +75,10 @@ type tailCut struct {
 	// keptNewest is false when not even the newest unit could be kept (it is
 	// pinned, or larger than newestBudget); k is then len(units).
 	keptNewest bool
+	// request is the unit holding the user message the tail's turn began with,
+	// when it lies inside the fold range (below k) and stays verbatim ahead of
+	// the summary; -1 when there is none. tailTokens counts it.
+	request int
 }
 
 // chooseTail applies the tail rule over units[lo:], walking back from the
@@ -86,7 +95,7 @@ func chooseTail(items []ConversationItem, units []recoveryUnit, lo int, role fun
 		target = total
 	}
 
-	cut := tailCut{k: len(units)}
+	cut := tailCut{k: len(units), request: -1}
 	for cut.k > lo {
 		u := units[cut.k-1]
 		r := role(u)
@@ -112,8 +121,9 @@ func chooseTail(items []ConversationItem, units []recoveryUnit, lo int, role fun
 		return cut
 	}
 
-	// Snap: if the tail opens partway through a turn, move the cut back to the
-	// user message that turn began with.
+	// If the tail opens partway through a turn, keep the user message that turn
+	// began with: by moving the cut back to it when only standing units lie
+	// between, or else on its own as cut.request.
 	first := cut.k
 	for first < len(units) && role(units[first]) == tailStanding {
 		first++
@@ -121,24 +131,29 @@ func chooseTail(items []ConversationItem, units []recoveryUnit, lo int, role fun
 	if first < len(units) && items[units[first].start].Type == ItemTypeUser {
 		return cut
 	}
-	tokens := cut.tailTokens
+	adjacent := true
 	for j := cut.k; j > lo; j-- {
 		u := units[j-1]
-		r := role(u)
-		if r == tailStanding {
+		switch role(u) {
+		case tailStanding:
+			continue
+		case tailPinned:
+			return cut
+		}
+		if items[u.start].Type != ItemTypeUser {
+			adjacent = false
 			continue
 		}
-		if r == tailPinned {
-			break
+		if cut.tailTokens+u.est > b.headroom {
+			return cut
 		}
-		tokens += u.est
-		if tokens > b.headroom {
-			break
+		cut.tailTokens += u.est
+		if adjacent {
+			cut.k = j - 1
+		} else {
+			cut.request = j - 1
 		}
-		if items[u.start].Type == ItemTypeUser {
-			cut.k, cut.tailTokens = j-1, tokens
-			break
-		}
+		return cut
 	}
 	return cut
 }

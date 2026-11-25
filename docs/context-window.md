@@ -244,10 +244,12 @@ Both kinds of fold keep the same tail, decided the same way:
   the tail is held to half of what the window has left after the system
   prompt, tools and reply, so the fold frees real room instead of folding again
   a few turns later.
-- **Whole steps, starting at a request.** A tool call is never split from its
-  result, and the tail is moved back to begin at your message rather than
-  partway through the reply to it. At 0 percent that leaves just your latest
-  request and what followed it.
+- **Whole steps, and your request kept.** A tool call is never split from its
+  result. When the tail starts partway through the reply to your latest
+  message, that message is kept word for word as well, just ahead of the
+  summary, while the work between it and the tail is folded — so a fold during
+  one long task still frees most of it. At 0 percent that leaves your latest
+  request and the newest step of the work.
 
 An automatic fold that finds the whole conversation already fits within that
 half — for instance after shrinking an oversized tool result — folds nothing.

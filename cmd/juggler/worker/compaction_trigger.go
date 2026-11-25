@@ -552,14 +552,22 @@ func (r *run) compactToFit(limitErr *provider.ContextLimitExceededError, modelCo
 
 	prefixStart := units[skip].start
 	prefixEnd := units[k-1].end
-	// Split the range into what folds and the standing items that stay. Records
-	// are index-aligned with items (the prompt id is in neither), so the
-	// reducer's source is exactly the folded items' records.
+	// The current turn's request, when the tail opens partway through that turn
+	// (tailCut.request), stays in place ahead of the summary with the standing
+	// items. A clamp above may have ended the range before it; it is then
+	// outside the fold and stays anyway.
+	request := -1
+	if cut.request >= 0 && cut.request < k {
+		request = units[cut.request].start
+	}
+	// Split the range into what folds and the items that stay. Records are
+	// index-aligned with items (the prompt id is in neither), so the reducer's
+	// source is exactly the folded items' records.
 	var kept []int
 	folded := make([]ConversationItem, 0, prefixEnd-prefixStart)
 	prefixRecords := make([]string, 0, prefixEnd-prefixStart)
 	for i := prefixStart; i < prefixEnd; i++ {
-		if !isConversationalItemType(items[i].Type) {
+		if i == request || !isConversationalItemType(items[i].Type) {
 			kept = append(kept, i)
 			continue
 		}

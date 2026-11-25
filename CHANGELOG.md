@@ -18,6 +18,7 @@ the current release). The project follows semantic versioning.
 - Sending a message no longer waits for a git snapshot of the project
 - The request timer no longer starts negative or jumps backward on a busy machine
 - Long, often-compacted conversations no longer stall for seconds after every save
+- Compacting during one long task frees most of it, not just a few thousand tokens
 - Windows opening while the computer is busy no longer show "This session stopped"
 - A window onto another computer's server keeps trying at launch, then connects itself
 - On Windows, Ctrl+Shift+N opens one window, not two

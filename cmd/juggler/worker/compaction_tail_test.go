@@ -121,6 +121,62 @@ func TestCompactSnapsTailToUserTurn(t *testing.T) {
 	}
 }
 
+// TestCompactFoldsInsideALongTurn: when most of the conversation is one turn's
+// work after a single request, the fold takes that work too, keeping only the
+// share's newest steps and the request itself verbatim. Snapping the cut back to
+// the request instead would keep the whole turn and fold next to nothing.
+func TestCompactFoldsInsideALongTurn(t *testing.T) {
+	w := tailTestWorker(t, 3, 3000, 30)
+	w.doc.doc.Transact(func(_ *ycrdt.Transaction) {
+		arr := w.doc.ensureItems()
+		arr.Push(ycrdt.ArrayAny{conversationItemToYMap(ConversationItem{Type: ItemTypeUser, ItemID: "req", Content: "do the big task"})})
+		for i := 1; i <= 10; i++ {
+			arr.Push(ycrdt.ArrayAny{conversationItemToYMap(ConversationItem{Type: ItemTypeAssistant, ItemID: fmt.Sprintf("w%d", i), Content: strings.Repeat("z", 3000)})})
+		}
+	}, w.doc.authorID)
+
+	_, folded, err := w.currentRun().foldConversationForCompaction(w.turn.thread, compactFoldOptions{keepRecent: true})
+	if err != nil || !folded {
+		t.Fatalf("fold = (%v, %v), want a fold", folded, err)
+	}
+	got := strings.Join(rootIDs(w), ",")
+	if !strings.HasPrefix(got, "rule,req,fold,") || !strings.HasSuffix(got, ",w10") || strings.Contains(got, "w1,") || strings.Contains(got, "u3") {
+		t.Fatalf("root = %s, want rule,req,fold, then the turn's newest steps only", got)
+	}
+}
+
+// TestContextRecoveryFoldsInsideALongTurn is the automatic fold's half: a turn
+// too large for the headroom still keeps its request verbatim ahead of the
+// summary, rather than folding it away with the work.
+func TestContextRecoveryFoldsInsideALongTurn(t *testing.T) {
+	w := NewConversationWorker("test-conv", "user:test")
+	defer w.doc.Destroy()
+	w.currentRun().storeState(StateProcessing)
+	w.doc.SetMetadata("defaultModelConfig", map[string]any{"provider": "test", "model": "test"})
+	w.SetKeepRecent(func() int { return 30 })
+	items := []ConversationItem{
+		{Type: ItemTypeUser, ItemID: "old", Content: strings.Repeat("x", 300)},
+		// Short, as a request is: the ~980-token tail leaves it little of the
+		// 1250-token headroom.
+		{Type: ItemTypeUser, ItemID: "req", Content: "do the big task"},
+	}
+	for i := range 9 {
+		items = append(items, ConversationItem{Type: ItemTypeAssistant, ItemID: fmt.Sprintf("w%d", i), Content: strings.Repeat("x", 300)})
+	}
+	w.doc.InsertMessage(0, items...)
+	pinned := &ModelConfig{Provider: "original", Model: "rejected"}
+	_, stub := newRecoveryStub(t, pinned)
+	w.SetLLMCaller(stub)
+
+	if _, err := w.ownedRun(t).compactToFit(recoveryLimitErr(), pinned); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(rootIDs(w), ",")
+	if !strings.HasPrefix(got, "req,fold,") || !strings.HasSuffix(got, ",w8") || strings.Contains(got, "w0") {
+		t.Fatalf("root = %s, want req,fold, then the turn's newest steps only", got)
+	}
+}
+
 // TestCompactDeclinesAFoldTooSmallToSummarize: when what would fold is smaller
 // than a summary is worth, /compact folds nothing and says so (folded=false)
 // rather than replacing a few lines with a summary of them.

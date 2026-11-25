@@ -158,7 +158,7 @@ func TakeRelaunchHandoff() { processHandoff() }
 // handoff is what this server would hand on to a relaunch as it stands: what
 // it has open, and who holds it up. handOff takes it for a relaunch.
 func (s *Server) handoff() handoff {
-	h := handoff{LAN: s.lan.Load(), AppStarted: s.starter > 0 || s.appStarted}
+	h := handoff{LAN: s.lan.Load(), AppStarted: s.startedByApp()}
 	if t := s.tunnel.Load(); t != nil {
 		h.Tunnel = t.mode
 	}
@@ -521,8 +521,13 @@ const NoAutoRelaunchEnv = "JUGGLER_NO_AUTO_RELAUNCH"
 // the sessions nor has the server try it over and over. Once a stop is decided
 // on, nothing is tried; and the new process, built from what it relaunched
 // into, sees no other build until the file changes again.
+//
+// A server the desktop app started (startedByApp) never relaunches by itself:
+// the app offers the relaunch from installedBuild and relaunches itself with
+// it when the user asks, and a server gone ahead alone would leave the app
+// running the old build, waiting on that same button.
 func (s *Server) autoRelaunch() {
-	if os.Getenv(NoAutoRelaunchEnv) != "" {
+	if os.Getenv(NoAutoRelaunchEnv) != "" || s.startedByApp() {
 		return
 	}
 	life := s.lifetime()
@@ -558,6 +563,10 @@ func (s *Server) autoRelaunch() {
 		}
 	}
 }
+
+// startedByApp is whether the desktop app started this server: with
+// --started-by, or as the relaunch of one it started (handoff.AppStarted).
+func (s *Server) startedByApp() bool { return s.starter > 0 || s.appStarted }
 
 // quietAsPolled is whether the latest polls found no work running: the
 // registry's own view, which costs no child a call.

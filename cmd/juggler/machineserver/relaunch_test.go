@@ -461,6 +461,34 @@ func TestTheServerTakesUpABuildInstalledOnceItIsQuiet(t *testing.T) {
 	}
 }
 
+// TestAnAppStartedServerLeavesTheRelaunchToTheApp: a server the desktop app
+// started never relaunches into a build installed under it by itself, quiet
+// or not: the app offers the relaunch, and relaunches itself with it, when
+// the user asks; a server gone ahead alone leaves the app on the old build.
+func TestAnAppStartedServerLeavesTheRelaunchToTheApp(t *testing.T) {
+	sc := newStubChild(t)
+	s, _, _, _ := quietServer(t, sc)
+	s.appStarted = true
+	build := "v9.9.9"
+	s.installed.Store(&build)
+	looks := autoRelaunchLooks(t, s)
+	done := make(chan struct{})
+	go func() {
+		s.autoRelaunch()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-looks:
+		t.Fatal("an app-started server looked to relaunch by itself")
+	case <-time.After(5 * time.Second):
+		t.Fatal("autoRelaunch neither returned nor looked within 5s")
+	}
+	if s.ending.decided() || len(s.shutdownReq) != 0 {
+		t.Fatal("an app-started server relaunched by itself")
+	}
+}
+
 // TestABuildThatCannotRelaunchIsTriedOnce: a build the server could not start
 // from is not tried again until another is installed, so a broken install
 // never stops the server's sessions, nor has it ask over and over; and nothing

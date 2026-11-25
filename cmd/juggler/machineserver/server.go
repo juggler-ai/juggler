@@ -449,7 +449,7 @@ func (s *Server) status() statusResponse {
 		InstalledBuild: s.installedBuild(),
 		// The same reading of the hold as heldUp's.
 		AwaitingStarter: s.starter > 0 && !s.starterGone.Load(),
-		AppStarted:      s.starter > 0 || s.appStarted,
+		AppStarted:      s.startedByApp(),
 	}
 	// The peer identity is named while a tunnel is open, the only time a peer
 	// can reach this machine. Asking for it reads or mints it, which every

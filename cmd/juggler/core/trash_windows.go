@@ -48,13 +48,16 @@ var (
 // accidentally delete a conversation. Implemented through the Win32 shell API
 // directly (no cgo) so the binary cross-compiles from non-Windows hosts.
 func trashOrRemove(path string) error {
-	if err := moveToRecycleBin(path); err == nil {
+	if err := moveToOSTrash(path); err == nil {
 		return nil
 	}
 	// Recycle failed (e.g. network volume, overlong path, a handle held in the
 	// folder) — permanent delete, outlasting a briefly held handle.
 	return atomicio.RobustRemoveAll(path)
 }
+
+// moveToOSTrash is trashOrRemove's trip to the Recycle Bin (DisableOSTrash).
+var moveToOSTrash = moveToRecycleBin
 
 func moveToRecycleBin(path string) error {
 	// SHFileOperationW wants an absolute, double-NUL-terminated path list.

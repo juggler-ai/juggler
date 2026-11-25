@@ -25,12 +25,21 @@ var probeTrash sync.Once
 // permanent removal. On macOS/Linux this uses go-trash (Finder trash on
 // darwin, gio/gvfs on Linux).
 func trashOrRemove(path string) error {
-	probeTrash.Do(func() { gotrash.IsAvailable() })
-	if gotrash.IsAvailable() {
-		if _, err := gotrash.MoveToTrash(path); err == nil {
-			return nil
-		}
-		// Trash failed (e.g. network volume) — fall through to permanent delete.
+	if err := moveToOSTrash(path); err == nil {
+		return nil
 	}
+	// No trash, or it failed (e.g. network volume) — permanent delete.
 	return os.RemoveAll(path)
+}
+
+// moveToOSTrash is trashOrRemove's trip to the OS trash (DisableOSTrash).
+var moveToOSTrash = moveToGoTrash
+
+func moveToGoTrash(path string) error {
+	probeTrash.Do(func() { gotrash.IsAvailable() })
+	if !gotrash.IsAvailable() {
+		return errNoOSTrash
+	}
+	_, err := gotrash.MoveToTrash(path)
+	return err
 }

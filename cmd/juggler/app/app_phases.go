@@ -197,6 +197,11 @@ func (a *App) initNetwork() error {
 // its own actor goroutine internally; Shutdown/cleanup of session state is
 // handled by the server when it shuts down.
 func (a *App) initSession() error {
+	// A test server's deletions are a suite's teardown, not the user's: they
+	// stay out of the user's OS trash.
+	if a.flags.testMode {
+		core.DisableOSTrash()
+	}
 	jlog.Info("💾 Creating session manager...")
 	mgr, err := core.NewSessionManagerForPath(a.projectPath)
 	if err != nil {

@@ -1399,7 +1399,20 @@ class WebSocketService {
   _reloadStalePage(reason) {
     this._reconnectPending = false;
     this._heldOpenEvent = undefined;
-    if (!this._shouldReloadOnReconnect()) return false;
+    return this.reloadStalePage(reason);
+  }
+
+  /**
+   * Reload a page that belongs to a server instance that is gone, however that
+   * was found out. Shares the socket's throttle, so no combination of the ways
+   * of finding out can put the viewer in a reload loop.
+   * @param {string} reason - What made the page stale, for the log line.
+   * @param {object} [options]
+   * @param {boolean} [options.throttled=true] - False for a reload the user asked for.
+   * @returns {boolean} True if the reload was started; false if the throttle refused it.
+   */
+  reloadStalePage(reason, { throttled = true } = {}) {
+    if (throttled && !this._shouldReloadOnReconnect()) return false;
     console.warn(`[ESSENTIAL] [WebSocket] Reloading: ${reason}`);
     this._reloadPage();
     return true;

@@ -635,9 +635,9 @@ pinboard-content:focus {
     display: none;
 }
 
-/* Zoom folds into the "…" menu on a narrow header, and a board window is
-   narrow and has no "…" menu — so here it never folds, and the row it sits in
-   holds nothing else to make room for. */
+/* Zoom and theme fold into the "…" popup on a narrow header, and a board
+   window is narrow and has no "…" button — so here they never fold, and the row
+   they sit in holds nothing else to make room for. */
 [data-view="pinboard"] .header-foldable:has(> .header-zoom) {
     display: contents;
 }

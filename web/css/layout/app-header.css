@@ -284,11 +284,10 @@ header-actions .btn-icon-header {
 }
 
 /* Overflow: under 56.25rem of header (900px at 100%) the row runs short, so
-   help and zoom — each also on a shortcut, zoom on the View menu too — fold
-   out of it and the "…" button (utils/header-overflow-menu.js) offers them
-   instead. In rems, so a zoomed row folds when its larger buttons run out of
-   room rather than at a fixed pixel width. The controls
-   that show state (theme, sound) and Settings always stay; the network
+   zoom, theme, sound and help fold out of it, and the "…" button
+   (utils/header-overflow-menu.js) holds those same buttons in a popup instead.
+   In rems, so a zoomed row folds when its larger buttons run out of room
+   rather than at a fixed pixel width. Settings always stays; the network
    button is in the title and never folds. What
    folds is the wrapper, never the button, so nothing here contends with the
    button pattern's own display; shown, a wrapper is `contents` and its buttons
@@ -308,6 +307,26 @@ header-actions .btn-icon-header {
     display: flex;
     align-items: center;
     gap: var(--space-4);
+}
+
+/* The "…" popup's strip: the folded wrappers, lent to it while it is open, in
+   a row that looks as the header's would — the same button size, sized up on
+   touch below, spread across the popup's width. Outside the header's
+   container, a lent wrapper is `contents` again, so its buttons sit straight
+   in the strip. */
+.header-overflow-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+
+    --btn-icon-header-size: 2rem;
+    --btn-icon-header-glyph: 1.25rem;
+}
+
+.header-overflow-strip .btn-icon-header {
+    padding: 0;
+    font-size: var(--font-size-md);
 }
 
 /* A Windows or Linux desktop window has no menu bar, so there the "…" menu is
@@ -335,6 +354,7 @@ header-actions .btn-icon-header {
    stays in proportion at any zoom. */
 @media (hover: none) {
     header-actions,
+    .header-overflow-strip,
     .sidebar-toggle-button {
         --btn-icon-header-size: 2.75rem;
     }

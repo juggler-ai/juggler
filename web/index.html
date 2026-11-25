@@ -49,6 +49,68 @@
     }
     </script>
 
+    <!-- Startup watchdog: reload a page whose own scripts have stopped arriving.
+         Until app.js runs (it says so with `juggler:app-started`), the startup
+         overlay is static markup with nothing to say, and nothing that could
+         notice a wait going wrong has loaded. A request on a connection that
+         died while the phone slept, say, then leaves the spinner up for good,
+         when a reload would have the app up in a second — so a page that sits
+         in view with nothing at all arriving is reloaded. Bounded by progress,
+         not by time: any request completing starts the count again, and time
+         the page is hidden, frozen or too busy to run a timer on time counts
+         for nothing. Reloads share the socket's throttle
+         (services/websocket.js, _shouldReloadOnReconnect), at most one a
+         minute between them, so a page that cannot load cannot loop. Here, in
+         the head and ahead of every external script, so that a stall in any
+         of them is caught too. -->
+    <script nonce="{{.CSPNonce}}">
+        (function () {
+            var STALL_MS = 3000;
+            var TICK_MS = 500;
+            var MAX_TICK_MS = 1000;
+            var RELOAD_KEY = 'jugglerLastReconnectReload';
+            var RELOAD_THROTTLE_MS = 60000;
+            if (typeof PerformanceObserver !== 'function') return;
+            var idleMs = 0;
+            var lastTickAt = Date.now();
+            var observer = new PerformanceObserver(function () { idleMs = 0; });
+            try {
+                observer.observe({ type: 'resource' });
+            } catch (e) {
+                return;
+            }
+            var timer = setInterval(tick, TICK_MS);
+            function stop() {
+                clearInterval(timer);
+                observer.disconnect();
+            }
+            window.addEventListener('juggler:app-started', stop, { once: true });
+            function reloadAllowed() {
+                try {
+                    var last = parseInt(sessionStorage.getItem(RELOAD_KEY) || '0', 10) || 0;
+                    if (Date.now() - last < RELOAD_THROTTLE_MS) return false;
+                    sessionStorage.setItem(RELOAD_KEY, String(Date.now()));
+                    return true;
+                } catch (e) {
+                    return false;
+                }
+            }
+            function tick() {
+                var now = Date.now();
+                var gap = now - lastTickAt;
+                lastTickAt = now;
+                if (document.hidden || gap > MAX_TICK_MS) return;
+                idleMs += gap;
+                if (idleMs < STALL_MS) return;
+                idleMs = 0;
+                if (!reloadAllowed()) return;
+                stop();
+                console.warn('[ESSENTIAL] [startup] Reloading: nothing has arrived for ' + STALL_MS / 1000 + 's and the app has not started');
+                window.location.reload();
+            }
+        })();
+    </script>
+
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="{{.BasePath}}/v{{.StaticVersion}}/resources/juggler-logo.svg">
 
@@ -450,13 +512,13 @@
                         <path fill-rule="evenodd" d="M3 7a2.75 2.75 0 1 0 5.5 0a2.75 2.75 0 1 0 -5.5 0ZM12.25 5.75h7.5a1.25 1.25 0 0 1 1.25 1.25v0a1.25 1.25 0 0 1 -1.25 1.25h-7.5a1.25 1.25 0 0 1 -1.25 -1.25v0a1.25 1.25 0 0 1 1.25 -1.25ZM3 17a2.75 2.75 0 1 0 5.5 0a2.75 2.75 0 1 0 -5.5 0ZM12.25 15.75h7.5a1.25 1.25 0 0 1 1.25 1.25v0a1.25 1.25 0 0 1 -1.25 1.25h-7.5a1.25 1.25 0 0 1 -1.25 -1.25v0a1.25 1.25 0 0 1 1.25 -1.25Z"/>
                     </svg>
                 </button>
-                <!-- Zoom Controls — − and +, a group to assistive technology.
-                     Folded into the "…" menu on a narrow header. -->
+                <!-- Zoom, theme and sound fold together into the "…" popup on
+                     a narrow header, which shows them as these same buttons. -->
                 <div class="header-foldable">
+                <!-- Zoom Controls — − and +, a group to assistive technology. -->
                 <div class="header-zoom" id="header-zoom" role="group" aria-label="Font size">
                 <button class="btn-ghost btn-icon-header zoom-out-button" id="zoom-out-button" title="Decrease font size" data-shortcut-id="zoom-out" aria-label="Decrease font size"></button>
                 <button class="btn-ghost btn-icon-header zoom-in-button" id="zoom-in-button" title="Increase font size" data-shortcut-id="zoom-in" aria-label="Increase font size"></button>
-                </div>
                 </div>
 
                 <!-- Theme Button — flips between light and dark. The icon and
@@ -477,10 +539,11 @@
                     <span class="bell-slash" aria-hidden="true"></span>
                 </button>
                 </div>
+                </div>
 
                 <div class="header-group header-group--app">
                 <!-- Help Button — opens Settings › Keyboard shortcuts. Folded
-                     into the "…" menu on a narrow header. -->
+                     into the "…" popup on a narrow header. -->
                 <div class="header-foldable">
                 <button class="btn-ghost btn-icon-header help-button" id="help-button" title="Tips &amp; keyboard shortcuts" aria-label="Tips and keyboard shortcuts"
                         data-shortcut-id="show-shortcuts">
@@ -495,8 +558,9 @@
                         data-shortcut-id="open-settings"></button>
 
                 <!-- Overflow ("…") — shown only when the header is too narrow
-                     for every control; help and zoom then fold out of the row
-                     and this menu (utils/header-overflow-menu.js) offers them. -->
+                     for every control; zoom, theme, sound and help then fold
+                     out of the row and this popup
+                     (utils/header-overflow-menu.js) holds them. -->
                 <div class="header-overflow">
                 <button class="btn-ghost btn-icon-header header-overflow-button" id="header-overflow-button"
                         title="More" aria-label="More controls">

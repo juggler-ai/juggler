@@ -256,7 +256,16 @@ func (s *Server) readWebAsset(relPath string, fallbackFS fs.FS) ([]byte, error) 
 	return fs.ReadFile(fallbackFS, relPath)
 }
 
-// serveTemplatedHTML writes body as a no-cache HTML response after substituting
+// htmlPageCacheControl is the Cache-Control of every page the server fills in
+// per response. Such a page holds values that are only good for this server
+// process and this response — the API token, the CSP nonce — so a stored copy
+// is a page that cannot talk to its server. "no-cache" is not enough: browsers
+// honour it on an ordinary load, but restoring a tab or going back/forward
+// takes the stored copy without revalidating (mobile browsers do this whenever
+// they bring back a tab they had evicted), and only "no-store" stops it.
+const htmlPageCacheControl = "no-store"
+
+// serveTemplatedHTML writes body as an uncached HTML response after substituting
 // each {{.Key}} placeholder with its value — a lightweight stand-in for
 // html/template used by the static pages that only need literal string
 // substitution. setHeaders installs the page-specific security headers.
@@ -266,7 +275,7 @@ func serveTemplatedHTML(w http.ResponseWriter, body string, vars map[string]stri
 	}
 	setHeaders()
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache, must-revalidate")
+	w.Header().Set("Cache-Control", htmlPageCacheControl)
 	_, _ = w.Write([]byte(body))
 }
 
@@ -456,7 +465,7 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 	// frame (see testPageUILocale); every other server lets nothing frame it.
 	setHTMLSecurityHeadersFramed(w, nonce, s.test.frameableIndex, nativeControlOrigin(r))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache, must-revalidate")
+	w.Header().Set("Cache-Control", htmlPageCacheControl)
 
 	// This window's UI theme mode and zoom (root font-size %), from its slot in
 	// the project session, or ""/0 when it has none. Injected so the page paints

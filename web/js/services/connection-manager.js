@@ -6,6 +6,7 @@ import apiService from './api.js';
 import wsService from './websocket.js';
 import workerManager from './worker-manager.js';
 import { uiPort } from './ui-port.js';
+import { HttpError } from './http.js';
 import Session from '../model/session.js';
 import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
 import { t, markUntranslated } from '../../sdk/lib/i18n.js';
@@ -57,6 +58,9 @@ class ConnectionManager {
 
     /** @type {Promise<void>|null} @private - The one session load, from the moment it is started */
     this._sessionLoad = null;
+
+    /** @type {Promise<unknown>|null} @private - The dialog a failed load raised, settled once it has been answered and acted on */
+    this._loadFailureNotice = null;
 
     // What `this._session` being non-null does NOT tell anyone: the Session is
     // assigned before its load is awaited, and workerManager.init runs at the
@@ -374,13 +378,19 @@ class ConnectionManager {
 
     // Load session data from backend.
     //
-    // Every failure takes the one recovery path below, whatever it says. There
-    // is no "session missing" case to single out: GET /api/session is
-    // registered unconditionally and its handler has no not-found answer (see
-    // HandleGetSession), so a 404 here comes from a request the load
+    // Every failure of a request takes the one recovery path below, whatever it
+    // says. There is no "session missing" case to single out: GET /api/session
+    // is registered unconditionally and its handler has no not-found answer
+    // (see HandleGetSession), so a 404 here comes from a request the load
     // makes afterwards — and reloading the page would only repeat that request,
     // in a loop, with the user unable to reach any control.
+    //
+    // A 401 is the exception, because it is the page's fault and not a
+    // request's: the API token was written into the page by a server process
+    // that is gone, and every request this page makes will be refused —
+    // the project picker's included. A fresh page carries a live token.
     let loadError = null;
+    let staleToken = false;
     try {
       await this._session.persistence.load();
     } catch (error) {
@@ -390,6 +400,7 @@ class ConnectionManager {
       // below rather than silently bricking with no controls.
       console.error('[ConnectionManager] Session load failed:', errorMessage);
       loadError = errorMessage;
+      staleToken = error instanceof HttpError && error.status === 401;
     }
 
     // Square the workspace table with what is actually on disk — interrupted
@@ -438,14 +449,26 @@ class ConnectionManager {
     const linked = this._session.persistence.takeLinkedConversationId();
     if (linked) void revealLinkedConversation(this._session, linked);
 
-    if (loadError) {
+    // Viewer-only from here — the engine realm mounts no dialogs, so its port
+    // is empty, and a reload there ends its host.
+    if (loadError && staleToken && !isEngine()) {
+      if (wsService.reloadStalePage('the server refused this page\'s API token')) return;
+      // The throttle refused: a reload under a minute ago met the same refusal.
+      // Another may still work (a server restarted twice), so offer it.
+      this._loadFailureNotice = Promise.resolve(uiPort()?.confirm(
+        t('This page belongs to a Juggler server that has since restarted. Reload it to continue.'),
+        t('Session load failed'),
+        { confirmText: t('Reload') }
+      )).then((reload) => {
+        if (reload) wsService.reloadStalePage('the user asked to reload', { throttled: false });
+      });
+    } else if (loadError) {
       // Surface the failure now that the picker overlay (wired above) is
-      // available as the recovery path. Viewer-only — the engine realm mounts
-      // no dialogs, so its port is empty.
-      void uiPort()?.alert(
+      // available as the recovery path.
+      this._loadFailureNotice = Promise.resolve(uiPort()?.alert(
         `${t("Couldn't load the session: {error}", { error: loadError })}\n\n${t('Pick a project to try again.')}`,
         t('Session load failed')
-      );
+      ));
     }
   }
 

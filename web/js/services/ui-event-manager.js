@@ -29,7 +29,7 @@ import { toggleSound, isSoundEnabled, ATTENTION_PREFS_EVENT } from '../utils/att
 import { isToolGroupingEnabled, toggleToolGrouping, TOOL_GROUPING_EVENT } from '../utils/tool-grouping-pref.js';
 import { zoomIn, zoomOut } from '../utils/zoom-manager.js';
 import { setupHeaderOverflowMenu } from '../utils/header-overflow-menu.js';
-import { headerOverflowItems, appMenuPlatform } from '../utils/header-overflow-items.js';
+import { headerOverflowItems, appMenuPlatform, foldedControls } from '../utils/header-overflow-items.js';
 import { postWindowControl } from '../../sdk/lib/window-control.js';
 import { isAutoNameEnabled } from './auto-name-setting.js';
 import keyShortcutManager from './key-shortcut-manager.js';
@@ -416,8 +416,8 @@ class UIEventManager {
   /**
    * Setup the "…" overflow button, which CSS shows when the header is too
    * narrow for every control, and always in a Windows or Linux desktop window,
-   * where it is the app menu. Its rows (utils/header-overflow-items.js) run the
-   * same actions as the buttons and menu commands they stand in for.
+   * where it is the app menu. Its popup holds the controls the row folded
+   * away, and the app menu's rows (utils/header-overflow-items.js).
    * @private
    */
   _setupOverflowButton() {
@@ -426,7 +426,9 @@ class UIEventManager {
       console.error('[UIEventManager] Overflow button not found');
       return;
     }
-    this._overflowMenu = setupHeaderOverflowMenu(overflowButton, headerOverflowItems());
+    this._overflowMenu = setupHeaderOverflowMenu(overflowButton, headerOverflowItems(), {
+      controls: () => foldedControls(),
+    });
     // Ctrl+Shift+Q quits from a Windows or Linux desktop window, the keyboard
     // half of the app menu's Exit. Anywhere else the chord is left alone.
     this._unregisterQuit = keyShortcutManager.register('quit', () => {

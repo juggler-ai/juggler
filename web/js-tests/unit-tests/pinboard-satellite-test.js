@@ -924,8 +924,10 @@ export async function runTests() {
           + '<div class="header-foldable"><div class="header-zoom">'
           + '<button class="zoom-out-button"></button>'
           + '<button class="zoom-in-button"></button>'
-          + '</div></div>'
+          + '</div>'
           + '<button class="theme-button"></button>'
+          + '<button class="bell-button"></button>'
+          + '</div>'
           + '</div>'
           + '<div class="header-group header-group--app">'
           + '<button class="settings-button"></button>'
@@ -984,12 +986,13 @@ export async function runTests() {
           .getBoundingClientRect().width;
         assert(Math.round(width) === 900, `the detached board takes the window, got ${width}px`);
 
-        // A board window is usually narrow, and a narrow header folds zoom into
-        // the "…" menu — which a board window does not have.
+        // A board window is usually narrow, and a narrow header folds zoom and
+        // theme into the "…" popup — which a board window does not have.
         host.style.width = '400px';
-        assert(shown('.zoom-out-button') && shown('.zoom-in-button'),
-          'zoom stays in a narrow board window, where there is no "…" menu for it to fold into');
-        assert(!shown('.help-button'), 'while what folds with nowhere to go stays folded');
+        assert(shown('.zoom-out-button') && shown('.zoom-in-button') && shown('.theme-button'),
+          'zoom and theme stay in a narrow board window, where there is no "…" popup for them to fold into');
+        assert(!shown('.help-button') && !shown('.bell-button'),
+          'while what folds with nowhere to go, or belongs to the opening window, stays hidden');
       } finally {
         frame.remove();
       }

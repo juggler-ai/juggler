@@ -279,6 +279,11 @@ class JugglerApp {
 
   /** @private */
   async setup() {
+    // The page's scripts have all arrived and run, so index.html's startup
+    // watchdog stands down: from here the startup overlay is this app's, and
+    // says what it is waiting for.
+    window.dispatchEvent(new Event('juggler:app-started'));
+
     // First thing, ahead of the component lookup and the registry boot below:
     // the host announces a close as soon as the user asks for one, which can be
     // before either has finished, and it waits on the answer. A window closed

@@ -3,12 +3,16 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 /**
- * What the header's "…" menu offers.
+ * What the header's "…" popup offers.
  *
- * Usually only what a narrow header has folded out of its row: zoom and help.
- * A Windows or Linux desktop window is different. It has no menu bar — Linux
- * sets none, and Windows' frameless window never shows one — so there "…" is
- * always in the row and is the app menu, in the place Edge and Chrome put
+ * Usually only what a narrow header has folded out of its row — zoom, theme,
+ * sound and help — and those as the buttons themselves, lent to the popup while
+ * it is open ({@link foldedControls}), not as menu rows: zoom is pressed again
+ * and again, and theme and sound show their state.
+ *
+ * A Windows or Linux desktop window has menu rows too. It has no menu bar —
+ * Linux sets none, and Windows' frameless window never shows one — so there "…"
+ * is always in the row and is the app menu, in the place Edge and Chrome put
  * theirs: the Session menu's commands, Settings and About, and the Exit (Quit
  * on Linux) that is the only way to close every window at once and have the
  * next launch bring them all back. The labels are the native menu's own
@@ -19,7 +23,6 @@
 import { markForTranslation } from '../../sdk/lib/i18n.js';
 import { postWindowControl } from '../../sdk/lib/window-control.js';
 import { openSettings } from '../services/settings-launcher.js';
-import { zoomIn, zoomOut } from './zoom-manager.js';
 
 /** @typedef {import('./header-overflow-menu.js').HeaderOverflowItem} HeaderOverflowItem */
 
@@ -37,18 +40,38 @@ export function appMenuPlatform(root = document.documentElement) {
 }
 
 /**
- * Whether the narrow header has folded zoom and help out of its row — one
- * container query folds both, so their first wrapper answers for all of them.
+ * Whether the narrow header has folded its foldable controls out of its row —
+ * one container query folds them all, so their first wrapper answers for all
+ * of them.
+ * @param {ParentNode} root - Where the header is.
  * @returns {boolean} True while they are folded.
  */
-function headerFolded() {
-  const wrapper = document.querySelector('.header-foldable');
+function headerFolded(root) {
+  const wrapper = root.querySelector('header-actions .header-foldable');
   return !!wrapper && getComputedStyle(wrapper).display === 'none';
 }
 
 /** @returns {boolean} True on a device with no hover, and so likely no keyboard. */
 function isTouch() {
   return window.matchMedia('(hover: none)').matches;
+}
+
+/**
+ * The header's controls the "…" popup shows: the `.header-foldable` wrappers a
+ * narrow header has folded out of its row, in row order, for the popup to hold
+ * while it is open and hand back when it closes. None while the row has room.
+ * Help never — not even then — on a device with no hover: a keyboard reference
+ * is a dead end there, which is why the touch header drops its button too.
+ * @param {object} [options] - Every option defaults to the live page; tests pass their own.
+ * @param {ParentNode} [options.root] - Where the header is.
+ * @param {(root: ParentNode) => boolean} [options.folded] - Whether the row has folded them.
+ * @param {() => boolean} [options.touch] - Whether the device has no hover.
+ * @returns {HTMLElement[]} The wrappers to show.
+ */
+export function foldedControls({ root = document, folded = headerFolded, touch = isTouch } = {}) {
+  if (!folded(root)) return [];
+  const wrappers = /** @type {HTMLElement[]} */ ([...root.querySelectorAll('header-actions .header-foldable')]);
+  return touch() ? wrappers.filter((w) => !w.querySelector('.help-button')) : wrappers;
 }
 
 /**
@@ -60,37 +83,18 @@ function dispatch(type, target = window) {
 }
 
 /**
- * The rows of the "…" menu, in order.
+ * The menu rows of the "…" popup, in order: the app menu's, where "…" is one,
+ * and none anywhere else.
  * @param {object} [options] - Every option defaults to the live page; tests pass their own.
  * @param {'windows'|'linux'|null} [options.platform] - See {@link appMenuPlatform}.
- * @param {() => boolean} [options.folded] - Whether zoom and help are folded out of the row.
- * @param {() => boolean} [options.touch] - Whether the device has no hover.
  * @param {(action: string) => void} [options.post] - The native window-control transport.
  * @returns {HeaderOverflowItem[]} The rows, separators between groups.
  */
 export function headerOverflowItems({
   platform = appMenuPlatform(),
-  folded = headerFolded,
-  touch = isTouch,
   post = postWindowControl,
 } = {}) {
-  // The app menu shows the folded rows only while they are folded; elsewhere
-  // "…" is on screen only then.
-  const unfolded = platform ? () => !folded() : () => false;
-  /** @type {HeaderOverflowItem[]} */
-  const foldedRows = [
-    { label: markForTranslation('Decrease font size'), shortcutId: 'zoom-out', run: () => zoomOut(), omit: unfolded },
-    { label: markForTranslation('Increase font size'), shortcutId: 'zoom-in', run: () => zoomIn(), omit: unfolded },
-    {
-      label: markForTranslation('Tips & keyboard shortcuts'),
-      shortcutId: 'show-shortcuts',
-      run: () => openSettings('shortcuts'),
-      // The same reason the touch header drops the help button: a keyboard
-      // reference is a dead end on a device with no keyboard.
-      omit: () => unfolded() || touch(),
-    },
-  ];
-  if (!platform) return foldedRows;
+  if (!platform) return [];
   return [
     {
       label: markForTranslation('New Conversation'),
@@ -100,8 +104,6 @@ export function headerOverflowItems({
     { label: markForTranslation('New Window'), shortcutId: 'new-window', run: () => dispatch('juggler:new-window') },
     { separator: true },
     { label: markForTranslation('Open or connect to a new session...'), run: () => dispatch('juggler:open-project') },
-    { separator: true },
-    ...foldedRows,
     { separator: true },
     { label: markForTranslation('Settings'), shortcutId: 'open-settings', run: () => openSettings() },
     { label: markForTranslation('About Juggler'), run: () => dispatch('juggler:open-about') },

@@ -153,6 +153,9 @@ function openSurfaceHolding(el) {
  * @param {boolean} [opts.modal=true] - Sheet flavour on narrow screens: modal
  *   (scrim + grabber, scrim-tap dismisses) or non-modal (docked, no scrim,
  *   does not steal focus). Ignored while anchored.
+ * @param {boolean} [opts.asSheet=true] - Become a sheet on narrow screens. Off
+ *   for a small surface that is about its anchor, which stays anchored at
+ *   every width: a strip of buttons standing in for some folded out of a row.
  * @param {boolean|'auto'} [opts.nested=false] - Opened from a control inside
  *   another open popup: it does not announce itself, so that popup stays open
  *   (see `registerOpenPopup`). `'auto'` decides by the anchor: nested exactly
@@ -164,8 +167,9 @@ function openSurfaceHolding(el) {
  *   surface. Off for a surface that never takes focus and is closed because
  *   its field was left: refocusing the field would only reopen it.
  * @param {boolean} [opts.followAnchor=false] - Re-place the surface while
- *   anchored whenever anything scrolls or the window resizes, for an anchor
- *   that sits inside a scrolling box and moves while the surface is open.
+ *   anchored whenever anything scrolls, the window resizes or the anchor
+ *   itself does, for an anchor that sits inside a scrolling box or a row that
+ *   reflows (a zoom) and moves while the surface is open.
  * @returns {() => void} release - Tears down surface, scrim, observer, media
  *   listener and dismissal wiring. Idempotent.
  */
@@ -179,6 +183,7 @@ export function presentPopup({
   insideSelectors,
   reposition = true,
   modal = true,
+  asSheet = true,
   nested = false,
   restoreFocus: restoreFocusOnRelease = true,
   followAnchor = false,
@@ -305,8 +310,9 @@ export function presentPopup({
   };
 
   let revealed = false;
+  const sheetNow = () => asSheet && mql.matches;
   const apply = () => {
-    if (mql.matches) applySheet(); else applyAnchored();
+    if (sheetNow()) applySheet(); else applyAnchored();
     // Placed — reveal it. Harmless to repeat on a breakpoint-crossing re-apply.
     surface.style.removeProperty('visibility');
     // Until now nothing inside could take focus; say so once, for a menu that
@@ -322,10 +328,13 @@ export function presentPopup({
 
   // A sheet ignores its anchor, so only an anchored surface follows it.
   // `scroll` is captured at the window to hear a scroll in any ancestor box.
-  const follow = () => { if (!mql.matches) reposToAnchor(); };
+  const follow = () => { if (!sheetNow()) reposToAnchor(); };
+  /** @type {ResizeObserver|null} */
+  const anchorSize = followAnchor ? new ResizeObserver(follow) : null;
   if (followAnchor) {
     window.addEventListener('scroll', follow, true);
     window.addEventListener('resize', follow);
+    anchorSize?.observe(anchor);
   }
 
   // Position after layout so the surface has measurable dimensions. The handle
@@ -346,6 +355,7 @@ export function presentPopup({
     if (followAnchor) {
       window.removeEventListener('scroll', follow, true);
       window.removeEventListener('resize', follow);
+      anchorSize?.disconnect();
     }
     if (observer) observer.disconnect();
     if (scrim) scrim.remove();

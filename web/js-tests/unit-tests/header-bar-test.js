@@ -21,9 +21,10 @@
  *      4b: the title never overlaps the wordmark or the app's controls.
  *   5. The app-wide controls come in groups (view, app, panel). The network
  *      button in the title keeps its count a badge at every width.
- *   6. Below 900px, help and zoom fold into a "…" menu that offers them back,
- *      with their shortcuts. A Windows or Linux desktop window shows "…" at any
- *      width: there it is the app menu, ending in Exit (Windows) or Quit (Linux).
+ *   6. Below 900px, zoom, theme, sound and help fold into a "…" popup that
+ *      holds those same buttons while it is open, and hands them back when it
+ *      closes. A Windows or Linux desktop window shows "…" at any width: there
+ *      it is the app menu too, ending in Exit (Windows) or Quit (Linux).
  *   7. Tooltips name shortcuts, and never restore a title that changed under them.
  *   8. Under en-XA the network button's title and accessible name are translated.
  *   9. A window on a server the app did not start names that server's host
@@ -38,8 +39,8 @@ import { serverPath } from '../../js/utils/api-url.js';
 import { bindNetworkClients } from '../../js/components/header-controls.js';
 import { externalServerHost } from '../../js/utils/project-open-mode.js';
 import { setupHeaderOverflowMenu } from '../../js/utils/header-overflow-menu.js';
-import { headerOverflowItems } from '../../js/utils/header-overflow-items.js';
-import { assertMenuShape } from '../utilities/menu-assertions.js';
+import { headerOverflowItems, foldedControls } from '../../js/utils/header-overflow-items.js';
+import { assertMenuShape, assertDialogPopover } from '../utilities/menu-assertions.js';
 import keyShortcutManager from '../../js/services/key-shortcut-manager.js';
 import tooltipManager from '../../js/services/tooltip-manager.js';
 import { underPseudoLocale, assertPseudoLocalized } from '../utilities/pseudo-locale.js';
@@ -414,9 +415,9 @@ export async function runTests() {
     passed++;
   } catch (e) { failed++; errors.push(`grouped controls: ${msg(e)}`); }
 
-  // --- 6: below 900px the rarely-used controls fold into a "…" menu ---
+  // --- 6: below 900px zoom, theme, sound and help fold into a "…" popup ---
   try {
-    const folded = ['#help-button', '#zoom-out-button', '#zoom-in-button'];
+    const folded = ['#help-button', '#zoom-out-button', '#zoom-in-button', '#theme-button', '#bell-button'];
     for (const [width, overflowing] of /** @type {const} */ ([[1200, false], [800, true], [400, true]])) {
       const f = await framedHeader(served, width);
       try {
@@ -429,8 +430,8 @@ export async function runTests() {
           assert(displayed(sel) === !overflowing,
             `${width}px: ${sel} is ${overflowing ? 'folded into the menu' : 'in the row'}`);
         }
-        assert(displayed('#settings-button') && displayed('#network-button') && displayed('#theme-button'),
-          `${width}px: settings, network and theme always stay in the row`);
+        assert(displayed('#settings-button') && displayed('#network-button'),
+          `${width}px: settings and network always stay in the row`);
       } finally {
         f.frame.remove();
       }
@@ -461,49 +462,72 @@ export async function runTests() {
       }
     }
 
-    // The menu offers exactly what the row gave up, each with its shortcut.
-    const { root, get } = mountButtons(served, ['header-overflow-button']);
-    const button = get('header-overflow-button');
-    /** @type {string[]} */
-    const ran = [];
-    const menu = setupHeaderOverflowMenu(button, [
-      { label: 'Decrease font size', shortcutId: 'zoom-out', run: () => ran.push('zoom-out') },
-      { label: 'Increase font size', shortcutId: 'zoom-in', run: () => ran.push('zoom-in') },
-      { label: 'Tips & keyboard shortcuts', shortcutId: 'show-shortcuts', run: () => ran.push('help') },
-    ]);
+    // The popup holds the very buttons the row gave up — not rows standing in
+    // for them — so pressing one leaves it open, and closing it, however it is
+    // closed, puts every one back where it was.
+    const header = document.createElement('header');
+    header.className = 'app-header';
+    const actions = document.createElement('header-actions');
+    actions.appendChild(document.importNode(/** @type {Element} */ (served.querySelector('.header-actions-controls')), true));
+    header.appendChild(actions);
+    document.body.appendChild(header);
+    const button = /** @type {HTMLElement} */ (header.querySelector('#header-overflow-button'));
+    const surface = () => document.querySelector('.header-overflow-menu');
+    /**
+     * @param {boolean} touch - Whether the device has no hover.
+     * @returns {HTMLElement[]} What the popup is lent.
+     */
+    const lent = (touch) => foldedControls({ root: header, folded: () => true, touch: () => touch });
+    // Every button of the row, each with the parent and next sibling it has.
+    const places = () => [...header.querySelectorAll('button')]
+      .map((b) => `${b.id}<${/** @type {Element} */ (b.parentElement).className}>${b.nextElementSibling?.id ?? ''}`).join(' ');
+    const before = places();
+    let touch = false;
+    const popup = setupHeaderOverflowMenu(button, [], { controls: () => lent(touch) });
     try {
-      const surface = () => document.querySelector('.header-overflow-menu');
-      assert(!surface() && button.getAttribute('aria-expanded') === 'false', 'the menu starts closed');
+      assert(foldedControls({ root: header, folded: () => false }).length === 0,
+        'a row with room lends nothing');
+      assert(!surface() && button.getAttribute('aria-expanded') === 'false', 'the popup starts closed');
 
       button.click();
-      const rows = [...(surface()?.querySelectorAll('.menu-item') || [])];
-      assert(rows.length === 3, `three rows, got ${rows.length}`);
-      assertMenuShape(surface(), 'header overflow menu');
-      assert(button.getAttribute('aria-expanded') === 'true', 'the button says the menu is open');
-      const labelOf = (/** @type {Element} */ r) => r.querySelector('.menu-item-name')?.textContent;
-      const keysOf = (/** @type {Element} */ r) => r.querySelector('.menu-item-shortcut')?.textContent;
-      assert(rows.map(labelOf).join('|') === 'Decrease font size|Increase font size|Tips & keyboard shortcuts',
-        `the rows are labelled for what they do, got ${rows.map(labelOf).join('|')}`);
-      for (const [i, id] of ['zoom-out', 'zoom-in', 'show-shortcuts'].entries()) {
-        assert(keysOf(rows[i]) === keyShortcutManager.formatBinding(id) && !!keysOf(rows[i]),
-          `row ${i} shows its shortcut ${keyShortcutManager.formatBinding(id)}, got "${keysOf(rows[i])}"`);
-      }
+      assertDialogPopover(surface(), button, 'header overflow popup');
+      const strip = () => [...(surface()?.querySelectorAll('.header-overflow-strip button') || [])].map((b) => b.id).join();
+      assert(strip() === 'zoom-out-button,zoom-in-button,theme-button,bell-button,help-button',
+        `the popup holds the folded buttons in row order, got ${strip()}`);
+      assert(!header.querySelector('#zoom-in-button'), 'lent, not copied: the row no longer has them');
 
-      /** @type {HTMLElement} */ (rows[1]).click();
-      assert(ran.join() === 'zoom-in', `choosing a row runs its action and only its action, got [${ran}]`);
-      assert(!surface() && button.getAttribute('aria-expanded') === 'false', 'choosing a row closes the menu');
+      let zooms = 0;
+      const zoomIn = /** @type {HTMLElement} */ (surface()?.querySelector('#zoom-in-button'));
+      zoomIn.addEventListener('click', () => { zooms++; });
+      zoomIn.click();
+      zoomIn.click();
+      assert(zooms === 2 && !!surface(), `a button in the popup works and leaves it open (${zooms} clicks)`);
+
+      document.body.click();
+      assert(!surface() && button.getAttribute('aria-expanded') === 'false', 'a press outside closes it');
+      assert(places() === before, `and every button is back where it was:\n  ${places()}\nwas\n  ${before}`);
 
       button.click();
-      assert(!!surface(), 'the button opens it again');
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      assert(!surface() && places() === before, 'Escape closes it and puts them back');
+
       button.click();
-      assert(!surface(), 'and a second click on the button closes it');
-      assert(ran.join() === 'zoom-in', 'without running anything');
+      button.click();
+      assert(!surface() && places() === before, 'and so does a second press of the button');
+
+      // A keyboard reference is a dead end on a device with no keyboard.
+      touch = true;
+      button.click();
+      assert(strip() === 'zoom-out-button,zoom-in-button,theme-button,bell-button',
+        `on touch the popup leaves help out, got ${strip()}`);
+      popup.dispose();
+      assert(!surface() && places() === before, 'disposing closes it and puts them back');
     } finally {
-      menu.dispose();
-      root.remove();
+      popup.dispose();
+      header.remove();
     }
     passed++;
-  } catch (e) { failed++; errors.push(`overflow menu: ${msg(e)}`); }
+  } catch (e) { failed++; errors.push(`overflow popup: ${msg(e)}`); }
 
   // --- 6b: in a Windows or Linux desktop window "…" is the app menu ---
   try {
@@ -548,28 +572,41 @@ export async function runTests() {
 
       /** @type {string[]} */
       const posted = [];
-      const compose = (/** @type {'windows'|'linux'|null} */ platform, folded = false, touch = false) =>
-        headerOverflowItems({ platform, folded: () => folded, touch: () => touch, post: (action) => posted.push(action) });
+      const compose = (/** @type {'windows'|'linux'|null} */ platform) =>
+        headerOverflowItems({ platform, post: (action) => posted.push(action) });
       const head = 'New Conversation|New Window|—|Open or connect to a new session...';
       const tail = 'Settings|About Juggler';
-      const foldedRows = 'Decrease font size|Increase font size|Tips & keyboard shortcuts';
-      for (const [platform, folded, touch, want] of /** @type {const} */ ([
-        ['windows', false, false, `${head}|—|${tail}|—|Exit`],
-        ['windows', true, false, `${head}|—|${foldedRows}|—|${tail}|—|Exit`],
-        ['windows', true, true, `${head}|—|Decrease font size|Increase font size|—|${tail}|—|Exit`],
-        ['linux', false, false, `${head}|—|${tail}|—|Quit`],
-        // Anywhere else "…" shows only on a narrow header, and offers back
-        // exactly what the row gave up.
-        [null, true, false, foldedRows],
-        [null, true, true, 'Decrease font size|Increase font size'],
+      for (const [platform, want] of /** @type {const} */ ([
+        ['windows', `${head}|—|${tail}|—|Exit`],
+        ['linux', `${head}|—|${tail}|—|Quit`],
       ])) {
-        const where = `${platform ?? 'no app menu'}${folded ? ', folded' : ''}${touch ? ', touch' : ''}`;
-        const opened = openMenu(compose(platform, folded, touch), where);
+        const opened = openMenu(compose(platform), platform);
         try {
-          assert(opened.rows === want, `${where}: rows are ${opened.rows}, want ${want}`);
+          assert(opened.rows === want, `${platform}: rows are ${opened.rows}, want ${want}`);
         } finally {
           opened.dispose();
         }
+      }
+      // Anywhere else "…" has no rows: what it holds is the row's own buttons.
+      assert(compose(null).length === 0, `no app menu, no rows; got ${compose(null).length}`);
+
+      // A narrow app-menu window has both: the folded buttons above the rows.
+      const lender = document.createElement('div');
+      lender.innerHTML = '<button id="lent-control"></button>';
+      document.body.appendChild(lender);
+      const lentControl = /** @type {HTMLElement} */ (lender.firstElementChild);
+      const both = setupHeaderOverflowMenu(button, compose('windows'), { controls: () => [lentControl] });
+      try {
+        button.click();
+        assert(button.getAttribute('aria-haspopup') === 'menu', 'with rows, "…" announces a menu');
+        const menu = assertMenuShape(surface(), 'app menu with folded controls');
+        const strip = surface()?.querySelector('.header-overflow-strip');
+        assert(!!strip?.contains(lentControl) && !menu.contains(lentControl)
+          && !!(strip.compareDocumentPosition(menu) & Node.DOCUMENT_POSITION_FOLLOWING),
+        'the lent buttons sit in a strip above the menu, outside it');
+      } finally {
+        both.dispose();
+        lender.remove();
       }
 
       const app = openMenu(compose('windows'), 'windows app menu');
@@ -589,9 +626,9 @@ export async function runTests() {
 
       // Under en-XA every row is translated, the Go menu's strings included.
       await underPseudoLocale('test-header-app-menu', () => {
-        const opened = openMenu(compose('windows', true), 'en-XA app menu');
+        const opened = openMenu(compose('windows'), 'en-XA app menu');
         try {
-          assertPseudoLocalized(opened.menu, { skip: '.menu-item-shortcut', atLeast: 9, where: 'Windows app menu' });
+          assertPseudoLocalized(opened.menu, { skip: '.menu-item-shortcut', atLeast: 6, where: 'Windows app menu' });
         } finally {
           opened.dispose();
         }

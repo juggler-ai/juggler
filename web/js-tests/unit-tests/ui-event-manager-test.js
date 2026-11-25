@@ -126,8 +126,17 @@ export async function runTests() {
           shown.push(['tool-grouping title', 'toolGroupingTitle is not exported']);
         }
 
-        // The "…" overflow menu.
-        manager._setupOverflowButton();
+        // The "…" overflow menu, which has rows of its own only where it is
+        // the app menu: in a Windows or Linux desktop window.
+        const { windowMode, windowPlatform } = root.dataset;
+        root.dataset.windowMode = '1';
+        root.dataset.windowPlatform = 'windows';
+        try {
+          manager._setupOverflowButton();
+        } finally {
+          if (windowMode === undefined) delete root.dataset.windowMode; else root.dataset.windowMode = windowMode;
+          if (windowPlatform === undefined) delete root.dataset.windowPlatform; else root.dataset.windowPlatform = windowPlatform;
+        }
         const overflowButton = /** @type {HTMLElement} */ (host.querySelector('#header-overflow-button'));
         overflowButton.click();
         const overflow = /** @type {HTMLElement} */ (document.querySelector('.header-overflow-menu'));

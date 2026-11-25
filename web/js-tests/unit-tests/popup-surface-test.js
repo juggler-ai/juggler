@@ -221,6 +221,29 @@ export async function runTests() {
       });
     });
 
+    await run('a surface that is no sheet stays anchored on a phone', async () => {
+      await asPhone(async () => {
+        __resetPopupManagerForTests();
+        const anchor = document.createElement('button');
+        const surface = document.createElement('nav');
+        surface.className = 'dropdown-menu is-open';
+        document.body.append(anchor);
+        const release = presentPopup({ surface, anchor, id: 'no-sheet', onClose: () => {}, asSheet: false });
+        try {
+          await nextTask();
+          assert(!surface.classList.contains('popup-sheet'), 'the surface must not be presented as a sheet');
+          assert(!document.querySelector('.popup-sheet-scrim') && !surface.querySelector('.popup-sheet-grabber'),
+            'and gets no scrim and no grabber');
+          assert(surface.style.getPropertyValue('--dropdown-y') !== '', 'it is placed against its anchor');
+        } finally {
+          release();
+          anchor.remove();
+          document.querySelectorAll('.popup-sheet-scrim').forEach((el) => el.remove());
+          __resetPopupManagerForTests();
+        }
+      });
+    });
+
     // However tall its content, a sheet leaves a gap of page above it: the
     // scrim showing there is where a tap dismisses it, and the content scrolls
     // inside the sheet instead. The cap is the visible height, not `vh`, which

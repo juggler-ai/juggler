@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"juggler/cmd/juggler/machineserver"
+	"juggler/internal/atomicio"
 	"juggler/internal/binwatch"
 	"juggler/tests/helpers"
 )
@@ -74,12 +75,14 @@ func installAnotherBuild(t *testing.T, path string) {
 	}
 	// Windows lets a running binary be renamed, but not replaced by a rename
 	// (MoveFileEx), so it goes aside first, as the updater and `make` put it.
+	// Both moves ride out a scanner's brief hold on a freshly written binary,
+	// as the updater's do.
 	if runtime.GOOS == "windows" {
-		if err := os.Rename(path, path+".old"); err != nil {
+		if err := atomicio.RobustRename(path, path+".old"); err != nil {
 			t.Fatalf("move the running server's binary aside: %v", err)
 		}
 	}
-	if err := os.Rename(next, path); err != nil {
+	if err := atomicio.RobustRename(next, path); err != nil {
 		t.Fatalf("install over the running server: %v", err)
 	}
 }

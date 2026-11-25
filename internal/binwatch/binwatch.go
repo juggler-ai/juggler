@@ -64,13 +64,18 @@ type Build struct {
 // not a complete Go binary: one with no build ID, or whose build information
 // cannot be parsed, as for a binary still being written.
 func Read(path string) (Build, error) {
-	id, err := ReadID(path)
+	f, err := open(path)
 	if err != nil {
 		return Build{}, err
 	}
-	info, err := buildinfo.ReadFile(path)
+	defer f.Close()
+	id, err := readID(f)
 	if err != nil {
-		return Build{}, err
+		return Build{}, fmt.Errorf("%s: %w", path, err)
+	}
+	info, err := buildinfo.Read(f)
+	if err != nil {
+		return Build{}, fmt.Errorf("%s: %w", path, err)
 	}
 	b := Build{ID: id}
 	for _, s := range info.Settings {
@@ -89,18 +94,27 @@ func Read(path string) (Build, error) {
 // ReadID reads the Go build ID of the binary at path, and nothing else of it:
 // what tells two builds apart, without Read's parse of the build information.
 func ReadID(path string) (string, error) {
-	f, err := os.Open(path)
+	f, err := open(path)
 	if err != nil {
 		return "", err
 	}
 	defer f.Close()
-	start, end, err := IDSpan(f)
+	id, err := readID(f)
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", path, err)
 	}
+	return id, nil
+}
+
+// readID is ReadID of a binary already open.
+func readID(r io.ReaderAt) (string, error) {
+	start, end, err := IDSpan(r)
+	if err != nil {
+		return "", err
+	}
 	id := make([]byte, end-start)
-	if _, err := f.ReadAt(id, start); err != nil {
-		return "", fmt.Errorf("%s: %w", path, err)
+	if _, err := r.ReadAt(id, start); err != nil {
+		return "", err
 	}
 	return string(id), nil
 }

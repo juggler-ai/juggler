@@ -191,6 +191,23 @@ func TestBinwatchMissingFileIsNotReported(t *testing.T) {
 	}
 }
 
+// TestBinwatchReadNeverBlocksAnInstall: a binary binwatch has open can be put
+// aside and replaced, as an update or a rebuild does on Windows while the
+// watcher happens to be reading it.
+func TestBinwatchReadNeverBlocksAnInstall(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "juggler.exe")
+	install(t, path, goBinary(t))
+	f, err := open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if err := os.Rename(path, path+".old"); err != nil {
+		t.Fatalf("put aside while binwatch reads it: %v", err)
+	}
+	install(t, path, goBinary(t))
+}
+
 func TestBinwatchReadsTheStampedVersion(t *testing.T) {
 	if got := stampedVersion("-X juggler/cmd/juggler/core.stampedVersion=v0.8.2-dev -X juggler/cmd/juggler/core.Commit=7c022ce4 -H windowsgui"); got != "v0.8.2-dev" {
 		t.Fatalf("stampedVersion = %q", got)

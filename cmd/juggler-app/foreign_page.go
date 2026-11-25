@@ -5,14 +5,16 @@
 package main
 
 import (
+	"bytes"
 	"crypto/subtle"
 	"encoding/json"
-	"fmt"
+	"io/fs"
 	"net/url"
 	"runtime"
 	"strings"
 
 	"juggler/cmd/juggler/msg"
+	"juggler/web"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -159,120 +161,25 @@ func (a *appState) foreignPageScript(token string, canGoBack, frameless bool, lo
 		Colours:     colours,
 		Glyphs:      windowChrome.Glyphs,
 	})
-	return fmt.Sprintf(foreignPageScriptTemplate, cfg)
+	return "(function () {\nif (window.top !== window) return;\n" + foreignPageBarSource +
+		"\nofferForeignPageBar(" + string(cfg) + ", window);\n})();"
 }
 
-// foreignPageScriptTemplate takes a foreignBarConfig. It builds the bar with
-// the DOM and CSSOM alone — no markup, no style sheet — which a page's CSP or
-// Trusted Types cannot refuse, inside a closed shadow root the page's own CSS
-// cannot reach. It wears the header's chrome as window-chrome.css draws it:
-// the theme's colours, the caption buttons' glyphs and close red, the macOS
-// traffic-light gutter (none in fullscreen, none on a frameless window), and
-// the strip along the top edge left to the OS's resize zone, which does not
-// drag the window.
-const foreignPageScriptTemplate = `(function (bar) {
-  if (window.top !== window || document.querySelector("window-caption-controls")) return;
-  var c = bar.colours;
-  var send = function (m) {
-    if (window._wails && window._wails.invoke) window._wails.invoke(m);
-    else if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage(m);
-    else if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.external) window.webkit.messageHandlers.external.postMessage(m);
-  };
-  var press = function (action) {
-    send(bar.prefix + JSON.stringify({ token: bar.token, action: action, url: location.href }));
-  };
-  var NS = "http://www.w3.org/2000/svg";
-  var setAll = function (el, attrs) {
-    Object.keys(attrs).forEach(function (k) { el.setAttribute(k, attrs[k]); });
-  };
-  var glyph = function (name) {
-    var svg = document.createElementNS(NS, "svg");
-    setAll(svg, bar.glyphs.svg);
-    setAll(svg, { "aria-hidden": "true", focusable: "false", width: "10", height: "10" });
-    bar.glyphs[name].forEach(function (part) {
-      var el = document.createElementNS(NS, part[0]);
-      setAll(el, part[1]);
-      svg.appendChild(el);
-    });
-    return svg;
-  };
-  var old = document.getElementById("__juggler-foreign-page-bar");
-  if (old) old.remove();
-  var host = document.createElement("div");
-  host.id = "__juggler-foreign-page-bar";
-  var root = host.attachShadow({ mode: "closed" });
-  var strip = parseFloat(bar.strip) || 0;
-  var gutter = !bar.frameless && !bar.fullscreen;
-  var el = document.createElement("div");
-  Object.assign(el.style, {
-    position: "fixed", top: "0", left: "0", right: "0", height: "32px", zIndex: "2147483647",
-    display: "flex", alignItems: "stretch", boxSizing: "border-box",
-    paddingLeft: gutter ? bar.gutter : "12px",
-    background: c.bg, color: c.text, borderBottom: "1px solid " + c.border,
-    font: "12px/32px system-ui, sans-serif", userSelect: "none", cursor: "default"
-  });
-  var text = document.createElement("span");
-  text.textContent = bar.labels.page + (location.host ? " \u2014 " + location.host : "");
-  Object.assign(text.style, { flex: "1", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" });
-  el.appendChild(text);
-  var button = function (content, title, action, close) {
-    var b = document.createElement("button");
-    b.type = "button";
-    if (typeof content === "string") b.textContent = content; else b.appendChild(content);
-    b.title = title;
-    b.setAttribute("aria-label", title);
-    Object.assign(b.style, {
-      display: "flex", alignItems: "center", justifyContent: "center",
-      border: "0", margin: "0", padding: "0 14px", minWidth: "46px", background: "transparent",
-      color: c.textSecondary, font: "inherit", cursor: "default"
-    });
-    var rest = function () { b.style.background = "transparent"; b.style.color = c.textSecondary; };
-    b.addEventListener("mouseenter", function () {
-      b.style.background = close ? bar.closeHover : c.raised;
-      b.style.color = close ? c.onAccent : c.text;
-    });
-    b.addEventListener("mouseleave", rest);
-    b.addEventListener("mousedown", function (e) {
-      e.stopPropagation();
-      b.style.background = close ? bar.closeActive : c.border;
-    });
-    b.addEventListener("mouseup", function () { b.style.background = close ? bar.closeHover : c.raised; });
-    b.addEventListener("dblclick", function (e) { e.stopPropagation(); });
-    b.addEventListener("click", function (e) { e.stopPropagation(); press(action); });
-    return b;
-  };
-  var maximised = bar.maximised;
-  var maxButton;
-  var showMaximised = function () {
-    if (!maxButton) return;
-    var label = maximised ? bar.labels.restore : bar.labels.maximise;
-    maxButton.replaceChildren(glyph(maximised ? "restore" : "maximise"));
-    maxButton.title = label;
-    maxButton.setAttribute("aria-label", label);
-  };
-  if (bar.canGoBack) el.appendChild(button(bar.labels.back, bar.labels.back, "back", false));
-  if (bar.frameless) {
-    el.appendChild(button(glyph("minimise"), bar.labels.minimise, "minimise", false));
-    maxButton = button(glyph("maximise"), bar.labels.maximise, "maximise", false);
-    maxButton.addEventListener("click", function () { maximised = !maximised; showMaximised(); });
-    el.appendChild(maxButton);
-    el.appendChild(button(glyph("close"), bar.labels.close, "close", true));
-    showMaximised();
-  }
-  el.addEventListener("mousedown", function (e) {
-    if (e.button === 0 && e.clientY >= strip) send("wails:drag");
-  });
-  el.addEventListener("dblclick", function (e) {
-    if (e.clientY < strip) return;
-    // The runtime's double-click message acts only on macOS (where it honours
-    // the system's title-bar setting); a frameless window asks for maximise.
-    if (bar.frameless) press("maximise"); else send("wails:drag:doubleclick");
-    maximised = !maximised;
-    showMaximised();
-  });
-  root.appendChild(el);
-  (document.body || document.documentElement).appendChild(host);
-})(%s);`
+// foreignPageBarSource is the bar itself, web/js/utils/foreign-page-bar.js: a
+// module holding one function, offerForeignPageBar, taken as a classic script
+// without its export. foreignPageScript wraps it in a function of its own for
+// each load, so the page never sees it.
+var foreignPageBarSource = func() string {
+	const exported = "export function offerForeignPageBar("
+	src, err := fs.ReadFile(web.Shell, "js/utils/foreign-page-bar.js")
+	if err != nil {
+		panic(err)
+	}
+	if !bytes.Contains(src, []byte(exported)) {
+		panic("js/utils/foreign-page-bar.js does not export offerForeignPageBar")
+	}
+	return strings.Replace(string(src), exported, "function offerForeignPageBar(", 1)
+}()
 
 // handleRawMessage is the app's Wails RawMessageHandler: every message a page
 // sends through the bridge that is not Wails' own. The only ones it answers
@@ -326,6 +233,7 @@ func (a *appState) foreignPageAction(e *winEntry, m foreignPageMessage) bool {
 		}
 	})
 	if !valid {
+		logf("window %s: a fallback bar's %s was refused: not the bar of the window's latest page", e.id, m.Action)
 		return false
 	}
 	switch m.Action {
@@ -344,16 +252,34 @@ func (a *appState) foreignPageAction(e *winEntry, m foreignPageMessage) bool {
 // foreignPageBack is Back to Juggler: the page the window was showing,
 // loaded again — unless that page is the foreign one, which loading again
 // would only show again. Then it is the server's own page for a server by URL,
-// and another attempt at the project's session on this machine.
+// and another attempt at the project's session on this machine. Where the
+// server's own page is the foreign one too (a gateway's sign-in page, a plain
+// 403), it is this machine's sessions page, which is Juggler's whatever the
+// server does. It plans off the caller's goroutine, which is the main thread's
+// when a bar's press arrives (framedPageView probes the server).
 func (a *appState) foreignPageBack(e *winEntry, v windowView, pageURL string) {
+	// The page's query and fragment can hold its secrets; the log never does.
+	logged, _, _ := strings.Cut(pageURL, "?")
+	logged, _, _ = strings.Cut(logged, "#")
 	switch {
 	case v.standIn == nil && v.serverURL != "" && !samePage(pageURL, v.serverURL):
+		logf("window %s: Back to Juggler from %s: %s again", e.id, logged, v.serverURL)
 		a.showView(e, showing(v), v, windowOpts{})
 	case v.spec.isURL():
-		spec := v.spec
-		spec.remoteProject = ""
-		a.showView(e, showing(v), a.framedPageView(spec, originOf(spec.url), true), windowOpts{})
+		go func() {
+			spec := v.spec
+			spec.remoteProject = ""
+			next := a.framedPageView(spec, originOf(spec.url), true)
+			if next.standIn == nil && next.framed == "" && samePage(pageURL, next.serverURL) {
+				logf("window %s: Back to Juggler from %s, the server's own page: this machine's sessions page", e.id, logged)
+				a.retarget(e, showing(v), windowSpec{}, windowOpts{})
+				return
+			}
+			logf("window %s: Back to Juggler from %s: the server's page", e.id, logged)
+			a.showView(e, showing(v), next, windowOpts{})
+		}()
 	default:
+		logf("window %s: Back to Juggler from %s: the session again", e.id, logged)
 		a.retarget(e, showing(v), v.spec, windowOpts{})
 	}
 }

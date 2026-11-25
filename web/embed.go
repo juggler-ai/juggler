@@ -20,8 +20,9 @@ var builtin embed.FS
 // Shell is the desktop window's shell and nothing more: the shared templates
 // in shell/ (the header bar's stylesheets, the pre-paint window-mode script,
 // the caption controls, edge resize and fullscreen), what they load, the
-// notice pattern a stand-in's message is laid out by, and the sessions page's
-// stylesheet, whose buttons a stand-in wears.
+// notice pattern a stand-in's message is laid out by, the sessions page's
+// stylesheet, whose buttons a stand-in wears, and the fallback bar the app lays
+// over a page that is not Juggler's (js/utils/foreign-page-bar.js).
 // It is what the desktop app links to draw its own pages (cmd/juggler-app,
 // stand_in.go) — a megabyte, where Files is the whole tree. A binary that links
 // both shares the bytes of the files they have in common.
@@ -37,6 +38,7 @@ var builtin embed.FS
 //go:embed machine/sessions.css
 //go:embed resources/fonts/* resources/juggler-logo.svg resources/juggler-logo-with-name.svg resources/chrome-pattern.svg
 //go:embed js/components/window-caption-controls.js js/components/window-caption-glyphs.js js/components/juggler-element.js
+//go:embed js/utils/foreign-page-bar.js
 //go:embed js/utils/window-edge-resize.js js/utils/window-fullscreen.js js/utils/window-history-buttons.js js/utils/window-resize-cursor.js js/utils/window-shell-theme.js js/utils/fault-report.js
 //go:embed js/services/http.js
 //go:embed sdk/lib/window-control.js sdk/lib/i18n.js sdk/lib/html.js sdk/lib/error-utils.js

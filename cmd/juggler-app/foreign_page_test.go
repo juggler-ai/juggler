@@ -58,6 +58,7 @@ func TestForeignPageBackReturnsToJuggler(t *testing.T) {
 	const server = "http://devbox:3939"
 	spec := windowSpec{url: server + "/stale/path", connected: true, remoteProject: "/home/me/proj"}
 	e := registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: spec, serverURL: server + "/p/proj-0123abcd", secret: "s0"}})
+	shown := viewsShown(t)
 
 	press := func(page string) windowView {
 		t.Helper()
@@ -67,7 +68,7 @@ func TestForeignPageBackReturnsToJuggler(t *testing.T) {
 		if !a.foreignPageAction(e, foreignPageMessage{Token: token, Action: "back", URL: page}) {
 			t.Fatalf("Back from %s was refused", page)
 		}
-		return a.viewOf(e)
+		return (<-shown).view
 	}
 
 	before := a.viewOf(e)
@@ -80,6 +81,30 @@ func TestForeignPageBackReturnsToJuggler(t *testing.T) {
 	want := windowSpec{url: spec.url, connected: true}
 	if v.serverURL != server || v.spec != want {
 		t.Fatalf("Back from the window's own page, foreign, shows %+v; want the server's page at %s", v, server)
+	}
+	a.workspace.flush(nil)
+}
+
+// Back to Juggler never loads again the page the bar lies over: a window on a
+// server whose own page is the foreign one — a gateway's sign-in page, a plain
+// 403 — goes to this machine's sessions page instead.
+func TestForeignPageBackNeverReloadsTheForeignPage(t *testing.T) {
+	userpathstest.Isolate(t)
+	a := newTestAppState(t)
+	a.workspace = newWorkspaceStoreAt(workspacePath(t))
+	shown := viewsShown(t)
+	local, _ := localServer(t, a)
+	server := serverByURL(t, false, nil)
+	e := registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{url: server, connected: true}, serverURL: server, secret: "s0"}})
+
+	a.offerForeignPageBar(e)
+	var token string
+	a.reg(func(*regState) { token = e.foreignToken })
+	if !a.foreignPageAction(e, foreignPageMessage{Token: token, Action: "back", URL: server + "/"}) {
+		t.Fatal("Back from the server's own page was refused")
+	}
+	if s := <-shown; s.view.spec != (windowSpec{}) || s.view.serverURL != local {
+		t.Fatalf("Back from the server's own page, foreign, shows %+v; want this machine's sessions page at %s", s.view, local)
 	}
 	a.workspace.flush(nil)
 }
@@ -115,12 +140,13 @@ func TestForeignPageBarOnABoardAndClosing(t *testing.T) {
 func TestForeignPageScriptCarriesTheWebUIsChrome(t *testing.T) {
 	a := newTestAppState(t)
 	js := a.foreignPageScript(`"tok</script>`, false, true, foreignBarLook{theme: "light", maximised: true})
-	at := strings.LastIndex(js, "})(")
-	if at < 0 || !strings.HasSuffix(js, ");") {
-		t.Fatalf("the script does not end by calling itself with its configuration:\n%s", js)
+	const call, end = "\nofferForeignPageBar(", ", window);\n})();"
+	at := strings.LastIndex(js, call)
+	if at < 0 || !strings.HasSuffix(js, end) {
+		t.Fatalf("the script does not end by offering the bar its configuration:\n%s", js)
 	}
 	var cfg foreignBarConfig
-	if err := json.Unmarshal([]byte(js[at+3:len(js)-2]), &cfg); err != nil {
+	if err := json.Unmarshal([]byte(js[at+len(call):len(js)-len(end)]), &cfg); err != nil {
 		t.Fatalf("the configuration is not one JSON literal: %v\n%s", err, js[at:])
 	}
 	if strings.Contains(js[at:], "</script>") {

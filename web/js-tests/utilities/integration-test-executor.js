@@ -468,6 +468,7 @@ import { runTests as runComposerAttachmentsTests } from '../unit-tests/composer-
 import { runTests as runComposerTests } from '../unit-tests/composer-test.js';
 import { runTests as runCodeBlockTests } from '../unit-tests/code-block-test.js';
 import { runTests as runWindowCaptionControlsTests } from '../unit-tests/window-caption-controls-test.js';
+import { runTests as runForeignPageBarTests } from '../unit-tests/foreign-page-bar-test.js';
 import { runTests as runUIEventManagerTests } from '../unit-tests/ui-event-manager-test.js';
 import { runTests as runPropertiesPanelHelpersTests } from '../unit-tests/properties-panel-helpers-test.js';
 import { runTests as runPropertiesPanelTests } from '../unit-tests/properties-panel-test.js';
@@ -1105,6 +1106,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:composer', run: runComposerTests },
   { name: 'unit:code-block', run: runCodeBlockTests },
   { name: 'unit:window-caption-controls', run: runWindowCaptionControlsTests },
+  { name: 'unit:foreign-page-bar', run: runForeignPageBarTests },
   { name: 'unit:ui-event-manager', run: runUIEventManagerTests },
   { name: 'unit:properties-panel-helpers', run: runPropertiesPanelHelpersTests },
   { name: 'unit:properties-panel', run: runPropertiesPanelTests },

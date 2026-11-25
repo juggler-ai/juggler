@@ -26,27 +26,14 @@
     stroke-dasharray: none;
 }
 
-/* Its menu, presented on <body>, so unscoped: a check gutter for the toggle,
-   as the other checkbox menus have, and the palette as a row of swatches — the
-   one in use ringed, the automatic one dotted. */
-.project-colour-menu__check {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    width: 0.875rem;
-}
-
-.project-colour-menu__check svg {
-    width: 0.875rem;
-    height: 0.875rem;
-    fill: currentcolor;
-}
-
+/* Its menu, presented on <body>, so unscoped: the palette as a row of swatches
+   led by "None" — the one in use ringed, the automatic one dotted. The gap is
+   wider than two rings (0.25rem each, below), so neighbouring rings never
+   touch. */
 .project-colour-menu__swatches {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--space-6);
+    gap: var(--space-10);
     padding: var(--space-4) var(--space-12) var(--space-8);
 }
 
@@ -68,6 +55,19 @@
 
 .project-colour-swatch:where([aria-checked="true"]) {
     box-shadow: 0 0 0 0.125rem var(--bg-secondary), 0 0 0 0.25rem var(--text-primary);
+}
+
+/* "None": an empty disc with a slash through it. */
+.project-colour-swatch--none {
+    background:
+        linear-gradient(
+            to top right,
+            transparent calc(50% - 0.0625rem),
+            var(--text-secondary) calc(50% - 0.0625rem),
+            var(--text-secondary) calc(50% + 0.0625rem),
+            transparent calc(50% + 0.0625rem)
+        );
+    border: 0.0625rem solid var(--border-color);
 }
 
 .project-colour-swatch.is-automatic::after {

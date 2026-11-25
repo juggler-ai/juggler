@@ -10,10 +10,11 @@
  *
  * Its icon is a frame drawn in the project's colour whether or not the border
  * is on — solid while it is, dashed while it is not — so the button also says
- * which colour this project is. Its menu holds two scopes: "Show a coloured
- * border for this window" is this window's alone; the swatches and "Use
- * automatic colour" are the project's, for every one of its windows on this
- * machine, which recolour at once.
+ * which colour this project is. Its menu is a row of swatches led by "None",
+ * and holds two scopes: whether this window has a border is this window's
+ * alone ("None" turns it off, any colour turns it on); which colour it is, and
+ * "Use automatic colour", are the project's, for every one of its windows on
+ * this machine, which recolour at once.
  *
  * On a narrow header the button folds out of the row with zoom and is lent to
  * the "…" popup (utils/header-overflow-menu.js), so its menu may open from
@@ -26,7 +27,6 @@
 
 import { presentPopup } from '../utils/popup-surface.js';
 import { applyMenuRoles, attachMenuKeyboard, focusMenuItem } from '../utils/menu-roles.js';
-import { CHECK_SVG } from '../utils/icons.js';
 import { t } from '../../sdk/lib/i18n.js';
 import {
   PROJECT_COLOURS, PROJECT_COLOURS_EVENT, automaticProjectColour, pickedProjectColour, projectColour,
@@ -132,8 +132,8 @@ class WindowBorderButton extends JugglerElement {
   }
 
   /**
-   * Fill the open menu: this window's border, then the project's colour. A
-   * refill keeps the keyboard on the row it was on.
+   * Fill the open menu: the swatches, "None" first, then "Use automatic
+   * colour". A refill keeps the keyboard on the row it was on.
    * @param {boolean} [first] - Whether the menu is just opening, when it takes
    *   the focus if a key opened it.
    * @private
@@ -147,41 +147,36 @@ class WindowBorderButton extends JugglerElement {
     const current = picked ?? automatic;
     const list = document.createElement('menu');
 
-    const toggle = document.createElement('li');
-    toggle.className = 'menu-item project-colour-menu__toggle';
-    toggle.setAttribute('role', 'menuitemcheckbox');
-    toggle.setAttribute('aria-checked', String(on));
-    const check = document.createElement('span');
-    check.className = 'project-colour-menu__check';
-    check.setAttribute('aria-hidden', 'true');
-    if (on) check.innerHTML = CHECK_SVG;
-    const toggleName = document.createElement('span');
-    toggleName.className = 'menu-item-name';
-    toggleName.textContent = t('Show a coloured border for this window');
-    toggle.append(check, toggleName);
-    toggle.addEventListener('click', (e) => {
-      e.stopPropagation();
-      void setWindowBorder(!isWindowBorderOn());
-      // The change event redraws the menu (render).
-    });
-    list.append(toggle);
-
-    const divider = document.createElement('li');
-    divider.className = 'menu-divider';
-    list.append(divider);
-
-    // No visible heading: a row of swatches under a border toggle says what it
-    // is. The project scope is still named to a screen reader.
+    // No visible heading: a row of swatches under the border button says what
+    // it is. The project scope is still named to a screen reader. One radio
+    // group: "None" while this window has no border, else the colour in use.
     const swatches = document.createElement('li');
     swatches.className = 'project-colour-menu__swatches';
     swatches.setAttribute('role', 'group');
     swatches.setAttribute('aria-label', t('Border colour for this project'));
+
+    const none = document.createElement('span');
+    none.className = 'project-colour-swatch project-colour-swatch--none';
+    none.dataset.colour = 'none';
+    none.setAttribute('role', 'menuitemradio');
+    none.setAttribute('aria-checked', String(!on));
+    none.title = t('None');
+    none.setAttribute('aria-label', t('None'));
+    none.addEventListener('click', (e) => {
+      e.stopPropagation();
+      // "None" is this window's: it hides the border here and leaves the
+      // project's colour as it is for its other windows.
+      if (isWindowBorderOn()) void setWindowBorder(false);
+      // The change event redraws the menu (render).
+    });
+    swatches.append(none);
+
     for (const name of PROJECT_COLOURS) {
       const swatch = document.createElement('span');
       swatch.className = 'project-colour-swatch';
       swatch.dataset.colour = name;
       swatch.setAttribute('role', 'menuitemradio');
-      swatch.setAttribute('aria-checked', String(name === current));
+      swatch.setAttribute('aria-checked', String(on && name === current));
       swatch.style.setProperty('--project-colour', projectColourValue(name));
       if (name === automatic) swatch.classList.add('is-automatic');
       const label = name === automatic

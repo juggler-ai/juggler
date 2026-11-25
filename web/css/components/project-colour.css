@@ -8,12 +8,18 @@
 /* The header's window-border button (components/window-border-button.js): a
    frame drawn in the project's colour (--project-colour), solid while this
    window is bordered and dashed while it is not, so it also says which colour
-   the project is. */
+   the project is.
+   The dashes are fitted to the frame's rect (16 x 16, rx 3.5, in
+   window-border-button.js): its perimeter, 36 + 7π ≈ 57.991, is exactly twelve
+   2.66 + 2.1726 periods, three per side, and the offset centres one dash on
+   each corner, so all four corners and sides come out alike. Change the rect
+   and these numbers must be worked out again. */
 .project-colour-button__frame {
     fill: none;
     stroke: var(--project-colour, currentcolor);
     stroke-width: 2.5;
-    stroke-dasharray: 3 2.4;
+    stroke-dasharray: 2.66 2.1726;
+    stroke-dashoffset: -0.7537;
 }
 
 .project-colour-button.is-active .project-colour-button__frame {

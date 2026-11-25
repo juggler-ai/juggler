@@ -194,6 +194,9 @@ class WindowBorderButton extends JugglerElement {
         // Picking the automatic colour is going back to it, so nothing is
         // stored that the hash already says.
         void setProjectColour(key, name === automatic ? null : name);
+        // Picking a colour is asking to see it, so it turns this window's
+        // border on.
+        if (!isWindowBorderOn()) void setWindowBorder(true);
       });
       swatches.append(swatch);
     }

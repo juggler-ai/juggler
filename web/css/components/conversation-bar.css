@@ -974,25 +974,30 @@ conversation-bar .conversation-bar-tab-auto-name:hover {
 /* Footer holding the Restore offer and the Bin. Its top hairline is the same
    divider, at the same inset, as the one between info cards, so the Bin reads
    as its own zone whether the rail above holds three cards, only its "i" row,
-   or nothing (when the tab list runs right down to it). */
+   or nothing (when the tab list runs right down to it). Both sit at the tab
+   rows' own edge — the list's margin plus its padding — so the bottom of the
+   column keeps the same distance from the window as the list above it. */
 conversation-bar .conversation-bar-footer {
     display: flex;
     flex-direction: column;
     flex: 0 0 auto;
-    margin-inline: var(--space-6);
+    margin-inline: var(--space-14);
     padding-top: var(--space-4);
     border-top: 0.0625rem solid var(--border-divider);
 }
 
 /* Bottom-of-bar Bin entry — opens the bin modal. Carries .btn-ghost, so the
    resting/hover/press chrome is the shared house style; this owns the row
-   layout (icon, label, size hint, count badge) and the type scale. */
+   layout (icon, label, size hint, count badge) and the type scale. Its icon
+   starts where the tab rows' and info cards' content does (their 0.75rem
+   inline padding), and it stands as far off the bottom as the composer's
+   bubble does beside it (composer.css). */
 conversation-bar .conversation-bin-button {
     display: flex;
     align-items: center;
     gap: var(--space-8);
-    margin: 0 0 var(--space-4);
-    padding: var(--space-4) var(--space-16);
+    margin: 0 0 var(--space-12);
+    padding: var(--space-4) var(--space-12);
     font-size: var(--font-size-base);
     flex-shrink: 0;
 }
@@ -1129,8 +1134,8 @@ conversation-bar info-cards-button {
     justify-content: flex-start;
 
     /* The glyph sits 0.25rem inside the 1.5rem button box, so nudging the box in
-       by 0.15rem lines the icon up with the 0.4rem-inset card text below it. */
-    margin-left: var(--space-2);
+       by 0.5rem lines the icon up with the 0.75rem-inset card text below it. */
+    margin-left: var(--space-8);
     flex-shrink: 0;
 }
 
@@ -1202,7 +1207,7 @@ conversation-bar .info-rail {
     gap: var(--space-8);
     overflow: hidden;
     box-sizing: border-box;
-    margin: 0 var(--space-6);
+    margin: 0 var(--space-14);
     padding: var(--space-8) 0 var(--space-14);
     font-family: var(--font-ui);
 
@@ -1234,10 +1239,12 @@ conversation-bar info-rail[data-clipped] {
     mask-image: linear-gradient(to bottom, transparent 0, var(--mask-opaque) var(--conversation-bar-info-card-fade));
 }
 
+/* Inline padding as the tab rows', so a card's text lines up with their names'
+   column and the Bin's icon. */
 conversation-bar .info-card {
     display: flex;
     flex-direction: column;
-    padding: var(--space-8) var(--space-6);
+    padding: var(--space-8) var(--space-12);
 }
 
 /* Zone adjacent cards with a hairline divider (never above the first card). The

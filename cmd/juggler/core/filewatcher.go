@@ -526,11 +526,7 @@ func (w *FileWatcher) pumpEvents() {
 			if !ok {
 				errs = nil
 			} else {
-				jlog.Error("[FileWatcher] Error: %v", err)
-				select {
-				case w.lostC <- struct{}{}:
-				default:
-				}
+				w.noteError(err)
 			}
 		case out <- next:
 			queue[0] = fsnotify.Event{}
@@ -538,6 +534,16 @@ func (w *FileWatcher) pumpEvents() {
 		case <-stop:
 			stop, queue = nil, nil
 		}
+	}
+}
+
+// noteError logs an fsnotify error and asks watchLoop to recover what it may
+// have cost (recoverLost); a request already pending covers this one too.
+func (w *FileWatcher) noteError(err error) {
+	jlog.Error("[FileWatcher] Error: %v", err)
+	select {
+	case w.lostC <- struct{}{}:
+	default:
 	}
 }
 

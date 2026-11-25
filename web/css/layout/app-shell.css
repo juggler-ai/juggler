@@ -31,7 +31,9 @@ app-container {
     display: flex;
     flex-direction: column;
     position: fixed;
-    inset: 0;
+
+    /* Clear of the project border while one is drawn (layout/window-chrome.css). */
+    inset: 0 var(--window-border-inset, 0) var(--window-border-inset, 0);
 }
 
 .logo {

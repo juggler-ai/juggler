@@ -92,7 +92,7 @@ import { SessionSwitcher } from '../js/components/session-switcher.js';
 import { isMac } from '../js/services/key-shortcut-manager.js';
 import { reportFault } from '../js/utils/fault-report.js';
 import { watchPagePanels } from '../sdk/lib/page-panels.js';
-import { cachedMachinePref, reconcilePref, setMachinePref } from '../js/services/prefs.js';
+import { cachedMachinePref, reconcilePref, resyncGlobalSettings, setMachinePref } from '../js/services/prefs.js';
 import { presentModal } from '../js/utils/modal-surface.js';
 import { markDialog } from '../js/utils/dialog-a11y.js';
 
@@ -1566,6 +1566,15 @@ export function mountSessionsPage(root, {
     if (!document.hidden) void refresh();
   };
   document.addEventListener('visibilitychange', onVisible);
+  // The page has no socket for the settings document, so a colour picked for
+  // a project in one of its windows (utils/project-colour.js) reaches the
+  // tiles here when the user comes back to this window. Only a viewer on this
+  // machine may read the document; anywhere else the picks are that device's
+  // own, and already here.
+  const onFocus = () => {
+    if (config.local) void resyncGlobalSettings();
+  };
+  window.addEventListener('focus', onFocus);
   // A folder dropped on the window: the host reads its path off the drag and
   // announces it here, since the page is never told one.
   const onFolderDropped = (/** @type {Event} */ e) => {
@@ -1636,6 +1645,7 @@ export function mountSessionsPage(root, {
       if (timer) clearTimeout(timer);
       stream?.abort();
       document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onFocus);
       document.removeEventListener('keydown', onSwitcherKey);
       switcher?.destroy();
       window.removeEventListener('pageshow', onPageShow);

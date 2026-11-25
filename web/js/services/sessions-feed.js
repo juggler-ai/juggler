@@ -23,6 +23,9 @@
  * @property {string} id - Its handle in the control API (stop, attach). It is
  *   minted at every open, so it is no address.
  * @property {string} project - The project folder it runs.
+ * @property {string} [projectKey] - Its project's storage key, the name its
+ *   page knows it by (window.__projectKey): what its colour is kept under
+ *   (utils/project-colour.js).
  * @property {string} link - Where it is served: its project's link, /p/<key>/,
  *   which outlives it and serves the project's next session.
  * @property {'starting'|'running'|'stopping'|'restarting'|'error'} state - Where its child is in its life.
@@ -76,6 +79,8 @@
  * @property {string[]} paths - The folders, most recent first.
  * @property {Record<string, string>} links - Each folder's project link,
  *   /p/<key>/ (absent for a folder the server named none for).
+ * @property {Record<string, string>} [keys] - Each folder's project storage
+ *   key, as Session.projectKey has it (absent from an older server).
  * @property {Record<string, number>} [waiting] - How many of a folder's
  *   conversations were waiting on the user when its session last ended
  *   (absent for a folder with none).
@@ -112,7 +117,9 @@ const FEED_RETRY_MAX = 30_000;
  */
 export function asRecents(raw) {
   const body = /** @type {Partial<Recents>|null} */ (raw) || {};
-  return { paths: body.paths || [], links: body.links || {}, waiting: body.waiting || {}, used: body.used || {} };
+  return {
+    paths: body.paths || [], links: body.links || {}, keys: body.keys || {}, waiting: body.waiting || {}, used: body.used || {},
+  };
 }
 
 /**

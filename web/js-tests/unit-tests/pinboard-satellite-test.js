@@ -926,6 +926,7 @@ export async function runTests() {
           + '<button class="zoom-in-button"></button>'
           + '</div>'
           + '<button class="theme-button"></button>'
+          + '<button class="project-colour-button"></button>'
           + '<button class="bell-button"></button>'
           + '</div>'
           + '</div>'
@@ -959,6 +960,8 @@ export async function runTests() {
           /** @type {Element} */ (host.querySelector(sel)).getClientRects().length > 0;
         assert(shown('.theme-button') && shown('.zoom-out-button') && shown('.zoom-in-button'),
           'but theme and zoom stay: a board window is read where the window that opened it is not, and they are the controls that answer to that');
+        assert(shown('.project-colour-button'),
+          'and so does the window border, which says which project the board belongs to and is framed on its own');
         assert(styleOf('.app-header').display !== 'none',
           'but the header itself stays: it is the window’s drag region, and on Windows and Linux it carries the only close button');
         assert(styleOf('.app-header__board-title').display === 'flex',
@@ -989,8 +992,8 @@ export async function runTests() {
         // A board window is usually narrow, and a narrow header folds zoom and
         // theme into the "…" popup — which a board window does not have.
         host.style.width = '400px';
-        assert(shown('.zoom-out-button') && shown('.zoom-in-button') && shown('.theme-button'),
-          'zoom and theme stay in a narrow board window, where there is no "…" popup for them to fold into');
+        assert(shown('.zoom-out-button') && shown('.zoom-in-button') && shown('.theme-button') && shown('.project-colour-button'),
+          'zoom, theme and the border stay in a narrow board window, where there is no "…" popup for them to fold into');
         assert(!shown('.help-button') && !shown('.bell-button'),
           'while what folds with nowhere to go, or belongs to the opening window, stays hidden');
       } finally {

@@ -30,7 +30,7 @@ function config() {
     token: 't1', prefix: 'juggler:foreign-page:', canGoBack: true, frameless: true,
     fullscreen: false, maximised: false,
     labels: { page: 'Not Juggler', back: 'Back', minimise: 'Min', maximise: 'Max', restore: 'Restore', close: 'Close' },
-    gutter: '80px', strip: '6px', closeHover: '#c42b1c', closeActive: '#b22a1b', colours,
+    gutter: '92px', titleBar: '52px', strip: '6px', closeHover: '#c42b1c', closeActive: '#b22a1b', colours,
     glyphs: { svg: { viewBox: '0 0 10 10' }, minimise: [], maximise: [], restore: [], close: [] },
   };
 }

@@ -1309,11 +1309,18 @@ func (a *appState) buildWindow(view windowView, saved core.WindowState, hasSaved
 		// the "folder-dropped" window-control action.
 		EnableFileDrop: takesFolderDrops(view),
 		Mac: application.MacWindow{
+			// An empty unified toolbar, transparent and full-size, so the page
+			// draws the whole window: AppKit insets the traffic lights from the
+			// corner, clear of a project border, and centres them in a title bar
+			// as tall as the page's header. The gutter the header leaves for them
+			// is --window-traffic-light-gutter (web/css/tokens/scale.css).
 			TitleBar: application.MacTitleBar{
 				AppearsTransparent:   true,
 				HideTitle:            true,
 				HideToolbarSeparator: true,
 				FullSizeContent:      true,
+				UseToolbar:           true,
+				ToolbarStyle:         application.MacToolbarStyleUnified,
 			},
 			// Escape belongs to the page. Left to AppKit, a fullscreen window
 			// drops out of fullscreen on the same press that stops a turn or
@@ -1458,6 +1465,9 @@ func (a *appState) showWindow(e *winEntry) {
 		enableWebInspector(e.win)
 	}
 	applyWindowChrome(e.win, themeColours[a.chromeTheme(e)])
+	// Once shown it has its native frame, whose corners say how round the
+	// next window's border is drawn (windowHostQuery).
+	noteWindowCornerRadius(e.win)
 }
 
 // windowTheme is the last theme e's page reported, or "" before any has. Read on

@@ -621,23 +621,24 @@ pinboard-content:focus {
    for a project this window does not navigate, and controls belonging to the
    window that opened it.
 
-   Theme and zoom are the exceptions, and stay. A board window is read where
-   the window that opened it is not — the other screen, the other light, the
-   other distance — so it keeps the controls that answer to that. They are the
-   app's own buttons, wired by UIEventManager in every mode, and each window
-   stores what they set under its own role, so a board is themed and sized on
-   its own and exactly as Juggler is. */
+   Theme, zoom and the window border are the exceptions, and stay. A board
+   window is read where the window that opened it is not — the other screen,
+   the other light, the other distance — so it keeps the controls that answer
+   to that, and the border that says which project it belongs to. They are the
+   app's own buttons, wired in every mode, and each window stores what they set
+   under its own role, so a board is themed, sized and framed on its own and
+   exactly as Juggler is. */
 [data-view="pinboard"] .sidebar-toggle-button,
 [data-view="pinboard"] project-path-display,
 [data-view="pinboard"] .network-button,
 [data-view="pinboard"] header-actions > :not(.header-actions-controls),
-[data-view="pinboard"] .header-actions-controls button:not(.theme-button, .zoom-out-button, .zoom-in-button) {
+[data-view="pinboard"] .header-actions-controls button:not(.theme-button, .zoom-out-button, .zoom-in-button, .project-colour-button) {
     display: none;
 }
 
-/* Zoom and theme fold into the "…" popup on a narrow header, and a board
-   window is narrow and has no "…" button — so here they never fold, and the row
-   they sit in holds nothing else to make room for. */
+/* Zoom, theme and the border button fold into the "…" popup on a narrow
+   header, and a board window is narrow and has no "…" button — so here they
+   never fold, and the row they sit in holds nothing else to make room for. */
 [data-view="pinboard"] .header-foldable:has(> .header-zoom) {
     display: contents;
 }

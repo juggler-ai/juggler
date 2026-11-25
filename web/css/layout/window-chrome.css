@@ -72,25 +72,100 @@
     --wails-draggable: no-drag;
 }
 
-/* The frameless Linux window's edge. Windows keeps DWM's border and shadow
-   (DisableFramelessWindowDecorations: false) and macOS its native frame, but a
-   GTK window stripped of its decorations ends at the page's last pixel, so a
-   light-themed window runs straight into a light desktop or the window behind
-   it. A hairline drawn over everything, taking no clicks, gives it the edge a
-   decorated Adwaita window has.
+/* The window's drawn edge: one overlay on <html>, over everything and taking no
+   clicks, so it moves no layout — the price is that it covers the outermost
+   pixels of whatever is under it. Drawn by <html>, and weightless, so it is no
+   rival to any component's own ::after.
 
-   Only while the window has a free edge: a maximised or fullscreen window meets
-   the screen's own edges, where a line would be a stray frame. That is exactly
-   when the edge resize is live (utils/window-edge-resize.js), so its marker is
-   the gate. Drawn by <html>, and weightless, so it is no rival to any
-   component's own ::after. */
-:where(:root[data-window-mode="1"][data-window-platform="linux"][data-window-edge-resize])::after {
+   Two things draw it. The frameless Linux window always has a hairline: Windows
+   keeps DWM's border and shadow (DisableFramelessWindowDecorations: false) and
+   macOS its native frame, but a GTK window stripped of its decorations ends at
+   the page's last pixel, so a light-themed window runs straight into a light
+   desktop or the window behind it, and the hairline gives it the edge a
+   decorated Adwaita window has. And any page that has turned its project
+   border on (utils/window-border.js, data-window-border) draws a thicker line
+   in its project's colour (--project-colour), in a desktop window or a browser
+   tab alike; on Linux it takes the hairline's place.
+
+   Rounded as the window's own corners are (--window-corner-radius, which the
+   pre-paint block in web/shell/window-shell.html takes from the app), since
+   macOS and Windows 11 clip the page to them and a square line would thin to
+   nothing there. */
+:where(:root[data-window-mode="1"][data-window-platform="linux"][data-window-edge-resize])::after,
+:where(:root[data-window-border="1"])::after {
     content: "";
     position: fixed;
     inset: 0;
     border: 1px solid var(--border-color);
+    border-radius: var(--window-corner-radius, 0);
     pointer-events: none;
     z-index: var(--z-frame);
+}
+
+/* The project border: a solid line, then a soft inner edge fading into the
+   page over a couple of pixels. An inset shadow follows the border's inner
+   radius, so the fade is rounded too.
+
+   The band runs past the window's edge (--window-border-overhang), so where
+   macOS and Windows 11 clip the page to their rounded corner, that clip is the
+   only outer edge drawn. A band ending exactly on the curve would be
+   antialiased twice there, once by us and once by the clip, and the corners
+   would look ragged. What shows along the sides is --window-border-width; its
+   radius (--window-border-radius, tokens/scale.css) widens it a little at the
+   corners, where the clip cuts deepest. In a browser tab the overhang is simply
+   off the viewport. In screen pixels, which UI zoom does not scale. */
+:where(:root[data-window-border="1"])::after {
+    /* stylelint-disable rem-over-px/rem-over-px -- a frame round the window is in screen pixels, which UI zoom does not scale */
+    inset: calc(-1 * var(--window-border-overhang));
+    border-width: calc(var(--window-border-width) + var(--window-border-overhang));
+    border-radius: var(--window-border-radius);
+    box-shadow: inset 0 0 2px 1px color-mix(in srgb, var(--project-colour, var(--border-color)) 60%, transparent);
+    /* stylelint-enable rem-over-px/rem-over-px */
+    border-color: var(--project-colour, var(--border-color));
+}
+
+/* Muted while another window has the focus, as the native frame is. */
+:where(:root[data-window-border="1"][data-window-inactive])::after {
+    opacity: 0.45;
+}
+
+/* Only while the desktop window has a free edge: a fullscreen or maximised
+   window meets the screen's own edges, where a line would be a stray frame.
+   Windows and Linux know they have one exactly when the edge resize is live
+   (utils/window-edge-resize.js), so its marker is the gate there; fullscreen
+   says so on every platform (utils/window-fullscreen.js). A browser tab has
+   none of these, and draws whenever the border is on. */
+:where(:root[data-window-mode="1"][data-window-fullscreen="1"])::after,
+:where(:root[data-window-mode="1"][data-window-platform="windows"]:not([data-window-edge-resize]))::after,
+:where(:root[data-window-mode="1"][data-window-platform="linux"]:not([data-window-edge-resize]))::after {
+    content: none;
+}
+
+/* The band would otherwise cover whatever runs to the window's edge — the
+   sidebar's Bin row, the composer, a scrollbar — so while it is drawn the app
+   (app-container, layout/app-shell.css) steps in by its width along the sides
+   and the bottom. Not the top: the header is chrome with room of its own, and
+   on macOS it has to stay where the traffic lights are centred in it. Reset
+   wherever the band is not drawn, by the same gates as above. */
+:where(:root[data-window-border="1"]) {
+    --window-border-inset: var(--window-border-width);
+}
+
+:where(:root[data-window-mode="1"][data-window-fullscreen="1"]),
+:where(:root[data-window-mode="1"][data-window-platform="windows"]:not([data-window-edge-resize])),
+:where(:root[data-window-mode="1"][data-window-platform="linux"]:not([data-window-edge-resize])) {
+    --window-border-inset: 0;
+}
+
+/* The header's window-border button (components/window-border-button.js)
+   builds its own button, which sits in the header's group as the others do;
+   the button and its menu are drawn by components/project-colour.css. */
+window-border-button {
+    display: contents;
+}
+
+window-border-button[hidden] {
+    display: none;
 }
 
 /* A frameless window (Windows + Linux) has no native resize border, so the
@@ -181,6 +256,13 @@ window-caption-controls {
 /* Windows caption width: 46px, full header height (stretched container). */
 :where(:root[data-window-platform="windows"]) .window-caption-btn {
     width: 2.875rem; /* 46px — standard Windows caption-button width */
+}
+
+/* Beside a project border the close glyph sits close to the band and its
+   rounded corner, so it steps left by the band's width to balance the strip.
+   Padding rather than a margin, so its red hover still runs out to the band. */
+:where(:root[data-window-platform="windows"]) .window-caption-btn--close {
+    padding-right: calc(2 * var(--window-border-inset, 0rem));
 }
 
 /* Linux (Adwaita): small circular buttons. */

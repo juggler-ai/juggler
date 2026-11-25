@@ -61,7 +61,7 @@
     --z-modal: 10000;      /* Modals, dialogs */
     --z-above-modal: 10001; /* Dropdowns that must appear above modals (e.g. path completions) */
     --z-toast: 10002;      /* Tooltips, context menu, cues: above everything a user summons */
-    --z-frame: 10003;      /* The window's own drawn edge (Linux): above everything, taking no clicks */
+    --z-frame: 10003;      /* The window's own drawn edge (border, Linux hairline): above everything, taking no clicks */
 
     /* ANSI background palette (utils/ansi.js) — theme-independent and vivid so
        an author's paired foreground (e.g. black on a yellow highlight) reads on
@@ -163,7 +163,33 @@
        fallback bar over a page that is not Juggler's reads it too
        (cmd/juggler-app/foreign_page.go). */
     /* stylelint-disable-next-line rem-over-px/rem-over-px, unit-disallowed-list -- the traffic lights are in screen pixels, which UI zoom does not scale */
-    --window-traffic-light-gutter: 80px;
+    --window-traffic-light-gutter: 92px;
+
+    /* How tall the macOS title bar is: an empty unified toolbar's
+       (cmd/juggler-app/app_state.go), which centres the traffic lights in it.
+       The fallback bar over a page that is not Juggler's is this tall on macOS,
+       so the lights sit inside it (cmd/juggler-app/foreign_page.go). */
+    /* stylelint-disable-next-line rem-over-px/rem-over-px, unit-disallowed-list -- the title bar is in screen pixels, which UI zoom does not scale */
+    --window-title-bar-height: 52px;
+
+    /* The project border's geometry (layout/window-chrome.css). It runs
+       --window-border-overhang past the window's edge, so the OS clip draws its
+       only outer edge. Its radius is the window's (--window-corner-radius, set on
+       <html> by web/shell/window-shell.html) grown by the overhang, which would
+       keep it concentric with a circular corner, plus --window-border-corner-bulge.
+       macOS clips to a continuous corner, which cuts deeper into the curve
+       than a circle of the same radius, so a concentric band thins there; the
+       bulge rounds the band's inner edge more than its outer one, widening it
+       at the corner to make up the difference. Tuned by eye. The overhang
+       keeps the band's outer edge beyond the clip despite the bulge.
+       --window-border-width is how much of the band shows along the sides, and
+       how far the app's layout steps in from them while it is drawn. */
+    /* stylelint-disable rem-over-px/rem-over-px, unit-disallowed-list -- the window's edge is in screen pixels, which UI zoom does not scale */
+    --window-border-width: 4px;
+    --window-border-overhang: 4px;
+    --window-border-corner-bulge: 2px;
+    --window-border-radius: calc(var(--window-corner-radius, 0px) + var(--window-border-overhang) + var(--window-border-corner-bulge));
+    /* stylelint-enable rem-over-px/rem-over-px, unit-disallowed-list */
 
     /* Spacing scale — every padding, margin and gap (scale-literal holds them
        to it). Named for its size in pixels at 100% zoom: two-pixel steps up to

@@ -6,6 +6,7 @@ import { hostedPageURL, hostMovesNoWindow, windowControlURL } from '../../sdk/li
 import { conversationAssetURL } from '../../sdk/file-source.js';
 import { getPaintedTheme, getMode } from '../utils/theme-manager.js';
 import { getCurrentZoom } from '../utils/zoom-manager.js';
+import { isWindowBorderOn } from '../utils/window-border.js';
 import { fetchJson, HttpError } from './http.js';
 import { apiUrl, basePath } from '../utils/api-url.js';
 import { t } from '../../sdk/lib/i18n.js';
@@ -664,6 +665,9 @@ class APIService {
   async openPinboardWindow(owner, board, pin = '', conversation = '', frame = null) {
     const params = newWindowParams();
     params.set('view', 'pinboard');
+    // A board comes out of this window looking as it does, framed included
+    // (utils/window-border.js); the app hands only a board the border.
+    if (isWindowBorderOn()) params.set('border', '1');
     params.set('owner', owner);
     params.set('board', board);
     if (pin) params.set('pin', pin);

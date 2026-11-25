@@ -153,13 +153,17 @@ func TestFileWatcher_RawFeedSkipsIgnoredFiles(t *testing.T) {
 // directory whose create went unheard is watched and indexed, and the raw feed
 // says EventsLost. The directory is made while nothing takes events (watchLoop
 // is not started), so the walk is the only way it can be found.
+//
+// The error goes in through noteError, as pumpEvents hands it on: never sent
+// on fsnotify's Errors channel, which its backend goroutine closes on Stop with
+// nothing ordering an outside send before that close.
 func TestFileWatcher_AnErrorRecoversWhatItMayHaveCost(t *testing.T) {
 	w, root := rawFeedWatcher(t, FileWatcherOptions{}, "src/a.go")
 	dir := filepath.Join(root, "unheard")
 	writeTree(t, root, []string{"unheard/lost-widget.go"})
 
-	w.watcher.Errors <- fsnotify.ErrEventOverflow
-	<-w.lostC // bounded by the test's own deadline
+	w.noteError(fsnotify.ErrEventOverflow)
+	<-w.lostC
 	w.recoverLost()
 
 	if !slices.Contains(w.watcher.WatchList(), dir) {

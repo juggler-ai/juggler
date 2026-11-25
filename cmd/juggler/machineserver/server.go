@@ -663,6 +663,9 @@ type recentsResponse struct {
 	Paths []string `json:"paths"`
 	// Links maps each of Paths to its project's link (projectlink.go).
 	Links map[string]string `json:"links"`
+	// Keys maps each of Paths to its project's storage key
+	// (core.ProjectStorageKey), as Session.ProjectKey has it.
+	Keys map[string]string `json:"keys"`
 	// Waiting maps each of Paths whose saved attention summary has
 	// conversations waiting on the user to how many (attention.Read).
 	Waiting map[string]int `json:"waiting"`
@@ -684,7 +687,7 @@ func (s *Server) handleRecents(w http.ResponseWriter, r *http.Request) {
 // that cannot be read counts as none waiting.
 func (s *Server) recentsNow() recentsResponse {
 	paths := append([]string{}, s.knownRecents()...)
-	out := recentsResponse{Paths: paths, Links: make(map[string]string, len(paths)), Waiting: map[string]int{}, Used: map[string]time.Time{}}
+	out := recentsResponse{Paths: paths, Links: make(map[string]string, len(paths)), Keys: make(map[string]string, len(paths)), Waiting: map[string]int{}, Used: map[string]time.Time{}}
 	if s.recents != nil {
 		used, err := s.recents.Used()
 		if err != nil {
@@ -698,6 +701,7 @@ func (s *Server) recentsNow() recentsResponse {
 	}
 	for _, p := range paths {
 		out.Links[p] = projectLink(p)
+		out.Keys[p] = core.ProjectStorageKey(p)
 		saved, err := attention.Read(p)
 		if err != nil {
 			jlog.Error("[machineserver] reading %s: %v", attention.Path(p), err)

@@ -32,7 +32,20 @@ const minServerWindowProtocol = 1
 // windowHostQuery is what a page is told of the app hosting it, as query
 // parameters to follow its ?nativeCtl=: the app's window-control protocol and
 // its version, which the page reads (web/sdk/lib/window-control.js) to fall
-// back on what an older app can do, and to say which app it is in.
+// back on what an older app can do, and to say which app it is in; and, where
+// the window's corners are rounded, by how much (?corner=, in CSS pixels at
+// 100%), which the page's pre-paint block rounds its drawn border by
+// (web/shell/window-shell.html, --window-corner-radius).
 func windowHostQuery() string {
-	return "&ctlProtocol=" + strconv.Itoa(windowProtocol) + "&appVersion=" + url.QueryEscape(core.Version)
+	return hostQuery(windowCornerRadius())
+}
+
+// hostQuery is windowHostQuery for a window whose corners are rounded by
+// corner. Pure, so the query can be asserted on any platform.
+func hostQuery(corner int) string {
+	q := "&ctlProtocol=" + strconv.Itoa(windowProtocol) + "&appVersion=" + url.QueryEscape(core.Version)
+	if corner > 0 {
+		q += "&corner=" + strconv.Itoa(corner)
+	}
+	return q
 }

@@ -308,6 +308,7 @@
     <link rel="stylesheet" href="{{.BasePath}}/v{{.StaticVersion}}/css/components/path-input.css">
     <link rel="stylesheet" href="{{.BasePath}}/v{{.StaticVersion}}/css/components/context-menu.css">
     <link rel="stylesheet" href="{{.BasePath}}/v{{.StaticVersion}}/css/components/updates.css">
+    <link rel="stylesheet" href="{{.BasePath}}/v{{.StaticVersion}}/css/components/project-colour.css">
     <link rel="stylesheet" href="{{.BasePath}}/v{{.StaticVersion}}/css/components/connectivity.css">
     <link rel="stylesheet" href="{{.BasePath}}/v{{.StaticVersion}}/css/components/settings.css">
     <link rel="stylesheet" href="{{.BasePath}}/v{{.StaticVersion}}/css/components/escape-arm-cue.css">
@@ -531,6 +532,12 @@
                     </svg>
                 </button>
 
+                <!-- Window Border — frames this window in its project's colour,
+                     and picks that colour (components/window-border-button.js).
+                     It builds its own button, and hides itself on a page with
+                     no project. -->
+                <window-border-button></window-border-button>
+
                 <!-- Notification Sounds (bell) Button — per-window sound on/off -->
                 <button class="btn-ghost btn-icon-header bell-button" id="bell-button" title="Toggle notification sounds" aria-label="Toggle notification sounds">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960">
@@ -674,6 +681,7 @@
     <script type="module" src="{{.BasePath}}/v{{.StaticVersion}}/js/components/app-wordmark.js"></script>
     <script type="module" src="{{.BasePath}}/v{{.StaticVersion}}/js/components/update-notice.js"></script>
     <script type="module" src="{{.BasePath}}/v{{.StaticVersion}}/js/components/update-button.js"></script>
+    <script type="module" src="{{.BasePath}}/v{{.StaticVersion}}/js/components/window-border-button.js"></script>
     <script type="module" src="{{.BasePath}}/v{{.StaticVersion}}/js/components/bin-modal.js"></script>
     <script type="module" src="{{.BasePath}}/v{{.StaticVersion}}/js/components/diff-viewer.js"></script>
     <script type="module" src="{{.BasePath}}/v{{.StaticVersion}}/js/components/file-view.js"></script>

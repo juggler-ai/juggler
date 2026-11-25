@@ -162,8 +162,8 @@ func TestForeignPageScriptCarriesTheWebUIsChrome(t *testing.T) {
 	if err := json.Compact(&glyphs, windowChrome.Glyphs); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Gutter != windowChrome.Gutter || cfg.Strip != windowChrome.Strip || string(cfg.Glyphs) != glyphs.String() {
-		t.Errorf("configuration = %+v; want the web UI's gutter, strip and glyphs", cfg)
+	if cfg.Gutter != windowChrome.Gutter || cfg.TitleBar != windowChrome.TitleBar || cfg.Strip != windowChrome.Strip || string(cfg.Glyphs) != glyphs.String() {
+		t.Errorf("configuration = %+v; want the web UI's gutter, title bar, strip and glyphs", cfg)
 	}
 	if other := a.foreignPageScript("t", true, true, foreignBarLook{theme: "mauve"}); !strings.Contains(other, windowChrome.Themes["dark"].BG) {
 		t.Error("a window with no theme does not wear the dark one")
@@ -178,7 +178,7 @@ func TestWindowChromeTokensRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tokens.Gutter != "80px" || tokens.Strip != "6px" || tokens.CloseHover == "" || tokens.CloseActive == "" {
+	if tokens.Gutter != "92px" || tokens.TitleBar != "52px" || tokens.Strip != "6px" || tokens.CloseHover == "" || tokens.CloseActive == "" {
 		t.Errorf("geometry and close colours = %+v", tokens)
 	}
 	for _, theme := range []string{"dark", "light"} {

@@ -147,16 +147,22 @@ func TestOpenedSessionsBecomeRecents(t *testing.T) {
 		t.Fatalf("recents = %v, want %v", got, want)
 	}
 
-	// Each recent, and each session, comes with its project's link — which the
-	// page cannot work out for itself: the key's hash needs crypto.subtle, which
-	// a plain-http LAN origin does not have.
+	// Each recent, and each session, comes with its project's link and its
+	// storage key — which the page cannot work out for itself: the hash needs
+	// crypto.subtle, which a plain-http LAN origin does not have. The key must be
+	// the one the project's own page is given (window.__projectKey), or its row
+	// wears another colour than its windows' borders.
 	var recents struct {
 		Links map[string]string `json:"links"`
+		Keys  map[string]string `json:"keys"`
 	}
 	getJSON(t, front.URL+"/api/server/recents", &recents)
 	for _, p := range []string{a, b} {
 		if got := recents.Links[p]; got != projectLink(p) {
 			t.Errorf("recents link for %s = %q, want %q", p, got, projectLink(p))
+		}
+		if got, want := recents.Keys[p], core.ProjectStorageKey(p); got != want || got == "" {
+			t.Errorf("recents key for %s = %q, want %q", p, got, want)
 		}
 	}
 	var sessions []Session
@@ -167,6 +173,9 @@ func TestOpenedSessionsBecomeRecents(t *testing.T) {
 	for _, sess := range sessions {
 		if sess.Link != projectLink(sess.Project) {
 			t.Errorf("session %s link = %q, want %q", sess.Project, sess.Link, projectLink(sess.Project))
+		}
+		if want := core.ProjectStorageKey(sess.Project); sess.ProjectKey != want || want == "" {
+			t.Errorf("session %s key = %q, want %q", sess.Project, sess.ProjectKey, want)
 		}
 	}
 }

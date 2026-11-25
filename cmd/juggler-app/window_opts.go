@@ -80,6 +80,11 @@ type windowOpts struct {
 	// web/js/utils/zoom-manager.js).
 	zoom int
 
+	// border is whether the opener draws its window border
+	// (web/js/utils/window-border.js). It seeds a detached board, which starts
+	// as the window it came out of looks; the page keeps its own from then on.
+	border bool
+
 	// view names the shell the page builds: empty for the app, viewPinboard for
 	// a board detached into a window of its own. board is the composition that
 	// window is — its own tabs, arranged its own way — and conversation is the
@@ -312,6 +317,7 @@ func windowOptsFromQuery(q url.Values) windowOpts {
 	}
 	if q.Get("view") == viewPinboard {
 		opts.view = viewPinboard
+		opts.border = q.Get("border") == "1"
 		opts.board = normaliseID(q.Get("board"))
 		opts.owner = normaliseID(q.Get("owner"))
 		opts.pin = normaliseID(q.Get("pin"))
@@ -348,6 +354,9 @@ func windowPageURL(serverURL, nativeCtl string, opts windowOpts) string {
 	}
 	if opts.zoom > 0 {
 		u += "&zoom=" + strconv.Itoa(opts.zoom)
+	}
+	if opts.border {
+		u += "&border=1"
 	}
 	if opts.external {
 		u += "&external=1"

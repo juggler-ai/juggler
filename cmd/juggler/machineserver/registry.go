@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/msg"
 )
 
@@ -46,11 +47,15 @@ type Session struct {
 	// Link is where the session is served, its project's link /p/<key>/
 	// (projectlink.go) — an address that outlives the session, and serves the
 	// project's next one.
-	Link  string       `json:"link"`
-	Addr  string       `json:"addr,omitempty"`
-	PID   int          `json:"pid,omitempty"`
-	State SessionState `json:"state"`
-	Error string       `json:"error,omitempty"`
+	Link string `json:"link"`
+	// ProjectKey is the project's storage key (core.ProjectStorageKey), the
+	// name its session's page knows it by (window.__projectKey) — what the
+	// sessions page finds a project's window-border colour under.
+	ProjectKey string       `json:"projectKey,omitempty"`
+	Addr       string       `json:"addr,omitempty"`
+	PID        int          `json:"pid,omitempty"`
+	State      SessionState `json:"state"`
+	Error      string       `json:"error,omitempty"`
 	// RelaunchNeeded marks an errored session whose child was another build
 	// than the server's (errOtherBuild): one installed at the server's path
 	// since it started, which only relaunching the server takes up.
@@ -418,10 +423,11 @@ func (r *registry) open(parent context.Context, project string, work *sync.WaitG
 		}
 		ctx, cancel := context.WithCancel(parent)
 		e := &sessionEntry{Session: Session{
-			ID:        id,
-			Project:   project,
-			Link:      projectLink(project),
-			StartedAt: time.Now(),
+			ID:         id,
+			Project:    project,
+			Link:       projectLink(project),
+			ProjectKey: core.ProjectStorageKey(project),
+			StartedAt:  time.Now(),
 		}, key: projectKey(project), cancel: cancel, done: make(chan struct{}), unviewedSince: time.Now(), leave: r.left}
 		e.setState(SessionStarting)
 		m[id] = e

@@ -33,13 +33,42 @@ func query(t *testing.T, opts windowOpts) url.Values {
 func TestWindowPageURLLeavesAnOrdinaryWindowAlone(t *testing.T) {
 	got := windowPageURL("http://127.0.0.1:8080/", testCtl, windowOpts{theme: "dark", mode: "system", zoom: 110})
 	want := "http://127.0.0.1:8080/?window=1&nativeCtl=" + url.QueryEscape(testCtl) +
-		"&ctlProtocol=" + strconv.Itoa(windowProtocol) + "&appVersion=" + url.QueryEscape(core.Version) +
-		"&theme=dark&mode=system&zoom=110"
+		windowHostQuery() + "&theme=dark&mode=system&zoom=110"
 	if got != want {
 		t.Fatalf("ordinary window URL changed:\n got %s\nwant %s", got, want)
 	}
 	if strings.Contains(got, "view=") {
 		t.Fatal("a window that is not a board must not claim to be one")
+	}
+}
+
+// The host query names the corner radius only where the window has one, and
+// as a whole number the page's pre-paint block can read.
+func TestHostQueryCarriesTheCornerRadius(t *testing.T) {
+	base := "&ctlProtocol=" + strconv.Itoa(windowProtocol) + "&appVersion=" + url.QueryEscape(core.Version)
+	if got := hostQuery(0); got != base {
+		t.Errorf("square corners: got %q, want %q", got, base)
+	}
+	if got, want := hostQuery(16), base+"&corner=16"; got != want {
+		t.Errorf("rounded corners: got %q, want %q", got, want)
+	}
+}
+
+// A board detached from a bordered window opens bordered, and only a board is
+// handed the opener's border: every other window starts without one.
+func TestWindowBorderSeedsOnlyADetachedBoard(t *testing.T) {
+	board := windowOptsFromQuery(url.Values{"view": {viewPinboard}, "board": {"board_one"}, "border": {"1"}})
+	if !board.border {
+		t.Fatal("a board detached from a bordered window must be handed its border")
+	}
+	if q := query(t, board); q.Get("border") != "1" {
+		t.Errorf("border = %q in the board's URL, want 1", q.Get("border"))
+	}
+	if main := windowOptsFromQuery(url.Values{"border": {"1"}}); main.border {
+		t.Error("a new main window starts without a border")
+	}
+	if q := query(t, windowOpts{view: viewPinboard, board: "board_one"}); q.Has("border") {
+		t.Error("a board from an unbordered window carries no border hint")
 	}
 }
 

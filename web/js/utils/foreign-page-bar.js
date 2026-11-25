@@ -42,6 +42,7 @@
  * @property {boolean} maximised - Whether the window is maximised.
  * @property {Record<string, string>} labels - The bar's text, translated.
  * @property {string} gutter - The macOS traffic lights' gutter.
+ * @property {string} titleBar - How tall the macOS title bar is, which the lights are centred in.
  * @property {string} strip - The resize strip along the top edge.
  * @property {string} closeHover - The close button's hovered red.
  * @property {string} closeActive - The close button's pressed red.
@@ -129,13 +130,16 @@ export function offerForeignPageBar(bar, win) {
   const root = host.attachShadow({ mode: 'closed' });
   const strip = parseFloat(bar.strip) || 0;
   const gutter = !bar.frameless && !bar.fullscreen;
+  // Beside the macOS traffic lights the bar is the title bar's height, so they
+  // sit inside it rather than over the page below.
+  const height = gutter && bar.titleBar ? bar.titleBar : '32px';
   const el = document.createElement('div');
   Object.assign(el.style, {
-    position: 'fixed', top: '0', left: '0', right: '0', height: '32px', zIndex: '2147483647',
+    position: 'fixed', top: '0', left: '0', right: '0', height, zIndex: '2147483647',
     display: 'flex', alignItems: 'stretch', boxSizing: 'border-box',
     paddingLeft: gutter ? bar.gutter : '12px',
     background: c.bg, color: c.text, borderBottom: '1px solid ' + c.border,
-    font: '12px/32px system-ui, sans-serif', userSelect: 'none', cursor: 'default',
+    font: '12px system-ui, sans-serif', lineHeight: height, userSelect: 'none', cursor: 'default',
   });
   const text = document.createElement('span');
   text.textContent = (bar.labels.page ?? '') + (location.host ? ' \u2014 ' + location.host : '');

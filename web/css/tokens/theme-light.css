@@ -98,6 +98,17 @@
     --workspace-tint-fill: 2%;
     --workspace-tint-edge: 35%;
 
+    /* The same project colours as the dark theme (see there), deep enough to
+       read as a frame round a light window. Same names, same order. */
+    --project-colour-orange: #ea580c;
+    --project-colour-yellow: #eab308;
+    --project-colour-lime: #65a30d;
+    --project-colour-green: #16a34a;
+    --project-colour-teal: #0d9488;
+    --project-colour-blue: #2563eb;
+    --project-colour-purple: #9333ea;
+    --project-colour-pink: #db2777;
+
     /* The header/sidebar line pattern's strength (see tokens/theme-dark.css). */
     --chrome-pattern-strength: 0.06;
 

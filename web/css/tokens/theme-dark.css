@@ -126,6 +126,22 @@
     --workspace-tint-fill: 2%;
     --workspace-tint-edge: 35%;
 
+    /* The colours a project's windows can be bordered in, and its tile on the
+       session switcher drawn in (utils/project-colour.js, which names them in
+       the same order). Stored by name, so a theme may retune a shade without
+       moving anyone's choice. Bright enough to read as a frame round a dark
+       window, and spaced round the hue wheel so no two are mistaken for each
+       other at a glance. Pure red is left out: a red frame round a window reads
+       as an error, and a border says which project, never how it is doing. */
+    --project-colour-orange: #fb923c;
+    --project-colour-yellow: #facc15;
+    --project-colour-lime: #a3e635;
+    --project-colour-green: #4ade80;
+    --project-colour-teal: #2dd4bf;
+    --project-colour-blue: #60a5fa;
+    --project-colour-purple: #c084fc;
+    --project-colour-pink: #f472b6;
+
     /* How strongly the line pattern behind the header and sidebar is inked
        (layout/app-shell.css). Per theme because light lines on dark and dark
        lines on light don't read at the same opacity. */

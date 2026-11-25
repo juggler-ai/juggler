@@ -227,6 +227,7 @@ import { runTests as runApiUrlTests } from '../unit-tests/api-url-test.js';
 import { runTests as runLinkGuardTests } from '../unit-tests/link-guard-test.js';
 import { runTests as runAnsiTests } from '../unit-tests/ansi-test.js';
 import { runTests as runPrefsTests } from '../unit-tests/prefs-test.js';
+import { runTests as runProjectColourTests } from '../unit-tests/project-colour-test.js';
 import { runTests as runColumnWidthTests } from '../unit-tests/column-width-test.js';
 import { runTests as runColumnFitTests } from '../unit-tests/column-fit-test.js';
 import { runTests as runColumnEdgeTests } from '../unit-tests/column-edge-test.js';
@@ -892,6 +893,9 @@ const UNIT_TEST_SUITES = [
   // Exclusive: it stubs window.fetch and writes localStorage keys, on an
   // origin every lane shares.
   { name: 'unit:prefs', run: runPrefsTests, needsExclusiveRun: true },
+  // Exclusive for the same reason: it stands in for the server and writes the
+  // localStorage cache of the project colours, one name for every lane.
+  { name: 'unit:project-colour', run: runProjectColourTests, needsExclusiveRun: true },
   // Exclusive for the same reason: it stands in for the server and writes
   // the localStorage cache behind the widths.
   { name: 'unit:column-width', run: runColumnWidthTests, needsExclusiveRun: true },

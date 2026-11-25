@@ -22,6 +22,7 @@ import {
   attentionCounts, baseName, initials, inLifecycle, lifecycleText, relative,
 } from '../utils/session-attention.js';
 import { workspaceTint } from '../utils/workspace-colour.js';
+import { projectColour, projectColourValue, PROJECT_COLOURS_EVENT } from '../utils/project-colour.js';
 import { formatBindingLabel, isMac } from '../services/key-shortcut-manager.js';
 
 /**
@@ -39,8 +40,8 @@ function chord(key) {
  * @typedef {{kind: 'session', key: string, session: Session, here: boolean, elsewhere: boolean}} SessionItem
  *   An open session: here when it is this window's, elsewhere when another
  *   viewer holds it.
- * @typedef {{kind: 'recent', key: string, path: string, link: string, used: string, waiting: number}} RecentItem
- *   A recent project with no session open.
+ * @typedef {{kind: 'recent', key: string, path: string, link: string, projectKey: string, used: string, waiting: number}} RecentItem
+ *   A recent project with no session open; projectKey is its storage key, '' from a server too old to send one.
  * @typedef {{kind: 'action', key: string, action: 'open'|'new'|'path', path?: string}} ActionItem
  *   A way of opening another: the folder chooser (or a typed path), a new
  *   folder, or the path typed in the filter.
@@ -133,6 +134,7 @@ export function switcherItems({ sessions, recents, ownLink, query, canPickFolder
       key: `r:${path}`,
       path,
       link: recents.links?.[path] || '',
+      projectKey: recents.keys?.[path] || '',
       used: recents.used?.[path] || '',
       waiting: recents.waiting?.[path] || 0,
     });
@@ -277,16 +279,28 @@ function el(tag, className, content = [], attrs = {}) {
 }
 
 /**
- * A project's tile: its initials on its hue, hashed from its link — the hue
- * says which project, never how it is doing.
+ * The colour a project's tile wears: the project's own (utils/project-colour.js),
+ * which its windows' borders wear too — the hue says which project, never how
+ * it is doing. A row from a server too old to name the project's storage key
+ * is hashed from its link instead.
+ * @param {string} projectKey - The project's storage key, or ''.
+ * @param {string} fallback - Its link, or its path where it has none.
+ * @returns {string} A CSS colour value.
+ */
+function tileTint(projectKey, fallback) {
+  return projectKey ? projectColourValue(projectColour(projectKey)) : workspaceTint(fallback);
+}
+
+/**
+ * A project's tile: its initials on its colour ({@link tileTint}).
  * @param {string} name - The project's folder name.
- * @param {string} hueKey - Its link, or its path where it has none.
+ * @param {string} tint - Its colour, as tileTint gives it.
  * @param {boolean} [dim] - Whether it is a project with no session.
  * @returns {HTMLElement} The tile in its wrap, which carries the marks.
  */
-function tile(name, hueKey, dim = false) {
+function tile(name, tint, dim = false) {
   const face = el('span', dim ? 'session-switcher-tile session-switcher-tile-dim' : 'session-switcher-tile', initials(name));
-  face.style.setProperty('--session-switcher-tint', workspaceTint(hueKey));
+  face.style.setProperty('--session-switcher-tint', tint);
   const wrap = el('span', 'session-switcher-tile-wrap', [], { 'aria-hidden': 'true' });
   wrap.append(face);
   return wrap;
@@ -403,6 +417,9 @@ export class SessionSwitcher {
     this._list.addEventListener('mousedown', this._onMouseDown);
     this._list.addEventListener('mousemove', this._onMouseMove);
     this._list.addEventListener('click', this._onClick);
+    // A colour picked here or in another window recolours the tiles.
+    this._onColours = () => this._render(false);
+    window.addEventListener(PROJECT_COLOURS_EVENT, this._onColours);
   }
 
   /**
@@ -516,6 +533,7 @@ export class SessionSwitcher {
     this._list.removeEventListener('mousedown', this._onMouseDown);
     this._list.removeEventListener('mousemove', this._onMouseMove);
     this._list.removeEventListener('click', this._onClick);
+    window.removeEventListener(PROJECT_COLOURS_EVENT, this._onColours);
   }
 
   /**
@@ -531,6 +549,9 @@ export class SessionSwitcher {
     const now = this._now();
     const shown = JSON.stringify([
       this._items.map((it) => (it.kind === 'session' ? [it.key, it.here, it.elsewhere, it.session] : it)),
+      // A colour picked in some window recolours a row whose data is unchanged.
+      this._items.map((it) => (it.kind === 'session' ? tileTint(it.session.projectKey || '', '')
+        : it.kind === 'recent' ? tileTint(it.projectKey, '') : '')),
       this._query, this._confirmKey, this._fieldKey, [...this._pending], Math.floor(now / 60000),
     ]);
     if (shown !== this._shown) {
@@ -614,7 +635,7 @@ export class SessionSwitcher {
     const s = it.session;
     const pending = this._pending.get(it.key);
     const name = baseName(s.project);
-    const wrap = tile(name, s.link || s.project);
+    const wrap = tile(name, tileTint(s.projectKey || '', s.link || s.project));
     if (pending || inLifecycle(s)) {
       const spinner = el('juggler-spinner', 'session-switcher-tile-spinner');
       wrap.append(spinner);
@@ -700,7 +721,7 @@ export class SessionSwitcher {
   _recentRow(it, now) {
     const name = baseName(it.path);
     const pending = this._pending.get(it.key);
-    const wrap = tile(name, it.link || it.path, true);
+    const wrap = tile(name, tileTint(it.projectKey, it.link || it.path), true);
     if (pending) {
       const spinner = el('juggler-spinner', 'session-switcher-tile-spinner');
       wrap.append(spinner);

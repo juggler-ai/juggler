@@ -95,7 +95,8 @@ export function hostMovesNoWindow() {
 /**
  * The address of path on this page's server, as this window's next page:
  * carrying what the app hosting it put in this page's own address — window
- * mode, the control endpoint and what the app says of itself — so the page it
+ * mode, the control endpoint and what the app says of itself, its window's
+ * corner radius among it — so the page it
  * loads is still that app's window. Only for this window's own navigation:
  * the control endpoint must never reach another page.
  * @param {string} path - The path on this page's server, with any query.
@@ -104,7 +105,7 @@ export function hostMovesNoWindow() {
 export function hostedPageURL(path) {
   const target = new URL(path, window.location.href);
   const own = new URL(window.location.href).searchParams;
-  for (const key of ['window', 'nativeCtl', 'ctlProtocol', 'appVersion', 'external']) {
+  for (const key of ['window', 'nativeCtl', 'ctlProtocol', 'appVersion', 'corner', 'external']) {
     const value = own.get(key);
     if (value !== null && !target.searchParams.has(key)) target.searchParams.set(key, value);
   }

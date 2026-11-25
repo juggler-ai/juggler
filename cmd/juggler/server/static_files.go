@@ -6,9 +6,7 @@ package server
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -346,36 +344,6 @@ func (s *Server) serveFavicon(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(content)
 }
 
-// projectStorageKeyLen is how much of the path hash the viewer's storage key
-// carries: 8 bytes, plenty to separate one user's project folders.
-const projectStorageKeyLen = 16
-
-// projectStorageKey derives an opaque, stable per-project key that the viewer
-// uses to namespace its own localStorage.
-//
-// The page origin identifies the machine server, not a project: every session
-// it runs is served from that one origin under /p/<key>/, so a bare key can hold
-// the value another project left behind; and a viewer reaching the server over
-// the studio relay sees a single origin for every project on every machine it
-// connects to. Keyed by this, a cached preference belongs to
-// the project it was set in.
-//
-// It hashes the path rather than carrying it because the key is visible in a
-// localStorage that origin shares with other pages, and where a project lives is
-// nobody else's business. Empty for an empty path, where the viewer falls back
-// to the bare key.
-func projectStorageKey(projectPath string) string {
-	if projectPath == "" {
-		return ""
-	}
-	abs := projectPath
-	if a, err := filepath.Abs(projectPath); err == nil {
-		abs = a
-	}
-	sum := sha256.Sum256([]byte(filepath.Clean(abs)))
-	return hex.EncodeToString(sum[:])[:projectStorageKeyLen]
-}
-
 // The names the viewer stores the theme mode and the UI zoom under: per window,
 // in the window's slot of the project session's UI preferences, and — what an
 // older build kept for the whole machine — in settings.json's ui section
@@ -552,7 +520,7 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 		UICatalog:      uiCatalog,
 		// Namespaces the viewer's localStorage so a cached zoom/theme belongs to
 		// the project it was set in, whichever origin the viewer arrived on.
-		ProjectKey: projectStorageKey(s.ProjectPath()),
+		ProjectKey: core.ProjectStorageKey(s.ProjectPath()),
 		// The desktop app opens the page with ?window=1; remote browsers never
 		// have it. Mirrors the client-side check in the window shell
 		// (web/shell/window-shell.html) and gates the Wails runtime <script>,

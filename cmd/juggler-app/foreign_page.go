@@ -122,6 +122,7 @@ type foreignBarConfig struct {
 	// The web UI's chrome (window_chrome_tokens.go): its geometry and close
 	// colours, the theme's colours, and the caption glyphs.
 	Gutter      string            `json:"gutter"`
+	TitleBar    string            `json:"titleBar"`
 	Strip       string            `json:"strip"`
 	CloseHover  string            `json:"closeHover"`
 	CloseActive string            `json:"closeActive"`
@@ -155,6 +156,7 @@ func (a *appState) foreignPageScript(token string, canGoBack, frameless bool, lo
 			"close":    a.tr(foreignClose),
 		},
 		Gutter:      windowChrome.Gutter,
+		TitleBar:    windowChrome.TitleBar,
 		Strip:       windowChrome.Strip,
 		CloseHover:  windowChrome.CloseHover,
 		CloseActive: windowChrome.CloseActive,

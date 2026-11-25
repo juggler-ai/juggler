@@ -28,24 +28,34 @@
 const TINT_COUNT = 8;
 
 /**
- * Which tint a workspace uses.
- *
- * FNV-1a, which is small, has no dependencies and scatters ids that differ in
- * one character — a real consideration here, where ids are generated in a batch
- * and share a prefix. Nothing depends on the exact hash beyond its being stable,
- * so the one thing this must never do is change: every workspace would swap
- * colour on upgrade, which is the whole of what the colour is for.
- * @param {string} workspaceId - The row's id.
- * @returns {string} A CSS value naming one of the theme's tints.
+ * A stable 32-bit hash of a string: FNV-1a, which is small, has no
+ * dependencies and scatters ids that differ in one character — a real
+ * consideration here, where ids are generated in a batch and share a prefix.
+ * Nothing depends on the exact hash beyond its being stable, so the one thing
+ * this must never do is change: every workspace (and every project's automatic
+ * border colour, utils/project-colour.js) would swap colour on upgrade, which
+ * is the whole of what the colour is for.
+ * @param {string} text - What to hash.
+ * @returns {number} An unsigned 32-bit hash.
  */
-export function workspaceTint(workspaceId) {
+export function fnv1a(text) {
+  const s = String(text ?? '');
   let hash = 0x811c9dc5;
-  for (let i = 0; i < String(workspaceId ?? '').length; i++) {
-    hash ^= String(workspaceId).charCodeAt(i);
+  for (let i = 0; i < s.length; i++) {
+    hash ^= s.charCodeAt(i);
     // The FNV prime by shift-and-add: a plain `* 16777619` overflows a double's
     // exact-integer range and quietly stops being the hash it is named after.
     hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
     hash >>>= 0;
   }
-  return `var(--workspace-tint-${(hash % TINT_COUNT) + 1})`;
+  return hash;
+}
+
+/**
+ * Which tint a workspace uses: a slot picked by {@link fnv1a} of its id.
+ * @param {string} workspaceId - The row's id.
+ * @returns {string} A CSS value naming one of the theme's tints.
+ */
+export function workspaceTint(workspaceId) {
+  return `var(--workspace-tint-${(fnv1a(workspaceId) % TINT_COUNT) + 1})`;
 }

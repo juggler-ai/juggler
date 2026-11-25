@@ -42,6 +42,12 @@
                 // (web/machine/native-host.js): its paths may be on another
                 // machine, so the app cannot open one in a window of its own.
                 if (query.get('external') === '1') root.dataset.externalServer = '1';
+                // How round the window's corners are (?corner=, CSS pixels at
+                // 100%), as the app measured them: the drawn border
+                // (layout/window-chrome.css) follows them rather than thinning
+                // to nothing where the window clips it. Square without one.
+                var corner = parseInt(query.get('corner'), 10);
+                if (corner > 0 && corner < 64) root.style.setProperty('--window-corner-radius', corner + 'px');
                 root.dataset.windowPlatform =
                     /Windows/.test(ua) ? 'windows' :
                     /Macintosh|Mac OS X/.test(ua) ? 'mac' : 'linux';

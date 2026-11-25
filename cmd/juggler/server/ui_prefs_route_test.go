@@ -422,19 +422,19 @@ func TestProjectStorageKeyIsStable(t *testing.T) {
 	dir := t.TempDir()
 	uncleaned := filepath.Join(dir, "sub", "..") + string(filepath.Separator)
 
-	if got, want := projectStorageKey(uncleaned), projectStorageKey(dir); got != want {
+	if got, want := core.ProjectStorageKey(uncleaned), core.ProjectStorageKey(dir); got != want {
 		t.Fatalf("uncleaned spelling of the same project differs: got %q, want %q", got, want)
 	}
-	if key := projectStorageKey(dir); len(key) != projectStorageKeyLen {
-		t.Fatalf("key length: got %d (%q), want %d", len(key), key, projectStorageKeyLen)
+	if key := core.ProjectStorageKey(dir); len(key) != core.ProjectStorageKeyLen {
+		t.Fatalf("key length: got %d (%q), want %d", len(key), key, core.ProjectStorageKeyLen)
 	}
 }
 
 func TestProjectStorageKeyIsPerProject(t *testing.T) {
 	a, b := t.TempDir(), t.TempDir()
-	if projectStorageKey(a) == projectStorageKey(b) {
+	if core.ProjectStorageKey(a) == core.ProjectStorageKey(b) {
 		t.Fatalf("two projects share a storage key (%q) — their stored preferences would collide",
-			projectStorageKey(a))
+			core.ProjectStorageKey(a))
 	}
 }
 
@@ -443,11 +443,11 @@ func TestProjectStorageKeyIsPerProject(t *testing.T) {
 // lives. A no-project window has no key at all and falls back to the bare one.
 func TestProjectStorageKeyHidesThePath(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "unmistakable-project-name")
-	key := projectStorageKey(dir)
+	key := core.ProjectStorageKey(dir)
 	if strings.Contains(key, "unmistakable-project-name") {
 		t.Fatalf("storage key leaks the project path: %q", key)
 	}
-	if projectStorageKey("") != "" {
-		t.Fatalf("no-project window should have no key, got %q", projectStorageKey(""))
+	if core.ProjectStorageKey("") != "" {
+		t.Fatalf("no-project window should have no key, got %q", core.ProjectStorageKey(""))
 	}
 }

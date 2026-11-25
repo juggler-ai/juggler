@@ -21,8 +21,7 @@ import {
 } from '../utils/project-open-mode.js';
 import { historyState } from '../utils/conversation-history.js';
 import { baseName, initials } from '../utils/session-attention.js';
-import { workspaceTint } from '../utils/workspace-colour.js';
-import { ownProjectLink } from '../services/project-navigation.js';
+import { projectColour, projectColourValue, thisProjectKey, PROJECT_COLOURS_EVENT } from '../utils/project-colour.js';
 import { isPopupOpenById } from '../utils/popup-manager.js';
 import { SESSION_SWITCHER_POPUP_ID } from './session-popover.js';
 import { t, htmlSlots, withHtml } from '../../sdk/lib/i18n.js';
@@ -318,6 +317,12 @@ export function setupHeaderControls(session) {
   }
   // A web font arriving changes the path's width, not the header's.
   void document.fonts?.ready.then(fitPathLabel);
+  // The tile wears the project's colour (utils/project-colour.js), the one its
+  // rows on the switcher and its window's border wear, and follows a pick.
+  const paintPathTile = () => {
+    pathTile?.style.setProperty('--session-switcher-tint', projectColourValue(projectColour(thisProjectKey())));
+  };
+  window.addEventListener(PROJECT_COLOURS_EVENT, paintPathTile, { signal: wired.signal });
   const updateProjectPath = (/** @type {string} */ projectPath) => {
     if (!pathDisplay || !pathLabel) return;
     const name = baseName(projectPath);
@@ -325,7 +330,7 @@ export function setupHeaderControls(session) {
     fitPathLabel();
     if (pathTile) {
       pathTile.textContent = name ? initials(name) : '';
-      pathTile.style.setProperty('--session-switcher-tint', workspaceTint(ownProjectLink()));
+      paintPathTile();
     }
     if (pathChip) {
       pathChip.title = t('{path} — switch session', { path: projectPath });

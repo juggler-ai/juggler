@@ -585,6 +585,13 @@
 			]
 		},
 		{
+			"file": "components/project-colour.css",
+			"layer": "components",
+			"owns": [
+				"project-colour-*"
+			]
+		},
+		{
 			"file": "components/connectivity.css",
 			"layer": "components",
 			"owns": [
@@ -812,6 +819,8 @@
 		"--session-switcher-width",
 		"--strategy-color",
 		"--logo-with-name-url",
+		"--project-colour",
+		"--window-corner-radius",
 		"--workspace-tint",
 		"--dropdown-x",
 		"--dropdown-y",

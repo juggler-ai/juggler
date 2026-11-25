@@ -41,6 +41,7 @@ type chromeThemeTokens struct {
 // caption glyphs.
 type chromeTokens struct {
 	Gutter      string                       `json:"gutter"`
+	TitleBar    string                       `json:"titleBar"`
 	Strip       string                       `json:"strip"`
 	CloseHover  string                       `json:"closeHover"`
 	CloseActive string                       `json:"closeActive"`
@@ -100,6 +101,7 @@ func readChromeTokens(fsys fs.FS) (chromeTokens, error) {
 		name string
 	}{
 		{&t.Gutter, "window-traffic-light-gutter"},
+		{&t.TitleBar, "window-title-bar-height"},
 		{&t.CloseHover, "window-close-hover-bg"},
 		{&t.CloseActive, "window-close-active-bg"},
 	} {

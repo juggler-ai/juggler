@@ -49,6 +49,7 @@ import pinboardStore from './pinboard-store.js';
 import { getProjectPref, setProjectPref } from './prefs.js';
 import { ownerViewerId, VIEW_PINBOARD } from '../utils/view-mode.js';
 import { hasNativeHost } from '../../sdk/lib/window-control.js';
+import { isWindowBorderOn } from '../utils/window-border.js';
 import { errorText } from '../../sdk/lib/error-utils.js';
 import { t } from '../../sdk/lib/i18n.js';
 
@@ -181,6 +182,9 @@ function detachedBoardURL(boardId, pinId, conversationId) {
   url.searchParams.set('board', boardId);
   if (conversationId) url.searchParams.set('conversation', conversationId);
   if (pinId) url.searchParams.set('pin', pinId);
+  // The tab starts framed as this window is (utils/window-border.js), and keeps
+  // its own from then on.
+  if (isWindowBorderOn()) url.searchParams.set('border', '1');
   return url.toString();
 }
 

@@ -14,7 +14,8 @@
  *   module for `runTests` and `needsExclusiveRun`, an `integrationTests`
  *   module for `tests`);
  * - every Go string literal naming a file of the tree (`"/js/engine-app.js"`,
- *   `workerSDKImports`) — a test root when the Go file is a `_test.go`;
+ *   `workerSDKImports`) — a test root when the Go file is a `_test.go`, and
+ *   reading the exports GO_READS lists for it, where Go calls them by name;
  * - the `.d.ts` files tsc includes, judged one declaration at a time: an
  *   ambient module by an import of its name, a global interface's member by a
  *   module naming it;
@@ -107,6 +108,7 @@ import * as eslintScope from 'eslint-scope';
  * @property {string[]} html - HTML documents
  * @property {string[]} manifests - Extension manifests (`*` matches within one segment)
  * @property {string[]} goDirs - Directories whose Go string literals may name a file
+ * @property {Record<string, {names: string[], why: string}>} [goReads] - Exports Go reads of a module it names
  * @property {string} [jsconfig] - tsconfig-style file whose `paths` map bare specifiers
  * @property {DynamicImport[]} dynamic - Non-literal specifiers and what they load
  */
@@ -230,6 +232,19 @@ const DYNAMIC_IMPORTS = [
   },
 ];
 
+/**
+ * What Go reads of a module it names, beyond reaching it: source Go takes as
+ * text and calls by name. Each entry's file must be named by a Go string
+ * literal outside a test, or the entry is a finding.
+ * @type {Record<string, {names: string[], why: string}>}
+ */
+const GO_READS = {
+  'web/js/utils/foreign-page-bar.js': {
+    names: ['offerForeignPageBar'],
+    why: 'cmd/juggler-app/foreign_page.go injects its source into a foreign page and calls offerForeignPageBar',
+  },
+};
+
 /** Where test-scorer.js resolves a benchmark task's `scoring.test_module`, by scoring type. */
 const TEST_MODULE_DIRS = { unit_test: 'web/js-tests/unit-tests', integration_test: 'web/js-tests/utilities' };
 
@@ -264,6 +279,7 @@ export const TREE_CONFIG = {
   html: ['web/index.html', 'web/engine.html', 'web/sandbox.html', 'web/machine/index.html', 'web/shell/window-shell.html', 'web/shell/stand-in.html', 'web/js-tests/headless-test.html'],
   manifests: ['web/extensions/*/juggler.extension.json', 'examples/extensions/*/juggler.extension.json'],
   goDirs: ['cmd', 'internal', 'web', 'tests'],
+  goReads: GO_READS,
   jsconfig: 'tooling/jsconfig.json',
   dynamic: DYNAMIC_IMPORTS,
 };
@@ -968,6 +984,7 @@ function buildTree(root, config) {
   }
 
   // Go string literals naming a file of the tree.
+  const goNamed = new Set();
   for (const dir of config.goDirs) {
     for (const goFile of walkFiles(root, dir)) {
       if (!goFile.endsWith('.go')) continue;
@@ -978,10 +995,18 @@ function buildTree(root, config) {
         const candidates = s.startsWith('/') ? [path.posix.join(config.serverRoot, s)] : [s, path.posix.join(config.serverRoot, s)];
         for (const c of candidates) {
           const rel = path.posix.normalize(c);
-          if (universe.has(rel)) { roots.push({ file: rel, names: new Set(), test: test || isTest(rel), why: `${goFile} names it` }); break; }
+          if (universe.has(rel)) {
+            const reads = test ? undefined : config.goReads?.[rel];
+            if (reads) goNamed.add(rel);
+            roots.push({ file: rel, names: new Set(reads?.names ?? []), test: test || isTest(rel), why: reads ? reads.why : `${goFile} names it` });
+            break;
+          }
         }
       }
     }
+  }
+  for (const file of Object.keys(config.goReads ?? {})) {
+    if (!goNamed.has(file)) problems.push({ file, line: 0, message: 'GO_READS names it, but no Go string literal outside a test does' });
   }
 
   // The public SDK surface: every file, every export.

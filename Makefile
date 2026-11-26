@@ -1060,7 +1060,7 @@ lint-go: app-icon-embed wails-runtime-embed
 ## module and tank the analysis with bogus "unreachable" hits. It would also
 ## pull in 3rdparty/, the vendored wails fork, whose own suite is not ours to
 ## run: hundreds of platform-specific and live-network tests.
-DEADCODE_VERSION=v0.52.0
+DEADCODE_VERSION=v0.53.0
 DEADCODE_RELEASE_MAINS := ./cmd/juggler ./cmd/juggler-app
 DEADCODE_SEAMS := \
 	cmd/juggler/tunnel/tunnel.go:RegisterMode \

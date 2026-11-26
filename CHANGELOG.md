@@ -22,6 +22,7 @@ the current release). The project follows semantic versioning.
 - Windows opening while the computer is busy no longer show "This session stopped"
 - A window onto another computer's server keeps trying at launch, then connects itself
 - On Windows, Ctrl+Shift+N opens one window, not two
+- Ctrl+Shift+Q quits even while the Pinboard, a menu or a dialog is open
 - "This page isn't part of Juggler" no longer appears over Juggler; Back to Juggler works
 - Settings → Project files can delete transaction records older than a chosen age
 - Import Claude Code, Codex, Pi and OpenCode conversations on first launch.

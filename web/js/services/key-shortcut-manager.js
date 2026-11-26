@@ -87,6 +87,10 @@ import { recordUsage } from './guidance/usage-signals.js';
  *   manager still lists it (settings, tooltips) but never dispatches it — the
  *   owner reads {@link KeyShortcutManager#getBinding} and matches itself via
  *   {@link eventMatchesBinding}.
+ * @property {boolean} [overOverlays] - The command fires while an overlay (modal,
+ *   menu, the open pinboard) holds the keyboard, which suppresses every other
+ *   command. For an app-level command no overlay has a meaning for — Quit, whose
+ *   counterpart in a native menu bar is never blocked by what the page shows.
  */
 
 /** @returns {boolean} True on macOS-family platforms (⌘ is the command modifier). */
@@ -460,6 +464,9 @@ const SHORTCUT_DEFS = [
     // macOS leaves the chord to the browser, which may quit on it.
     defaultBinding: { mod: true, shift: true, key: 'q', platform: 'other', browserClaims: 'other' },
     allowInInput: true,
+    // The quit itself asks first when work would be lost, so no overlay needs
+    // to stand in its way.
+    overOverlays: true,
   },
   {
     id: 'prev-tab',
@@ -1161,12 +1168,14 @@ class KeyShortcutManager {
    */
   _onKeyDown(e) {
     if (e.isComposing || e.keyCode === 229) return; // IME in progress
-    // An open overlay owns the keyboard: no rebindable command fires behind it.
-    // (Escape is not in the command table — popup-manager owns dismissal.)
-    if (this.suppressedByOverlay()) return;
+    // An open overlay owns the keyboard: no rebindable command fires behind it
+    // but those marked overOverlays. (Escape is not in the command table —
+    // popup-manager owns dismissal.)
+    const overlaid = this.suppressedByOverlay();
     const editable = isEditableTarget(e.target);
     for (const def of this._defs.values()) {
       if (def.external) continue;
+      if (overlaid && !def.overOverlays) continue;
       const handler = this._handlers.get(def.id);
       if (!handler) continue;
       // In a text field, only fire if the command opts in.

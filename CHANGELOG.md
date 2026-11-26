@@ -6,36 +6,26 @@ the current release). The project follows semantic versioning.
 
 ## [Unreleased]
 
-- Optional coloured window borders tell projects apart; switcher tiles wear the same colour
-- Git pin: force push, squash merges, skipping hooks, and managing remotes
-- Git pin opens on History, with refresh and fetch shortcuts
-- Without git, the Git pin says what to install instead of prompting for Xcode tools
-- Git pin opens on the top-level repo, not a submodule, and shows a spinner while finding repos
-- Git status card shows each repo's branch on one line; click to open it
+- Import Claude Code, Codex, Pi and OpenCode conversations on first launch.
+- Coloured window borders can be enabled to tell projects apart
+- Added a "Chat" strategy: web-searching conversations with their own identity that can't change the project
+- Loads of improvements and fixes to the new Git client pinboard panel
+- JUGGLER_SERVER_DIR variable can be used to run a separate server, sharing config, e.g. one per sandbox
+- Extension SDK: `services.git` is gone; call the git tool through `services.ops.client`
+- Switching strategy asks first when it would re-read a long conversation's cache
+- Long conversations use much less disk space
 - The Usage card shows usage for a second Codex, OpenRouter, DeepSeek or Z.AI account
-- JUGGLER_SERVER_DIR runs a separate server, sharing config, e.g. one per sandbox
-- Picking a session in the switcher in a browser tab opens it again
-- Long conversations no longer fill the disk with old request records
-- Conversations no longer fail to load at startup on a slow disk
-- Sending a message no longer waits for a git snapshot of the project
-- The request timer no longer starts negative or jumps backward on a busy machine
-- Long, often-compacted conversations no longer stall for seconds after every save
+- Fixed problems loading conversations on slow disks, and
+- Optimised save time for often-compacted conversations
 - Compacting during one long task frees most of it, not just a few thousand tokens
 - Replies budget at most 64k output unless you set Max output, so compaction starts later
+- Filenames on read, edit, write, search and file cards open on the Pinboard
 - No more repeated compaction attempts when tools fill the window; a notice explains instead
 - Windows opening while the computer is busy no longer show "This session stopped"
 - "Preparing request" says when the engine is busy or slow, instead of looking stuck
-- A window onto another computer's server keeps trying at launch, then connects itself
 - On Windows, Ctrl+Shift+N opens one window, not two
-- Ctrl+Shift+Q quits even while the Pinboard, a menu or a dialog is open
-- "This page isn't part of Juggler" no longer appears over Juggler; Back to Juggler works
 - Settings → Project files can delete transaction records older than a chosen age
-- Import Claude Code, Codex, Pi and OpenCode conversations on first launch.
 - Claude models via OpenRouter use prompt caching, and show cache writes
-- Filenames on read, edit, write, search and file cards open on the Pinboard
-- Extension SDK: `services.git` is gone; call the git tool through `services.ops.client`
-- Chat strategy: web-searching conversations with their own identity that can't change the project
-- Switching strategy asks first when it would re-read a long conversation's cache
 - Extension SDK: strategies can hide controls; extensions can ship identity presets
 - Attaching a video says the model can't take video, instead of "Couldn't read"
 - Shell commands typed as `! cmd` or `/shell cmd` can be scheduled to run later

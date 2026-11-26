@@ -4,9 +4,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The system-prompt item's preset UI: the browser dropdown (built-in and user
- * presets grouped by category, each with a default indicator), the save-current
- * flow, and the manage-presets popup.
+ * The system-prompt item's preset UI: the browser dropdown (built-in, extension
+ * and user presets grouped by category — an extension's under its name — each
+ * with a default indicator), the save-current flow, and the manage-presets
+ * popup. Only user presets can be updated or deleted; saving over a built-in
+ * or extension preset always makes a new user copy.
  *
  * Written as functions taking the context item as their first argument, in the
  * conversation-area-rendering.js / composer-attachments.js shape, because every
@@ -49,13 +51,30 @@ const CATEGORY_LABELS = {
 };
 
 /**
- * The caption shown for a category id.
+ * The caption shown for a category id. An extension's group is captioned with
+ * the extension's name, translated in that extension's own catalogue (where
+ * `scripts/i18n` puts its manifest name).
  * @param {string} category - Category id from the registry
+ * @param {SystemPromptPreset} [first] - The category's first preset, which carries an extension group's caption
  * @returns {string} The caption
  */
-function categoryLabel(category) {
+function categoryLabel(category, first) {
+  if (first?.categoryLabel) {
+    return first.extensionId ? translator(first.extensionId)(first.categoryLabel) : first.categoryLabel;
+  }
   const label = CATEGORY_LABELS[category];
   return label ? t(label) : category.charAt(0).toUpperCase() + category.slice(1);
+}
+
+/**
+ * The name shown for a preset. An extension's is translated in that
+ * extension's own catalogue, where `scripts/i18n` puts each preset file's
+ * `name`; a user's is theirs as typed.
+ * @param {SystemPromptPreset} preset - The preset
+ * @returns {string} The name
+ */
+function presetName(preset) {
+  return preset.extensionId ? translator(preset.extensionId)(preset.name) : preset.name;
 }
 
 // Inline icons for the dropdown (Material Symbols paths, currentColor fill).
@@ -157,7 +176,8 @@ function renderPresetMenu(item, dropdown, container) {
     const presets = systemPromptRegistry.getPresetsByCategory(category);
     if (presets.length === 0) continue;
 
-    menu.appendChild(buildCategoryHeader(categoryLabel(category)));
+    // An extension's presets are grouped under the extension, by name.
+    menu.appendChild(buildCategoryHeader(categoryLabel(category, presets[0])));
 
     for (const preset of presets) {
       menu.appendChild(buildPresetMenuItem(item, preset, defaultId, selectedId, dropdown, container));
@@ -223,10 +243,10 @@ function buildPresetMenuItem(item, preset, defaultId, selectedId, dropdown, cont
   if (isSelected) icon.innerHTML = SP_ICON_CHECK;
   row.appendChild(icon);
 
-  const name = createElement('span', 'sp-preset-row-name text-truncate', preset.name);
+  const name = createElement('span', 'sp-preset-row-name text-truncate', presetName(preset));
   name.setAttribute('role', 'menuitemradio');
   name.setAttribute('aria-checked', String(isSelected));
-  if (isDefault) name.setAttribute('aria-label', t('{name} (default)', { name: preset.name }));
+  if (isDefault) name.setAttribute('aria-label', t('{name} (default)', { name: presetName(preset) }));
   row.appendChild(name);
 
   if (isDefault) {
@@ -237,9 +257,9 @@ function buildPresetMenuItem(item, preset, defaultId, selectedId, dropdown, cont
     const setBtn = document.createElement('button');
     setBtn.className = 'sp-preset-setdefault-btn';
     setBtn.setAttribute('role', 'menuitem');
-    setBtn.setAttribute('aria-label', t('Set {name} as the default', { name: preset.name }));
+    setBtn.setAttribute('aria-label', t('Set {name} as the default', { name: presetName(preset) }));
     setBtn.textContent = t('Set default');
-    setBtn.title = t('Make "{name}" the default for new conversations', { name: preset.name });
+    setBtn.title = t('Make "{name}" the default for new conversations', { name: presetName(preset) });
     setBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
       try {
@@ -290,6 +310,8 @@ function applyPreset(item, preset, container) {
   item.data.text = preset.content;
   item.data.selectedPresetId = preset.id;
   item.data.isModified = false;
+  // Picked by hand: a strategy switch must not re-seed over it.
+  item.data.seeded = false;
   item._persistData(true);
 
   syncTextArea(item, container);
@@ -324,11 +346,12 @@ async function saveCurrentAsPreset(item, dropdown, container) {
   if (!content.trim()) return;
 
   // When the editor is already on a user preset, offer to update it in place
-  // instead of always creating a new one.
+  // instead of always creating a new one. Built-in and extension presets are
+  // not the user's to change, so saving from one always makes a user copy.
   const currentId = item.data.selectedPresetId;
-  if (currentId && currentId.startsWith('user-')) {
+  if (currentId) {
     const existing = systemPromptRegistry.getPreset(currentId);
-    if (existing) {
+    if (existing?.source === 'user') {
       const showChoice = /** @type {any} */ (window).showChoice;
       if (showChoice) {
         // showChoice answers with the chosen label, so the labels are compared as shown.
@@ -383,6 +406,7 @@ async function saveCurrentAsPreset(item, dropdown, container) {
 function selectPreset(item, presetId) {
   item.data.selectedPresetId = presetId;
   item.data.isModified = false;
+  item.data.seeded = false;
   item._persistData(true);
 }
 

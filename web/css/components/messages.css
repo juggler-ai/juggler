@@ -548,6 +548,27 @@ conversation-footer .duplicate-to-tab-label {
     padding-inline: var(--space-6);
 }
 
+/* The footer's controls a strategy hides (MANIFEST.ui.hide,
+   utils/strategy-chrome.js). Only the buttons go: the undo and redo shortcuts
+   still work, the rest have no other route. The footer drives these buttons'
+   own `hidden` for reasons of its own, so the strategy's say is a separate
+   mark on the footer. */
+conversation-footer[data-chrome-hide~="log"] .footer-log-btn,
+conversation-footer[data-chrome-hide~="tokens"] token-display,
+conversation-footer[data-chrome-hide~="add-context"] .add-context-item-btn,
+conversation-footer[data-chrome-hide~="undo-redo"] .footer-history,
+conversation-footer[data-chrome-hide~="duplicate"] .duplicate-to-tab-btn,
+conversation-footer[data-chrome-hide~="continue"] .continue-btn {
+    display: none;
+}
+
+/* With every control of the idle row hidden and no Paused notice to show, the
+   row is empty, and the footer's gap would still hold a blank line open for
+   it: take the row out too. */
+conversation-footer:where([data-chrome-hide~="add-context"][data-chrome-hide~="undo-redo"][data-chrome-hide~="duplicate"][data-chrome-hide~="continue"]) footer-idle:where(:not(:has(.footer-paused:not(.hidden)))) {
+    display: none;
+}
+
 /* Readings row: the token meter and the thread's last-updated time. Neither is
    a control, so they share a line above the buttons. */
 .footer-meta {

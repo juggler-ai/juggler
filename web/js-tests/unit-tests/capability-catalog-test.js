@@ -47,6 +47,7 @@ export async function runTests() {
     const missing = [];
     let checked = 0;
     let checkedAdvice = 0;
+    let checkedPresets = 0;
     for (const ext of extensions) {
       const own = byExtension[ext.manifest.id] || {};
       const caps = /** @type {Record<string, any>} */ (ext.capabilities || {});
@@ -79,9 +80,16 @@ export async function runTests() {
           }
         }
       }
+      // An identity preset's name, which the preset browser draws in its
+      // extension's catalogue: `scripts/i18n` must read the file as the server does.
+      for (const preset of caps.systemPromptPresets || []) {
+        checkedPresets++;
+        if (!Object.hasOwn(own, preset.name)) missing.push(`${ext.manifest.id} preset ${preset.id} name: ${JSON.stringify(preset.name)}`);
+      }
     }
     assert(checked > 20, `expected to check the built-in capabilities, checked ${checked}`);
     assert(checkedAdvice >= 4, `expected to check the built-in workspace providers' labels and advice, checked ${checkedAdvice}`);
+    assert(checkedPresets >= 1, `expected to check the built-in identity presets, checked ${checkedPresets}`);
     assert(missing.length === 0, `capability text with no catalogue entry (${missing.length}):\n${missing.join('\n')}`);
     passed++;
   } catch (e) {

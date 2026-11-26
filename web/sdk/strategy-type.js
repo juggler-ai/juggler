@@ -45,6 +45,60 @@
  *   pin it on a delegated subthread. This is the autonomy axis staying a short
  *   list of things a human picks, while an item-owned strategy shapes one
  *   delegated run. Default: false.
+ * @property {StrategyUI} [ui] - How the conversation's chrome looks while this
+ *   strategy is the conversation's — the root thread's; a sub-thread's own
+ *   strategy never changes it. It changes nothing the strategy does, but a
+ *   hidden button with no keyboard route is out of reach while the strategy
+ *   is active.
+ * @property {string} [defaultPreset] - Identity (system-prompt) preset a
+ *   conversation on this strategy is seeded with, instead of the user's
+ *   default. `./<file-stem>` names one the strategy's own extension ships in
+ *   `provides.systemPromptPresets` (the file stem is the preset's stable id:
+ *   renaming the file changes it); any other value is a preset id as it
+ *   stands — `<extensionId>/<file-stem>` for another extension's, or a
+ *   built-in's id such as `minimal`. One that names nothing registered is
+ *   ignored, with a console warning. Applied when a conversation is created
+ *   on this strategy, and when the user switches to it before the first
+ *   message while the identity is still a seeded one (not edited, not a
+ *   preset picked by hand — whichever preset that is); switching on to a
+ *   strategy that names none restores the user's default the same way. A
+ *   conversation under way keeps its identity whatever it is switched to.
+ * @property {boolean} [projectInstructions] - Whether a conversation on this
+ *   strategy is seeded the project's instruction files (AGENTS.md, CLAUDE.md,
+ *   … of the tree it works in and the places above it). Default: true. False
+ *   suits a strategy with no use for the project — the user's global
+ *   instruction files and project memory are seeded either way. Read from the
+ *   thread being seeded (at creation, `/clear`, a move to another tree), and
+ *   when the user switches strategy before the first message: the project's
+ *   seeded files are removed, or seeded again, when the two strategies
+ *   disagree. The user can still add them from the Add Context Item menu.
+ */
+
+/**
+ * A control of the conversation chrome a strategy can hide. The composer's
+ * `commands`, `prompt-history`, `skills` and `send-later` buttons, and the
+ * footer's `log`, `tokens`, `add-context`, `undo-redo`, `duplicate` and
+ * `continue`. An unknown id is ignored with a console warning.
+ * @typedef {'commands'|'prompt-history'|'skills'|'send-later'|'log'|'tokens'|'add-context'|'undo-redo'|'duplicate'|'continue'} ChromeControlId
+ */
+
+/**
+ * Strategy presentation — `MANIFEST.ui`. A value a field does not accept is
+ * ignored with a console warning.
+ * @typedef {object} StrategyUI
+ * @property {ChromeControlId[]} [hide] - Controls to take out of view. Only
+ *   the button goes, so a typed `/` or `$`, ⌘Z and the history keys keep
+ *   working — but `log`, `add-context`, `duplicate`, `send-later` and
+ *   `continue` have no other route, and are out of reach while hidden
+ *   (typing "continue" stands in for the last).
+ * @property {'chip'} [strategySelector] - The strategy picker's form. `'chip'`
+ *   shrinks it to a chip naming the strategy, which still opens the strategy
+ *   menu, so the user can always switch to one that shows what this one
+ *   hides. Absent: the full picker. It cannot be hidden.
+ * @property {'always'|'never'} [toolGrouping] - Whether runs of tool calls are
+ *   folded into one row, whatever the window's grouping toggle says; the
+ *   toggle shows that state, disabled, while this strategy is active. Absent:
+ *   the toggle decides.
  */
 
 /**

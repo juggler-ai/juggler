@@ -52,6 +52,24 @@ type ExtensionCapabilities struct {
 	// SystemPrompt is the single served URL of the extension's system-prompt
 	// contribution module (empty when the manifest declares none).
 	SystemPrompt string `json:"systemPrompt,omitempty"`
+	// SystemPromptPresets holds the extension's identity presets, parsed here
+	// (extmanifest.ReadPresets) so every reader gets the same result. A file
+	// that does not parse is left out, with a warning beside the extension.
+	SystemPromptPresets []ExtensionPreset `json:"systemPromptPresets"`
+	// presetURLs are the served URLs the presets glob matched, read by
+	// loadExtension into SystemPromptPresets.
+	presetURLs []string
+}
+
+// ExtensionPreset is one identity preset in the GET /api/extensions response.
+type ExtensionPreset struct {
+	// ID is `<extension id>/<file stem>`.
+	ID string `json:"id"`
+	// URL is the served URL of the file it was read from.
+	URL         string `json:"url"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Content     string `json:"content"`
 }
 
 // Extension is one entry in the GET /api/extensions response. A manifest that
@@ -314,7 +332,7 @@ func (api *ExtensionsAPI) loadExtension(root extensionRoot) (Extension, bool) {
 		ext.ManifestPath = filepath.Join(root.diskDir, extensionManifestFile)
 	}
 
-	manifest, err := extmanifest.Parse(data)
+	manifest, err := extmanifest.ParseFor(data, api.engineVersion)
 	if err != nil {
 		ext.Error = fmt.Sprintf("invalid manifest: %v", err)
 		return ext, true
@@ -331,6 +349,13 @@ func (api *ExtensionsAPI) loadExtension(root extensionRoot) (Extension, bool) {
 	if err != nil {
 		ext.Error = err.Error()
 		return ext, true
+	}
+	// A preset that will not parse costs the extension that preset, never its
+	// load, and is said here, beside the extension.
+	presets, problems := readPresets(root, manifest.ID, caps.presetURLs)
+	caps.SystemPromptPresets = presets
+	for _, problem := range problems {
+		ext.Warnings = append(ext.Warnings, problem.Error())
 	}
 	ext.Capabilities = caps
 	if len(files) > 0 {
@@ -427,6 +452,10 @@ func expandCapabilities(root extensionRoot, p ExtensionProvides) (ExtensionCapab
 	if err != nil {
 		return ExtensionCapabilities{}, nil, err
 	}
+	presetURLs, err := expandGlobs(root, p.SystemPromptPresets, files)
+	if err != nil {
+		return ExtensionCapabilities{}, nil, err
+	}
 	// systemPrompt is a single module path, not a glob list. Resolve it through
 	// the same expander (traversal guard + disk-path mapping) and take the one
 	// match, if any.
@@ -441,18 +470,45 @@ func expandCapabilities(root extensionRoot, p ExtensionProvides) (ExtensionCapab
 		}
 	}
 	return ExtensionCapabilities{
-		ContextItems:       contextItems,
-		Strategies:         strategies,
-		Commands:           commands,
-		InfoCards:          infoCards,
-		FileViewers:        fileViewers,
-		PinboardItems:      pinboardItems,
-		PinboardItemMeta:   pinboardItemMeta,
-		WorkspaceProviders: workspaceProviders,
-		Hooks:              hooks,
-		SearchBackends:     searchBackends,
-		SystemPrompt:       systemPrompt,
+		ContextItems:        contextItems,
+		Strategies:          strategies,
+		Commands:            commands,
+		InfoCards:           infoCards,
+		FileViewers:         fileViewers,
+		PinboardItems:       pinboardItems,
+		PinboardItemMeta:    pinboardItemMeta,
+		WorkspaceProviders:  workspaceProviders,
+		Hooks:               hooks,
+		SearchBackends:      searchBackends,
+		SystemPrompt:        systemPrompt,
+		SystemPromptPresets: []ExtensionPreset{},
+		presetURLs:          presetURLs,
 	}, files, nil
+}
+
+// readPresets parses the preset files at urls (served URLs under root) into
+// the response's presets, ids namespaced by extensionID, and reports each file
+// that was left out.
+func readPresets(root extensionRoot, extensionID string, urls []string) ([]ExtensionPreset, []error) {
+	paths := make([]string, 0, len(urls))
+	urlOf := map[string]string{}
+	for _, url := range urls {
+		p := path.Join(root.dir, strings.TrimPrefix(url, root.urlPrefix))
+		paths = append(paths, p)
+		urlOf[p] = url
+	}
+	read, problems := extmanifest.ReadPresets(root.fsys, paths)
+	out := make([]ExtensionPreset, 0, len(read))
+	for _, p := range read {
+		out = append(out, ExtensionPreset{
+			ID:          extensionID + "/" + p.Stem,
+			URL:         urlOf[p.Path],
+			Name:        p.Name,
+			Description: p.Description,
+			Content:     p.Content,
+		})
+	}
+	return out, problems
 }
 
 // expandGlobs resolves a list of root-relative globs to served URLs. Duplicate

@@ -33,7 +33,9 @@ An extension may **also** contribute a **system-prompt contribution** — not a
 class but a single module whose default export adds terse, durable guidance to
 the system prompt (see [System-prompt contribution](#system-prompt-contribution)
 below). An extension that provides *only* a system-prompt contribution (a
-"prompt pack") is valid.
+"prompt pack") is valid. It may likewise ship **identity presets** — whole
+system prompts the user can pick for a conversation (see
+[Identity presets](#identity-presets)).
 
 Juggler ships its own built-ins as one core extension, `@juggler/core`
 (`web/extensions/juggler-core/`), loaded through the **exact same path** as any
@@ -139,6 +141,7 @@ core extension does (`context-items/edit/`, `context-items/execute/`).
     "hooks":        ["hooks/*-hook.js"],
     "searchBackends": ["search-backends/*-backend.js"],
     "systemPrompt": "system-prompt-contribution.js",  // optional; single module path
+    "systemPromptPresets": ["presets/*.md"],          // optional; identity presets (needs engineApi ^1.4.0)
     "i18n":         "i18n",                           // optional; directory of <locale>.json translations
     "tests":        ["_tests/*-test.js"],             // optional; test-only, never served
     "integrationTests": ["_tests/integration/*-tests.js"]  // optional; test-only, never served
@@ -150,7 +153,7 @@ core extension does (`context-items/edit/`, `context-items/execute/`).
 |-------|----------|-------|
 | `id` | Yes | Scoped, e.g. `@you/name`. The unit of enable/disable. |
 | `name`, `version` | Yes | Display name and semver. |
-| `provides` | Yes | At least one capability. `contextItems`/`strategies`/`commands`/`infoCards`/`pinboardItems`/`fileViewers`/`workspaceProviders`/`hooks`/`searchBackends` are root-relative globs; `systemPrompt` is a single module path (see [System-prompt contribution](#system-prompt-contribution)); `i18n` is a directory of translation catalogues (see [Translating your extension](#translating-your-extension); needs `engineApi` `^1.1.0`); `tests` and `integrationTests` are test-only (see [Testing your extension](#testing-your-extension)). `i18n`, `tests` and `integrationTests` do not count as capabilities. None may escape the extension root. |
+| `provides` | Yes | At least one capability. `contextItems`/`strategies`/`commands`/`infoCards`/`pinboardItems`/`fileViewers`/`workspaceProviders`/`hooks`/`searchBackends` are root-relative globs; `systemPrompt` is a single module path (see [System-prompt contribution](#system-prompt-contribution)); `systemPromptPresets` is a root-relative glob of Markdown files (see [Identity presets](#identity-presets); needs `engineApi` `^1.4.0`); `i18n` is a directory of translation catalogues (see [Translating your extension](#translating-your-extension); needs `engineApi` `^1.1.0`); `tests` and `integrationTests` are test-only (see [Testing your extension](#testing-your-extension)). `i18n`, `tests` and `integrationTests` do not count as capabilities. None may escape the extension root. |
 | `engineApi` | Recommended | Semver range (`^1.0.0`, `1.2.3`, or `*`). Omitting it disables the compat check and earns a validation warning. The host SDK version lives in `web/sdk/version.js`. |
 | `permissions` | As needed | **Declares** the host access this extension's code uses. Surfaced to the user in the catalog and the install prompt — a disclosure, not a sandbox (see [Trust model](#trust-model)). See the vocabulary below. |
 | `settings` | As needed | User-configurable values, rendered in the extensions catalog. See [Settings and secrets](#settings-and-secrets). |
@@ -434,7 +437,9 @@ this way; `read-only-strategy-type.js` is the simplest and best starting point.
 The production surface is:
 
 - **MANIFEST fields**: `defaultRules`, `defaultAllowedPaths`,
-  `showsApprovalControls`, `recommendations`, `color`, `icon`.
+  `showsApprovalControls`, `recommendations`, `color`, `icon`, and (with
+  `engineApi` `^1.4.0`) `defaultPreset`, `projectInstructions` and `ui` —
+  see below.
 - **`static GUIDANCE`** — what the strategy tells the model when it becomes
   active, or `''` for one that tells it nothing. The base `onActivate` injects
   it as a durable system-reminder; never author system-prompt text. Declaring
@@ -486,6 +491,75 @@ shapes it through the manifest and hooks above.
 The built-in strategies form a single autonomy axis — **Read-only** (cannot
 write), **Default** (asks before writing), **YOLO** (never asks). The full hook
 list and manifest fields are in **`web/sdk/strategy-type.js`**.
+
+**A simpler conversation — `ui`:** a strategy can strip the conversation's
+chrome down to what it needs. Every `ui` field applies while the strategy is
+the *conversation's* — its root thread's; a sub-thread switched to another
+strategy changes what that thread may do, not how the conversation looks.
+`ui.hide` lists the controls to take out of view:
+
+| Id | Control |
+|----|---------|
+| `commands`, `prompt-history`, `skills`, `send-later` | The composer's slash-commands, prompt-history, load-a-skill and send-later buttons |
+| `log`, `tokens` | The footer's conversation-log button and token count |
+| `add-context`, `undo-redo`, `duplicate`, `continue` | The footer's add-context-item, undo/redo, duplicate-as-new-conversation and continue buttons |
+
+Only the button goes: a typed `/` or `$`, ⌘Z and the prompt-history keys keep
+working. The log, add-context, duplicate, send-later and continue buttons have
+no other route, so hiding them puts them out of reach while the strategy is
+active (typing "continue" stands in for the last).
+
+`ui.strategySelector: 'chip'` shrinks the strategy picker to a chip naming the
+strategy, which still opens the strategy menu — so there is always a way to
+switch to a strategy that shows what this one hides. The picker cannot be
+hidden outright.
+
+`ui.toolGrouping` is `'always'` or `'never'`: runs of tool calls are folded
+into one row, or never folded, whatever the window's grouping toggle says. The
+toggle shows that state, disabled, while the strategy is active. Leave it out
+and the toggle decides.
+
+An unknown id or value is ignored with a console warning.
+
+**Starting with an identity — `defaultPreset`:** names an
+[identity preset](#identity-presets) that a conversation on this strategy is
+seeded with instead of the user's default: one created on it, or one the user
+switches to it before the first message. `'./<file stem>'` names a preset your
+own extension ships (`'./assistant'` for `presets/assistant.md`); any other
+value is a full preset id — `<extension id>/<file stem>` for another
+extension's, or a built-in's such as `minimal`. One that names nothing
+registered is ignored, with a console warning. The switch re-seeds only an
+identity that is still a seeded one — not edited, and not a preset the user
+picked by hand, whichever preset that is — and switching on to a strategy that
+names none restores the user's default the same way. Once the conversation
+has a message, no switch changes its identity.
+
+**Leaving the project's instructions out — `projectInstructions: false`:** a
+conversation is seeded the instruction files (AGENTS.md, CLAUDE.md, …) of the
+user's global folders and of the project. A strategy with no use for the
+project — one that cannot read or change it — can declare
+`projectInstructions: false` to be seeded the global files only; project
+memory is seeded either way. It applies at creation, `/clear` and a move to
+another tree, and to a switch before the first message: switching on to such
+a strategy removes the project's seeded files, and switching back seeds them
+again. A file the user added stays, and the Add Context Item menu's "AI
+assistant files" still adds them all.
+
+```javascript
+import StrategyType from 'juggler/strategy-type';
+
+class ChatStrategyType extends StrategyType {
+  static MANIFEST = {
+    id: 'chat', name: 'Chat', version: '1.0.0', description: 'Web-only chat',
+    showsApprovalControls: false,
+    defaultPreset: './assistant',
+    projectInstructions: false,
+    ui: { hide: ['commands', 'skills', 'log', 'tokens'], strategySelector: 'chip', toolGrouping: 'always' }
+  };
+}
+
+export default ChatStrategyType;
+```
 
 **Keeping a strategy out of the picker — `hidden: true`:** a strategy with
 `hidden: true` in its manifest is excluded from every user-facing list (the
@@ -1287,6 +1361,53 @@ export default function systemPromptContribution({ enabledPluginIds }) {
 Reference: `web/extensions/juggler-core/system-prompt-contribution.js`; the
 aggregation contract is `buildExtensionSystemPromptContributions()` in
 `web/js/services/extensions.js`.
+
+### Identity presets
+
+A system-prompt contribution adds to every conversation's prompt; an
+**identity preset** replaces the identity a conversation starts with, and only
+when the user (or a strategy, below) chooses it. List them with
+`provides.systemPromptPresets`, a glob of Markdown files. Each file opens with
+a frontmatter block — the same flat `key: value` format as a skill's
+`SKILL.md` — carrying a `name` and, optionally, a `description`; the rest of
+the file is the prompt:
+
+```markdown
+---
+name: Juggler Assistant
+description: A general-purpose assistant, not a coding agent
+---
+
+You are **Juggler Assistant**, a clear, helpful, general-purpose assistant…
+```
+
+Keys are case-sensitive, and a value may be wrapped in one pair of matching
+quotes. A file with no frontmatter, an unterminated one, no `name` or no
+prompt after it is not a preset: the extension still loads without it, with a
+warning in the Extensions catalog, and `juggler ext validate` fails on it.
+
+The system prompt's preset browser lists them under the extension's name. The
+user can apply one or make it the default for new conversations, but not edit
+or delete it — saving changes makes a user copy. A preset's id is
+`<extension id>/<file stem>` (`@you/chat/assistant` for `presets/assistant.md`
+in `@you/chat`), and it is how a user's default and a strategy's
+`defaultPreset` find it — so **renaming the file changes the id**, and a
+default that named the old one falls back to the built-in default. Switching
+the extension off removes its presets the same way. Ids are never replaced:
+when two installed extensions share an id, only the first found (built-in
+before user) contributes presets, and two files with the same stem in one
+extension keep the first — each with a warning.
+
+A preset's `name` is shown through your extension's translation catalogue,
+like its manifest name: `node scripts/i18n extract` (for an extension in the
+Juggler tree) collects it, and any extension can list it in its own
+`<locale>.json`. The prompt itself is model-facing and never translated.
+
+A strategy can name one as its `defaultPreset` (see
+[Strategy](#strategy--control-the-agentic-loop)): a conversation created on that
+strategy, or switched to it before its first message, starts with that
+identity instead of the user's default. Needs
+`engineApi` `^1.4.0`. Example: `web/extensions/chat/`.
 
 ## Talking to the conversation
 

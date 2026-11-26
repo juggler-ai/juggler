@@ -17,6 +17,7 @@
  */
 
 import { assert, waitFor } from '../utilities/test-helpers.js';
+import { isolateFocus } from '../utilities/isolate-focus.js';
 import { underPseudoLocale, assertPseudoLocalized } from '../utilities/pseudo-locale.js';
 import { pseudoLocalize } from '../../sdk/lib/i18n.js';
 import { showAlert, showConfirm, showPrompt, showChoice, showFormDialog } from '../../js/components/modal-dialog.js';
@@ -142,12 +143,25 @@ export async function runTests() {
   });
 
   await run('a form dialog with focusConfirm gives its confirm the keyboard', async () => {
-    const box = document.createElement('input');
-    box.type = 'checkbox';
-    showFormDialog({ title: 'Sure?', content: box, confirmText: 'Yes', focusConfirm: true, confirmClass: 'test-ok' });
-    const el = await openDialog();
-    const ok = el.querySelector('.test-ok');
-    await waitFor(() => document.activeElement === ok, { description: 'the confirm button to take focus' });
+    // A sibling lane's focus() takes this frame's real focus away at any
+    // moment, so what is asserted is that the dialog asked for focus on its
+    // confirm, and on nothing after it (isolateFocus).
+    const focus = isolateFocus();
+    try {
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      showFormDialog({ title: 'Sure?', content: box, confirmText: 'Yes', focusConfirm: true, confirmClass: 'test-ok' });
+      const el = await openDialog();
+      const ok = /** @type {HTMLElement|null} */ (el.querySelector('.test-ok'));
+      if (!ok) throw new Error('the confirm button carries no caller class');
+      await waitFor(() => focus.asked(ok), { description: 'the dialog to ask for focus on its confirm button' });
+      focus.steal();
+      const last = focus.requests[focus.requests.length - 1]?.element;
+      assert(last === ok, `focus was last asked for on ${last?.outerHTML.slice(0, 80) ?? 'nothing'}, not the confirm`);
+      assert(!focus.asked(box), 'the form\'s own field was focused, though the confirm takes the keyboard');
+    } finally {
+      focus.restore();
+    }
   });
 
   return { passed, failed, errors };

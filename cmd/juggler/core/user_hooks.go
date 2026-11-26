@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"juggler/internal/frontmatter"
 	"juggler/internal/userpaths"
 )
 
@@ -118,13 +119,13 @@ func readUserHook(path string) UserHook {
 		hook.Error = fmt.Sprintf("could not read file: %v", err)
 		return hook
 	}
-	fmLines, body, err := splitFrontmatter(data)
+	fmLines, body, err := frontmatter.Split(data)
 	hook.Body = body
 	if err != nil {
 		hook.Error = err.Error()
 		return hook
 	}
-	scanFrontmatterFields(fmLines, func(key, value string) {
+	frontmatter.ScanFields(fmLines, func(key, value string) {
 		assignHookField(&hook.Frontmatter, key, value)
 	})
 	hook.Error = validateUserHook(hook.Frontmatter, body)

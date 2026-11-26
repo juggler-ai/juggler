@@ -21,7 +21,7 @@ import './notice-message.js';
 import './thread-message.js';
 import './tool-group-message.js';
 import { buildDisplayItems, isGroupEntry } from '../utils/item-grouping.js';
-import { isToolGroupingEnabled } from '../utils/tool-grouping-pref.js';
+import { toolGroupingFor } from '../utils/tool-grouping-pref.js';
 import { createIconBadge, createTypeBadge } from '../utils/icon-message-renderer.js';
 import { badgeForItem } from '../utils/item-badge.js';
 import { SCROLL_TOP_SVG, SCROLL_BOTTOM_SVG, OPEN_IN_FULL_SVG } from '../utils/icons.js';
@@ -567,14 +567,16 @@ class ConversationArea extends JugglerElement {
    * Display-only: the returned entries are the same Y.Maps, with each run of
    * adjacent tool rows standing behind one group entry. A column that IS a
    * group's contents never re-folds (that would hide what the user just opened).
-   * The member → group lookup is cached because selection, visibility and
-   * scrolling all have to speak in the ids that are actually in the DOM.
+   * Grouping is the window's preference unless the conversation's strategy
+   * decides it (`MANIFEST.ui.toolGrouping`). The member → group lookup is
+   * cached because selection, visibility and scrolling all have to speak in
+   * the ids that are actually in the DOM.
    * @param {any[]} items - The column's items, in document order.
    * @returns {{entries: any[], memberToGroup: Map<string, string>}} Display entries + lookup.
    * @private
    */
   _computeDisplay(items) {
-    const enabled = !this._isGroupColumn && isToolGroupingEnabled();
+    const enabled = !this._isGroupColumn && toolGroupingFor(this._messageThread?.conversation);
     const display = buildDisplayItems(items, { enabled });
     this._memberToGroup = display.memberToGroup;
     return display;

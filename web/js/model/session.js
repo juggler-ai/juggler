@@ -1444,6 +1444,9 @@ class Session {
    * @param {string} [options.workspaceId] - The workspace the new conversation
    *   works in. A conversation born from another is born bound to the same one:
    *   the work it was spawned to do is about the files in that tree.
+   * @param {string} [options.strategyId] - The strategy it starts on, when the
+   *   creator already knows (a one-shot run's): it is seeded for that strategy,
+   *   its identity included, instead of the user's default strategy.
    * @returns {Promise<string>} New conversation ID
    */
   async createConversation(name, {
@@ -1451,7 +1454,8 @@ class Session {
     origin = 'unspecified',
     focus = false,
     focusFrom = '',
-    workspaceId = ''
+    workspaceId = '',
+    strategyId = ''
   } = {}) {
     // A create with no caller-supplied name is a blank "Untitled N" the user will
     // want to name (the + button and the /new command both create this way).
@@ -1505,7 +1509,7 @@ class Session {
 
     // Seeded here, at creation, where the conversation is nobody's yet and there
     // is nothing of the user's to write over.
-    await seedCreationDefaults(this, conversation);
+    await seedCreationDefaults(this, conversation, { strategyId });
 
     // Bound and seeded now, against the tree it was created for: the project
     // folder, or the workspace whose box it was started in. A conversation is
@@ -1535,12 +1539,14 @@ class Session {
    * bracket (the server broadcasts nothing to bracket), no place in the tab bar
    * or a workspace box, no `conversation:created`. It is only registered, so its
    * worker's syncs find it and the engine's tools can run in it.
-   * @param {{name?: string, agentRun: string, workspaceId?: string}} options -
+   * @param {{name?: string, agentRun: string, workspaceId?: string, strategyId?: string}} options -
    *   `name` labels it in logs; `agentRun` is the run it belongs to;
-   *   `workspaceId` the tree it works in.
+   *   `workspaceId` the tree it works in; `strategyId` the strategy it runs
+   *   under, which it is seeded for (its identity included) instead of the
+   *   user's default strategy.
    * @returns {Promise<import('./conversation.js').default>} The seeded conversation
    */
-  async createEphemeralConversation({ name = '', agentRun, workspaceId = '' }) {
+  async createEphemeralConversation({ name = '', agentRun, workspaceId = '', strategyId = '' }) {
     const requestedName = name || markUntranslated('Agent run');
     const response = await this._apiService.createConversation(requestedName, this._generateConversationId(), {
       origin: 'agent-run',
@@ -1548,7 +1554,7 @@ class Session {
       agentRun
     });
     const conversation = await workerManager.loader.createNew(response.id, response.name, this, { workspaceId, unplaced: true });
-    await seedCreationDefaults(this, conversation);
+    await seedCreationDefaults(this, conversation, { strategyId });
     await this.initialiseConversation(conversation, { workspaceId }, { atCreation: true });
     return conversation;
   }
@@ -1634,7 +1640,7 @@ class Session {
    * through, so each reaches the same seeds.
    * @param {import('./conversation.js').default} conversation - Conversation to seed
    * @param {import('./message-thread.js').default|null} [messageThread] - Target thread; null = root
-   * @param {{workspaceId?: string}} [options] - Which tree to probe; defaults to the conversation's own binding
+   * @param {import('./conversation-seeder.js').SeedOptions} [options] - Which tree to probe, and whether the strategy decides which files
    * @returns {Promise<{assistantFiles: number, autoItems: number}>} How many of each half were added
    */
   seedConversationAutoItems(conversation, messageThread = null, options = {}) {

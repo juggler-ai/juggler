@@ -30,7 +30,7 @@ import { t, markForTranslation, markUntranslated, htmlSlots, withHtml } from '..
 /**
  * @typedef {object} CapCard
  * @property {string} url - Served URL of the capability module
- * @property {'context-item'|'strategy'|'command'|'info-card'|'file-viewer'|'pinboard-item'|'hook'|'search-backend'} itemType - Capability type
+ * @property {'context-item'|'strategy'|'command'|'info-card'|'file-viewer'|'pinboard-item'|'hook'|'search-backend'|'system-prompt-preset'} itemType - Capability type
  * @property {string|null} id - Capability id (null if it failed to register)
  * @property {string} name - Display name
  * @property {string} description - Short description
@@ -40,6 +40,7 @@ import { t, markForTranslation, markUntranslated, htmlSlots, withHtml } from '..
  * @property {boolean} disabled - Effective disabled state (own id or inherited from extension)
  * @property {boolean} inherited - Disabled solely because the whole extension is off
  * @property {string|null} path - Absolute on-disk path of the module file, or null when it has no revealable file (embedded builtin)
+ * @property {boolean} [withExtension] - Switched on and off only with its extension (an identity preset), so its row has no toggle of its own
  */
 
 /**
@@ -118,6 +119,7 @@ const CAP_SECTIONS = /** @type {ReadonlyArray<readonly [string, string]>} */ ([
   ['pinboard-item', markForTranslation('Pinboard Items')],
   ['hook', markForTranslation('Hooks')],
   ['search-backend', markForTranslation('Search Backends')],
+  ['system-prompt-preset', markForTranslation('Identity Presets')],
 ]);
 
 /**
@@ -143,6 +145,7 @@ const TYPE_LABELS = /** @type {Record<string, string>} */ ({
   'pinboard-item': markForTranslation('Pinboard Item'),
   hook: markForTranslation('Hook'),
   'search-backend': markForTranslation('Search Backend'),
+  'system-prompt-preset': markForTranslation('Identity Preset'),
 });
 
 /**
@@ -357,6 +360,25 @@ export function buildExtensionCards(extensions, entriesByPath, failedByPath, dis
           path: ext.files?.[url] ?? null,
         });
       }
+    }
+    // Identity presets are data the server has parsed, not modules a registry
+    // loads, and they go with their extension: each is listed so the extension
+    // never looks as if it provides nothing, but has no switch of its own.
+    for (const preset of ext.capabilities?.systemPromptPresets || []) {
+      caps.push({
+        url: preset.url,
+        itemType: 'system-prompt-preset',
+        id: preset.id,
+        name: preset.name,
+        description: preset.description || '',
+        version: '',
+        registered: true,
+        failed: null,
+        disabled: extDisabled,
+        inherited: extDisabled,
+        path: ext.files?.[preset.url] ?? null,
+        withExtension: true,
+      });
     }
 
     return {
@@ -1084,7 +1106,10 @@ class PluginCatalog extends JugglerElement {
     badge.className = enabled ? 'plugin-tree-toggle plugin-tree-toggle-on' : 'plugin-tree-toggle plugin-tree-toggle-off';
     badge.textContent = enabled ? t('on') : t('off');
 
-    if (!canToggle) {
+    if (entry.cap?.withExtension) {
+      badge.disabled = true;
+      badge.title = t('Switched on and off with its extension');
+    } else if (!canToggle) {
       badge.disabled = true;
       badge.title = t('Enable the extension to toggle this capability');
     } else {
@@ -1541,7 +1566,7 @@ class PluginCatalog extends JugglerElement {
    * @private
    */
   _classFor(cap) {
-    if (!cap.id) return undefined;
+    if (!cap.id || cap.itemType === 'system-prompt-preset') return undefined;
     if (cap.itemType === 'strategy') return strategyRegistry.getIncludingDisabled(cap.id);
     if (cap.itemType === 'command') return commandRegistry.getIncludingDisabled(cap.id);
     if (cap.itemType === 'info-card') return infoCardRegistry.getIncludingDisabled(cap.id);

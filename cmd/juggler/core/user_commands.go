@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"juggler/internal/frontmatter"
 	"juggler/internal/userpaths"
 )
 
@@ -297,11 +298,11 @@ func discoverCommands(dir, scope string) []UserCommand {
 // import (unknown keys are ignored; `argument-hint` maps to argsHint).
 func parseCommandFile(data []byte) (UserCommandFrontmatter, string, error) {
 	var fm UserCommandFrontmatter
-	fmLines, body, err := splitFrontmatter(data)
+	fmLines, body, err := frontmatter.Split(data)
 	if err != nil {
 		return fm, body, err
 	}
-	scanFrontmatterFields(fmLines, func(key, value string) {
+	frontmatter.ScanFields(fmLines, func(key, value string) {
 		assignFrontmatterField(&fm, key, value)
 	})
 	return fm, body, nil

@@ -26,7 +26,13 @@ export function toolGroupingTitle(on) {
     : t('Group consecutive tool uses');
 }
 import { toggleSound, isSoundEnabled, ATTENTION_PREFS_EVENT } from '../utils/attention-manager.js';
-import { isToolGroupingEnabled, toggleToolGrouping, TOOL_GROUPING_EVENT } from '../utils/tool-grouping-pref.js';
+import {
+  isToolGroupingEnabled,
+  toolGroupingOverride,
+  toggleToolGrouping,
+  TOOL_GROUPING_EVENT,
+  TOOL_GROUPING_SCOPE_EVENT
+} from '../utils/tool-grouping-pref.js';
 import { zoomIn, zoomOut } from '../utils/zoom-manager.js';
 import { setupHeaderOverflowMenu } from '../utils/header-overflow-menu.js';
 import { headerOverflowItems, appMenuPlatform, foldedControls } from '../utils/header-overflow-items.js';
@@ -72,6 +78,15 @@ class UIEventManager {
 
     /** @type {(() => void)|null} @private */
     this._unregisterToolGrouping = null;
+
+    /**
+     * Re-reads the grouping toggle's state; set once the button is wired.
+     * @type {(() => void)|null} @private
+     */
+    this._reflectToolGrouping = null;
+
+    /** @type {(() => void)|null} @private - Stops following conversation switches */
+    this._unsubscribeSwitch = null;
 
     /** @type {(() => void)|null} @private */
     this._unregisterQuit = null;
@@ -313,16 +328,25 @@ class UIEventManager {
     }
 
     const reflect = () => {
-      const on = isToolGroupingEnabled();
+      // The conversation in view may decide grouping through its strategy
+      // (MANIFEST.ui.toolGrouping): the toggle then shows that state, and is
+      // disabled with a tooltip saying why, rather than offering a choice it
+      // cannot make.
+      const override = toolGroupingOverride(this._getSession()?.getVisibleConversation?.());
+      const on = override ? override === 'always' : isToolGroupingEnabled();
       // `is-active` also swaps which of the button's two glyphs is shown (see
       // .tool-grouping-button in app-shell.css): each depicts the transcript's
       // current state — folded or unfolded.
       groupingButton.classList.toggle('is-active', on);
-      groupingButton.setAttribute('title', toolGroupingTitle(on));
+      groupingButton.setAttribute('title', override
+        ? t("{mode, select, always {This conversation's strategy always groups consecutive tool uses} other {This conversation's strategy never groups consecutive tool uses}}", { mode: override })
+        : toolGroupingTitle(on));
       groupingButton.setAttribute('aria-pressed', String(on));
+      /** @type {HTMLButtonElement} */ (groupingButton).disabled = override !== null;
     };
 
     const handler = () => {
+      if (/** @type {HTMLButtonElement} */ (groupingButton).disabled) return;
       toggleToolGrouping();
       reflect();
     };
@@ -330,10 +354,17 @@ class UIEventManager {
     this._listeners.push({ element: groupingButton, event: 'click', handler });
 
     const prefsHandler = () => reflect();
+    this._reflectToolGrouping = reflect;
     window.addEventListener(TOOL_GROUPING_EVENT, prefsHandler);
     this._listeners.push({ element: window, event: TOOL_GROUPING_EVENT, handler: prefsHandler });
+    window.addEventListener(TOOL_GROUPING_SCOPE_EVENT, prefsHandler);
+    this._listeners.push({ element: window, event: TOOL_GROUPING_SCOPE_EVENT, handler: prefsHandler });
 
+    // The shortcut is the button's other route, so it stands down whenever the
+    // button is disabled: flipping the preference behind a conversation whose
+    // strategy decides would change nothing here and re-fold every other tab.
     this._unregisterToolGrouping = keyShortcutManager.register('toggle-tool-grouping', () => {
+      if (toolGroupingOverride(this._getSession()?.getVisibleConversation?.())) return true;
       toggleToolGrouping();
       return true;
     });
@@ -723,7 +754,8 @@ class UIEventManager {
     const messageThread = threadItemId
       ? conversation.resolveMessageThread(threadItemId)
       : conversation.rootMessageThread;
-    const { assistantFiles: addedCount } = await session.seedConversationAutoItems(conversation, messageThread);
+    // Asked for by name, so every file, whatever the strategy leaves out.
+    const { assistantFiles: addedCount } = await session.seedConversationAutoItems(conversation, messageThread, { allInstructions: true });
     // A bound conversation is seeded with these files already, so a click that
     // adds nothing is the common case — and without a word it reads as a dead
     // menu item.
@@ -748,6 +780,12 @@ class UIEventManager {
    */
   setSession(session) {
     this._session = session;
+    // The grouping toggle follows the conversation in view, which may force it.
+    this._unsubscribeSwitch?.();
+    this._unsubscribeSwitch = session?.subscribe?.((/** @type {any} */ event) => {
+      if (event.type === 'conversation:switched') this._reflectToolGrouping?.();
+    }) ?? null;
+    this._reflectToolGrouping?.();
   }
 
   /**
@@ -767,6 +805,9 @@ class UIEventManager {
     this._unregisterShowShortcuts?.();
     this._unregisterOpenSettings?.();
     this._unregisterToolGrouping?.();
+    this._unsubscribeSwitch?.();
+    this._unsubscribeSwitch = null;
+    this._reflectToolGrouping = null;
     this._unregisterQuit?.();
     this._overflowMenu?.dispose();
     this._overflowMenu = null;

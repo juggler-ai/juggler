@@ -14,7 +14,7 @@ import { escapeHtml } from '../../sdk/lib/html.js';
 import { findFirstPendingApprovalId } from '../model/thread-navigation.js';
 import { ColumnSelectionState, selectionFollowUps } from '../utils/column-selection.js';
 import { rootFontSizePx, columnScrollDelta } from '../utils/column-resize.js';
-import { isToolGroupingEnabled, TOOL_GROUPING_EVENT } from '../utils/tool-grouping-pref.js';
+import { toolGroupingFor, toolGroupingOverride, notifyToolGroupingScope, TOOL_GROUPING_EVENT } from '../utils/tool-grouping-pref.js';
 import { buildDisplayItems, isGroupId, groupMemberIndices } from '../utils/item-grouping.js';
 import { isItemSelectable } from '../services/context-item-utilities.js';
 import { recordTape } from '../utils/event-tape.js';
@@ -203,6 +203,22 @@ class ConversationTab extends JugglerElement {
 
     /** @type {ColumnBuilder} @private - Builds the columns, and remembers what it last rendered into each */
     this._builder = new ColumnBuilder();
+
+    /**
+     * Whether the columns were last built with tool runs folded, or null before
+     * the first build — so a strategy switch that changes it is noticed.
+     * @type {boolean|null}
+     * @private
+     */
+    this._groupingShown = null;
+
+    /**
+     * The conversation's strategy's grouping rule at the last build, so the
+     * header's toggle is told when that changes.
+     * @type {'always'|'never'|null}
+     * @private
+     */
+    this._groupingOverrideShown = null;
   }
 
   connectedCallback() {
@@ -243,48 +259,59 @@ class ConversationTab extends JugglerElement {
   /**
    * The tool-grouping preference flipped: re-render every column under the new
    * display rule, carrying each selection across the fold.
-   *
-   * Selections are ids, and folding changes which ids exist in a column: a
-   * member id becomes its group's id when folding, and a group id becomes its
-   * first row when unfolding. Translating them here means the user keeps
-   * looking at the same thing, one level in or out. Nothing about the document
-   * changes — only what each column lists.
    * @private
    */
   _onToolGroupingChanged() {
     if (!this._conversation) return;
-    const enabled = isToolGroupingEnabled();
+    this._carrySelectionsAcrossFold(toolGroupingFor(this._conversation));
+    this._rebuildColumns(false);
+  }
 
-    for (let i = 0; i < this._columns.length; i++) {
+  /**
+   * Translate each selection for a change in whether tool runs are folded, and
+   * mark the columns for a repaint; the caller rebuilds.
+   *
+   * Selections are ids, and folding changes which ids exist in a column: a
+   * member id becomes its group's id when folding, and a group id becomes its
+   * first row when unfolding. Translating them means the user keeps looking at
+   * the same thing, one level in or out. Nothing about the document changes —
+   * only what each column lists.
+   *
+   * A group id unfolds from the id alone. A member folds against the column's
+   * listed rows when the column is built; a tab parked while hidden has no
+   * columns, and there {@link ColumnSelectionState.resolveColumnChain} folds a
+   * member into its group as it walks.
+   * @param {boolean} enabled - Whether runs are folded from now on
+   * @private
+   */
+  _carrySelectionsAcrossFold(enabled) {
+    const selections = this._selection.selections;
+    for (let i = 0; i < selections.length; i++) {
+      const selectedId = selections[i];
+      if (!selectedId) break;
       const col = asArea(this._columns[i]);
-      if (!col) continue;
-
-      const selectedId = this._selection.selections[i];
-      if (selectedId) {
-        const items = col.listedItems;
-        let nextId = selectedId;
-        if (enabled) {
-          const { memberToGroup } = buildDisplayItems(items, { enabled: true });
-          nextId = memberToGroup.get(selectedId) || selectedId;
-        } else if (isGroupId(selectedId)) {
-          nextId = selectedId.slice(selectedId.indexOf(':') + 1);
-        }
-        if (nextId !== selectedId) {
-          this._selection.selections[i] = nextId;
-          // Selecting into a group opened a column that no longer exists (or
-          // now does); later selections belong to a chain that just changed
-          // shape, so drop them rather than resolve them against the wrong list.
-          this._selection.selections.length = i + 1;
-        }
-        col.presetSelectedItemId(this._selection.selections[i] ?? null);
+      let nextId = selectedId;
+      if (enabled) {
+        if (col) nextId = buildDisplayItems(col.listedItems, { enabled: true }).memberToGroup.get(selectedId) || selectedId;
+      } else if (isGroupId(selectedId)) {
+        nextId = selectedId.slice(selectedId.indexOf(':') + 1);
       }
-
-      // The rendered-item key is a function of what was listed, which is exactly
-      // what changed — forget it so the column repaints.
-      this._builder.invalidate(col);
+      if (nextId !== selectedId) {
+        selections[i] = nextId;
+        // Selecting into a group opened a column that no longer exists (or
+        // now does); later selections belong to a chain that just changed
+        // shape, so drop them rather than resolve them against the wrong list.
+        selections.length = i + 1;
+      }
+      col?.presetSelectedItemId(selections[i] ?? null);
     }
 
-    this._rebuildColumns(false);
+    // The rendered-item key is a function of what was listed, which is exactly
+    // what changed — forget it so each column repaints.
+    for (const column of this._columns) {
+      const col = asArea(column);
+      if (col) this._builder.invalidate(col);
+    }
   }
 
   /**
@@ -902,6 +929,9 @@ class ConversationTab extends JugglerElement {
     this.classList.add('is-active');
     this.classList.remove('hidden');
     this._isHidden = false;
+    // The header's grouping toggle shows whether the conversation now in view
+    // overrides grouping.
+    notifyToolGroupingScope();
 
     // Hidden tabs retain only their model-backed selection/draft state. Rebuild
     // the lightweight column shell before syncing the transcript back from Yjs.
@@ -1639,7 +1669,7 @@ class ConversationTab extends JugglerElement {
    * @private
    */
   _foldingGroupOf(rootItems, chain) {
-    if (!isToolGroupingEnabled()) return null;
+    if (!toolGroupingFor(this._conversation)) return null;
     let items = rootItems;
     for (const threadId of chain.slice(0, -1)) {
       const thread = items.find((i) => i?.get?.('itemId') === threadId);
@@ -1987,8 +2017,15 @@ class ConversationTab extends JugglerElement {
       const prevInputCol = this._deepestInputColumn();
 
       const conversation = this._conversation;
+      const groupingEnabled = toolGroupingFor(conversation);
+      this._groupingShown = groupingEnabled;
+      const groupingOverride = toolGroupingOverride(conversation);
+      if (groupingOverride !== this._groupingOverrideShown) {
+        this._groupingOverrideShown = groupingOverride;
+        if (!this._isHidden) notifyToolGroupingScope();
+      }
       const chain = this._selection.resolveColumnChain(conversation.rootMessageThread, isThreadMessage,
-        { groupingEnabled: isToolGroupingEnabled() });
+        { groupingEnabled });
       const session = conversation.session;
 
       // Build new columns array matching the chain
@@ -2213,6 +2250,15 @@ class ConversationTab extends JugglerElement {
     // (see maybeAutoSelectThread), so parallel siblings streaming together
     // rewrite nothing here; llmState also holds its named thread while it
     // runs, which keeps the choice stable across the projection's churn.
+    // A strategy switch can start or stop overriding grouping
+    // (MANIFEST.ui.toolGrouping), and a hidden tab may have missed one: carry
+    // the selections across the fold before the rebuild below resolves them,
+    // as a flip of the preference does.
+    const grouping = toolGroupingFor(conversation);
+    if (this._groupingShown !== null && grouping !== this._groupingShown) {
+      this._carrySelectionsAcrossFold(grouping);
+    }
+
     const llmState = conversation.llmState;
     let autoSelected = false;
     if (llmState) {

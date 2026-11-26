@@ -44,6 +44,7 @@ import {
   trailingTurnOutcome,
 } from '../utils/composer-placeholders.js';
 import { expandPasteTokens } from '../utils/paste-tokens.js';
+import { applyChromeHide, followChromeHide } from '../utils/strategy-chrome.js';
 import {
   isFileDrag,
   splitFiles,
@@ -320,6 +321,21 @@ class Composer extends JugglerElement {
 
     /** @type {boolean} @private */
     this._cacheImpactWarning = false;
+
+    /**
+     * Stops following the thread's strategy for the hidden-controls mark.
+     * @type {(() => void)|null}
+     * @private
+     */
+    this._unfollowChromeHide = null;
+
+    /**
+     * The logical thread (`conversationId::threadItemId`) that
+     * {@link _unfollowChromeHide} follows.
+     * @type {string|null}
+     * @private
+     */
+    this._chromeHideKey = null;
   }
 
   connectedCallback() {
@@ -333,6 +349,7 @@ class Composer extends JugglerElement {
       this._syncPasteMirror();
       if (this._conversation) this.setConversation(this._conversation);
     }
+    this._syncChromeHide();
     this._bindHostListeners();
     // Take an unclaimed keyboard on arrival — except in a sub-thread column,
     // whose box gets focus only through conversation-tab's Rule 15. That rule
@@ -367,6 +384,7 @@ class Composer extends JugglerElement {
       this._conversation.unobserveMetadata(this._conversationMetadataObserver);
       this._conversationMetadataObserver = null;
     }
+    this._stopChromeHide();
     // Tear down the token mirror — critically, this detaches the document-level
     // selectionchange listener so a removed box leaves no dangling handler.
     teardownPasteMirror(this);
@@ -1804,6 +1822,40 @@ class Composer extends JugglerElement {
   }
 
   /**
+   * Mark this box with how its conversation's strategy shapes it — the
+   * controls it hides and the strategy selector's form (`MANIFEST.ui`, see
+   * utils/strategy-chrome.js) — and keep the marks in step with strategy
+   * switches while connected. The status line's strategy selector is inside
+   * the box, so its chip form follows the box's mark. A sub-thread column
+   * hands the box a fresh wrapper on every rebuild, so the follow is keyed on
+   * the logical thread (conversation + thread item) and re-taken only when
+   * that changes; the marks are re-applied on every bind.
+   * @private
+   */
+  _syncChromeHide() {
+    if (!this.isConnected) return;
+    const mt = this._messageThread;
+    const key = mt ? `${mt.conversationId}::${mt.threadItemId ?? 'root'}` : null;
+    if (key === this._chromeHideKey && this._unfollowChromeHide) {
+      applyChromeHide(this, mt);
+      return;
+    }
+    this._stopChromeHide();
+    this._chromeHideKey = key;
+    this._unfollowChromeHide = followChromeHide(this, () => this._messageThread);
+  }
+
+  /**
+   * Stop following the strategy for the hidden-controls mark.
+   * @private
+   */
+  _stopChromeHide() {
+    this._unfollowChromeHide?.();
+    this._unfollowChromeHide = null;
+    this._chromeHideKey = null;
+  }
+
+  /**
    * Set the message thread for this composer
    * @param {import('../model/message-thread.js').MessageThread} messageThread
    */
@@ -1835,6 +1887,7 @@ class Composer extends JugglerElement {
 
     this._syncStrategySelector();
     this._syncPermissionControls();
+    this._syncChromeHide();
 
     const modelSelector = this.querySelector('model-selector');
     if (modelSelector && 'setMessageThread' in modelSelector) {

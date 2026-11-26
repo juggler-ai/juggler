@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -155,6 +156,49 @@ func TestExtensionsSearchBackendOnly(t *testing.T) {
 	}
 	assertURLs(t, "searchBackends", ext.Capabilities.SearchBackends,
 		[]string{"/extensions/juggler-core/search-backends/acme-backend.js"})
+}
+
+// TestExtensionsSystemPromptPresetsOnly pins that identity presets are a
+// capability in their own right — an extension that ships nothing but presets
+// must load — and that the server serves them parsed, ids namespaced by the
+// extension. A file that does not parse (here, an unterminated frontmatter,
+// whose header must never become a prompt) costs only itself, with a warning.
+func TestExtensionsSystemPromptPresetsOnly(t *testing.T) {
+	manifest := `{
+	  "id":"@you/voices","name":"voices","version":"1.0.0","engineApi":"^1.0.0",
+	  "provides":{"systemPromptPresets":["presets/*.md"]}
+	}`
+	fsys := coreFS(manifest, "1.0.0")
+	fsys["extensions/juggler-core/presets/assistant.md"] = &fstest.MapFile{Data: []byte("---\nname: \"A\"\ndescription: d\n---\n\nbody\n")}
+	fsys["extensions/juggler-core/presets/broken.md"] = &fstest.MapFile{Data: []byte("---\nname: B\nbody")}
+	ext := loadOne(t, fsys)
+	if ext.Error != "" {
+		t.Fatalf("unexpected error: %s", ext.Error)
+	}
+	want := []ExtensionPreset{{
+		ID: "@you/voices/assistant", URL: "/extensions/juggler-core/presets/assistant.md",
+		Name: "A", Description: "d", Content: "body",
+	}}
+	if !reflect.DeepEqual(ext.Capabilities.SystemPromptPresets, want) {
+		t.Fatalf("presets = %+v, want %+v", ext.Capabilities.SystemPromptPresets, want)
+	}
+	if len(ext.Warnings) != 1 || !strings.Contains(ext.Warnings[0], "broken.md") {
+		t.Fatalf("warnings = %q, want one naming broken.md", ext.Warnings)
+	}
+}
+
+// TestExtensionsNewerEngineAPIBeatsUnknownField pins the diagnostic for a
+// manifest written for a newer host: the range it asks for, not the field this
+// host does not know.
+func TestExtensionsNewerEngineAPIBeatsUnknownField(t *testing.T) {
+	manifest := `{
+	  "id":"@you/future","name":"future","version":"1.0.0","engineApi":"^9.0.0",
+	  "provides":{"strategies":["strategies/*-strategy-type.js"],"fromTheFuture":["x"]}
+	}`
+	ext := loadOne(t, coreFS(manifest, "1.0.0"))
+	if !strings.Contains(ext.Error, "requires engineApi") {
+		t.Fatalf("error = %q, want the engineApi mismatch", ext.Error)
+	}
 }
 
 // assertURLs compares two URL slices as sets (glob order is filesystem-dependent).

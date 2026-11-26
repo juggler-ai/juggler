@@ -31,6 +31,9 @@ the current release). The project follows semantic versioning.
 - Claude models via OpenRouter use prompt caching, and show cache writes
 - Filenames on read, edit, write, search and file cards open on the Pinboard
 - Extension SDK: `services.git` is gone; call the git tool through `services.ops.client`
+- Chat strategy: web-searching conversations with their own identity that can't change the project
+- Switching strategy asks first when it would re-read a long conversation's cache
+- Extension SDK: strategies can hide controls; extensions can ship identity presets
 - Attaching a video says the model can't take video, instead of "Couldn't read"
 - Shell commands typed as `! cmd` or `/shell cmd` can be scheduled to run later
 

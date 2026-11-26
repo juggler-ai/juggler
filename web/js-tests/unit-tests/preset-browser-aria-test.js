@@ -59,6 +59,9 @@ export async function runTests() {
   document.body.appendChild(container);
   const button = /** @type {HTMLElement} */ (container.querySelector('.system-prompt-preset-btn'));
 
+  // The browser lists what is loaded when it opens — user and extension
+  // presets included — so the expectation is read after the same load.
+  await ensureUserPresetsLoaded();
   const presets = systemPromptRegistry.getCategories().flatMap((c) => systemPromptRegistry.getPresetsByCategory(c));
   const selected = presets[0];
   const item = stubItem(selected?.id ?? '');
@@ -141,9 +144,9 @@ async function enXACase() {
   const defaultId = getDefaultPresetId();
   /** @type {any[]} */
   let presets = [
-    { id: defaultId, name: '1', content: '1', category: 'general' },
-    { id: 'x-2', name: '2', content: '2', category: 'specialized' },
-    { id: 'user-3', name: '3', content: '3', category: 'user' },
+    { id: defaultId, name: '1', content: '1', category: 'general', source: 'builtin' },
+    { id: 'x-2', name: '2', content: '2', category: 'specialized', source: 'builtin' },
+    { id: 'user-3', name: '3', content: '3', category: 'user', source: 'user' },
   ];
   const reg = /** @type {any} */ (systemPromptRegistry);
   const savedReg = { getCategories: reg.getCategories, getPresetsByCategory: reg.getPresetsByCategory, getPreset: reg.getPreset };

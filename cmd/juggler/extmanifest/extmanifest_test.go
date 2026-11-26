@@ -381,3 +381,50 @@ func TestDefaultEngineAPIVersionMatchesSDK(t *testing.T) {
 		t.Fatalf("web/sdk/version.js says %q but DefaultEngineAPIVersion is %q — bump them together", got, DefaultEngineAPIVersion)
 	}
 }
+
+// TestParsePreset pins the identity-preset file format extension authors write
+// to: the shared frontmatter, a required name, a non-empty body — and every way
+// a header could leak into the prompt is an error instead.
+func TestParsePreset(t *testing.T) {
+	cases := []struct {
+		name, src     string
+		want          Preset
+		wantErrSubstr string
+	}{
+		{name: "fields and body", src: "---\nname: \"A \\\"b\\\"\"\ndescription: 'd: e'\nother: x\n---\n\n  body\n",
+			want: Preset{Path: "p/assistant.md", Stem: "assistant", Name: `A "b"`, Description: "d: e", Content: "body"}},
+		{name: "CRLF and trailing spaces on fences", src: "--- \r\nname: A\r\n---\t\r\nbody\r\n",
+			want: Preset{Path: "p/assistant.md", Stem: "assistant", Name: "A", Content: "body"}},
+		{name: "keys are case-sensitive", src: "---\nName: A\n---\nbody", wantErrSubstr: "name"},
+		{name: "no frontmatter", src: "name: A\nbody", wantErrSubstr: "missing YAML frontmatter"},
+		{name: "unterminated", src: "---\nname: A\nbody", wantErrSubstr: "unterminated"},
+		{name: "empty body", src: "---\nname: A\n---\n  \n", wantErrSubstr: "no prompt"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ParsePreset("p/assistant.md", []byte(tc.src))
+			if tc.wantErrSubstr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErrSubstr) {
+					t.Fatalf("err = %v, want one containing %q", err, tc.wantErrSubstr)
+				}
+				return
+			}
+			if err != nil || got != tc.want {
+				t.Fatalf("got %+v, %v; want %+v", got, err, tc.want)
+			}
+		})
+	}
+}
+
+// TestReadPresetsKeepsFirstOfAStem pins that two files with one stem (from two
+// globs) do not both claim the id: the first keeps it, the second is reported.
+func TestReadPresetsKeepsFirstOfAStem(t *testing.T) {
+	fsys := fstest.MapFS{
+		"a/x.md": {Data: []byte("---\nname: First\n---\nbody")},
+		"b/x.md": {Data: []byte("---\nname: Second\n---\nbody")},
+	}
+	got, problems := ReadPresets(fsys, []string{"a/x.md", "b/x.md"})
+	if len(got) != 1 || got[0].Name != "First" || len(problems) != 1 {
+		t.Fatalf("got %+v, problems %v", got, problems)
+	}
+}

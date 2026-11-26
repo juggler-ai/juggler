@@ -502,8 +502,10 @@ class SystemPromptContextItem extends ContextItem {
     if (typeof presetId === 'string' && presetId && !this.data.isModified) {
       const preset = systemPromptRegistry.getPreset(presetId);
       if (preset && preset.id !== 'default') {
-        // A preset's name is data, shown as it is stored.
-        return t('System Prompt ({name})', { name: preset.name });
+        // A user preset's name is data, shown as it is stored; an extension's
+        // is translated in that extension's catalogue, as the browser shows it.
+        const name = preset.extensionId ? translator(preset.extensionId)(preset.name) : preset.name;
+        return t('System Prompt ({name})', { name });
       }
     }
     if (this.data.isModified) {

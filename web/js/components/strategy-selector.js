@@ -12,6 +12,7 @@ import CycleBuffer from '../services/cycle-buffer.js';
 import { findLastRoundTripTxnId } from '../utils/transaction-anchor.js';
 import { generateToolDefinitions } from '../services/tool-generator.js';
 import { buildPrefixFingerprint, classifyContextCacheImpact, CONTEXT_CACHE_IMPACT_CHANGED } from '../services/context-cache-impact.js';
+import { noteSwitchInputs, switchIsCostly, switchStrategy, toolsetSignature } from '../services/strategy-switch.js';
 import { contextPositionOf } from '../services/system-prompt-builder.js';
 import { openSettings } from '../services/settings-launcher.js';
 import { capabilityLabel } from '../utils/capability-label.js';
@@ -378,16 +379,16 @@ class StrategySelector extends JugglerElement {
   }
 
   /**
-   * A stable, order-independent signature of the tool set a strategy exposes:
-   * the sorted tool names left after its filterTools runs over the full set.
-   * @param {any} strategy - Strategy instance
-   * @param {Array<{name: string}>} tools - Full generated tool definitions
-   * @returns {string} Sorted, comma-joined tool-name signature
+   * Whether switching the bound thread to a strategy would re-read a large
+   * cached context, so the switch is confirmed first. Weighed from the inputs
+   * this selector records for the cache caution ({@link _refreshCacheInputs}),
+   * so it costs nothing on the pick; before those are resolved it says no.
+   * @param {string} strategyId - The strategy being picked
+   * @returns {boolean} True when the switch is worth confirming
    * @private
    */
-  _toolSignature(strategy, tools) {
-    const filtered = strategy?.filterTools ? strategy.filterTools(tools) : tools;
-    return (filtered || []).map((/** @type {any} */ t) => t?.name || '').sort().join(',');
+  _switchIsCostly(strategyId) {
+    return switchIsCostly(this._messageThread, strategyId);
   }
 
   /**
@@ -498,6 +499,10 @@ class StrategySelector extends JugglerElement {
       if (swapped()) return;
       this._anchorTokens = anchor.tokens;
       this._anchorModelSig = anchor.modelSig;
+      // The same two measurements weigh a strategy switch picked anywhere —
+      // this menu, Shift+Tab, an approval card's hint — so they are recorded
+      // for services/strategy-switch.js, which decides in the click's task.
+      noteSwitchInputs(thread, { tools, anchorTokens: anchor.tokens });
       // Rebaseline only when idle: mid-turn the transcript is still growing and
       // is not a stable cached prefix. When idle, the current transcript is
       // exactly what the provider has now cached — under the model that sent it,
@@ -540,7 +545,7 @@ class StrategySelector extends JugglerElement {
     const thread = this._messageThread;
     if (!thread || !this._toolsAll) return null;
     const strategy = strategyRegistry.createStrategy(thread.currentStrategyId || 'default', thread);
-    const toolsetSig = this._toolSignature(strategy, this._toolsAll);
+    const toolsetSig = toolsetSignature(strategy, this._toolsAll);
     // `prefix` context items (pinned/dropped files) render where their rows stand
     // in thread.items, so they are signed there, weighed by the bytes they keep.
     const contextItems = (thread.contextItems || []).filter(
@@ -685,11 +690,13 @@ class StrategySelector extends JugglerElement {
       return;
     }
 
-    // Update the conversation's strategy
-    this._writeStrategyToDoc(strategyId);
-
-    // Close dropdown first so render() sees dropdownOpen = false
+    // A switch that throws away a large cached context is confirmed first;
+    // until the answer the button stays on the current strategy, and the doc
+    // write repaints it if the answer is yes.
+    const costly = this._switchIsCostly(strategyId);
     this.closeDropdown();
+    this._writeStrategyToDoc(strategyId, costly);
+    if (costly) return;
 
     // Update local display
     this._currentStrategyId = strategyId;
@@ -826,12 +833,15 @@ class StrategySelector extends JugglerElement {
 
   /**
    * Persist a strategy id to the bound thread — the doc the engine (and any
-   * running turn) reads. Shared by `selectStrategy` and `commitCycle`.
+   * running turn) reads — as the user's pick (services/strategy-switch.js).
+   * Shared by `selectStrategy` and `commitCycle`. A switch that is not costly
+   * is written before this returns.
    * @param {string} strategyId
+   * @param {boolean} costly - Whether it re-reads a large cached context, so asks first
    * @private
    */
-  _writeStrategyToDoc(strategyId) {
-    this._messageThread?.setStrategy(strategyId);
+  _writeStrategyToDoc(strategyId, costly) {
+    if (this._messageThread) void switchStrategy(this._messageThread, strategyId, { costly });
   }
 
   /**
@@ -850,15 +860,25 @@ class StrategySelector extends JugglerElement {
    * turn only ever sees the final choice — and pin it against the post-commit
    * sync bounce until the turn settles. Then repaint the button DIRECTLY (not
    * via the doc-sync path, which the pin may gate). A pure hold-to-peek that
-   * landed back on the committed strategy writes nothing.
+   * landed back on the committed strategy writes nothing. A landing that would
+   * throw away a large cached context is confirmed first, the button back on
+   * the committed strategy meanwhile, and written only on a yes.
    */
   commitCycle() {
     const landing = this._currentStrategyId;
-    const changed = landing !== this._committedStrategyId;
+    const committed = this._committedStrategyId;
+    const changed = landing !== committed;
     this._committedStrategyId = null;
-    if (changed) {
+    if (changed && this._switchIsCostly(landing)) {
+      // Released on a strategy that throws away a large cached context: the
+      // button goes back to the committed strategy while the user is asked,
+      // and the doc write repaints it if the answer is yes.
+      this._currentStrategyId = committed ?? (this._messageThread?.currentStrategyId || 'default');
+      this._cycle.end();
+      this._writeStrategyToDoc(landing, true);
+    } else if (changed) {
       this._cycle.pin(landing);
-      this._writeStrategyToDoc(landing);
+      this._writeStrategyToDoc(landing, false);
     } else {
       this._cycle.end();
     }

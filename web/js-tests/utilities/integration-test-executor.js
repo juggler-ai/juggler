@@ -108,6 +108,7 @@ import { runTests as runMcpSettingsTests } from '../unit-tests/mcp-settings-test
 import { runTests as runAcpSettingsTests } from '../unit-tests/acp-settings-test.js';
 import { runTests as runSystemPromptBuilderTests } from '../unit-tests/system-prompt-builder-test.js';
 import { runTests as runSystemPromptRegistryTests } from '../unit-tests/system-prompt-registry-test.js';
+import { runTests as runStrategySwitchTests } from '../unit-tests/strategy-switch-test.js';
 import { runTests as runExtensionsDisabledTests } from '../unit-tests/extensions-disabled-test.js';
 import { runTests as runRoundTripTimingTests } from '../unit-tests/roundtrip-timing-test.js';
 import { runTests as runWorkerBroadcastTests } from '../unit-tests/worker-broadcast-test.js';
@@ -747,6 +748,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:acp-settings', run: runAcpSettingsTests },
   { name: 'unit:system-prompt-builder', run: runSystemPromptBuilderTests },
   { name: 'unit:system-prompt-registry', run: runSystemPromptRegistryTests },
+  { name: 'unit:strategy-switch', run: runStrategySwitchTests },
   { name: 'unit:extensions-disabled', run: runExtensionsDisabledTests },
   { name: 'unit:roundtrip-timing', run: runRoundTripTimingTests },
   { name: 'unit:worker-broadcast', run: runWorkerBroadcastTests },

@@ -13,8 +13,9 @@
 // or to a t made by `const t = translator(…)`, keyed `<context>\u0004<source>`
 // when the call's options carry a context; the name, description, addLabel,
 // eyebrow and setupLabel of each capability's `static MANIFEST`, with a
-// workspace provider's recommendations; and the manifest's name and its
-// settings' labels, help and options. Files under _tests/ are not read.
+// workspace provider's recommendations; the manifest's name and its
+// settings' labels, help and options; and the name of each identity preset it
+// lists. Files under _tests/ are not read.
 package i18nextract
 
 import (
@@ -84,6 +85,13 @@ func Extract(root string) (*Extension, error) {
 	for _, source := range manifestMessages(manifest) {
 		ext.Messages[source] = source
 	}
+	names, err := presetMessages(root, manifest)
+	if err != nil {
+		return nil, err
+	}
+	for _, source := range names {
+		ext.Messages[source] = source
+	}
 	files, err := jsFiles(root)
 	if err != nil {
 		return nil, err
@@ -149,6 +157,38 @@ func manifestMessages(manifest map[string]any) []string {
 		}
 	}
 	return out
+}
+
+// presetMessages is the name of each identity preset the manifest lists
+// (provides.systemPromptPresets), which the preset browser shows translated in
+// the extension's catalogue. The files are read as the server reads them
+// (extmanifest.ReadPresets), so a file the server would leave out adds
+// nothing.
+func presetMessages(root string, manifest map[string]any) ([]string, error) {
+	provides, _ := manifest["provides"].(map[string]any)
+	raw, _ := provides["systemPromptPresets"].([]any)
+	var globs []string
+	for _, g := range raw {
+		if s, ok := g.(string); ok {
+			globs = append(globs, s)
+		}
+	}
+	if len(globs) == 0 {
+		return nil, nil
+	}
+	fsys := os.DirFS(root)
+	paths, err := extmanifest.ExpandGlobs(fsys, globs)
+	if err != nil {
+		return nil, err
+	}
+	presets, _ := extmanifest.ReadPresets(fsys, paths)
+	var out []string
+	for _, p := range presets {
+		if hasLetter.MatchString(p.Name) {
+			out = append(out, p.Name)
+		}
+	}
+	return out, nil
 }
 
 // Pseudo is the pseudo-locale catalogue for messages.

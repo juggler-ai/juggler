@@ -6,6 +6,7 @@ import contextItemRegistry from '../registries/context-item-registry.js';
 import strategyRegistry from '../registries/strategy-registry.js';
 import keyShortcutManager from '../services/key-shortcut-manager.js';
 import { userApprovalsThisTurn, hintStrategyIds, HINT_AFTER_APPROVALS } from '../services/approval-hint.js';
+import { switchStrategy } from '../services/strategy-switch.js';
 import { renderResultStatusMessage, escapeHtml } from '../../sdk/lib/html.js';
 import {
   TOOL_STATES,
@@ -982,7 +983,9 @@ class ToolActionMessage extends JugglerElement {
       const link = /** @type {HTMLElement|null} */ (/** @type {HTMLElement} */ (e.target).closest('[data-strategy-id]'));
       if (!link) return;
       e.preventDefault();
-      messageThread.setStrategy(link.dataset.strategyId);
+      // The user's pick, like the strategy menu's: confirmed first if it would
+      // throw away a large cached context (services/strategy-switch.js).
+      void switchStrategy(messageThread, link.dataset.strategyId ?? '');
     });
     return row;
   }

@@ -367,6 +367,12 @@ async function resetAndReinitRegistries() {
   rebuildHoldForTests = null;
   if (hold) await hold.catch(() => {});
   await initAllRegistries();
+  // Identity presets are not a registry, but an extension switched on or off
+  // brings its presets with it — in every realm that seeds a conversation: the
+  // viewer, and the engine, which seeds its agent runs. Imported here rather
+  // than statically, so the registries do not depend on the preset service.
+  const { reloadExtensionPresets } = await import('../services/system-prompt-presets.js');
+  await reloadExtensionPresets();
 }
 
 /**

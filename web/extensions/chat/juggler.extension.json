@@ -1,0 +1,18 @@
+{
+  "id": "@juggler/chat",
+  "name": "Chat",
+  "version": "1.0.0",
+  "author": "Juggler Team",
+  "homepage": "https://juggler.studio",
+  "license": "Apache-2.0",
+  "engineApi": "^1.4.0",
+  "permissions": [
+    "web.fetch"
+  ],
+  "provides": {
+    "i18n": "i18n",
+    "strategies": ["strategies/*-strategy-type.js"],
+    "systemPromptPresets": ["presets/*.md"],
+    "tests": ["_tests/*-test.js"]
+  }
+}

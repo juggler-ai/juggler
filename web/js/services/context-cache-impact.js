@@ -83,10 +83,12 @@ export const CONTEXT_CACHE_IMPACT_CHANGED = 'context-cache-impact-changed';
  * the apportioned estimate, not the whole cached prefix — so an edit near the end
  * of a long conversation, or any edit in a small one, stays silent. Pure viewer
  * UX — no exact re-read figure is ever shown (the estimate is deliberately
- * approximate), only whether the loss is large enough to mention.
+ * approximate), only whether the loss is large enough to mention. A strategy
+ * switch that re-reads at least this much is confirmed before it is made
+ * (`services/strategy-switch.js`).
  * @type {number}
  */
-const CONTEXT_CACHE_WARNING_TOKENS = 25000;
+export const CONTEXT_CACHE_WARNING_TOKENS = 25000;
 
 /**
  * Item types the worker's `itemWireMessages` emits nothing for, so they never

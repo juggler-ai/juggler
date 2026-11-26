@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 
+	"juggler/internal/frontmatter"
 	"juggler/internal/userpaths"
 )
 
@@ -281,18 +282,18 @@ func discoverSkills(root SkillRoot) []Skill {
 }
 
 // ParseSkillFile splits a SKILL.md into frontmatter and body using the shared
-// frontmatter splitter/scanner, mapping the spec's scalar keys onto
+// frontmatter package, mapping the spec's scalar keys onto
 // SkillFrontmatter. Unknown keys are ignored (preserve-and-ignore), so a skill
 // carrying another agent's non-spec fields still parses. The marketplace parses
 // remote SKILL.md files with it too, so a catalog entry and an installed skill
 // read the same way.
 func ParseSkillFile(data []byte) (SkillFrontmatter, string, error) {
 	var fm SkillFrontmatter
-	fmLines, body, err := splitFrontmatter(data)
+	fmLines, body, err := frontmatter.Split(data)
 	if err != nil {
 		return fm, body, err
 	}
-	scanFrontmatterFields(fmLines, func(key, value string) {
+	frontmatter.ScanFields(fmLines, func(key, value string) {
 		switch key {
 		case "name":
 			fm.Name = value

@@ -909,6 +909,32 @@ composer-box .strategy-selector-button .strategy-name {
     min-width: 0;
 }
 
+/* A strategy that asks for the chip form of the selector
+   (MANIFEST.ui.strategySelector, utils/strategy-chrome.js) gets a chip: the
+   strategy's name and ▾ in a quiet outline, no icon. It opens the same menu,
+   so the way out of the strategy stays one click away.
+   The outline is an inset ring, not the border: the status line's hover, open
+   and touch sticky-hover rules all clear border-color, and the chip keeps its
+   outline through every one of them. */
+composer-box[data-strategy-selector="chip"] composer-status-line .strategy-selector-button {
+    box-shadow: inset 0 0 0 0.0625rem var(--border-subtle);
+    border-radius: var(--radius-pill);
+    padding-block: var(--space-2);
+}
+
+composer-box[data-strategy-selector="chip"] composer-status-line .strategy-selector-button .strategy-icon {
+    display: none;
+}
+
+/* The composer's own buttons a strategy hides. Only the buttons go: a typed
+   `/` or `$`, and the history keys, still work; send-later has no other route. */
+composer-box[data-chrome-hide~="commands"] .commands-button,
+composer-box[data-chrome-hide~="prompt-history"] .history-button,
+composer-box[data-chrome-hide~="skills"] .skill-button,
+composer-box[data-chrome-hide~="send-later"] .schedule-send-btn {
+    display: none;
+}
+
 
 /* Thread pill — the branch-off arrow then "Thread". Its outline, fill and
    height are the row's shared chrome (above, with the bar and the tray); with

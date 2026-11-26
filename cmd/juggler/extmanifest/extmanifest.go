@@ -22,11 +22,13 @@ import (
 	"strings"
 
 	"golang.org/x/text/language"
+
+	"juggler/internal/frontmatter"
 )
 
 // DefaultEngineAPIVersion is the fallback host SDK version used when it cannot be
 // read from web/sdk/version.js. Keep in lockstep with ENGINE_API_VERSION there.
-const DefaultEngineAPIVersion = "1.3.0"
+const DefaultEngineAPIVersion = "1.4.0"
 
 // ManifestFileName is the well-known manifest filename at an extension root.
 const ManifestFileName = "juggler.extension.json"
@@ -80,6 +82,16 @@ type Provides struct {
 	// a function of the enabled-plugin set only, so it is cache-stable across
 	// turns and a strategy change (it changes only when plugins are toggled).
 	SystemPrompt string `json:"systemPrompt,omitempty"`
+	// SystemPromptPresets declares the identity presets the extension
+	// contributes (globs relative to the extension root, e.g. "presets/*.md"):
+	// Markdown files read by ReadPresets — a frontmatter block carrying `name`
+	// and, optionally, `description`, then the prompt as the body. Each is
+	// listed in the system prompt's preset browser as `<extension id>/<file
+	// stem>`, selectable and settable as the default but not editable. Unlike
+	// SystemPrompt they add nothing to a conversation that does not choose one.
+	// They are data, not modules: the server parses them and serves the result
+	// in /api/extensions, which whatever seeds a conversation reads.
+	SystemPromptPresets []string `json:"systemPromptPresets,omitempty"`
 	// Tests declares the extension's own test suites (globs relative to the
 	// extension root), so each extension owns its tests instead of dumping them
 	// into the shared js-tests/ pool. Test-only: not a runtime capability (it is
@@ -163,6 +175,33 @@ func Parse(data []byte) (Manifest, error) {
 	return m, nil
 }
 
+// ParseFor is Parse for a given host, which a manifest written for a newer one
+// may not fully understand: when the strict decode fails and the manifest's own
+// engineApi excludes the host, the error says that instead — the field this
+// host does not know is a symptom, and naming it would send the author hunting
+// for a typo.
+func ParseFor(data []byte, engineVersion string) (Manifest, error) {
+	m, err := Parse(data)
+	if err == nil {
+		return m, nil
+	}
+	var head struct {
+		ID        string `json:"id"`
+		EngineAPI string `json:"engineApi"`
+	}
+	if json.Unmarshal(data, &head) == nil && strings.TrimSpace(head.EngineAPI) != "" &&
+		!SatisfiesEngineAPI(head.EngineAPI, engineVersion) {
+		return Manifest{}, incompatibleEngineAPI(head.ID, head.EngineAPI, engineVersion)
+	}
+	return Manifest{}, err
+}
+
+// incompatibleEngineAPI is the error for a manifest whose engineApi range
+// excludes the host.
+func incompatibleEngineAPI(id, rng, engineVersion string) error {
+	return fmt.Errorf("extension %q requires engineApi %q, incompatible with host %s", id, rng, engineVersion)
+}
+
 // Validate enforces required fields and the engineApi compat range.
 func Validate(m Manifest, engineVersion string) error {
 	if strings.TrimSpace(m.ID) == "" {
@@ -183,12 +222,12 @@ func Validate(m Manifest, engineVersion string) error {
 		len(m.Provides.WorkspaceProviders) == 0 &&
 		len(m.Provides.Hooks) == 0 &&
 		len(m.Provides.SearchBackends) == 0 &&
+		len(m.Provides.SystemPromptPresets) == 0 &&
 		strings.TrimSpace(m.Provides.SystemPrompt) == "" {
 		return fmt.Errorf("manifest %q provides no capabilities", m.ID)
 	}
 	if !SatisfiesEngineAPI(m.EngineAPI, engineVersion) {
-		return fmt.Errorf("extension %q requires engineApi %q, incompatible with host %s",
-			m.ID, m.EngineAPI, engineVersion)
+		return incompatibleEngineAPI(m.ID, m.EngineAPI, engineVersion)
 	}
 	if err := ValidateSettings(m.Settings); err != nil {
 		return fmt.Errorf("extension %q settings: %w", m.ID, err)
@@ -342,6 +381,76 @@ func ExpandGlobs(fsys fs.FS, globs []string) ([]string, error) {
 		}
 	}
 	return out, nil
+}
+
+// Preset is one identity preset an extension ships (Provides.SystemPromptPresets),
+// as ReadPresets reads it.
+type Preset struct {
+	// Path is the file's path within the filesystem it was read from.
+	Path string
+	// Stem is the file name without its extension: the preset's id within its
+	// extension, so renaming the file changes the id.
+	Stem        string
+	Name        string
+	Description string
+	// Content is the body, trimmed: the prompt itself.
+	Content string
+}
+
+// ParsePreset reads an identity preset file: a frontmatter block (the shared
+// internal/frontmatter format, as for skills and commands) with a `name` and an
+// optional `description`, then the prompt as the body. Other keys are ignored.
+// A file with no frontmatter, an unterminated one, no `name` or an empty body
+// is an error — never a preset whose header has leaked into its prompt.
+func ParsePreset(file string, data []byte) (Preset, error) {
+	p := Preset{Path: file, Stem: strings.TrimSuffix(path.Base(file), path.Ext(file))}
+	fmLines, body, err := frontmatter.Split(data)
+	if err != nil {
+		return p, fmt.Errorf("preset %s: %w", file, err)
+	}
+	frontmatter.ScanFields(fmLines, func(key, value string) {
+		switch key {
+		case "name":
+			p.Name = value
+		case "description":
+			p.Description = value
+		}
+	})
+	p.Content = strings.TrimSpace(body)
+	switch {
+	case strings.TrimSpace(p.Name) == "":
+		return p, fmt.Errorf("preset %s: missing required frontmatter field: name", file)
+	case p.Content == "":
+		return p, fmt.Errorf("preset %s: has no prompt after its frontmatter", file)
+	}
+	return p, nil
+}
+
+// ReadPresets reads the preset files at paths (within fsys), in order. A file
+// that will not read or parse is left out and reported in problems, as is a
+// second file with the stem of an earlier one (two globs matching
+// `a/x.md` and `b/x.md`): its id would repeat, so the first keeps it.
+func ReadPresets(fsys fs.FS, paths []string) (presets []Preset, problems []error) {
+	seen := map[string]string{}
+	for _, file := range paths {
+		data, err := fs.ReadFile(fsys, file)
+		if err != nil {
+			problems = append(problems, fmt.Errorf("preset %s: %w", file, err))
+			continue
+		}
+		p, err := ParsePreset(file, data)
+		if err != nil {
+			problems = append(problems, err)
+			continue
+		}
+		if first, dup := seen[p.Stem]; dup {
+			problems = append(problems, fmt.Errorf("preset %s: repeats the id %q of %s; ignoring it", file, p.Stem, first))
+			continue
+		}
+		seen[p.Stem] = file
+		presets = append(presets, p)
+	}
+	return presets, problems
 }
 
 // localeTagRe is a BCP 47 language tag as far as the UI uses one: a 2–3 letter

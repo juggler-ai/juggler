@@ -86,7 +86,7 @@ export async function runOneShot(session, request, ready) {
     if (!session) throw new Error(markUntranslated('the engine has no session to run in'));
     if (!prompt.trim()) throw new Error(markUntranslated('there is no prompt to run'));
 
-    const conversationId = await session.createConversation(name, { origin: 'one-shot-run' });
+    const conversationId = await session.createConversation(name, { origin: 'one-shot-run', strategyId });
     result.conversationId = conversationId;
     const conversation = session.getConversation(conversationId);
     if (!conversation) throw new Error(markUntranslated(`conversation ${conversationId} was created but could not be opened`));
@@ -236,7 +236,7 @@ export async function runAgentRun(session, request, ready) {
     if (!prompt.trim()) throw new Error(markUntranslated('there is no prompt to run'));
     if (run.controller.signal.aborted) throw new Error(markUntranslated('the run was stopped before it started'));
 
-    const conversation = await session.createEphemeralConversation({ name, agentRun: runId, workspaceId });
+    const conversation = await session.createEphemeralConversation({ name, agentRun: runId, workspaceId, strategyId });
     run.conversation = conversation;
     result.conversationId = conversation.id;
     if (run.controller.signal.aborted) throw new Error(markUntranslated('the run was stopped before it started'));

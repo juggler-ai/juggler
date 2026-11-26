@@ -58,6 +58,7 @@ import { loadExtensionCatalogs } from './extension-catalogs.js';
  * @property {string[]} hooks - Served URLs of tool-hook modules
  * @property {string[]} searchBackends - Served URLs of web-search backend modules
  * @property {string} [systemPrompt] - Served URL of the extension's system-prompt contribution module (omitted when none declared)
+ * @property {ServedExtensionPreset[]} [systemPromptPresets] - The extension's identity presets, parsed by the server
  */
 
 /**
@@ -357,6 +358,90 @@ export async function buildExtensionSystemPromptContributions(session = null) {
     }
   }
   return parts.join('\n\n');
+}
+
+/**
+ * One identity preset as GET /api/extensions serves it, parsed by the server
+ * (`extmanifest.ReadPresets`): a file that would not parse is already left out,
+ * with a warning beside its extension.
+ * @typedef {object} ServedExtensionPreset
+ * @property {string} id - `<extensionId>/<file stem>`
+ * @property {string} url - Served URL of the file it was read from
+ * @property {string} name - Its frontmatter `name`
+ * @property {string} [description] - Its frontmatter `description`
+ * @property {string} content - Its body: the prompt
+ */
+
+/**
+ * @typedef {object} ExtensionPreset
+ * @property {string} id - `<extensionId>/<file stem>`
+ * @property {string} name - Display name, as the file spells it
+ * @property {string} description - Description ('' when none)
+ * @property {string} content - The prompt
+ * @property {string} extensionId - id of the extension that provides it
+ * @property {string} extensionName - Display name of that extension
+ */
+
+/**
+ * The identity presets of every enabled extension, in extension order.
+ * Extensions disabled at the extension level contribute none, as with
+ * {@link buildExtensionSystemPromptContributions}. A read that never got an
+ * answer — the extension list or the disabled set — throws, so the caller
+ * keeps the set it has and can try again: an empty answer there would read as
+ * "no presets" and take away an identity that is still installed.
+ * @returns {Promise<ExtensionPreset[]>} The presets
+ */
+export async function fetchExtensionPresets() {
+  const extensions = await fetchExtensions();
+  // The built-in extensions are always listed, so an empty list is a failed read.
+  if (extensions.length === 0) throw new Error('the extension list could not be read');
+  const disabled = await fetchDisabledPluginIds();
+  if (!disabled) throw new Error('the disabled-extension set could not be read');
+  return extensionPresets(extensions, disabled);
+}
+
+/**
+ * The presets of each extension that loaded and is enabled, in extension
+ * order. For an extension id that appears twice, the first in discovery order
+ * (built-in before user) keeps its presets, as the server's `Catalogs` keeps
+ * its catalogue; the later copy contributes none, with a warning. Its presets
+ * would be filed under the same `<extensionId>/` namespace, so a copy of a
+ * built-in extension could otherwise slip a voice in beside the one it shadows.
+ * @param {Extension[]} extensions - The GET /api/extensions list, in discovery order
+ * @param {Set<string>} disabled - Extension ids switched off
+ * @returns {ExtensionPreset[]} The presets
+ */
+export function extensionPresets(extensions, disabled) {
+  /** @type {ExtensionPreset[]} */
+  const out = [];
+  /** @type {Set<string>} */
+  const seen = new Set();
+  for (const ext of extensions) {
+    if (ext.error) continue;
+    const extensionId = ext.manifest?.id;
+    if (!extensionId) continue;
+    const presets = ext.capabilities?.systemPromptPresets || [];
+    if (seen.has(extensionId)) {
+      if (presets.length > 0) {
+        console.warn(`[Extensions] A second extension with id "${extensionId}" provides system-prompt presets; the first one's are kept and these are ignored`);
+      }
+      continue;
+    }
+    seen.add(extensionId);
+    if (disabled.has(extensionId)) continue;
+    for (const p of presets) {
+      if (!p?.id || !p.name || !p.content) continue;
+      out.push({
+        id: p.id,
+        name: p.name,
+        description: p.description || '',
+        content: p.content,
+        extensionId,
+        extensionName: ext.manifest.name || extensionId
+      });
+    }
+  }
+  return out;
 }
 
 /**

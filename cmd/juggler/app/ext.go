@@ -6,6 +6,7 @@ package app
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -147,7 +148,7 @@ func validateExtensionDir(dir string) (extmanifest.Manifest, []string, error) {
 	if err != nil {
 		return extmanifest.Manifest{}, nil, fmt.Errorf("no %s in %s", extManifestFile, dir)
 	}
-	m, err := extmanifest.Parse(data)
+	m, err := extmanifest.ParseFor(data, hostEngineAPIVersion())
 	if err != nil {
 		return extmanifest.Manifest{}, nil, fmt.Errorf("invalid manifest: %w", err)
 	}
@@ -155,7 +156,7 @@ func validateExtensionDir(dir string) (extmanifest.Manifest, []string, error) {
 		return m, nil, err
 	}
 	fsys := os.DirFS(dir)
-	for _, globs := range [][]string{m.Provides.ContextItems, m.Provides.Strategies, m.Provides.Commands, m.Provides.InfoCards, m.Provides.FileViewers, m.Provides.PinboardItems, m.Provides.PinboardItemMeta, m.Provides.WorkspaceProviders, m.Provides.Hooks, m.Provides.SearchBackends} {
+	for _, globs := range [][]string{m.Provides.ContextItems, m.Provides.Strategies, m.Provides.Commands, m.Provides.InfoCards, m.Provides.FileViewers, m.Provides.PinboardItems, m.Provides.PinboardItemMeta, m.Provides.WorkspaceProviders, m.Provides.Hooks, m.Provides.SearchBackends, m.Provides.SystemPromptPresets} {
 		expanded, err := extmanifest.ExpandGlobs(fsys, globs)
 		if err != nil {
 			return m, nil, err
@@ -176,8 +177,17 @@ func validateExtensionDir(dir string) (extmanifest.Manifest, []string, error) {
 			return m, nil, fmt.Errorf("systemPrompt module %q matched no file under %s", sp, dir)
 		}
 	}
-	// The server skips a broken catalogue and still loads the extension; the
-	// author is told here, where it costs nothing.
+	// The server skips a broken preset or catalogue and still loads the
+	// extension; the author is told here, where it costs nothing.
+	if len(m.Provides.SystemPromptPresets) > 0 {
+		paths, err := extmanifest.ExpandGlobs(fsys, m.Provides.SystemPromptPresets)
+		if err != nil {
+			return m, nil, err
+		}
+		if _, problems := extmanifest.ReadPresets(fsys, paths); len(problems) > 0 {
+			return m, nil, errors.Join(problems...)
+		}
+	}
 	if m.Provides.I18n != "" {
 		if _, err := extmanifest.ReadCatalogs(fsys, ".", m.Provides.I18n); err != nil {
 			return m, nil, err
@@ -212,7 +222,8 @@ func extValidate(args []string) int {
 
 	caps := len(m.Provides.ContextItems) + len(m.Provides.Strategies) + len(m.Provides.Commands) +
 		len(m.Provides.InfoCards) + len(m.Provides.FileViewers) + len(m.Provides.PinboardItems) +
-		len(m.Provides.WorkspaceProviders) + len(m.Provides.Hooks) + len(m.Provides.SearchBackends)
+		len(m.Provides.WorkspaceProviders) + len(m.Provides.Hooks) + len(m.Provides.SearchBackends) +
+		len(m.Provides.SystemPromptPresets)
 	fmt.Printf("✓ %s (%s) — %s, %d capability glob(s), compatible with host engineApi %s\n",
 		m.Name, m.Version, m.ID, caps, hostEngineAPIVersion())
 	for _, w := range warnings {
@@ -611,7 +622,9 @@ export default HelloCommandType;
 		"scratch copy, a remote directory — `workspaces/*-workspace-provider.js`),\n"+
 		"`hooks` (policy and notes around every tool call, `hooks/*-hook.js`),\n"+
 		"`searchBackends` (services the WebSearch tool can search with,\n"+
-		"`search-backends/*-backend.js`), a `systemPrompt` module, and `tests`. Delete whatever you don't need — a\n"+
+		"`search-backends/*-backend.js`), `systemPromptPresets` (identity\n"+
+		"presets the user can pick for a conversation, `presets/*.md`), a\n"+
+		"`systemPrompt` module, and `tests`. Delete whatever you don't need — a\n"+
 		"`provides` glob that matches nothing is a load error, so remove its\n"+
 		"manifest entry too.\n\n"+
 		"Each capability imports only the public `juggler/*` SDK.\n\n"+

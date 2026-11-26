@@ -18,7 +18,14 @@ import {
   getDefaultIdentityText,
   BUILTIN_DEFAULT_ID
 } from '../../sdk/lib/system-prompt-registry.js';
-import { getDefaultPresetSeed, getDefaultPresetId } from '../../js/services/system-prompt-presets.js';
+import {
+  getDefaultPresetSeed,
+  getDefaultPresetId,
+  resolveDefaultPresetId
+} from '../../js/services/system-prompt-presets.js';
+import { presetSeedForStrategy } from '../../js/model/conversation-seeder.js';
+import { extensionPresets } from '../../js/services/extensions.js';
+import strategyRegistry from '../../js/registries/strategy-registry.js';
 import { assert } from '../utilities/test-helpers.js';
 
 /**
@@ -117,6 +124,133 @@ export async function runTests(_ctx) {
     const userPresets = systemPromptRegistry.getPresetsByCategory('user');
     assert(userPresets.length === 1 && userPresets[0].id === 'user-ok', 'only the well-formed user preset is registered');
     systemPromptRegistry.setUserPresets([]); // cleanup
+  });
+
+  await test('extension and user presets replace only their own source', () => {
+    systemPromptRegistry.setExtensionPresets([
+      { id: '@probe/ext/one', name: 'One', content: 'one body', extensionId: '@probe/ext', extensionName: 'Probe' }
+    ]);
+    systemPromptRegistry.setUserPresets([{ id: 'user-x', name: 'X', content: 'x body' }]);
+    try {
+      const ext = systemPromptRegistry.getPreset('@probe/ext/one');
+      assert(!!ext, 'an extension preset must survive setUserPresets');
+      assert(ext.source === 'extension', `extension preset source is "${ext?.source}"`);
+      assert(ext.builtin === false, 'an extension preset is not builtin');
+      assert(systemPromptRegistry.getPreset('default')?.source === 'builtin', 'built-ins carry source builtin');
+      assert(systemPromptRegistry.getPreset('user-x')?.source === 'user', 'user presets carry source user');
+
+      systemPromptRegistry.setExtensionPresets([]);
+      assert(systemPromptRegistry.getPreset('@probe/ext/one') === undefined, 'setExtensionPresets replaces the extension set');
+      assert(!!systemPromptRegistry.getPreset('user-x'), 'a user preset must survive setExtensionPresets');
+      assert(!!systemPromptRegistry.getPreset('default'), 'built-ins must survive setExtensionPresets');
+    } finally {
+      systemPromptRegistry.setExtensionPresets([]);
+      systemPromptRegistry.setUserPresets([]);
+    }
+  });
+
+  await test('a repeated extension preset id keeps the first, with a warning', () => {
+    /** @type {string[]} */
+    const warnings = [];
+    const realWarn = console.warn;
+    console.warn = (...args) => { warnings.push(args.map(String).join(' ')); };
+    try {
+      systemPromptRegistry.setExtensionPresets([
+        { id: '@probe/ext/one', name: 'First', content: 'first body', extensionId: '@probe/ext' },
+        { id: '@probe/ext/one', name: 'Second', content: 'second body', extensionId: '@probe/ext' }
+      ]);
+      const kept = systemPromptRegistry.getPreset('@probe/ext/one');
+      assert(kept?.content === 'first body', `the later entry replaced the first: kept "${kept?.name}"`);
+      assert(warnings.some((w) => w.includes('@probe/ext/one')), `no warning names the repeated id: ${JSON.stringify(warnings)}`);
+    } finally {
+      console.warn = realWarn;
+      systemPromptRegistry.setExtensionPresets([]);
+    }
+  });
+
+  await test('an extension id seen twice contributes only its first copy\'s presets, with a warning', () => {
+    /**
+     * @param {string} id - The preset id
+     * @returns {{id: string, url: string, name: string, content: string}} A preset as the server serves it
+     */
+    const preset = (id) => ({ id, url: `/x/${id}.md`, name: id, content: 'body' });
+    /** @type {string[]} */
+    const warnings = [];
+    const realWarn = console.warn;
+    console.warn = (...args) => { warnings.push(args.map(String).join(' ')); };
+    try {
+      const extensions = [
+        { manifest: { id: '@juggler/chat', name: 'Chat' }, capabilities: { systemPromptPresets: [preset('@juggler/chat/assistant')] } },
+        { manifest: { id: '@probe/off', name: 'Off' }, capabilities: { systemPromptPresets: [preset('@probe/off/off')] } },
+        { manifest: { id: '@probe/broken', name: 'Broken' }, error: 'bad', capabilities: { systemPromptPresets: [preset('@probe/broken/broken')] } },
+        { manifest: { id: '@juggler/chat', name: 'Shadow' }, capabilities: { systemPromptPresets: [preset('@juggler/chat/assistant'), preset('@juggler/chat/extra')] } }
+      ];
+      const presets = extensionPresets(/** @type {any} */ (extensions), new Set(['@probe/off']));
+      const ids = presets.map((p) => p.id);
+      assert(JSON.stringify(ids) === JSON.stringify(['@juggler/chat/assistant']),
+        `want only the first @juggler/chat's preset, got ${JSON.stringify(ids)}`);
+      assert(presets[0]?.extensionName === 'Chat', `the first copy names the group: "${presets[0]?.extensionName}"`);
+      assert(warnings.some((w) => w.includes('@juggler/chat')), `no warning names the repeated extension: ${JSON.stringify(warnings)}`);
+    } finally {
+      console.warn = realWarn;
+    }
+  });
+
+  await test('preset groups are ordered built-in, extension, user whatever order they load in', () => {
+    try {
+      // The user set lands first, as it does when its fetch wins the race.
+      systemPromptRegistry.setUserPresets([{ id: 'user-z', name: 'Z', content: 'z body' }]);
+      systemPromptRegistry.setExtensionPresets([
+        { id: '@probe/ext/one', name: 'One', content: 'one body', extensionId: '@probe/ext', extensionName: 'Probe' }
+      ]);
+      const cats = systemPromptRegistry.getCategories();
+      const ext = cats.indexOf('extension:@probe/ext');
+      const user = cats.indexOf('user');
+      const general = cats.indexOf('general');
+      assert(general === 0, `built-in groups first: ${JSON.stringify(cats)}`);
+      assert(ext >= 0 && user >= 0 && ext < user, `extension group before user: ${JSON.stringify(cats)}`);
+    } finally {
+      systemPromptRegistry.setExtensionPresets([]);
+      systemPromptRegistry.setUserPresets([]);
+    }
+  });
+
+  await test('a default naming an extension preset falls back once the extension is gone', () => {
+    systemPromptRegistry.setExtensionPresets([
+      { id: '@probe/ext/one', name: 'One', content: 'one body', extensionId: '@probe/ext', extensionName: 'Probe' }
+    ]);
+    try {
+      assert(resolveDefaultPresetId('@probe/ext/one') === '@probe/ext/one', 'a present extension preset can be the default');
+      systemPromptRegistry.setExtensionPresets([]);
+      assert(resolveDefaultPresetId('@probe/ext/one') === BUILTIN_DEFAULT_ID, 'a vanished extension default falls back to the built-in');
+    } finally {
+      systemPromptRegistry.setExtensionPresets([]);
+    }
+  });
+
+  await test('seeding uses the initial strategy\'s defaultPreset, else the user default', () => {
+    class PresetProbeStrategy {
+      static MANIFEST = { id: 'preset-probe', name: 'Probe', version: '1.0.0', description: 'probe', defaultPreset: '@probe/ext/one' };
+    }
+    const registration = strategyRegistry.registerClass(/** @type {any} */ (PresetProbeStrategy));
+    systemPromptRegistry.setExtensionPresets([
+      { id: '@probe/ext/one', name: 'One', content: 'one body', extensionId: '@probe/ext', extensionName: 'Probe' }
+    ]);
+    try {
+      assert(registration.registered, `registerClass refused the probe: ${registration.reason}`);
+      const seed = presetSeedForStrategy('preset-probe');
+      assert(seed.id === '@probe/ext/one' && seed.content === 'one body', `strategy preset not seeded: ${seed.id}`);
+
+      const plain = presetSeedForStrategy('default');
+      assert(plain.id === getDefaultPresetId(), 'a strategy naming no preset seeds the user default');
+
+      systemPromptRegistry.setExtensionPresets([]);
+      const gone = presetSeedForStrategy('preset-probe');
+      assert(gone.id === getDefaultPresetId(), 'a strategy naming a missing preset seeds the user default');
+    } finally {
+      strategyRegistry.items.delete('preset-probe');
+      systemPromptRegistry.setExtensionPresets([]);
+    }
   });
 
   await test('default preset resolution falls back to the built-in default', () => {

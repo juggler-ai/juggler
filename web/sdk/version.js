@@ -37,7 +37,7 @@
  *   MANIFEST fields), and any member whose name starts with `_`.
  * Reaching past the documented surface works today but can break at any release.
  */
-export const ENGINE_API_VERSION = '1.3.0';
+export const ENGINE_API_VERSION = '1.4.0';
 
 /**
  * Test whether `version` satisfies an `engineApi` range. Supports the small

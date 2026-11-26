@@ -153,8 +153,8 @@ const MANIFEST_READS = /** @type {Record<string, string[]>} */ ({
   tests: ['runTests', 'needsExclusiveRun'], // integration-test-executor.js extensionSuiteEntry
   integrationTests: ['tests'], // extensionIntegrationEntries
 });
-/** `provides` keys that name no module. */
-const MANIFEST_NOT_MODULES = new Set(['i18n']);
+/** `provides` keys that name no module: a catalogue folder, Markdown presets. */
+const MANIFEST_NOT_MODULES = new Set(['i18n', 'systemPromptPresets']);
 /** The hooks Node reads of a module given to `module.register`. */
 const LOADER_HOOKS = ['initialize', 'resolve', 'load'];
 /** Marks an unknown part of an evaluated specifier. */

@@ -184,6 +184,7 @@ function uiFiles() {
  * @property {string[]} [goFiles] - Absolute Go source files whose messages it holds.
  * @property {string} [packagingFile] - Absolute path of the installers' English source, for the core one.
  * @property {import('../web/js/services/extensions.js').ExtensionManifest} [manifest] - The extension manifest, for an extension's.
+ * @property {string} [root] - The extension's repo-relative root, for an extension's.
  * @property {boolean} [example] - An example extension's, which the app does not ship.
  */
 
@@ -250,7 +251,7 @@ function targets() {
       packagingFile: PACKAGING_MESSAGES,
     },
     ...exts.map((e) => ({
-      label: e.i18nDir, dir: path.join(repoRoot, e.i18nDir), files: jsFiles([e.root]), manifest: e.manifest,
+      label: e.i18nDir, dir: path.join(repoRoot, e.i18nDir), files: jsFiles([e.root]), manifest: e.manifest, root: e.root,
       example: e.root.startsWith('examples/'),
     })),
   ];
@@ -338,6 +339,58 @@ function manifestMessages(manifest) {
     add(setting.label);
     add(setting.help);
     for (const option of setting.options || []) add(option);
+  }
+  return out;
+}
+
+/**
+ * The names of an extension's identity presets (`provides.systemPromptPresets`),
+ * which the preset browser shows with a t() scoped to the extension. Read from
+ * each file's frontmatter as the server's `extmanifest.ParsePreset` reads it
+ * (and `juggler ext i18n` with it): the last top-level `name:` between the
+ * opening and closing `---` lines, one pair of matching quotes stripped, in a
+ * file with a prompt after them; the first file of a stem. A glob is matched
+ * in its last segment only (`*`), which is all a preset directory needs; a
+ * wildcard further up is a problem.
+ * @param {string} root - The extension's repo-relative root
+ * @param {import('../web/js/services/extensions.js').ExtensionManifest} manifest
+ * @param {string[]} problems - Where an unreadable glob is reported
+ * @returns {string[]} The messages.
+ */
+function presetMessages(root, manifest, problems) {
+  const out = [];
+  const stems = new Set();
+  for (const glob of (manifest.provides && manifest.provides.systemPromptPresets) || []) {
+    const dir = path.posix.dirname(glob);
+    if (dir.includes('*')) {
+      problems.push(`${root}: preset glob ${glob} has a wildcard above its last segment, which extract cannot read`);
+      continue;
+    }
+    const absDir = path.join(repoRoot, root, dir);
+    if (!fs.existsSync(absDir)) continue;
+    const base = path.posix.basename(glob).split('*').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*');
+    const re = new RegExp(`^${base}$`);
+    for (const file of fs.readdirSync(absDir).filter((f) => re.test(f)).sort()) {
+      const stem = file.replace(/\.[^.]*$/, '');
+      if (stems.has(stem)) continue; // the server keeps the first of a stem
+      const lines = fs.readFileSync(path.join(absDir, file), 'utf8').replace(/\r\n/g, '\n').split('\n');
+      if (lines[0].trimEnd() !== '---') continue;
+      const close = lines.findIndex((line, i) => i > 0 && line.trimEnd() === '---');
+      // No closing fence or no prompt after it: the server leaves the file out.
+      if (close < 0 || !lines.slice(close + 1).join('\n').trim()) continue;
+      let name = '';
+      for (const line of lines.slice(1, close)) {
+        const m = /^name\s*:(.*)$/.exec(line);
+        if (!m) continue;
+        const v = m[1].trim();
+        name = v.length >= 2 && (v[0] === '"' || v[0] === "'") && v.at(-1) === v[0]
+          ? (v[0] === '"' ? v.slice(1, -1).replace(/\\"/g, '"') : v.slice(1, -1))
+          : v;
+      }
+      if (!name.trim()) continue;
+      stems.add(stem);
+      if (/[A-Za-z]/.test(name)) out.push(name);
+    }
   }
   return out;
 }
@@ -550,6 +603,7 @@ function extract(sdk, target) {
   const problems = [];
   if (target.manifest) {
     for (const source of manifestMessages(target.manifest)) messages[sdk.messageKey(source)] = source;
+    for (const source of presetMessages(target.root, target.manifest, problems)) messages[sdk.messageKey(source)] = source;
   }
   if (target.packagingFile) {
     const sections = JSON.parse(fs.readFileSync(target.packagingFile, 'utf8'));

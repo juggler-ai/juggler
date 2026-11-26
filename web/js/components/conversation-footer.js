@@ -49,6 +49,7 @@ import { modelEntryFor, reportSpinnerWork } from '../utils/spinner-work.js';
 import { openSettings } from '../services/settings-launcher.js';
 import { FORK_SVG, UNDO_SVG, REDO_SVG } from '../utils/icons.js';
 import { historyState, HISTORY_BUSY_TITLE } from '../utils/conversation-history.js';
+import { applyChromeHide, followChromeHide } from '../utils/strategy-chrome.js';
 import { createCopyButton } from '../../sdk/lib/copy-button.js';
 import { conversationToMarkdown } from '../utils/conversation-markdown.js';
 import { t } from '../../sdk/lib/i18n.js';
@@ -273,11 +274,20 @@ class ConversationFooter extends JugglerElement {
    */
   _built = false;
 
+  /**
+   * Stops following the thread's strategy for the hidden-controls mark; null
+   * while not following.
+   * @type {(() => void)|null}
+   * @private
+   */
+  _unfollowChromeHide = null;
+
   disconnectedCallback() {
     super.disconnectedCallback();
     // Re-assignable (setMessageThread drops and re-takes them), so fields rather
     // than addCleanup registrations.
     this._stopListening();
+    this._stopChromeHide();
     this._hideUndoOffer();
     this._cancelDeferredTokenDisplayUpdate();
     this._cancelBlobRetry();
@@ -301,6 +311,7 @@ class ConversationFooter extends JugglerElement {
     // to the previous turn's blob several times a second for the length of a
     // turn — visibly, as a count that alternates between two numbers.
     if (!this._isOwnThread(mt)) {
+      this._stopChromeHide();
       this._hideUndoOffer();
       // A genuine recycle across threads (or across conversations). The
       // per-txnID cache and the held live reading both describe the thread being
@@ -323,6 +334,15 @@ class ConversationFooter extends JugglerElement {
     this._updateTokenDisplay();
     this._syncNudge();
     this._syncHistory();
+  }
+
+  /**
+   * Stop following the strategy for the hidden-controls mark.
+   * @private
+   */
+  _stopChromeHide() {
+    this._unfollowChromeHide?.();
+    this._unfollowChromeHide = null;
   }
 
   /** @private */
@@ -352,6 +372,12 @@ class ConversationFooter extends JugglerElement {
    */
   _listen() {
     const mt = this._messageThread;
+    // The controls the conversation's strategy hides (MANIFEST.ui.hide), as a
+    // mark the core stylesheet reads: see utils/strategy-chrome.js. Followed
+    // once per logical thread (a rebuild re-hands the same thread in a new
+    // wrapper), and re-applied on each re-hand.
+    if (!this._unfollowChromeHide) this._unfollowChromeHide = followChromeHide(this, () => this._messageThread);
+    else applyChromeHide(this, mt);
     if (!mt || this._unsubscribe || this._statusUnsubscribe) return;
     const conversation = mt.conversation;
     const session = conversation?.session;

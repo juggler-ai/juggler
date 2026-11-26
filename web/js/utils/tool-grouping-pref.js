@@ -15,10 +15,16 @@
  * role, and a remote browser keeps its own on its device without writing back.
  * Flipping it in one window never redraws another window, another project, or
  * the desktop a phone dialled into.
+ *
+ * A strategy can override it for its own conversations
+ * (`MANIFEST.ui.toolGrouping: 'always' | 'never'`, utils/strategy-chrome.js):
+ * grouping is then on, or off, for them whatever the preference says, and the
+ * preference is left as it was for every other conversation.
  * @module utils/tool-grouping-pref
  */
 
 import { cachedWindowPref, setWindowPref, notifyPrefChanged, reconcilePref } from '../services/prefs.js';
+import { strategyToolGrouping } from './strategy-chrome.js';
 
 const PREF_KEY = 'juggler-tool-grouping';
 
@@ -32,6 +38,45 @@ export const TOOL_GROUPING_EVENT = 'juggler:tool-grouping-changed';
  */
 export function isToolGroupingEnabled() {
   return cachedWindowPref(PREF_KEY, false) === true;
+}
+
+/**
+ * Fired on window when the conversation in view may have started or stopped
+ * overriding grouping — it changed, or its strategy did — so the header toggle
+ * can show it.
+ */
+export const TOOL_GROUPING_SCOPE_EVENT = 'juggler:tool-grouping-scope-changed';
+
+/**
+ * Say that the conversation in view may have changed whether it overrides
+ * grouping. Cheap: the header re-reads and writes only what differs.
+ */
+export function notifyToolGroupingScope() {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(TOOL_GROUPING_SCOPE_EVENT));
+}
+
+/**
+ * Whether a conversation's strategy overrides the preference
+ * (`MANIFEST.ui.toolGrouping`, read off the root thread, whose strategy the
+ * whole transcript is shown under).
+ * @param {{rootMessageThread?: import('../model/message-thread.js').default}|null|undefined} conversation - The conversation
+ * @returns {'always'|'never'|null} The strategy's rule, or null when the preference applies
+ */
+export function toolGroupingOverride(conversation) {
+  return strategyToolGrouping(conversation?.rootMessageThread);
+}
+
+/**
+ * Whether a conversation's tool runs are drawn folded: as its strategy says,
+ * else as this window's preference says. Every reader that draws a transcript
+ * asks this rather than {@link isToolGroupingEnabled}, which is only the
+ * preference.
+ * @param {{rootMessageThread?: import('../model/message-thread.js').default}|null|undefined} conversation - The conversation
+ * @returns {boolean} True when grouping applies to it
+ */
+export function toolGroupingFor(conversation) {
+  const override = toolGroupingOverride(conversation);
+  return override ? override === 'always' : isToolGroupingEnabled();
 }
 
 /**

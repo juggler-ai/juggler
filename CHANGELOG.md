@@ -6,6 +6,8 @@ the current release). The project follows semantic versioning.
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-11-26
+
 - Import Claude Code, Codex, Pi and OpenCode conversations on first launch.
 - Coloured window borders can be enabled to tell projects apart
 - Added a "Chat" strategy: web-searching conversations with their own identity that can't change the project

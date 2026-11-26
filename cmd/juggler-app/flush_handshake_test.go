@@ -32,6 +32,19 @@ func newTestAppState(t *testing.T) *appState {
 	// record it in, written out before its directory goes.
 	a.workspace = newWorkspaceStoreAt(workspacePath(t))
 	t.Cleanup(func() { a.workspace.flush(nil) })
+	// Run first of these cleanups: a flight can outlive the test — an
+	// attachment that ended settles on hold's goroutine, and a relaunch's
+	// follow reaches the registry and the workspace — so the app lets its
+	// server go, which starts no flight after it, and waits out the one
+	// running before either goes.
+	t.Cleanup(func() {
+		a.detachServer()
+		var flight chan struct{}
+		a.withConn(func(st *connState) { flight = st.flight })
+		if flight != nil {
+			<-flight
+		}
+	})
 	return a
 }
 

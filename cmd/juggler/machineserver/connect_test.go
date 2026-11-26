@@ -163,6 +163,52 @@ func TestConnectWaitsOutTheWindowBeforeTheAddressIsRecorded(t *testing.T) {
 	}
 }
 
+// TestConnectReportsAnAddressItsHolderDoesNotAnswer: the lock's holder records
+// its address only once it listens, and serves straight after, so an HTTP
+// refusal from that address (other than a shutdown's 503) is something else
+// answering there. The holder lives on, so waiting for it to answer or let the
+// lock go would never end: Connect says what it found instead.
+func TestConnectReportsAnAddressItsHolderDoesNotAnswer(t *testing.T) {
+	userpathstest.Isolate(t)
+	lock := NewMachineLock(userpaths.ConfigDir())
+	if acquired, _, err := lock.TryAcquire(ServerInfo{Version: "v9.9.9", Token: testToken}); err != nil || !acquired {
+		t.Fatalf("acquire: %v %v", acquired, err)
+	}
+	defer func() { _ = lock.Release() }()
+	other := httptest.NewServer(http.NotFoundHandler())
+	defer other.Close()
+	if err := lock.UpdateAddr(other.Listener.Addr().String()); err != nil {
+		t.Fatal(err)
+	}
+
+	waited := make(chan struct{}, 1)
+	orig := connectWaiting
+	connectWaiting = func() {
+		select {
+		case waited <- struct{}{}:
+		default:
+		}
+	}
+	t.Cleanup(func() { connectWaiting = orig })
+
+	stop := make(chan os.Signal, 1)
+	got := make(chan error, 1)
+	go func() {
+		_, err := Connect(ConnectOptions{Signals: stop})
+		got <- err
+	}()
+	select {
+	case err := <-got:
+		if err == nil || errors.Is(err, ErrNoServer) {
+			t.Fatalf("Connect to a held lock whose address answers 404: %v; want an error naming what answered", err)
+		}
+	case <-waited:
+		stop <- os.Interrupt
+		<-got
+		t.Fatal("Connect waited on a holder whose recorded address is answered by something else")
+	}
+}
+
 // deadPID returns the process ID of a process that has exited.
 func deadPID(t *testing.T) int {
 	t.Helper()

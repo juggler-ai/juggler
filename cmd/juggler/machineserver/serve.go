@@ -46,7 +46,8 @@ const PortStrictUsage = "Fail to start if the port is busy, rather than move to 
 // A port something else holds on loopback alone is taken: on some systems
 // (macOS) a bind on every interface succeeds beside it, and every client on
 // this machine, which dials loopback (dialAddr), would reach that other thing.
-// So loopback is tried first, and let go just before the real bind.
+// So loopback is tried first, and let go just before the real bind. Port 0
+// takes its port from a loopback bind the same way.
 //
 // The real bind probes idle connections (portbind.KeepAlive): this is the
 // listener a remote viewer's host connects to — over the LAN, or a tunnel's
@@ -54,7 +55,7 @@ const PortStrictUsage = "Fail to start if the port is busy, rather than move to 
 // laptop, a phone leaving wifi) leaves a half-open connection to be reaped.
 func listenAll(port int, strict bool) (net.Listener, error) {
 	if port == 0 {
-		return portbind.Listen(":0") // every interface by design; the LAN gate decides who gets in
+		return listenAnyPort()
 	}
 	bind := portbind.FirstFree
 	if strict {
@@ -69,6 +70,32 @@ func listenAll(port int, strict bool) (net.Listener, error) {
 		_ = probe.Close()
 		return portbind.Listen(addr)
 	})
+}
+
+// anyPortTries is how many ports listenAnyPort is given by loopback before it
+// gives up: each one lost is a port taken in the moment between letting the
+// loopback bind go and binding every interface.
+const anyPortTries = 8
+
+// listenAnyPort listens on every interface (the LAN gate decides who gets in)
+// at a port the OS assigns to a loopback bind, which no loopback-only listener
+// holds.
+func listenAnyPort() (net.Listener, error) {
+	var err error
+	for range anyPortTries {
+		var probe net.Listener
+		probe, err = net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			return nil, err
+		}
+		_, p, _ := net.SplitHostPort(probe.Addr().String())
+		_ = probe.Close()
+		var ln net.Listener
+		if ln, err = portbind.Listen(net.JoinHostPort("", p)); err == nil {
+			return ln, nil
+		}
+	}
+	return nil, err
 }
 
 // dialAddr is where a client on this machine reaches ln: loopback, at its port.

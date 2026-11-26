@@ -1,4 +1,4 @@
-//go:build !windows
+//go:build !windows && !darwin
 
 //     ▄▄ ▄▄ ▄▄  ▄▄▄▄  ▄▄▄▄ ▄▄    ▄▄▄▄▄ ▄▄▄▄
 //     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
@@ -22,8 +22,7 @@ import (
 var probeTrash sync.Once
 
 // trashOrRemove moves path to the OS trash if available, falling back to
-// permanent removal. On macOS/Linux this uses go-trash (Finder trash on
-// darwin, gio/gvfs on Linux).
+// permanent removal, through go-trash (gio/gvfs on Linux).
 func trashOrRemove(path string) error {
 	if err := moveToOSTrash(path); err == nil {
 		return nil

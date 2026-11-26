@@ -120,6 +120,9 @@ func DetachedStarter(bin string) Starter {
 //   - The lock is held but nothing answers yet — a server between taking the
 //     lock and recording its address, or shutting down: wait for it to answer
 //     or to let the lock go, which it does when it exits.
+//   - The lock is held and the address it recorded is answered by something
+//     that is not that server (notTheServer): an error, since the holder would
+//     never be heard from there.
 //   - Otherwise there is no server to wait for (server.json is missing, or left
 //     by a server that died). Start one, unless one this call started is still
 //     on its way up, and wait for it while it lives. Of two clients starting at
@@ -141,13 +144,27 @@ func Connect(opts ConnectOptions) (*Client, error) {
 	starts := 0
 	for {
 		info := lock.readInfo()
+		var refused error
 		if info != nil && info.Addr != "" {
-			if c, pid, ok := probeStatus(info); ok {
+			c, pid, err := probeStatus(info)
+			if err == nil {
 				c.Started = oursPID != 0 && pid == oursPID
 				return c, nil
 			}
+			if notTheServer(err) {
+				refused = err
+			}
 		}
-		if !worthWaiting(info, lock.probe(), ours) {
+		state := lock.probe()
+		// The holder records its address once it listens and serves straight
+		// after, so a refusal from the address it recorded is something else
+		// answering there. The holder lives on, and waiting for it would never
+		// end. The record is read again so a holder that has just replaced it is
+		// not blamed for its predecessor's address.
+		if refused != nil && state == lockHeld && sameServerInfo(lock.readInfo(), info) {
+			return nil, fmt.Errorf("server.json names %s for the Juggler server (pid %d), but what answers there is not it: %w", info.Addr, info.PID, refused)
+		}
+		if !worthWaiting(info, state, ours) {
 			if opts.Start == nil {
 				if info != nil && info.Addr != "" {
 					return nil, fmt.Errorf("%w (server.json names %s, which is not answering)", ErrNoServer, info.Addr)
@@ -208,18 +225,39 @@ func closed(ch <-chan struct{}) bool {
 }
 
 // probeStatus asks the server info names for its status, with its token, and
-// returns a client of it, and its process ID, when it answers.
-func probeStatus(info *ServerInfo) (*Client, int, bool) {
+// returns a client of it, and its process ID, when it answers; otherwise the
+// error says what happened instead.
+func probeStatus(info *ServerInfo) (*Client, int, error) {
 	c := &Client{addr: info.Addr, token: info.Token, http: &http.Client{Timeout: statusProbeTimeout}}
 	var st statusResponse
-	if err := c.do(http.MethodGet, "/status", nil, &st); err != nil || st.Status != "ok" {
-		return nil, 0, false
+	if err := c.do(http.MethodGet, "/status", nil, &st); err != nil {
+		return nil, 0, err
+	}
+	if st.Status != "ok" {
+		return nil, 0, fmt.Errorf("the status answered was %q, not \"ok\"", st.Status)
 	}
 	c.http = &http.Client{Timeout: cliTimeout}
 	// A server from before builds were told apart reports none, and is
 	// known by its version alone.
 	c.Version, c.Build, c.Implicit, c.AppStarted, c.PID = st.Version, cmp.Or(st.Build, st.Version), st.Implicit, st.AppStarted, st.PID
-	return c, st.PID, true
+	return c, st.PID, nil
+}
+
+// notTheServer reports whether a status probe's err is an answer no machine
+// server gives its own token: an HTTP refusal other than a shutdown's 503
+// (ServerGoing), or a status other than "ok". No answer at all — refused,
+// reset, timed out — is a server not up yet, or going, and is not this.
+func notTheServer(err error) bool {
+	var r *refusalError
+	if errors.As(err, &r) {
+		return r.status != http.StatusServiceUnavailable
+	}
+	return !errors.Is(err, ErrNoServer) && !errors.Is(err, ErrServerSlow)
+}
+
+// sameServerInfo reports whether a and b record the same server.
+func sameServerInfo(a, b *ServerInfo) bool {
+	return a != nil && b != nil && a.PID == b.PID && a.Addr == b.Addr && a.Token == b.Token
 }
 
 // serveLogPath is where `juggler serve` logs.

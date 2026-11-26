@@ -11,9 +11,13 @@ package worker
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	ycrdt "github.com/skyterra/y-crdt"
 )
 
 // TestQueuedMessageJoinsToolResultContinuation pins turn composition for a
@@ -161,6 +165,56 @@ func TestMessageQueuedAsATurnEndsIsAnswered(t *testing.T) {
 	if len(items) < 2 || items[len(items)-2].Content != "late message" ||
 		items[len(items)-1].Content != "answer to the late message" {
 		t.Errorf("transcript does not end with the late message and its answer: %+v", items)
+	}
+}
+
+// TestRootReadsBusyUntilItsIdleFrame pins the other side of the intake gate. A
+// send that finds the root idle takes the idle path: it writes the message and
+// marks the root's run entry awaiting_llm. A root turn's idle frame deletes that
+// entry, so a send that saw the root idle before the frame went out would have
+// its dispatch swept away and sit unanswered under an idle conversation
+// (TestStrategyLoopLLMError's second turn, once, under load). So at every
+// document write a finishing root turn makes, the root reads busy until the
+// frame says idle.
+func TestRootReadsBusyUntilItsIdleFrame(t *testing.T) {
+	w := NewConversationWorker("conv-busy-until-idle-frame", "user:test")
+	defer w.doc.Destroy()
+	r := w.currentRun()
+	r.storeState(StateIdle)
+	w.doc.SetMetadata("defaultModelConfig", map[string]any{"provider": "test", "model": "test"})
+	stop := make(chan struct{})
+	defer close(stop)
+	feedEngine(w, stop)
+
+	var watching atomic.Bool
+	var gaps []string // written and read under ycrdtMu
+	w.doc.doc.On("afterTransactionCleanup", ycrdt.NewObserverHandler(func(...interface{}) {
+		if !watching.Load() {
+			return
+		}
+		// Writers hold ycrdtMu across the transaction, so its cleanup does too.
+		state, _ := fromYcrdt(w.doc.metadata.Get(keyProcessingState)).(map[string]any)
+		if state[runFieldStatus] != "idle" && !w.threadBusyLocked("") {
+			gaps = append(gaps, fmt.Sprintf("%v", state))
+		}
+	}))
+
+	if !r.claimLLM("") {
+		t.Fatal("could not claim the root")
+	}
+	tr := r.beginTurn("")
+	tr.storeState(StateProcessing)
+	r.runTurn(tr, func(tr *run) {
+		watching.Store(true)
+		tr.finishStrategyRun()
+		watching.Store(false)
+	})
+	w.quiesce(t)
+
+	ycrdtMu.Lock()
+	defer ycrdtMu.Unlock()
+	if len(gaps) > 0 {
+		t.Fatalf("the finishing root read idle before its idle frame, so an idle-path send's dispatch would be swept by the frame; frames seen: %v", gaps)
 	}
 }
 

@@ -593,10 +593,19 @@ func (r *run) finishStrategyRun() {
 	}
 
 	r.storeState(StateIdle)
-	// The thread context is cleared before parent/sibling settlement below. Release
-	// this run's own doc claim first; a later root-scoped idle frame must not be
-	// responsible for finding it, since idle preserves siblings.
-	r.releaseLLM(completedThreadID)
+	// The thread context is cleared before parent/sibling settlement below. A
+	// sub-thread releases its own doc claim first; a later root-scoped idle frame
+	// must not be responsible for finding it, since idle preserves siblings.
+	//
+	// A root turn that rests keeps its claim until its idle frame, which drops the
+	// root entry in the same write. Released earlier, the root would read idle at
+	// the intake gate while the frame was still to come: a send in that gap takes
+	// the idle path and marks the root awaiting_llm, and the frame then deletes
+	// the mark, leaving the message unanswered under an idle conversation. Held,
+	// the send is queued instead, and the last look below answers it.
+	if wasCancelled || completedThreadID != "" {
+		r.releaseLLM(completedThreadID)
+	}
 	r.t.processingStartedAt.Store(0)
 	r.t.approvalWaitStartedAt.Store(0)
 	r.t.lastProgressWriteMs = 0
@@ -609,7 +618,7 @@ func (r *run) finishStrategyRun() {
 	}
 
 	// The loop decided to stop with this thread's queue empty, but the thread
-	// read as busy until the release above, so a send in that window was queued
+	// reads as busy until its claim is released, so a send in that window was queued
 	// (queueIfBusy) where nothing will drain it. Look once more, after every exit
 	// below has written its frames — the root's idle frame drops the root entry,
 	// so a dispatch requested before it would be swept away. A second look from

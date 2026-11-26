@@ -290,13 +290,14 @@ func (s *Server) createLLMCaller() worker.LLMCallFunc {
 			return nil, err
 		}
 
-		// Open (or reuse) the per-conversation handle. The cache binds
-		// state to (convID, providerName, model, workspace); a mid-conversation
-		// model switch closes the old handle and opens a fresh one. The
-		// turn's ThreadID rides on the MessageRequest below — a stateful
-		// provider (claudecode) keys its per-thread session off it.
+		// Open (or reuse) the per-conversation handle. The cache binds state
+		// to (convID, providerName, model, workspace) and the turn's thread to
+		// that handle: a thread whose model switched is retired from its old
+		// handle without disturbing sibling threads still running there. The
+		// ThreadID also rides on the MessageRequest below — a stateful provider
+		// (claudecode) keys its per-thread session off it.
 		capabilities := s.resolveModelCapabilities(req.ModelConfig.Provider, req.ModelConfig.Model)
-		conv, err := s.conversationCache.GetOrOpen(ctx, req.ConversationID, req.ModelConfig.Provider, req.ModelConfig.Model, credential, capabilities, workspaceRoot)
+		conv, err := s.conversationCache.GetOrOpen(ctx, req.ConversationID, req.ThreadID, req.ModelConfig.Provider, req.ModelConfig.Model, credential, capabilities, workspaceRoot)
 		if err != nil {
 			return nil, fmt.Errorf("open conversation: %w", err)
 		}

@@ -7,6 +7,15 @@
 // lazily, reused across turns. It is the home for long-lived per-conversation
 // state (e.g. claudecode's session bookkeeping).
 //
+// Threads of one conversation may run on different providers or models at the
+// same time (each thread resolves its own model), so one conversation can hold
+// several handles at once. Each thread is bound to the handle it last used. A
+// thread moving to another handle is retired from its old one: if no other
+// thread is bound there the old handle is closed, otherwise only that thread's
+// work on it is cancelled, so a sibling's in-flight turn on the old handle
+// keeps running. A workspace change is the exception: the workspace belongs to
+// the whole conversation, so every handle rooted elsewhere is closed.
+//
 // All state is owned by a single goroutine (runActor); GetOrOpen and
 // Close send ops to it, so the cache itself needs no mutex. The
 // goroutine is started once at server bootstrap and runs until shutdown.
@@ -24,8 +33,7 @@ import (
 
 // conversationCacheKey identifies one cached Conversation. Provider, model,
 // credential, and immutable model capabilities are part of the key so a
-// mid-conversation configuration switch closes the old handle and opens a new
-// one.
+// mid-conversation configuration switch moves the thread to a new handle.
 type conversationCacheKey struct {
 	convID       string
 	providerName string
@@ -40,10 +48,17 @@ type conversationCacheKey struct {
 	workspaceRoot string
 }
 
+// threadRef names one thread of one conversation ("" is the root thread).
+type threadRef struct {
+	convID   string
+	threadID string
+}
+
 // conversationCache stores Conversation handles keyed by (convID,
-// providerName, model, credential, workspace). Lifetime is bounded by the
-// server process or an explicit Close(convID). Cache is per-server-instance;
-// not shared across processes.
+// providerName, model, credential, workspace). A handle lives until no thread
+// is bound to it, its conversation is closed or rebound to another workspace,
+// or the server shuts down. Cache is per-server-instance; not shared across
+// processes.
 type conversationCache struct {
 	ops  chan cacheOp
 	done chan struct{}
@@ -72,11 +87,13 @@ const (
 type turnSinkFactory func(convID string) provider.TurnSink
 
 type cacheOp struct {
-	kind        cacheOpKind
-	key         conversationCacheKey
-	credential  core.ProviderCredential
-	convID      string // for close / cancel ops (matches every cached entry for that conv)
-	threadID    string // for cancel ops: the thread to cancel, or provider.CancelAllThreads
+	kind       cacheOpKind
+	key        conversationCacheKey
+	credential core.ProviderCredential
+	convID     string // for close / cancel ops (matches every cached entry for that conv)
+	// threadID is, for get-or-open, the thread the turn runs on; for cancel
+	// ops, the thread to cancel, or provider.CancelAllThreads.
+	threadID    string
 	sinkFactory turnSinkFactory
 	respCh      chan cacheResult
 	doneCh      chan struct{}
@@ -100,16 +117,19 @@ func newConversationCache(projectPath func() string) *conversationCache {
 	return cc
 }
 
-// GetOrOpen returns the cached Conversation for the key, opening a new
-// one if absent. If a Conversation exists for the same convID but a
-// different (provider, model, workspace), the old handle is closed first (the
-// user switched models mid-conversation, or rebound the conversation).
+// GetOrOpen returns the cached Conversation for the key, opening a new one if
+// absent, and binds threadID ("" is the root thread) to it. If the thread was
+// bound to another handle of the conversation (its provider or model switched),
+// it is retired from that handle: the handle is closed once no thread is bound
+// to it, and otherwise only the thread's own work on it is cancelled, leaving
+// sibling threads' turns there alone. Handles of the conversation rooted in
+// another workspace are closed outright (the conversation was rebound).
 //
 // workspaceRoot is the directory this conversation works in, already resolved
 // from its binding — "" for the project. The caller resolves it rather than the
 // cache, so a binding that cannot be honoured fails the turn before any handle
 // is opened.
-func (cc *conversationCache) GetOrOpen(ctx context.Context, convID, providerName, model string, credential core.ProviderCredential, capabilities provider.ModelCapabilities, workspaceRoot string) (provider.Conversation, error) {
+func (cc *conversationCache) GetOrOpen(ctx context.Context, convID, threadID, providerName, model string, credential core.ProviderCredential, capabilities provider.ModelCapabilities, workspaceRoot string) (provider.Conversation, error) {
 	resp := make(chan cacheResult, 1)
 	cc.ops <- cacheOp{
 		kind: cacheOpGetOrOpen,
@@ -122,6 +142,7 @@ func (cc *conversationCache) GetOrOpen(ctx context.Context, convID, providerName
 			workspaceRoot: workspaceRoot,
 		},
 		credential: credential,
+		threadID:   threadID,
 		respCh:     resp,
 	}
 	r := <-resp
@@ -181,29 +202,97 @@ func (cc *conversationCache) Shutdown() {
 	}
 }
 
+// pending reports done unless it has already closed, in which case it forgets
+// the entry and reports nil.
+func pending[K comparable](m map[K]<-chan struct{}, key K) <-chan struct{} {
+	done := m[key]
+	if done == nil {
+		return nil
+	}
+	select {
+	case <-done:
+		delete(m, key)
+		return nil
+	default:
+		return done
+	}
+}
+
 // runActor owns the entries map; serialises every read and write so the
 // cache itself needs no mutex.
 func (cc *conversationCache) runActor() {
 	entries := make(map[conversationCacheKey]provider.Conversation)
+	// bound maps each thread to the handle it last used; users is its inverse,
+	// the threads bound to each handle.
+	bound := make(map[threadRef]conversationCacheKey)
+	users := make(map[conversationCacheKey]map[string]struct{})
+	// retiring holds, per handle, the cancellation of a thread that has left
+	// it. A turn that reuses the handle waits for it, so the cancel cannot land
+	// on that turn's fresh work.
+	retiring := make(map[conversationCacheKey]<-chan struct{})
 	cancelling := make(map[string]<-chan struct{})
-	pendingCancellation := func(convID string) <-chan struct{} {
-		done := cancelling[convID]
-		if done == nil {
-			return nil
-		}
-		select {
-		case <-done:
-			delete(cancelling, convID)
-			return nil
-		default:
-			return done
-		}
-	}
 	deferUntil := func(done <-chan struct{}, op cacheOp) {
 		go func() {
 			<-done
 			cc.ops <- op
 		}()
+	}
+	// closeHandle closes one handle and forgets it and every thread bound to it.
+	// A thread's cancellation still running on it is let finish first, outside
+	// the actor: a provider's Close ends the handle, and a Cancel arriving after
+	// it may never return.
+	closeHandle := func(key conversationCacheKey, conv provider.Conversation) {
+		closeConv := func() {
+			if err := conv.Close(); err != nil {
+				jlog.Debug("conversation cache: close %s (%s/%s): %v", key.convID, key.providerName, key.model, err)
+			}
+		}
+		if before := pending(retiring, key); before != nil {
+			go func() {
+				<-before
+				closeConv()
+			}()
+		} else {
+			closeConv()
+		}
+		for threadID := range users[key] {
+			delete(bound, threadRef{convID: key.convID, threadID: threadID})
+		}
+		delete(users, key)
+		delete(entries, key)
+		delete(retiring, key)
+	}
+	// bind points the thread at key, retiring it from the handle it was bound
+	// to before.
+	bind := func(key conversationCacheKey, threadID string) {
+		ref := threadRef{convID: key.convID, threadID: threadID}
+		if prev, ok := bound[ref]; ok && prev != key {
+			delete(users[prev], threadID)
+			if conv, open := entries[prev]; open {
+				if len(users[prev]) == 0 {
+					closeHandle(prev, conv)
+				} else {
+					// Other threads are still bound to the old handle, perhaps
+					// mid-turn: release only this thread's work there. Cancel can
+					// wait for a turn to unwind, so it runs outside the actor.
+					done := make(chan struct{})
+					before := pending(retiring, prev)
+					retiring[prev] = done
+					go func() {
+						if before != nil {
+							<-before
+						}
+						conv.Cancel(threadID)
+						close(done)
+					}()
+				}
+			}
+		}
+		bound[ref] = key
+		if users[key] == nil {
+			users[key] = make(map[string]struct{})
+		}
+		users[key][threadID] = struct{}{}
 	}
 	var sinkFactory turnSinkFactory
 	for op := range cc.ops {
@@ -213,23 +302,25 @@ func (cc *conversationCache) runActor() {
 			op.doneCh <- struct{}{}
 
 		case cacheOpGetOrOpen:
-			if done := pendingCancellation(op.key.convID); done != nil {
+			if done := pending(cancelling, op.key.convID); done != nil {
 				deferUntil(done, op)
 				continue
 			}
-			if existing, ok := entries[op.key]; ok {
-				op.respCh <- cacheResult{conv: existing}
+			if done := pending(retiring, op.key); done != nil {
+				deferUntil(done, op)
 				continue
 			}
-			// Close any other entries for the same convID (provider/model/
-			// workspace switch). Conversations are bound to (provider, model,
-			// workspace) for the lifetime of the handle; switching any of them
-			// invalidates the old resource.
+			// A workspace switch rebinds the whole conversation: close every
+			// handle rooted anywhere else, whichever threads are bound to it.
 			for k, conv := range entries {
-				if k.convID == op.key.convID {
-					_ = conv.Close()
-					delete(entries, k)
+				if k.convID == op.key.convID && k.workspaceRoot != op.key.workspaceRoot {
+					closeHandle(k, conv)
 				}
+			}
+			if existing, ok := entries[op.key]; ok {
+				bind(op.key, op.threadID)
+				op.respCh <- cacheResult{conv: existing}
+				continue
 			}
 			info, _ := provider.GetProviderInfo(op.key.providerName)
 			var projectPath string
@@ -270,19 +361,17 @@ func (cc *conversationCache) runActor() {
 				conv.Subscribe(sinkFactory(op.key.convID))
 			}
 			entries[op.key] = conv
+			bind(op.key, op.threadID)
 			op.respCh <- cacheResult{conv: conv}
 
 		case cacheOpCloseConversation:
-			if done := pendingCancellation(op.convID); done != nil {
+			if done := pending(cancelling, op.convID); done != nil {
 				deferUntil(done, op)
 				continue
 			}
 			for k, conv := range entries {
 				if k.convID == op.convID {
-					if err := conv.Close(); err != nil {
-						jlog.Debug("conversation cache: close %s (%s/%s): %v", k.convID, k.providerName, k.model, err)
-					}
-					delete(entries, k)
+					closeHandle(k, conv)
 				}
 			}
 			op.doneCh <- struct{}{}
@@ -295,7 +384,7 @@ func (cc *conversationCache) runActor() {
 			// block its worker or prevent unrelated conversations from opening or
 			// switching providers. Later operations for this conversation wait for
 			// cancellation so its handle still has a single lifecycle owner.
-			if pendingCancellation(op.convID) != nil {
+			if pending(cancelling, op.convID) != nil {
 				op.doneCh <- struct{}{}
 				continue
 			}
@@ -318,10 +407,7 @@ func (cc *conversationCache) runActor() {
 
 		case cacheOpShutdown:
 			for k, conv := range entries {
-				if err := conv.Close(); err != nil {
-					jlog.Debug("conversation cache: shutdown close %s (%s/%s): %v", k.convID, k.providerName, k.model, err)
-				}
-				delete(entries, k)
+				closeHandle(k, conv)
 			}
 			close(cc.done)
 			op.doneCh <- struct{}{}

@@ -28,6 +28,7 @@ the current release). The project follows semantic versioning.
 - Claude models via OpenRouter use prompt caching, and show cache writes
 - Extension SDK: strategies can hide controls; extensions can ship identity presets
 - Attaching a video says the model can't take video, instead of "Couldn't read"
+- Threads using different models no longer cancel each other's replies
 - Shell commands typed as `! cmd` or `/shell cmd` can be scheduled to run later
 
 ## [0.8.2] - 2026-11-20

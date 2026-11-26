@@ -6,9 +6,9 @@
  * What the header's "…" popup offers.
  *
  * Usually only what a narrow header has folded out of its row — zoom, theme,
- * sound and help — and those as the buttons themselves, lent to the popup while
- * it is open ({@link foldedControls}), not as menu rows: zoom is pressed again
- * and again, and theme and sound show their state.
+ * window border, sound and help — and those as the buttons themselves, lent to
+ * the popup while it is open ({@link foldedControls}), not as menu rows: zoom is
+ * pressed again and again, and theme, border and sound show their state.
  *
  * A Windows or Linux desktop window has menu rows too. It has no menu bar —
  * Linux sets none, and Windows' frameless window never shows one — so there "…"

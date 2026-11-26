@@ -492,7 +492,7 @@ export async function runTests() {
       button.click();
       assertDialogPopover(surface(), button, 'header overflow popup');
       const strip = () => [...(surface()?.querySelectorAll('.header-overflow-strip button') || [])].map((b) => b.id).join();
-      assert(strip() === 'zoom-out-button,zoom-in-button,theme-button,bell-button,help-button',
+      assert(strip() === 'zoom-out-button,zoom-in-button,theme-button,window-border-button,bell-button,help-button',
         `the popup holds the folded buttons in row order, got ${strip()}`);
       assert(!header.querySelector('#zoom-in-button'), 'lent, not copied: the row no longer has them');
 
@@ -518,7 +518,7 @@ export async function runTests() {
       // A keyboard reference is a dead end on a device with no keyboard.
       touch = true;
       button.click();
-      assert(strip() === 'zoom-out-button,zoom-in-button,theme-button,bell-button',
+      assert(strip() === 'zoom-out-button,zoom-in-button,theme-button,window-border-button,bell-button',
         `on touch the popup leaves help out, got ${strip()}`);
       popup.dispose();
       assert(!surface() && places() === before, 'disposing closes it and puts them back');

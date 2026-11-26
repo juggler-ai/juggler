@@ -40,6 +40,8 @@ export function pickerChoices(picker) {
       group = el.textContent || '';
       continue;
     }
+    // Says more are still being found; not a choice.
+    if (el.classList.contains('git-select-menu__pending')) continue;
     const row = /** @type {HTMLElement} */ (el);
     choices.push({ value: row.dataset.value || '', label: row.textContent || '', title: row.title, group });
   }
@@ -611,6 +613,11 @@ export function mountPin(pin, options = {}) {
    * @type {{kind: string, options: any, settled: boolean, aborted: boolean, answer: () => void, resolve: (v: any) => void, reject: (e: any) => void}[]}
    */
   const heldReads = [];
+  /** @type {any} */
+  let status = options.status || null;
+  let scanning = false;
+  /** @type {Set<() => void>} */
+  const statusListeners = new Set();
   const ws = options.workspaces || {};
   /** @type {{call: string, args: any[]}[]} */
   const workspaceCalls = [];
@@ -675,9 +682,13 @@ export function mountPin(pin, options = {}) {
     files: { onChange: () => () => {} },
     contextItems: { find: () => null, onChange: () => () => {}, reveal: () => {} },
     git: {
-      status: () => options.status || null,
+      status: () => status,
       error: () => '',
-      onChange: () => () => {},
+      scanning: () => scanning,
+      onChange: (/** @type {() => void} */ listener) => {
+        statusListeners.add(listener);
+        return () => statusListeners.delete(listener);
+      },
       refresh: async () => {},
       review: async (/** @type {any} */ opts) => {
         reviews++;
@@ -1067,6 +1078,17 @@ export function mountPin(pin, options = {}) {
      * @param {Record<string, any>} config - The pin's config as it now is.
      */
     reconfigure: (config) => { controller.update?.(contextFor(config)); },
+    /**
+     * Hand the pin's followed tree a new status, as the window's status cache
+     * does when a read starts or answers (`git.onChange`).
+     * @param {any} next - What `git.status()` answers now; null for nothing yet.
+     * @param {boolean} [isScanning] - What `git.scanning()` answers now.
+     */
+    setStatus: (next, isScanning = false) => {
+      status = next;
+      scanning = isScanning;
+      for (const listener of [...statusListeners]) listener();
+    },
     /**
      * Tell every `watch` listener the tree changed.
      * @param {any[]} [repos] - Which repositories, and which parts.

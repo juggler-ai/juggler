@@ -187,9 +187,14 @@ let _foreign = false;
 /** What was last announced, so an unchanged answer is not announced again. */
 let _announced = '';
 
+/** @returns {boolean} The tree in view is being read, with nothing of it held yet. */
+function scanning() {
+  return _inFlight !== null && (_snapshot === null || _foreign);
+}
+
 /** Tell every watcher, when what they would read has changed. */
 function notifyIfChanged() {
-  const next = JSON.stringify({ snapshot: _snapshot, error: _error });
+  const next = JSON.stringify({ snapshot: _snapshot, error: _error, scanning: scanning() });
   if (next === _announced) return;
   _announced = next;
   for (const listener of [..._watchers.keys()]) {
@@ -306,6 +311,7 @@ function refreshStatus(services) {
     return _snapshot;
   })();
   _inFlight = pending;
+  notifyIfChanged();
   return pending;
 }
 
@@ -449,6 +455,7 @@ export function gitClient(services, signal) {
   return {
     status: () => _snapshot,
     error: () => _error,
+    scanning,
     onChange: (listener) => {
       if (_watchers.size === 0 && _snapshot !== null && followed() !== _watchedId) {
         // What is held is of a tree nobody has watched since the user moved.
@@ -635,6 +642,8 @@ export function __scriptGitClients(factory) {
  * @property {GitFile[]} files - The changed files, bounded by the host
  * @property {boolean} truncated - True when the tree holds more files than `files` lists.
  *   The counts still describe the whole tree, so say "200 of 4000" rather than "200".
+ * @property {boolean} [unread] - Found, and its status could not be read (git
+ *   failed there, or ran out of time): everything but `path` is unknown, not clean.
  */
 
 /**
@@ -836,8 +845,11 @@ export function __scriptGitClients(factory) {
  * @property {() => string} error - The last read's failure, or ''. The previous
  *   status is kept beside it, because a transient failure should not blank a
  *   working display — show both.
+ * @property {() => boolean} [scanning] - Whether the tree in view is being read
+ *   with nothing of it held yet: `status()` is null, or still another tree's.
+ *   What lists the tree's repositories says they are still being found.
  * @property {(listener: () => void) => (() => void)} onChange - Called when a new
- *   status has arrived. Carries nothing: call `status()`. Returns an unsubscribe
+ *   status has arrived, or `scanning()` has changed. Carries nothing: call `status()`. Returns an unsubscribe
  *   function; the host also drops the subscription when the pin is torn down.
  * @property {() => Promise<void>} refresh - Ask git now. Never rejects: a failure
  *   shows up on `error()`.

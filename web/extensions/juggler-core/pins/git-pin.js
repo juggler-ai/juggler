@@ -1386,18 +1386,25 @@ class GitPin extends PinboardItemType {
 
     // The repositories the tree holds: the visible tree's status follows the
     // conversation, so a pin fixed to a workspace asks that tree's review.
+    // Until the first answer, the picker says they are still being found.
+    const followedRepos = () => changes.setRepos(status()?.repos || [], gitOf().scanning?.() ?? false);
     const readRepos = async () => {
       if (isPinned(config)) {
+        const known = pinnedReview?.repos || [];
+        if (!pinnedReview) changes.setRepos(known, true);
         try {
           pinnedReview = await gitOf().review(workspaceOption());
           if (live) changes.setRepos(pinnedReview.repos || []);
-        } catch (_) { /* the root repository is shown regardless */ }
+        } catch (_) {
+          // The root repository is shown regardless.
+          if (live) changes.setRepos(known);
+        }
       } else {
-        changes.setRepos(status()?.repos || []);
+        followedRepos();
       }
     };
     const unwatchStatus = gitOf().onChange?.(() => {
-      if (live && !isPinned(config)) changes.setRepos(status()?.repos || []);
+      if (live && !isPinned(config)) followedRepos();
     });
     const watchResync = () => events.git().watch?.((event) => {
       if (live && event.type === 'git-resync') void readRepos();

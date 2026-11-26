@@ -176,6 +176,26 @@ export function injectGitClientStyles() {
   max-height: min(70vh, 30rem);
 }
 
+/* More choices are still being found: the picker's chevron, and the menu's
+   last row, turn until they all are. */
+.git-select__spin {
+  animation: btn-spin 1.2s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .git-select__spin {
+    animation: none;
+    opacity: 0.4;
+  }
+}
+
+.git-select-menu__pending {
+  gap: var(--space-4);
+  color: var(--text-tertiary);
+  cursor: default;
+  pointer-events: none;
+}
+
 .git-pin__icon {
   flex: none;
   width: 1em;

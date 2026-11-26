@@ -81,7 +81,8 @@ const SPIN_TURN_MS = 1200;
  *   running: the key's, which never stops a write.
  * @property {() => boolean} fetch - Fetch, as the Fetch control showing does.
  *   Says whether one was offered: not without remotes, nor while one runs.
- * @property {(repos: {value: string, label: string}[], value: string) => void} setRepos - The repository menu's choices, and which is shown.
+ * @property {(repos: {value: string, label: string}[], value: string, pending?: boolean) => void} setRepos - The
+ *   repository menu's choices, which is shown, and whether the tree's repositories are still being found.
  * @property {(state: HeadState) => void} update - Draw this.
  * @property {(switcher: HTMLElement, inline: boolean) => boolean} fit - Lay the
  *   line out for its width: the switcher (its `.git-pin__tabs` measured) in
@@ -303,8 +304,11 @@ export function createHead() {
       handlers.action('fetch', command);
       return true;
     },
-    setRepos: (repos, value) => {
-      repoPicker.element.disabled = repos.length < 2;
+    setRepos: (repos, value, pending = false) => {
+      // Still being found is not "only one": the menu opens on what is known so
+      // far, and says the rest is coming.
+      repoPicker.element.disabled = repos.length < 2 && !pending;
+      repoPicker.setPending(pending ? t('Searching…') : '');
       repoChoices = repos;
       drawRepo(value);
     },

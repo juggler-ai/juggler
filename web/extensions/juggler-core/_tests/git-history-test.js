@@ -399,6 +399,40 @@ export async function runTests(_ctx) {
     m.teardown();
   });
 
+  // The pin remembers the repository it shows, so a list it believes complete
+  // and is not — the last tree's, held while this one is read — moves it for
+  // good onto a repository the user never picked.
+  await test('a repository list still being found never moves the pin; a finished one moves it to the root', async () => {
+    const m = mount({ place: 'changes', config: { place: 'changes', repo: 'sub' }, status: null });
+    const picker = /** @type {HTMLElement} */ (m.body.querySelector('.git-pin__repo'));
+    m.setStatus({ root: '/tmp/other', repos: [{ path: '' }, { path: 'lib' }] }, true);
+    await nextTask();
+    assert(pickerValue(picker) === 'sub', `a list still being found leaves it on sub: ${pickerValue(picker)}`);
+    m.setStatus({ root: '/tmp/proj', repos: [{ path: 'lib' }, { path: '' }] });
+    await nextTask();
+    assert(pickerValue(picker) === '', `a finished list without sub moves it to the root: ${pickerValue(picker)}`);
+    m.teardown();
+  });
+
+  await test('while the repositories are still being found, the picker turns and its menu says so', async () => {
+    const m = mount({ place: 'changes', status: null });
+    m.setStatus(null, true);
+    const picker = /** @type {HTMLButtonElement} */ (m.body.querySelector('.git-pin__repo'));
+    await waitFor(() => picker.getAttribute('aria-busy') === 'true', 'the picker to say it is busy');
+    assert(!picker.disabled, 'one repository known so far is not one repository: the picker opens');
+    picker.click();
+    const menu = /** @type {HTMLElement} */ (document.querySelector('.git-select-menu'));
+    assert(Boolean(menu?.querySelector('.git-select-menu__pending')), 'the open menu ends with a row saying more are coming');
+    // The answer lands with the menu open: it fills in where it is.
+    m.setStatus({ root: '/tmp/proj', repos: [{ path: '' }, { path: 'sub' }] });
+    await nextTask();
+    assert(!menu.querySelector('.git-select-menu__pending'), 'the pending row goes once they are all found');
+    assert(Boolean(menu.querySelector('[data-value="sub"]')), 'and the repository found is listed in the open menu');
+    picker.click();
+    assert(picker.getAttribute('aria-busy') === null, `the picker stops turning: ${picker.getAttribute('aria-busy')}`);
+    m.teardown();
+  });
+
   await test('switching places keeps the repository picked, because the pin is not rebuilt', async () => {
     const m = mount({ place: 'changes', status: { root: '/tmp/proj', repos: [{ path: '' }, { path: 'sub' }] } });
     const picker = /** @type {HTMLElement} */ (m.body.querySelector('.git-pin__repo'));

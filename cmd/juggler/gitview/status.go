@@ -22,6 +22,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"juggler/cmd/juggler/msg"
@@ -38,6 +39,7 @@ const (
 	gitScanMaxDepth  = 4   // directory levels below the project root to descend
 	gitScanMaxRepos  = 32  // stop discovering after this many repos
 	gitStatusMaxFile = 200 // per repo, the most files listed individually
+	gitStatusReaders = 4   // repositories whose status is read at once
 )
 
 // gitFileStatus is one file in a repository's working tree. Index and Worktree
@@ -92,29 +94,40 @@ type RepoStatus struct {
 	Detached   bool            `json:"detached"`
 	Files      []gitFileStatus `json:"files"`
 	Truncated  bool            `json:"truncated"`
+	// Unread says the repository was found and its status could not be read —
+	// git failed there, or the read ran out of time — so everything but Path is
+	// unknown rather than clean.
+	Unread bool `json:"unread,omitempty"`
 }
 
 // Status discovers the repositories under root and reports each one's branch,
 // divergence from its upstream, changed/staged counts and bounded file list —
 // the status card's answer. It is best-effort: a repo whose `git status` fails
-// (git missing, bare repo) is simply omitted rather than failing the whole
-// answer, which is why it has no error to return.
+// or runs out of time (git missing, a broken checkout, a busy machine) is
+// listed Unread rather than failing the whole answer, which is why it has no
+// error to return. It is still listed because this is also the list of
+// repositories the user can pick from, and a slow one is not a missing one.
+//
+// The repositories are read a few at a time, so one slow read — the root's
+// asks every submodule as well — does not spend the budget the rest wait on.
 func Status(ctx context.Context, root string) []RepoStatus {
 	ctx, cancel := context.WithTimeout(ctx, clocks.Status.Budget)
 	defer cancel()
 
-	repos := []RepoStatus{}
-	for _, dir := range discoverRepos(ctx, root) {
-		status, err := repoStatus(ctx, dir, repoStatusOptions{maxFiles: gitStatusMaxFile, perCmd: clocks.Status.PerCmd})
-		if err != nil {
-			continue // best-effort: a repo git cannot report is left off the card
-		}
-		// Line counts are a nicety on a card and the whole point of a review, so
-		// this is the one caller that can shrug at losing them.
-		_ = repoDiffstats(ctx, dir, clocks.Status.PerCmd, &status)
-		status.Path = repoRelativePath(root, dir)
-		repos = append(repos, status)
+	dirs := discoverRepos(ctx, root)
+	repos := make([]RepoStatus, len(dirs))
+	slots := make(chan struct{}, gitStatusReaders)
+	var wg sync.WaitGroup
+	for i, dir := range dirs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			slots <- struct{}{}
+			defer func() { <-slots }()
+			repos[i] = cardStatus(ctx, root, dir)
+		}()
 	}
+	wg.Wait()
 
 	// Root repo first, then nested repos alphabetically — stable ordering so the
 	// card doesn't reshuffle between polls.
@@ -122,6 +135,20 @@ func Status(ctx context.Context, root string) []RepoStatus {
 		return repos[i].Path < repos[j].Path
 	})
 	return repos
+}
+
+// cardStatus is one repository's line in Status: its summary, or Unread.
+func cardStatus(ctx context.Context, root, dir string) RepoStatus {
+	path := repoRelativePath(root, dir)
+	status, err := repoStatus(ctx, dir, repoStatusOptions{maxFiles: gitStatusMaxFile, perCmd: clocks.Status.PerCmd})
+	if err != nil {
+		return RepoStatus{Path: path, Files: []gitFileStatus{}, Unread: true}
+	}
+	// Line counts are a nicety on a card and the whole point of a review, so
+	// this is the one caller that can shrug at losing them.
+	_ = repoDiffstats(ctx, dir, clocks.Status.PerCmd, &status)
+	status.Path = path
+	return status
 }
 
 // repoScanLimits bounds a search for repositories. The status card runs one on

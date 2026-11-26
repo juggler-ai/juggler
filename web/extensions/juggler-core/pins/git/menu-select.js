@@ -15,7 +15,7 @@
  * @module pins/git/menu-select
  */
 
-import { attachMenuKeyboard, attachMenuTrigger, createElement, focusMenuChoice, presentPopup } from 'juggler/ui';
+import { attachMenuKeyboard, attachMenuTrigger, createElement, focusMenuChoice, focusMenuItem, presentPopup } from 'juggler/ui';
 import { icon } from './icons.js';
 
 /**
@@ -32,6 +32,9 @@ import { icon } from './icons.js';
  * @property {HTMLButtonElement} element - The button.
  * @property {(choices: MenuChoice[], value: string) => void} set - The choices, and which is chosen.
  * @property {(value: string) => void} setValue - Choose one, quietly.
+ * @property {(words: string) => void} setPending - More choices are still being
+ *   found, and these words say so ('' once they all are): the chevron turns, and
+ *   the menu ends with a row saying it — open or not, as the choices are.
  * @property {() => string} value - The chosen value.
  * @property {() => void} open - Open the menu, as a click would; toggles it closed when open.
  * @property {() => void} close - Close it, if open.
@@ -53,45 +56,57 @@ export function createMenuSelect({ className, label, onChoose, expand, bare = fa
   button.setAttribute('aria-expanded', 'false');
   button.setAttribute('aria-label', label);
   const text = createElement('span', 'git-select__text text-truncate');
-  button.append(text, icon('chev'));
+  const chevron = icon('chev');
+  const spinner = icon('sync');
+  spinner.classList.add('git-select__spin');
+  button.append(text, chevron);
 
   /** @type {MenuChoice[]} */
   let choices = [];
   let chosen = '';
+  /** What says more choices are still being found; '' when none are. */
+  let pending = '';
   /** @type {(() => void)|null} */
   let release = null;
+  /** @type {HTMLElement|null} The open menu. */
+  let surface = null;
 
   const draw = () => {
     const choice = choices.find((c) => c.value === chosen);
     text.textContent = choice ? (choice.buttonLabel || choice.label) : chosen;
     button.title = choice?.title || label;
     button.dataset.value = chosen;
+    if (pending) button.setAttribute('aria-busy', 'true');
+    else button.removeAttribute('aria-busy');
+    const glyph = pending ? spinner : chevron;
+    if (!glyph.isConnected) (pending ? chevron : spinner).replaceWith(glyph);
   };
 
   const close = () => {
     const was = release;
     release = null;
+    surface = null;
     button.setAttribute('aria-expanded', 'false');
     was?.();
   };
 
-  const open = () => {
-    if (release) {
-      close();
-      return;
-    }
-    const surface = createElement('menu', 'dropdown-menu is-open git-select-menu');
-    surface.setAttribute('role', 'menu');
-    surface.setAttribute('aria-label', label);
+  /**
+   * Lay the menu's rows: the choices, then the pending row while there is one.
+   * @param {HTMLElement} menu - The menu.
+   * @returns {HTMLElement|null} The chosen row, if it is listed.
+   */
+  const fill = (menu) => {
     /** @type {HTMLElement|null} */
     let current = null;
     let group = '';
     const listed = expand ? expand() : choices;
+    /** @type {HTMLElement[]} */
+    const rows = [];
     for (const choice of listed) {
       if (choice.group && choice.group !== group) {
         const header = createElement('li', 'menu-header menu-header-plain caps-label', choice.group);
         header.setAttribute('role', 'none');
-        surface.append(header);
+        rows.push(header);
       }
       group = choice.group || '';
       const row = createElement('li', `menu-item${choice.value === chosen ? ' menu-item-selected' : ''}`);
@@ -109,21 +124,55 @@ export function createMenuSelect({ className, label, onChoose, expand, bare = fa
         onChoose(choice.value);
       });
       if (choice.value === chosen) current = row;
-      surface.append(row);
+      rows.push(row);
     }
+    if (pending) {
+      const row = createElement('li', 'menu-item git-select-menu__pending');
+      row.setAttribute('role', 'none');
+      row.setAttribute('aria-busy', 'true');
+      const glyph = icon('sync');
+      glyph.classList.add('git-select__spin');
+      row.append(glyph, createElement('span', 'text-truncate', pending));
+      rows.push(row);
+    }
+    menu.replaceChildren(...rows);
+    return current;
+  };
+
+  const open = () => {
+    if (release) {
+      close();
+      return;
+    }
+    const menu = createElement('menu', 'dropdown-menu is-open git-select-menu');
+    menu.setAttribute('role', 'menu');
+    menu.setAttribute('aria-label', label);
+    const current = fill(menu);
+    surface = menu;
     release = presentPopup({
-      surface,
+      surface: menu,
       anchor: button,
       id: 'git-select',
       gap: 4,
       onClose: () => {
         if (release) close();
       },
-      insideSelectors: [surface],
+      insideSelectors: [menu],
     });
     button.setAttribute('aria-expanded', 'true');
-    attachMenuKeyboard(surface, { close, autoFocus: !current });
-    if (current) focusMenuChoice(surface);
+    attachMenuKeyboard(menu, { close, autoFocus: !current });
+    if (current) focusMenuChoice(menu);
+  };
+
+  /** The choices changed: lay an open menu's rows again, the keyboard where it was. */
+  const refill = () => {
+    if (!surface) return;
+    const focused = /** @type {HTMLElement|null} */ (surface.querySelector(':focus'));
+    const at = focused?.dataset.value;
+    fill(surface);
+    const back = at === undefined ? null
+      : [...surface.querySelectorAll('[data-value]')].find((row) => /** @type {HTMLElement} */ (row).dataset.value === at);
+    if (back) focusMenuItem(surface, /** @type {HTMLElement} */ (back));
   };
 
   attachMenuTrigger(button, open);
@@ -140,10 +189,18 @@ export function createMenuSelect({ className, label, onChoose, expand, bare = fa
       choices = next;
       chosen = value;
       draw();
+      // An expanded list is built when the menu opens, and may run to thousands.
+      if (!expand) refill();
     },
     setValue: (value) => {
       chosen = value;
       draw();
+    },
+    setPending: (words) => {
+      if (words === pending) return;
+      pending = words;
+      draw();
+      refill();
     },
     value: () => chosen,
     open,

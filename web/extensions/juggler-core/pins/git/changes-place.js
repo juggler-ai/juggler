@@ -224,7 +224,9 @@ function sideTitles(stopped, head) {
  *   (the head's Commit): in a chip, on a popover off `anchor`.
  * @property {() => void} showFirstConflict - Select the first file in conflict and show it.
  * @property {() => void} focus - Focus the list.
- * @property {(repos: {path: string}[]) => void} setRepos - The repositories in the tree.
+ * @property {(repos: {path: string}[], pending?: boolean) => void} setRepos - The repositories in
+ *   the tree, and whether they are still being found: a list still being found never moves
+ *   the pin off the repository it shows; a finished one without it moves it to the root.
  * @property {(repo: string) => void} showRepo - Show one of them, by its path in the tree.
  * @property {() => string} repo - The repository shown.
  * @property {() => number|null} dirtyCount - Its changed files, null before the first read.
@@ -241,6 +243,8 @@ export function createChangesPlace(host) {
   let repo = host.initialRepo || '';
   /** @type {{path: string}[]} */
   let repos = [];
+  /** The tree's repositories are still being found: `repos` is what is known so far. */
+  let reposPending = false;
 
   // --- reads ---------------------------------------------------------------
   /** @type {GitChanges|null} */
@@ -1357,7 +1361,7 @@ export function createChangesPlace(host) {
 
   /** Fill the head's repository picker from the tree's repositories. */
   const drawRepos = () => {
-    head.setRepos(repos.map((r) => ({ value: r.path, label: repoLabel(host.root(), r.path) })), repo);
+    head.setRepos(repos.map((r) => ({ value: r.path, label: repoLabel(host.root(), r.path) })), repo, reposPending);
   };
 
   /**
@@ -1503,10 +1507,15 @@ export function createChangesPlace(host) {
       switchRepo(next);
       drawRepos();
     },
-    setRepos: (next) => {
+    setRepos: (next, pending = false) => {
       repos = next;
+      reposPending = pending;
       drawRepos();
-      if (repos.length && !repos.some((r) => r.path === repo)) switchRepo(repos[0]?.path ?? '');
+      // Only a finished list can say the repository shown is not in the tree;
+      // the root, when it has one, is where the pin opens and so where it goes.
+      if (pending || !repos.length || repos.some((r) => r.path === repo)) return;
+      switchRepo(repos.some((r) => r.path === '') ? '' : repos[0]?.path ?? '');
+      drawRepos();
     },
     teardown: () => {
       live = false;

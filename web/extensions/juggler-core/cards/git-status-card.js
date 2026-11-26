@@ -471,7 +471,13 @@ function render(contentEl, git) {
     contentEl.replaceChildren(...withLauncher([note(error || t('Checking…'))]));
     return;
   }
-  const repos = snap.repos || [];
+  // A repository whose status could not be read has nothing to count, and
+  // the next read is likely to reach it: the card says what it knows of.
+  const repos = (snap.repos || []).filter((r) => !r.unread);
+  if (repos.length === 0 && (snap.repos || []).length > 0) {
+    contentEl.replaceChildren(...withLauncher(inTree(snap.workspace ?? '', [note(t('Checking…'))])));
+    return;
+  }
   if (repos.length === 0) {
     contentEl.replaceChildren(...withLauncher(inTree(snap.workspace ?? '', [note(t('No git repository'))])));
     return;
@@ -519,8 +525,17 @@ export default class GitStatusCard extends InfoCardType {
    */
   mount(contentEl, _session, context) {
     const git = gitClientOf(context.services, context.signal);
-    const stopWatching = git.onChange(() => render(contentEl, git));
-    render(contentEl, git);
+    // The client also says when a read starts, which the card does not show:
+    // what it draws from has to change before it repaints.
+    let drawn = '';
+    const draw = () => {
+      const next = JSON.stringify({ status: git.status(), error: git.error() });
+      if (next === drawn) return;
+      drawn = next;
+      render(contentEl, git);
+    };
+    const stopWatching = git.onChange(draw);
+    draw();
     void git.refresh();
     return stopWatching;
   }

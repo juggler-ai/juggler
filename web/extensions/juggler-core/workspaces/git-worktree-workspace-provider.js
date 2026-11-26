@@ -1315,6 +1315,8 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
 
     const answer = await gitClientOf(ctx.services, ctx.signal).statusOf(workspace.id, { signal: ctx.signal });
     const repo = /** @type {any} */ ((answer?.repos ?? []).find((/** @type {any} */ candidate) => !candidate.path));
+    // Found, and git could not say how it stands: unknown, which is not clean.
+    if (repo?.unread) return { detail: t("Couldn't read its changes"), available: true };
     if (!repo) {
       // A registered root that is no longer a repository: removed by hand, or
       // never one. Worth saying rather than reporting a clean tree.

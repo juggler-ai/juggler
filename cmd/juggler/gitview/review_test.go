@@ -269,6 +269,43 @@ func TestGitReviewReportsARepositoryItCouldNotRead(t *testing.T) {
 	}
 }
 
+// The card's list is also every repository a picker offers, so one whose status
+// could not be read in time is listed, marked unread, rather than left off: the
+// Git pin opens on the root repository and leaves it for the first one listed
+// when the root is not, and a root whose `git status` is slow — it asks every
+// submodule too — was otherwise the first to go.
+func TestGitStatusListsARepositoryItCouldNotRead(t *testing.T) {
+	t.Parallel()
+	p := newGitProject(t)
+	lib := p.nested("libs/lib")
+	lib.write("lib.txt", "lib\n")
+	lib.commit("init")
+
+	// The root's repository goes away from under its checkout, so its `git status`
+	// fails however long it is given.
+	if err := os.RemoveAll(filepath.Join(p.root, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(p.root, ".git"), []byte("gitdir: nowhere\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	card := p.card()
+	paths := make([]string, 0, len(card))
+	for _, repo := range card {
+		paths = append(paths, repo.Path)
+	}
+	if !reflect.DeepEqual(paths, []string{"", "libs/lib"}) {
+		t.Fatalf("repositories = %q, want the unreadable root first, then libs/lib", paths)
+	}
+	if !card[0].Unread {
+		t.Error("the root is listed as read, with nothing read of it")
+	}
+	if card[1].Unread {
+		t.Error("libs/lib is marked unread, and it was read")
+	}
+}
+
 // Ceilings are mandatory and silence about them is not: what is on screen stays
 // on screen, and the response says how much of the tree it is.
 func TestGitReviewBoundsTheFileListAndSaysSo(t *testing.T) {

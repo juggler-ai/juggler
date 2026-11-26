@@ -10,6 +10,7 @@ the current release). The project follows semantic versioning.
 - Git pin: force push, squash merges, skipping hooks, and managing remotes
 - Git pin opens on History, with refresh and fetch shortcuts
 - Without git, the Git pin says what to install instead of prompting for Xcode tools
+- Git pin opens on the top-level repo, not a submodule, and shows a spinner while finding repos
 - Git status card shows each repo's branch on one line; click to open it
 - The Usage card shows usage for a second Codex, OpenRouter, DeepSeek or Z.AI account
 - JUGGLER_SERVER_DIR runs a separate server, sharing config, e.g. one per sandbox

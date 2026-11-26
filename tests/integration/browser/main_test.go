@@ -53,6 +53,7 @@ type poolProc struct {
 	waitErr    error         // result of the single cmd.Wait()
 	exitedAt   time.Time
 	reported   sync.Once // the full post-mortem is printed once per subprocess
+	precursor  sync.Once // a stalled lane's samples are taken once per subprocess (samplePrecursor)
 }
 
 // dead reports whether the subprocess has exited, without blocking.

@@ -26,6 +26,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"juggler/internal/jlog"
@@ -56,55 +59,102 @@ const (
 	stallSampleGrace = 4 * time.Second
 )
 
-// stallSample is a sample run started against this process.
+// stallSample is a sample run started against this process, and against the
+// peer processes sampled with it.
 type stallSample struct {
-	path   string
+	path string
+	// peers are the samples of the peer processes that started, in the
+	// order they were given.
+	peers  []string
 	done   <-chan struct{}
 	cancel context.CancelFunc
 }
 
-// captureStallSample starts sampling this process in the background, writing
-// beside logPath, and returns a handle to wait on. It returns nil — a valid
-// handle to settle — when there is nowhere to write, so a caller never has to
-// ask whether sampling happened.
+// stallPeers names the WebKit processes behind this process's pages, which
+// a stall sample covers as well as this one: a main thread wedged in WebKit's
+// display refresh waits on a rendering update a web process has to commit, and
+// only that process's stacks say why it doesn't. The main thread is the one
+// thing that cannot be asked for them during a stall, so a test-capable build
+// keeps this up to date while the thread is healthy (keepStallPeers). Nothing
+// sets it in a release build, which asks no WebKit SPI.
+var stallPeers atomic.Pointer[[]int]
+
+// currentStallPeers is the last list of peers recorded, or none.
+func currentStallPeers() []int {
+	if p := stallPeers.Load(); p != nil {
+		return *p
+	}
+	return nil
+}
+
+// captureStallSample starts sampling this process and each of peers in the
+// background, writing beside logPath, and returns a handle to wait on. It
+// returns nil — a valid handle to settle — when there is nowhere to write, or
+// when this process's own sampler could not start, so a caller never has to
+// ask whether sampling happened. A peer whose sampler cannot start is logged
+// and left out.
 //
 // It does not block: the watchdog loop that calls this must keep ticking, both
 // to notice the main thread coming back and to reach its own deadline.
-func captureStallSample(logPath string, pid int, now time.Time) *stallSample {
+func captureStallSample(logPath string, pid int, now time.Time, peers ...int) *stallSample {
 	path := stallSamplePath(logPath, now)
 	if path == "" {
 		return nil
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(ctx, samplePath,
-		strconv.Itoa(pid),
-		strconv.Itoa(int(stallSampleDuration/time.Second)),
-		strconv.Itoa(stallSampleIntervalMS),
-		"-file", path,
-	)
-	if err := cmd.Start(); err != nil {
+	var running sync.WaitGroup
+	start := func(pid int, path, what string) bool {
+		cmd := exec.CommandContext(ctx, samplePath,
+			strconv.Itoa(pid),
+			strconv.Itoa(int(stallSampleDuration/time.Second)),
+			strconv.Itoa(stallSampleIntervalMS),
+			"-file", path,
+		)
+		if err := cmd.Start(); err != nil {
+			jlog.Error("Couldn't sample %s: %v", what, err)
+			return false
+		}
+		jlog.Info("Sampling %s for %v → %s", what, stallSampleDuration, path)
+		running.Go(func() {
+			if err := cmd.Wait(); err != nil {
+				// A cancelled sample is settle's own doing and already reported.
+				if ctx.Err() == nil {
+					jlog.Error("Sampling %s failed: %v", what, err)
+				}
+				return
+			}
+			jlog.Info("Sample of %s written: %s", what, path)
+		})
+		return true
+	}
+	if !start(pid, path, "the stalled main thread") {
 		cancel()
-		jlog.Error("Couldn't sample the wedged main thread: %v", err)
 		return nil
 	}
-	jlog.Info("Sampling the stalled main thread for %v → %s", stallSampleDuration, path)
+	s := &stallSample{path: path, cancel: cancel}
+	for _, peer := range peers {
+		peerPath := stallPeerSamplePath(path, peer)
+		if start(peer, peerPath, fmt.Sprintf("WebKit process %d", peer)) {
+			s.peers = append(s.peers, peerPath)
+		}
+	}
 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		// Releases the context once the sampler is reaped, whether it finished
-		// on its own or settle killed it.
+		// Releases the context once every sampler is reaped, whether it
+		// finished on its own or settle killed it.
 		defer cancel()
-		if err := cmd.Wait(); err != nil {
-			// A cancelled sample is settle's own doing and already reported.
-			if ctx.Err() == nil {
-				jlog.Error("Sampling the stalled main thread failed: %v", err)
-			}
-			return
-		}
-		jlog.Info("Main-thread sample written: %s", path)
+		running.Wait()
 	}()
-	return &stallSample{path: path, done: done, cancel: cancel}
+	s.done = done
+	return s
+}
+
+// stallPeerSamplePath is where the sample of peer goes, beside path, this
+// process's own sample of the same stall.
+func stallPeerSamplePath(path string, peer int) string {
+	return strings.TrimSuffix(path, ".sample.log") + "-pid" + strconv.Itoa(peer) + ".sample.log"
 }
 
 // settle waits up to budget for the sample to be written, and reports whether
@@ -146,14 +196,19 @@ func (s *stallSample) finish() bool {
 	return true
 }
 
-// stallSampleNote is the stderr line naming a wedge's sample, written just
+// webKitSampleNotePrefix opens the stderr line naming a peer's sample
+// (stallSampleNote).
+const webKitSampleNotePrefix = "WebKit process sample: "
+
+// stallSampleNote is the stderr lines naming a wedge's samples, written just
 // before a force-exit. Stderr, because a server with a log file and no terminal
 // discards jlog's console output — the browser test pool's servers among them —
 // so the harness, which keeps only their stderr, would otherwise never learn a
-// sample was taken. Its "Main-thread sample: " prefix is matched by
-// stallSampleStderrPrefix in tests/integration/browser. Empty when nothing was
-// sampled; a sample settle had to kill is reported without its path, since the
-// file it left is partial at best.
+// sample was taken. The "Main-thread sample: " and webKitSampleNotePrefix
+// prefixes are matched by stallSampleStderrPrefix and webKitSampleStderrPrefix
+// in tests/integration/browser. Empty when nothing was sampled; samples settle
+// had to kill are reported without their paths, since the files they left are
+// partial at best.
 func stallSampleNote(s *stallSample, settled bool) string {
 	if s == nil {
 		return ""
@@ -161,7 +216,12 @@ func stallSampleNote(s *stallSample, settled bool) string {
 	if !settled {
 		return fmt.Sprintf("\nMain-thread sample didn't finish within %v; killed it.\n", stallSampleGrace)
 	}
-	return "\nMain-thread sample: " + s.path + "\n"
+	var b strings.Builder
+	b.WriteString("\nMain-thread sample: " + s.path + "\n")
+	for _, peer := range s.peers {
+		b.WriteString(webKitSampleNotePrefix + peer + "\n")
+	}
+	return b.String()
 }
 
 // stallSamplePath places a sample file beside the server log that will describe

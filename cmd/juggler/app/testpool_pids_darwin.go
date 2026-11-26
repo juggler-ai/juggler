@@ -63,9 +63,41 @@ import "C"
 
 import (
 	"slices"
+	"sync/atomic"
+	"time"
+
+	"juggler/internal/jlog"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
+
+// stallPeersRefresh is how often keepStallPeers asks the main thread for the
+// processes behind the pages. An engine reload or a crashed page comes back in
+// a new web process, and a stall sample of the old one would miss the stall.
+const stallPeersRefresh = 2 * time.Second
+
+// keepStallPeers records, every stallPeersRefresh, the WebKit processes behind
+// wins as the peers a main-thread stall sample covers (stallPeers). It asks the
+// main thread, so a stall freezes the last answer in place: that is the list
+// the watchdog wants. An ask the main thread has not answered yet is not asked
+// again, so a stall does not pile up blocked asks. It runs for the life of the
+// process.
+func keepStallPeers(wins ...*application.WebviewWindow) {
+	var asking atomic.Bool
+	for range time.Tick(stallPeersRefresh) {
+		if !asking.CompareAndSwap(false, true) {
+			continue
+		}
+		go func() {
+			defer asking.Store(false)
+			pids := application.InvokeSyncWithResult(func() []int { return webProcessPIDs(wins...) })
+			if !slices.Equal(pids, currentStallPeers()) {
+				jlog.Info("A main-thread stall sample covers WebKit processes %v", pids)
+			}
+			stallPeers.Store(&pids)
+		}()
+	}
+}
 
 // webProcessPIDs names the WebKit processes that run these windows' pages: a
 // web process per page, and the network and GPU processes they share. WebKit

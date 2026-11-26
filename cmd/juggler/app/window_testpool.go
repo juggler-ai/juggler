@@ -160,6 +160,10 @@ func (a *windowApp) startup() {
 	if engineWin != nil {
 		a.srv.SetTestEngineQuiet(func() { sampleQuietEngine(engineWin) })
 	}
+	// And for a main-thread stall's sample, which cannot ask for them then.
+	if a.testMode {
+		go keepStallPeers(win, engineWin)
+	}
 
 	// Test slot: never Show() the pool window, so nothing flashes on screen on
 	// every `make test`. On macOS prepareHiddenPool orders it in out of sight,

@@ -574,12 +574,15 @@ func runOneBrowserTest(t *testing.T, srv testServerEntry) (abandoned bool) {
 		// The server's own account of the failure — fixture copies and deletes,
 		// engine reconnects — is in its server.log and nowhere else.
 		keepTestLogs("a test failed")
-		if len(result.Errors) > 0 {
-			for _, e := range result.Errors {
-				t.Error(e)
-			}
-		} else {
-			t.Error(result.Details)
+		errs := result.Errors
+		if len(errs) == 0 {
+			errs = []string{result.Details}
+		}
+		for _, e := range errs {
+			t.Error(e)
+		}
+		if precursor := samplePrecursor(srv, errs); precursor != "" {
+			t.Log(precursor)
 		}
 		return false
 	}
@@ -683,9 +686,13 @@ func poolDeath(srv testServerEntry) string {
 	}
 	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
 	samplePath := ""
+	var webKitPaths []string
 	for _, line := range lines {
 		if after, ok := strings.CutPrefix(line, stallSampleStderrPrefix); ok {
 			samplePath = strings.TrimSpace(after)
+		}
+		if after, ok := strings.CutPrefix(line, webKitSampleStderrPrefix); ok {
+			webKitPaths = append(webKitPaths, strings.TrimSpace(after))
 		}
 	}
 	if len(lines) > poolStderrTailLines {
@@ -695,7 +702,17 @@ func poolDeath(srv testServerEntry) string {
 		fmt.Fprintf(&b, "  | %s\n", line)
 	}
 	if samplePath != "" {
-		b.WriteString(stallSampleReport(samplePath, p))
+		b.WriteString(stallSampleReport(samplePath, "Main-thread sample",
+			fmt.Sprintf("juggler-stall-sample-%d.log", p.pid), p))
+	}
+	for _, path := range webKitPaths {
+		// The watchdog names a peer's sample <own sample>-pid<peer>.sample.log.
+		peer := strings.TrimSuffix(filepath.Base(path), ".sample.log")
+		if i := strings.LastIndex(peer, "-pid"); i >= 0 {
+			peer = peer[i+1:]
+		}
+		b.WriteString(stallSampleReport(path, "WebKit process sample ("+peer+")",
+			fmt.Sprintf("juggler-stall-sample-%d-%s.log", p.pid, peer), p))
 	}
 	return b.String()
 }
@@ -705,35 +722,50 @@ func poolDeath(srv testServerEntry) string {
 // thread (stallSampleNote, cmd/juggler/app).
 const stallSampleStderrPrefix = "Main-thread sample: "
 
+// webKitSampleStderrPrefix opens each line naming the sample of a WebKit
+// process behind the wedged server's pages, taken with its own
+// (webKitSampleNotePrefix, cmd/juggler/app).
+const webKitSampleStderrPrefix = "WebKit process sample: "
+
 // stallSampleMainThreadLines caps how much of the main thread's call graph
 // stallSampleReport quotes. A wedged thread is one stack standing still, so the
 // tree is narrow; the cap only guards against a sample that caught it moving.
 const stallSampleMainThreadLines = 120
 
-// stallSampleReport quotes the main thread's call graph from the sample a
-// wedged pool server took of itself, and keeps the whole sample beside the
-// stderr logs. The sample is written into the pool's log dir (testLogDir),
-// which CI's dump step never reads: it prints every log beside the stderr
-// files, so the copy kept there is printed in full. The main thread
+// stallSampleReport quotes the main thread's call graph from a sample a
+// wedged pool server took, of itself or of a WebKit process behind its pages
+// (what names it in the report), and keeps the whole sample beside the stderr
+// logs as keptName. The sample is written into the pool's log dir
+// (testLogDir), which CI's dump step never reads: it prints every log beside
+// the stderr files, so the copy kept there is printed in full. The main thread
 // alone names where it is stuck; the other threads are what say who holds the
 // lock it waits on, which is why the whole file is kept.
-func stallSampleReport(samplePath string, p *poolProc) string {
+func stallSampleReport(samplePath, what, keptName string, p *poolProc) string {
 	var b strings.Builder
 	data, err := os.ReadFile(samplePath)
 	if err != nil {
-		fmt.Fprintf(&b, "Main-thread sample %s unreadable: %v\n", samplePath, err)
+		fmt.Fprintf(&b, "%s %s unreadable: %v\n", what, samplePath, err)
 		return b.String()
 	}
-	kept := filepath.Join(filepath.Dir(p.stderrPath), fmt.Sprintf("juggler-stall-sample-%d.log", p.pid))
+	kept := filepath.Join(filepath.Dir(p.stderrPath), keptName)
 	if err := os.WriteFile(kept, data, 0o644); err != nil {
-		fmt.Fprintf(&b, "Main-thread sample (couldn't keep a copy at %s: %v):\n", kept, err)
+		fmt.Fprintf(&b, "%s (couldn't keep a copy at %s: %v):\n", what, kept, err)
 	} else {
-		fmt.Fprintf(&b, "Main-thread sample (all threads kept at %s):\n", kept)
+		fmt.Fprintf(&b, "%s (all threads kept at %s):\n", what, kept)
 	}
+	b.WriteString(mainThreadGraph(string(data), stallSampleMainThreadLines))
+	return b.String()
+}
+
+// mainThreadGraph quotes up to limit lines of the main thread's call graph
+// from a /usr/bin/sample file, one "  ¦ " line each, saying so when it cuts
+// it short or finds none.
+func mainThreadGraph(sample string, limit int) string {
+	var b strings.Builder
 	// /usr/bin/sample's call graph gives each thread a heading line naming it,
 	// then its frames, each opening "    +".
 	inMain, quoted := false, 0
-	for _, line := range strings.Split(string(data), "\n") {
+	for _, line := range strings.Split(sample, "\n") {
 		if !inMain {
 			inMain = strings.Contains(line, "com.apple.main-thread")
 			if !inMain {
@@ -742,8 +774,8 @@ func stallSampleReport(samplePath string, p *poolProc) string {
 		} else if !strings.HasPrefix(line, "    +") {
 			break
 		}
-		if quoted == stallSampleMainThreadLines {
-			fmt.Fprintf(&b, "  ¦ … (cut at %d lines; the kept copy has the rest)\n", stallSampleMainThreadLines)
+		if quoted == limit {
+			fmt.Fprintf(&b, "  ¦ … (cut at %d lines; the kept copy has the rest)\n", limit)
 			break
 		}
 		fmt.Fprintf(&b, "  ¦ %s\n", line)

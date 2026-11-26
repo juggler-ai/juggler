@@ -146,7 +146,7 @@ func startMainThreadWatchdog(addr string, allowRelaunch bool, logPath string, re
 		ping:   func() { C.juggler_mainthread_ping() },
 		pongs:  func() uint64 { return uint64(C.juggler_mainthread_pong_counter()) },
 		capture: func(now time.Time) *stallSample {
-			return captureStallSample(logPath, os.Getpid(), now)
+			return captureStallSample(logPath, os.Getpid(), now, currentStallPeers()...)
 		},
 		allowRelaunch: allowRelaunch,
 		awaitSample: func(s *stallSample) bool {

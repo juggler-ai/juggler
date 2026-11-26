@@ -136,6 +136,48 @@ func TestCaptureStallSampleWritesTheMainThread(t *testing.T) {
 	}
 }
 
+// TestCaptureStallSampleSamplesThePeersToo: a stall sample covers the WebKit
+// processes behind this one's pages, not only this one. The wedged main thread
+// waits on rendering those processes commit, so its own stacks cannot say
+// whether they are busy, blocked, or never asked. A stand-in process plays the
+// web process, and the note on stderr has to name its sample, because that note
+// is the only way the harness finds the file.
+func TestCaptureStallSampleSamplesThePeersToo(t *testing.T) {
+	if _, err := os.Stat(samplePath); err != nil {
+		t.Skipf("no %s on this machine: %v", samplePath, err)
+	}
+	peer := exec.Command("/bin/sleep", "60")
+	if err := peer.Start(); err != nil {
+		t.Fatalf("start the stand-in web process: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = peer.Process.Kill()
+		_ = peer.Wait()
+	})
+
+	logPath := filepath.Join(t.TempDir(), "server.log")
+	s := captureStallSample(logPath, os.Getpid(), time.Now(), peer.Process.Pid)
+	if s == nil {
+		t.Fatal("captureStallSample returned nothing with a writable log directory")
+	}
+	if !s.settle(stallSampleDuration + 30*time.Second) {
+		t.Fatal("sample did not finish")
+	}
+	if len(s.peers) != 1 {
+		t.Fatalf("sampled %d peer processes; want the one it was given", len(s.peers))
+	}
+	body, err := os.ReadFile(s.peers[0])
+	if err != nil {
+		t.Fatalf("read the peer's sample: %v", err)
+	}
+	if !strings.Contains(string(body), "sleep") {
+		t.Fatalf("the peer's sample is not of the peer:\n%s", head(string(body), 400))
+	}
+	if note := stallSampleNote(s, true); !strings.Contains(note, webKitSampleNotePrefix+s.peers[0]) {
+		t.Fatalf("the stderr note does not name the peer's sample %s:\n%s", s.peers[0], note)
+	}
+}
+
 func TestCaptureStallSampleIsSilentWithLoggingDisabled(t *testing.T) {
 	if s := captureStallSample("", os.Getpid(), time.Now()); s != nil {
 		t.Fatal("captureStallSample started a sampler with on-disk logging off")

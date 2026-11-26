@@ -12,5 +12,9 @@ import "github.com/wailsapp/wails/v3/pkg/application"
 // processes as descendants of this one, where the harness finds them itself.
 func webProcessPIDs(_ ...*application.WebviewWindow) []int { return nil }
 
+// keepStallPeers does nothing here: there is no main-thread watchdog to
+// sample them for.
+func keepStallPeers(_ ...*application.WebviewWindow) {}
+
 // sampleQuietEngine does nothing here: there is no sampler to run.
 func sampleQuietEngine(_ *application.WebviewWindow) {}

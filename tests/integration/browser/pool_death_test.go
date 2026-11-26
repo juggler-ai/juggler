@@ -132,6 +132,42 @@ func TestPoolDeathQuotesTheMainThreadSample(t *testing.T) {
 	}
 }
 
+// TestPoolDeathKeepsTheWebKitSamples: a wedged pool server also samples the
+// WebKit processes behind its pages, and names each sample on stderr. Those
+// files are in the same throwaway log dir as the main thread's, so each must be
+// copied beside the stderr logs too, and the post-mortem must quote its main
+// thread: the UI process's wedge waits on what that process is doing.
+func TestPoolDeathKeepsTheWebKitSamples(t *testing.T) {
+	dir := t.TempDir()
+	samplePath := filepath.Join(dir, "mainthread-stall-20261126-154857.sample.log")
+	webPath := filepath.Join(dir, "mainthread-stall-20261126-154857-pid5151.sample.log")
+	for _, path := range []string{samplePath, webPath} {
+		if err := os.WriteFile(path, []byte(stallSampleFixture), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stderr := stallSampleStderrPrefix + samplePath + "\n" +
+		webKitSampleStderrPrefix + webPath + "\n" +
+		"\nFATAL: main thread wedged — force-exiting so the next launch can recover.\n"
+	p := deadProc(t, stderr, errors.New("exit status 1"))
+
+	report := poolDeath(testServerEntry{addr: "127.0.0.1:1", proc: p})
+	kept := filepath.Join(filepath.Dir(p.stderrPath), "juggler-stall-sample-4242-pid5151.log")
+	data, err := os.ReadFile(kept)
+	if err != nil {
+		t.Fatalf("the web process's sample was not kept beside the stderr logs: %v\n%s", err, report)
+	}
+	if string(data) != stallSampleFixture {
+		t.Errorf("the kept web process sample differs from the original:\n%s", data)
+	}
+	if !strings.Contains(report, kept) {
+		t.Errorf("post-mortem doesn't say where the web process's sample is kept (%s):\n%s", kept, report)
+	}
+	if n := strings.Count(report, "-[WKWebView _wedgedHere]"); n != 2 {
+		t.Errorf("post-mortem quotes %d main threads; want both processes':\n%s", n, report)
+	}
+}
+
 // TestLeakCheckReportsAPoolDeath guards the death no subtest sees: a pool
 // server that dies after its last suite has finished is noticed only by the
 // leak check that runs once every subtest is done. Its failure must carry the

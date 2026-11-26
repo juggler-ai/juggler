@@ -29,6 +29,12 @@ var ModelContextWindows = map[string]int{
 	"gpt-6-sol":     1050000,
 	"gpt-6-luna":    1050000,
 
+	// Healthcare variants share their base models' window.
+	"gpt-6.2-astra-healthcare": 1050000,
+	"gpt-6.2-sol-healthcare":   1050000,
+	"gpt-6.1-sol-healthcare":   1050000,
+	"gpt-6-astra-healthcare":   1050000,
+
 	// Daybreak aliases: Blue has the GPT-6 window, Red the 400K one.
 	"gpt-daybreak-blue-latest": 1050000,
 	"gpt-daybreak-red-latest":  400000,
@@ -125,6 +131,11 @@ var ModelMaxOutputTokens = map[string]int{
 	"gpt-6.1-terra": 128000,
 	"gpt-6-sol":     128000,
 	"gpt-6-luna":    128000,
+
+	"gpt-6.2-astra-healthcare": 128000,
+	"gpt-6.2-sol-healthcare":   128000,
+	"gpt-6.1-sol-healthcare":   128000,
+	"gpt-6-astra-healthcare":   128000,
 
 	"gpt-daybreak-blue-latest": 128000,
 	"gpt-daybreak-red-latest":  128000,

@@ -54,8 +54,9 @@ var conservativeCatalog = map[string]bool{
 var sanityBounds = map[string]struct {
 	minWindow, minOutput, maxOutput int
 }{
-	// The documented catalog floor, and the coding plan's output ceiling.
-	"zai": {minWindow: 128000, minOutput: 16000, maxOutput: 98304},
+	// The documented catalog floor, and the coding endpoint's max_tokens
+	// ceiling (it rejects anything above 131072).
+	"zai": {minWindow: 128000, minOutput: 16000, maxOutput: 131072},
 	// Every model DeepSeek serves is 1M/384K.
 	"deepseek": {minWindow: 1000000, minOutput: 32768, maxOutput: 384000},
 	// The oldest model OpenAI still serves is gpt-4 at 8192.

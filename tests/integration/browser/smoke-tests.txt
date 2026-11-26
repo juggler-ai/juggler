@@ -47,6 +47,7 @@ integration:new-conversation-command
 unit:composer
 unit:conversation-area
 unit:conversation-bar
+unit:header-bar
 unit:tool-action-render
 unit:approval-buttons
 unit:streaming-markdown

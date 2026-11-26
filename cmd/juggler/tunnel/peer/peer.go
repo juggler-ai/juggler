@@ -71,7 +71,22 @@ type target struct {
 const startupLimit = 2 * time.Minute
 
 // gatherLimit bounds ICE gathering before a partial answer is returned.
+// Accept runs on the rendezvous's one reader, and the guest waits 15s for
+// the answer, so gathering cannot be left to run as long as it likes.
 const gatherLimit = 5 * time.Second
+
+// stunGatherLimit is how long pion waits for a STUN server's reply before it
+// gathers without that server's reflexive candidate. It sits well inside
+// gatherLimit, so a STUN server that never answers ends gathering itself, and
+// the answer is complete. Only a slow TURN allocation reaches gatherLimit.
+const stunGatherLimit = 3 * time.Second
+
+// api makes every peer connection, with pion's defaults but for its STUN wait.
+var api = func() *webrtc.API {
+	var se webrtc.SettingEngine
+	se.SetSTUNGatherTimeout(stunGatherLimit)
+	return webrtc.NewAPI(webrtc.WithSettingEngine(se))
+}()
 
 // Accept answers one offer and returns the local answer, its candidates
 // gathered (non-trickle). The data channel the offer opens — the one labelled
@@ -90,7 +105,7 @@ func (p *Peer) Accept(ctx, life context.Context, offer tunnel.SessionDescription
 	if cert := p.identity(); cert != nil {
 		cfg.Certificates = []webrtc.Certificate{*cert}
 	}
-	pc, err := webrtc.NewPeerConnection(cfg)
+	pc, err := api.NewPeerConnection(cfg)
 	if err != nil {
 		return tunnel.SessionDescription{}, fmt.Errorf("create peer connection: %w", err)
 	}

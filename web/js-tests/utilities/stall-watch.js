@@ -234,7 +234,8 @@ const BODY_READERS = /** @type {const} */ (['json', 'text', 'arrayBuffer', 'blob
 export function trackedFetch(real, inFlight = laneFetches) {
   return /** @type {typeof window.fetch} */ ((...args) => {
     const id = ++fetchSeq;
-    inFlight.set(id, Date.now());
+    const sentAt = Date.now();
+    inFlight.set(id, sentAt);
     const done = () => { inFlight.delete(id); };
     return real(...args).then((response) => {
       let reading = false;
@@ -255,9 +256,76 @@ export function trackedFetch(real, inFlight = laneFetches) {
       return response;
     }, (err) => {
       done();
+      recordRejection(args, sentAt, err);
       throw err;
     });
   });
+}
+
+/**
+ * The lane's latest rejected fetches, oldest first, kept so a case that fails
+ * on a bare "Failed to fetch" names the request: the browser's message says
+ * nothing about which one, and the server never logs a request it never got.
+ * @type {{at: number, outMs: number, what: string, error: string}[]}
+ */
+const rejectedFetches = [];
+const REJECTED_FETCHES_KEPT = 8;
+
+/**
+ * @param {unknown[]} args - What fetch was called with.
+ * @param {number} sentAt - When it was sent.
+ * @param {unknown} err - Why it was rejected.
+ */
+function recordRejection(args, sentAt, err) {
+  // An abort is the caller's own doing (a superseded read, a backstop that
+  // already says what it gave up on), not the request failing.
+  if (err instanceof DOMException && err.name === 'AbortError') return;
+  const now = Date.now();
+  rejectedFetches.push({
+    at: now,
+    outMs: now - sentAt,
+    what: describeRequest(args),
+    error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+  });
+  if (rejectedFetches.length > REJECTED_FETCHES_KEPT) rejectedFetches.shift();
+}
+
+/**
+ * One request, as a failure block names it: method, path, and for an op call
+ * the tool and operation its body names.
+ * @param {unknown[]} args - What fetch was called with.
+ * @returns {string} The description.
+ */
+function describeRequest(args) {
+  const [input, init] = /** @type {[unknown, RequestInit | undefined]} */ (args);
+  const url = typeof input === 'string' ? input
+    : input instanceof URL ? input.href
+      : input instanceof window.Request ? input.url : String(input);
+  const method = init?.method ?? (input instanceof window.Request ? input.method : 'GET');
+  let op = '';
+  if (typeof init?.body === 'string' && init.body.startsWith('{')) {
+    try {
+      const body = JSON.parse(init.body);
+      if (body?.toolId || body?.operation) op = ` ${body.toolId ?? '?'}.${body.operation ?? '?'}`;
+    } catch { /* not JSON: the URL is description enough */ }
+  }
+  return `${method} ${url.replace(/^https?:\/\/[^/]+/, '')}${op}`;
+}
+
+/**
+ * The failure-block lines for this lane's fetches rejected since `since`: an
+ * instant rejection points at the network service, one out for the backstop's
+ * length at a request that was never answered.
+ * @param {number} since - When the case or suite began.
+ * @returns {string[]} The lines, none when nothing was rejected.
+ */
+export function rejectedFetchLines(since) {
+  const mine = rejectedFetches.filter((r) => r.at >= since);
+  if (mine.length === 0) return [];
+  return [
+    `  REJECTED FETCHES (${mine.length}, latest last):`,
+    ...mine.map((r) => `    ${r.what} — ${r.error}, after ${r.outMs}ms, ${Math.round((Date.now() - r.at) / 1000)}s before this report`),
+  ];
 }
 
 /**

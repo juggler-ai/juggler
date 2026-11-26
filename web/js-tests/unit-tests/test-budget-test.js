@@ -20,7 +20,7 @@
 
 import { assert, waitFor } from '../utilities/test-helpers.js';
 import { budgetFor, deadlineTimer, testDeadlineMs, setTestDeadline, pinTestDeadline } from '../utilities/test-deadline.js';
-import { watchForStall, trackedFetch } from '../utilities/stall-watch.js';
+import { watchForStall, trackedFetch, rejectedFetchLines } from '../utilities/stall-watch.js';
 import { trackWait, waitsInFlightReport } from '../utilities/test-patience.js';
 import UIDriver from '../utilities/ui-driver.js';
 import { UITestHarness } from '../utilities/ui-test-harness.js';
@@ -582,6 +582,27 @@ export async function runTests(_ctx) {
     } catch (e) {
       failed++;
       errors.push(`a fetch counts until its body is read: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  // A bare "Failed to fetch" names no request, and the server never logs one it
+  // never got, so the failure block names it: the op an /api/ops/call body
+  // carries, and how long it was out. An abort is the caller's own, not listed.
+  {
+    const since = Date.now();
+    const refused = trackedFetch(/** @type {any} */ (async () => { throw new TypeError('Failed to fetch'); }), new Map());
+    const aborted = trackedFetch(/** @type {any} */ (async () => { throw new DOMException('gone', 'AbortError'); }), new Map());
+    try {
+      await refused('/api/ops/call', { method: 'POST', body: JSON.stringify({ toolId: 'memory', operation: 'probeRejected' }) }).catch(() => {});
+      await aborted('/api/aborted-probe').catch(() => {});
+      const lines = rejectedFetchLines(since).join('\n');
+      assert(lines.includes('POST /api/ops/call memory.probeRejected — TypeError: Failed to fetch'),
+        `a rejected op call was not named in the failure block: ${JSON.stringify(lines)}`);
+      assert(!lines.includes('aborted-probe'), `an aborted fetch was listed as rejected: ${JSON.stringify(lines)}`);
+      passed++;
+    } catch (e) {
+      failed++;
+      errors.push(`a rejected fetch names itself: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 

@@ -506,7 +506,7 @@ import {
 } from './conversation-claims.js';
 import { setTestDeadline, clearTestDeadline, moveTestDeadline, progressMark, caseMark } from './test-deadline.js';
 import { waitsInFlightReport } from './test-patience.js';
-import { watchForStall, watchWorkerProgress, awaitingServer, installFetchTracking } from './stall-watch.js';
+import { watchForStall, watchWorkerProgress, awaitingServer, installFetchTracking, rejectedFetchLines } from './stall-watch.js';
 import { __lastTapeTsForTests } from '../../js/utils/event-tape.js';
 import { fetchProjectSize, projectSizeLines } from './project-size.js';
 import { machineLoadReport } from './machine-load.js';
@@ -1508,6 +1508,7 @@ async function runUnitSuiteWithConvCleanup(suite, ctx) {
         errors: [
           `${settled.stopped} — it never returned a result (${watchdog.stalls()}, ${Math.round((Date.now() - startedAt) / 1000)}s in all)`,
           ...parked,
+          ...rejectedFetchLines(startedAt),
           ...projectSizeLines(await fetchProjectSize()),
           ...await machineLoadReport()
         ]
@@ -1534,6 +1535,7 @@ async function runUnitSuiteWithConvCleanup(suite, ctx) {
     if (result.failed > 0) {
       result.errors = [
         ...result.errors,
+        ...rejectedFetchLines(startedAt),
         ...projectSizeLines(await fetchProjectSize()),
         ...await machineLoadReport()
       ];

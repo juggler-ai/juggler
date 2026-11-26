@@ -26,7 +26,7 @@ import { snapshotOwnConversationIds, deleteOwnConversationsCreatedSince, setCurr
 import { setTestDeadline, clearTestDeadline, moveTestDeadline, progressMark } from './test-deadline.js';
 import { racePatiently, waitsInFlightReport } from './test-patience.js';
 import { waitFor } from './test-helpers.js';
-import { watchForStall, watchWorkerProgress, awaitingServer } from './stall-watch.js';
+import { watchForStall, watchWorkerProgress, awaitingServer, rejectedFetchLines } from './stall-watch.js';
 import { fetchProjectSize, projectSizeLines } from './project-size.js';
 import { fetchMachineLoad, measureTimerGrid, machineLoadLines } from './machine-load.js';
 import { lastConfirmGiveUp } from './ui-operation-executor.js';
@@ -537,6 +537,7 @@ async function _buildFailureMessage({ testName, rawMsg, durationMs, perTestTimeo
     ...jsErrorLines,
     `  duration: ${durationMs}ms (no-progress window: ${perTestTimeoutMs}ms${stalls ? `, ${stalls}` : ''})`,
     `  iframe: ${ident.iframe}  visible-conv: ${ident.visibleConversationId || 'none'}  own: [${ident.ownConversationIds.join(', ')}]`,
+    ...rejectedFetchLines(Date.now() - durationMs),
     ...projectSizeLines(await projectSize),
     ...machineLoadLines(await machineLoad, await timerGrid),
     ...confirmLines,

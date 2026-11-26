@@ -22,6 +22,13 @@ import { formatTokens } from '../../utils/format.js';
 import { t, formatNumber } from '../../../sdk/lib/i18n.js';
 
 /**
+ * The most output a reply budgets for unless the user sets the model's Max
+ * output: the server's provider.MaxDefaultOutputReserve (admission.go), which
+ * caps a larger limit a provider states. Keep the two equal.
+ */
+const MAX_DEFAULT_OUTPUT_RESERVE = 64000;
+
+/**
  * Whether a published model's context window is a guess nobody has corrected:
  * the server reported none, and the user has set no window of their own.
  * @param {{windowAssumed?: boolean, providerContextWindow?: number|null}} model
@@ -198,8 +205,12 @@ export function buildModelVisibilityRow(provider, registerUpdater) {
     const derived = field === 'maxOutputTokens' && model.derivedMaxOutputTokens > 0
       ? model.derivedMaxOutputTokens
       : 0;
+    // A stated output limit above the default cap budgets the cap per reply.
+    const capped = field === 'maxOutputTokens' && !overridden && !derived && reported > MAX_DEFAULT_OUTPUT_RESERVE;
     if (derived) {
       input.placeholder = t('auto ({count})', { count: formatNumber(derived) });
+    } else if (capped) {
+      input.placeholder = t('auto ({count})', { count: formatNumber(MAX_DEFAULT_OUTPUT_RESERVE) });
     } else {
       input.placeholder = reported > 0 ? String(reported) : t('auto');
     }
@@ -214,6 +225,12 @@ export function buildModelVisibilityRow(provider, registerUpdater) {
       input.title = t("You set this. Clear the field to go back to Juggler's default of {count} tokens, derived from the context window.", { count: formatNumber(derived) });
     } else if (overridden) {
       input.title = t('You set this. Clear the field to go back to {count}.', { count: reported });
+    } else if (capped) {
+      input.title = t('{name} gives {stated} tokens for this model. Juggler budgets {count} per reply, because Max output is held back inside the context window and a larger budget leaves less room for conversation history. Type a number to set it yourself.', {
+        name: who,
+        stated: formatNumber(reported),
+        count: formatNumber(MAX_DEFAULT_OUTPUT_RESERVE),
+      });
     } else if (derived && model.windowAssumed) {
       input.title = t('Worked out from the guessed context window. Type a number to set it yourself.');
     } else if (derived) {

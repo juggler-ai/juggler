@@ -1018,6 +1018,7 @@ func (s *Server) resolveModelLimits(providerName, model string) (provider.ModelC
 	// model a provider does not list at all (a gateway alias, a model named
 	// straight into the config) never appears in it. Admission would then run on
 	// the stale number the override was written to correct.
+	userOutput := false
 	if s.settings != nil {
 		settings := s.settings.get()
 		limits := settings.ModelLimitsFor(providerName, model)
@@ -1028,6 +1029,7 @@ func (s *Server) resolveModelLimits(providerName, model string) (provider.ModelC
 		if limits.MaxOutputTokens > 0 {
 			capabilities.MaxOutputTokens = int64(limits.MaxOutputTokens)
 			outputDerived = false
+			userOutput = true
 		}
 	}
 	normalized := normalizeOutputLimit(capabilities)
@@ -1035,6 +1037,12 @@ func (s *Server) resolveModelLimits(providerName, model string) (provider.ModelC
 	// replaced by the derived reserve.
 	if normalized.MaxOutputTokens != capabilities.MaxOutputTokens {
 		outputDerived = true
+	}
+	// A limit a provider states is a ceiling, not a budget
+	// (provider.MaxDefaultOutputReserve). It still bounds a one-off raise, through
+	// stated. The user's own Max output is never capped.
+	if !userOutput {
+		normalized.MaxOutputTokens = min(normalized.MaxOutputTokens, provider.MaxDefaultOutputReserve)
 	}
 	return normalized, modelLimitProvenance{
 		windowAssumed: assumed,

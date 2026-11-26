@@ -99,8 +99,8 @@ is a last resort rather than a fact.
 
 Every request must leave room for the answer, and Max output is how much.
 Juggler takes, in order of preference: the Max output you set for the model in
-Settings, the model's reported maximum output, or — when only the window is
-known — a derived figure that grows with the window:
+Settings, the model's reported maximum output up to 64,000, or — when only the
+window is known — a derived figure that grows with the window:
 
 | Context window | Derived Max output |
 |---|---|
@@ -116,6 +116,20 @@ reasoning model's thinking counts against it — but leaves less room for
 conversation history, so compaction starts sooner. Compaction is suggested once
 the input plus Max output passes 85% of the window; at 262,144 tokens with the
 derived 32,768 that is at about 190k tokens of input.
+
+A reported maximum above 64,000 is the longest reply the model can give, not
+what a turn needs — some models report 384k against a 1M window, which held
+back in full would start compaction at under half the window. So unless you set
+Max output yourself, a request budgets at most 64,000, shown as **auto
+(64,000)**; a reply that runs out can still be retried up to the reported
+maximum (below).
+
+When the system prompt and tool definitions are themselves most of the window —
+dozens of MCP tools add up — compaction may be due while the conversation
+itself is already small. Nothing can be folded then, so Juggler sends requests
+as they are and says once, in the conversation, how much the tools and Max
+output take; turning off tools the conversation doesn't need, or lowering Max
+output, gives the room back.
 
 Settings → Providers → *Models and token limits* shows a derived Max output as
 **auto (32,768)**, with a tooltip saying where it came from. Type a number in

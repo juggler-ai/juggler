@@ -294,6 +294,55 @@ func TestHandleContextOverflowAnchoredAdvisoryFolds(t *testing.T) {
 	}
 }
 
+// TestHandleContextOverflowExplainsWhatAFoldCannotReach pins the overflow a fold
+// cannot help: the system prompt and tools (60k) and the reply reserve (30k)
+// carry a 100k-window request over the ceiling while the conversation itself
+// already fits the fold's headroom. Recovery must not run — no hidden calls, no
+// compaction status on every dispatch — the request goes out bypassed, and the
+// conversation is told why once, not at every overflow.
+func TestHandleContextOverflowExplainsWhatAFoldCannotReach(t *testing.T) {
+	w := NewConversationWorker("test-conv", "user:test")
+	defer w.doc.Destroy()
+	w.currentRun().storeState(StateProcessing)
+	w.doc.SetMetadata("defaultModelConfig", map[string]any{"provider": "test", "model": "test"})
+	w.doc.InsertMessage(0, recoveryTestItems()[4:]...)
+	w.SetLLMCaller(func(_ context.Context, _ json.RawMessage, _ func(StreamChunk)) (*LLMResponse, error) {
+		t.Fatal("recovery made a hidden call for an overflow no fold can reduce")
+		return nil, nil
+	})
+	pinned := &ModelConfig{Provider: "original", Model: "rejected"}
+	limit := &provider.ContextLimitExceededError{
+		EstimatedInputTokens: 60_300,
+		OutputReserveTokens:  30_000,
+		ContextWindowTokens:  100_000,
+		MeasuredPrefix:       true,
+		Breakdown:            provider.RequestTokenEstimate{Total: 60_300, MessageTokens: 300},
+	}
+
+	notices := func() []ConversationItem {
+		var out []ConversationItem
+		for _, it := range w.doc.GetItems() {
+			if it.Type == ItemTypeNotice {
+				out = append(out, it)
+			}
+		}
+		return out
+	}
+	for range 2 {
+		retry, err := w.ownedRun(t).handleContextOverflow(testOverflow(limit, true), &compactionAttempts{}, pinned)
+		if !retry || err != nil {
+			t.Fatalf("retry = %v, err = %v; want a guard-bypassed dispatch", retry, err)
+		}
+	}
+	got := notices()
+	if len(got) != 1 {
+		t.Fatalf("notices = %d, want exactly one explaining the overflow: %s", len(got), itemIDs(w.doc.GetItems()))
+	}
+	if _, detail := assertNoticeMessages(t, got[0]); detail.Params["overhead"] != float64(60_000) || detail.Params["reserve"] != float64(30_000) {
+		t.Errorf("notice params = %v, want the 60k system prompt and tools and the 30k reserve", detail.Params)
+	}
+}
+
 // TestHandleContextOverflowFoldLeavesTailNotice pins the fold's visible trace:
 // the summary thread is spliced where the folded history began — usually far
 // above the reader — so the incident also leaves a durable notice at the TAIL,

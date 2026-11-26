@@ -652,8 +652,17 @@ func ContextSafetyReserve(window int64) int64 {
 	// small one. The 64k ceiling bounds how long a runaway generation can run on
 	// slow local hardware. The fifth keeps small windows well under the
 	// compaction ceiling (DefaultContextCeilingFraction).
-	return max(int64(1), min(window/5, min(max(window/8, 20_000), 64_000)))
+	return max(int64(1), min(window/5, min(max(window/8, 20_000), MaxDefaultOutputReserve)))
 }
+
+// MaxDefaultOutputReserve is the most output a request budgets for unless the
+// user set the model's Max output themselves. A limit a catalogue or endpoint
+// states is the longest reply the model can give, not what a turn needs, and
+// some are a large share of the window (384k of 1M): charged in full, that
+// share is room history can never use, so admission advises compaction with
+// much of the window empty. A reply that runs out can still be retried once at
+// up to the stated limit.
+const MaxDefaultOutputReserve int64 = 64_000
 
 // DefaultContextCeilingFraction is the share of a model's context window a
 // request may occupy before admission asks the caller to compact.

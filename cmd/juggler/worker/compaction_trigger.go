@@ -28,7 +28,9 @@
 // the provider's rejection is the trigger.
 //
 // The ladder handleContextOverflow runs, in order: hand a folded /compact thread
-// to its summarizer; honour the off switch; shrink an oversized trailing tool
+// to its summarizer; honour the off switch; when the overflow is only the
+// system prompt, tools and reply reserve (overflowIsOverhead), say so once and
+// dispatch without compacting; shrink an oversized trailing tool
 // result in place (a live tool_use/tool_result pair must survive, so it can
 // never be folded); then fold the leading run of history — prior summaries
 // nested inside it so they never stack — into one summary thread,
@@ -306,6 +308,19 @@ func (r *run) handleContextOverflow(o contextOverflow, recovery *compactionAttem
 			fmt.Sprintf("stopped after %d progressive attempts", recovery.attempts))
 	}
 
+	// An overflow that is the envelope and the reply reserve is beyond any fold.
+	// Running recovery anyway would find that out again on every dispatch, with
+	// the Compacting status up each time, so it is said once and the request
+	// goes out as it is.
+	if r.overflowIsOverhead(limit) {
+		if notice, ok := r.overheadNotice(limit, modelConfig); ok {
+			r.appendTargetMessage(notice)
+		}
+		return r.cannotReduce(o,
+			"overflow is the system prompt, tools and reply reserve, which no fold reaches; dispatching one fallback",
+			"stopped because the overflow is the system prompt, tools and reply reserve, which no fold reaches")
+	}
+
 	// Compaction spends hidden calls on the model and rewrites history, so it is
 	// always worth a line saying what triggered it — never deduplicated like the
 	// guard decisions above.
@@ -403,68 +418,23 @@ type recoveryUnit struct {
 	est        int64
 }
 
-// compactToFit recovers an ordinary root or subthread turn whose request
-// was rejected by the provider for context size. It reports objective structural
-// progress from the durable item shape; the advisory token estimate is used for
-// planning only and is never the progress criterion.
-//
-// Every failure path returns a typed error: BoundedCompactionError for
-// deterministic recovery failures, BoundedCompactionCancelledError (matching
-// errBoundedCompactionCancelled) when interrupted mid-reduce.
-func (r *run) compactToFit(limitErr *provider.ContextLimitExceededError, modelConfig *ModelConfig) (contextRecoveryResult, error) {
-	if !r.exclusivelyOwnsConversation() {
-		return contextRecoveryResult{}, errBoundedCompactionCancelled
-	}
-	before := contextRecoverySignature(r.getTargetItems())
-	if r.compactionCancelled() {
-		return contextRecoveryResult{}, errBoundedCompactionCancelled
-	}
-	pinnedModel, err := validateCompactionModel(modelConfig, "context recovery")
-	if err != nil {
-		return contextRecoveryResult{}, err
-	}
-	window := limitErr.ContextWindowTokens
-	reserve := limitErr.OutputReserveTokens
-	if window <= 0 {
-		return contextRecoveryResult{}, &BoundedCompactionError{Reason: BoundedCompactionContextBound, Message: "context recovery requires a known context window", Window: window}
-	}
+// recoveryEnvelope is everything admission counted that is not per-message
+// content: the system prompt, tools, framing, ids and provider overhead. No
+// fold can shrink it.
+func recoveryEnvelope(limit *provider.ContextLimitExceededError) int64 {
+	return max(0, limit.Breakdown.Total-limit.Breakdown.MessageTokens-limit.Breakdown.ImageTokens)
+}
 
-	// Everything admission counted that is not per-message content is the
-	// fixed envelope (system prompt, tools, framing, ids, provider overhead).
-	envelope := limitErr.Breakdown.Total - limitErr.Breakdown.MessageTokens - limitErr.Breakdown.ImageTokens
-	if envelope < 0 {
-		envelope = 0
-	}
+// autoFoldPlan is where an automatic fold of the target items would fall:
+// units[skip:k] fold, and cut is the verbatim tail chooseTail kept.
+type autoFoldPlan struct {
+	skip, k int
+	cut     tailCut
+}
 
-	r.beginCompactionStatus(msg.New("Compacting"))
-	r.recordCompactionStart(compactionKindAuto, window, reserve, envelope)
-
-	// A trailing tool-result payload too large for the suffix budget can never
-	// be folded — folding would destroy the live tool pair. Shrink oversized
-	// results in place to reducer-generated summaries first; the pair stays
-	// intact on the wire and in the visible doc (the full result survives in
-	// its transaction blob).
-	if err := r.shrinkOversizedTrailingToolResults(limitErr, &pinnedModel, envelope); err != nil {
-		return contextRecoveryResult{}, err
-	}
-
-	// The synthesized prompt item id: it lives inside the folded thread's nested
-	// items, never in the target array, so it matches nothing there and excludes
-	// nothing from the canonical fingerprint — it just replaces the old
-	// recoveryPromptSentinel and becomes the thread's CompactionPromptItemID.
-	promptID := generateItemID()
-
-	items := r.getTargetItems()
-	records, err := canonicalCompactionRecords(items, promptID)
-	if err != nil {
-		return contextRecoveryResult{}, &BoundedCompactionError{Reason: BoundedCompactionSourceEncoding, Message: "context recovery could not encode canonical source: " + err.Error(), Cause: err}
-	}
-	if len(records) == 0 {
-		return contextRecoveryOutcome(before, items), nil
-	}
-	fingerprint := compactionSourceFingerprint(records)
-
-	units := recoveryAtomicUnits(items)
+// planAutoFold chooses the automatic fold's range over items without touching
+// them. Nothing folds when !cut.keptNewest or k <= skip.
+func (r *run) planAutoFold(items []ConversationItem, units []recoveryUnit, window, envelope, reserve int64) autoFoldPlan {
 	// A delegated thread's most recent invocation message is pinned on top of
 	// the per-item rules: it is where the run in flight will stamp its outcome,
 	// and where the thread's liveness is read from (lastInvocationIndex). Every
@@ -515,10 +485,7 @@ func (r *run) compactToFit(limitErr *provider.ContextLimitExceededError, modelCo
 		newestBudget:          fullBudget,
 		keepAllWithinHeadroom: true,
 	})
-	if !cut.keptNewest {
-		return contextRecoveryOutcome(before, items), nil
-	}
-	k, suffixEst := cut.k, cut.tailTokens
+	k := cut.k
 	// The suffix walk stops at the first pinned unit from the back, but another
 	// pinned unit (an in-flight unsummarized fold, an earlier invocation
 	// message) can still sit deeper inside [skip, k) with foldable history on
@@ -533,6 +500,91 @@ func (r *run) compactToFit(limitErr *provider.ContextLimitExceededError, modelCo
 			break
 		}
 	}
+	return autoFoldPlan{skip: skip, k: k, cut: cut}
+}
+
+// overflowIsOverhead reports whether this overflow is the envelope and the
+// output reserve alone: no trailing tool result needs shrinking, and the whole
+// conversation already fits the headroom a fold would leave it, so compactToFit
+// would change nothing. Running it anyway would only find that out again on
+// every dispatch. An unknown window, or a newest unit too large to keep, is not
+// this case; compactToFit reports those.
+func (r *run) overflowIsOverhead(limit *provider.ContextLimitExceededError) bool {
+	window, reserve := limit.ContextWindowTokens, limit.OutputReserveTokens
+	if window <= 0 {
+		return false
+	}
+	envelope := recoveryEnvelope(limit)
+	items := r.getTargetItems()
+	units := recoveryAtomicUnits(items)
+	if trailingResultOversized(items, units, window, envelope, reserve) {
+		return false
+	}
+	plan := r.planAutoFold(items, units, window, envelope, reserve)
+	return plan.cut.keptNewest && plan.k <= plan.skip
+}
+
+// compactToFit recovers an ordinary root or subthread turn whose request
+// was rejected by the provider for context size. It reports objective structural
+// progress from the durable item shape; the advisory token estimate is used for
+// planning only and is never the progress criterion.
+//
+// Every failure path returns a typed error: BoundedCompactionError for
+// deterministic recovery failures, BoundedCompactionCancelledError (matching
+// errBoundedCompactionCancelled) when interrupted mid-reduce.
+func (r *run) compactToFit(limitErr *provider.ContextLimitExceededError, modelConfig *ModelConfig) (contextRecoveryResult, error) {
+	if !r.exclusivelyOwnsConversation() {
+		return contextRecoveryResult{}, errBoundedCompactionCancelled
+	}
+	before := contextRecoverySignature(r.getTargetItems())
+	if r.compactionCancelled() {
+		return contextRecoveryResult{}, errBoundedCompactionCancelled
+	}
+	pinnedModel, err := validateCompactionModel(modelConfig, "context recovery")
+	if err != nil {
+		return contextRecoveryResult{}, err
+	}
+	window := limitErr.ContextWindowTokens
+	reserve := limitErr.OutputReserveTokens
+	if window <= 0 {
+		return contextRecoveryResult{}, &BoundedCompactionError{Reason: BoundedCompactionContextBound, Message: "context recovery requires a known context window", Window: window}
+	}
+	envelope := recoveryEnvelope(limitErr)
+
+	r.beginCompactionStatus(msg.New("Compacting"))
+	r.recordCompactionStart(compactionKindAuto, window, reserve, envelope)
+
+	// A trailing tool-result payload too large for the suffix budget can never
+	// be folded — folding would destroy the live tool pair. Shrink oversized
+	// results in place to reducer-generated summaries first; the pair stays
+	// intact on the wire and in the visible doc (the full result survives in
+	// its transaction blob).
+	if err := r.shrinkOversizedTrailingToolResults(limitErr, &pinnedModel, envelope); err != nil {
+		return contextRecoveryResult{}, err
+	}
+
+	// The synthesized prompt item id: it lives inside the folded thread's nested
+	// items, never in the target array, so it matches nothing there and excludes
+	// nothing from the canonical fingerprint — it just replaces the old
+	// recoveryPromptSentinel and becomes the thread's CompactionPromptItemID.
+	promptID := generateItemID()
+
+	items := r.getTargetItems()
+	records, err := canonicalCompactionRecords(items, promptID)
+	if err != nil {
+		return contextRecoveryResult{}, &BoundedCompactionError{Reason: BoundedCompactionSourceEncoding, Message: "context recovery could not encode canonical source: " + err.Error(), Cause: err}
+	}
+	if len(records) == 0 {
+		return contextRecoveryOutcome(before, items), nil
+	}
+	fingerprint := compactionSourceFingerprint(records)
+
+	units := recoveryAtomicUnits(items)
+	plan := r.planAutoFold(items, units, window, envelope, reserve)
+	if !plan.cut.keptNewest {
+		return contextRecoveryOutcome(before, items), nil
+	}
+	skip, k, cut, suffixEst := plan.skip, plan.k, plan.cut, plan.cut.tailTokens
 	if k <= skip {
 		// Every foldable unit fits verbatim within the window, so there is
 		// nothing this pass can usefully fold. Two ways to arrive here:
@@ -712,6 +764,65 @@ func (r *run) insertCompactionNotice(foldedItems int) {
 	r.appendTargetMessage(notice)
 }
 
+// overheadNoticeData is the Data payload of the notice that no fold can make
+// room: the model it is about, so a conversation is told once per model rather
+// than at every overflow.
+type overheadNoticeData struct {
+	FixedOverhead struct {
+		Provider string `json:"provider"`
+		Model    string `json:"model"`
+	} `json:"fixedOverhead"`
+}
+
+// overheadNotice builds the notice for an overflow no fold can reduce
+// (overflowIsOverhead): the system prompt and tools, and the output held
+// back for the reply, fill so much of the window that the conversation already
+// fits what is left. Nothing else on screen says why the conversation stays
+// that large, and both causes are settings the user can change. mc is the
+// model the request was for; nil means the conversation's effective model.
+// Reports false when this conversation already carries one for the model.
+func (r *run) overheadNotice(limit *provider.ContextLimitExceededError, mc *ModelConfig) (ConversationItem, bool) {
+	if _, resolved, ok := r.windowInfo(mc); ok {
+		mc = resolved
+	}
+	if mc == nil {
+		return ConversationItem{}, false
+	}
+	var data overheadNoticeData
+	data.FixedOverhead.Provider = mc.Provider
+	data.FixedOverhead.Model = mc.Model
+	for _, items := range [][]ConversationItem{r.doc.GetItems(), r.getTargetItems()} {
+		for _, item := range items {
+			var got overheadNoticeData
+			if item.Type == ItemTypeNotice && len(item.Data) > 0 && json.Unmarshal(item.Data, &got) == nil && got == data {
+				return ConversationItem{}, false
+			}
+		}
+	}
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return ConversationItem{}, false
+	}
+	notice := ConversationItem{
+		Type:      ItemTypeNotice,
+		ItemID:    generateItemID(),
+		Source:    mc.Provider,
+		Data:      raw,
+		Timestamp: time.Now().Format(time.RFC3339),
+	}
+	setNoticeText(&notice,
+		msg.New("Compaction can't make room: the system prompt, tools and reply budget fill most of the context window."),
+		msg.New("This conversation has reached the point where Juggler compacts, but most of each request is out of "+
+			"compaction's reach: {overhead} tokens of system prompt and tool definitions, and {reserve} tokens held back "+
+			"for {model}'s reply, in a {window}-token context window. The conversation itself already fits the room that "+
+			"leaves, so there is nothing worth folding, and requests go out as they are.\n\n"+
+			"To get the room back, turn off MCP servers or extensions whose tools this conversation doesn't need, or lower "+
+			"{model}'s Max output in Settings → Providers. Both apply from the next turn.",
+			"overhead", recoveryEnvelope(limit), "reserve", limit.OutputReserveTokens,
+			"model", mc.Model, "window", limit.ContextWindowTokens))
+	return notice, true
+}
+
 // windowInfo resolves mc's context window through the injected resolver,
 // returning the model it resolved (mc, or the conversation's effective model
 // when mc is nil). It reports false, with the zero value, when there is no
@@ -830,17 +941,11 @@ func (r *run) shrinkOversizedTrailingToolResults(limitErr *provider.ContextLimit
 
 	items := r.getTargetItems()
 	units := recoveryAtomicUnits(items)
-	if len(units) == 0 {
+	if !trailingResultOversized(items, units, window, envelope, reserve) {
 		return nil
-	}
-	trailing := units[len(units)-1]
-	if items[trailing.start].Type != ItemTypeToolAction {
-		return nil
-	}
-	if window-envelope-trailing.est >= reserve+recoverySummaryFloorTokens {
-		return nil // the trailing batch fits the suffix budget as-is
 	}
 
+	trailing := units[len(units)-1]
 	for i := trailing.start; i < trailing.end; i++ {
 		item := items[i]
 		var resultBlob map[string]any
@@ -900,6 +1005,18 @@ func (r *run) shrinkOversizedTrailingToolResults(limitErr *provider.ContextLimit
 			item.ToolUseID, shrunk.Calls, shrunk.EstimatedSpend)
 	}
 	return nil
+}
+
+// trailingResultOversized reports whether the newest unit is a tool batch too
+// large for the suffix budget, which shrinkOversizedTrailingToolResults
+// summarizes in place.
+func trailingResultOversized(items []ConversationItem, units []recoveryUnit, window, envelope, reserve int64) bool {
+	if len(units) == 0 {
+		return false
+	}
+	trailing := units[len(units)-1]
+	return items[trailing.start].Type == ItemTypeToolAction &&
+		window-envelope-trailing.est < reserve+recoverySummaryFloorTokens
 }
 
 // recoveryUnitFoldable reports whether an item may join the summarized prefix

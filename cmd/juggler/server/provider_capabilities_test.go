@@ -203,6 +203,53 @@ func TestResolveModelCapabilitiesHonoursUserLimitOverrides(t *testing.T) {
 	}
 }
 
+// TestStatedOutputLimitIsCappedAsAReserve pins the default cap on a stated
+// output limit. A model a catalogue or endpoint lists at 1M/384k would otherwise
+// charge 384k of reserve on every request, so admission advises compaction at
+// ~466k of input with half the window unused. The user's own Max output is
+// never capped, and a one-off retry may still raise to the stated limit.
+func TestStatedOutputLimitIsCappedAsAReserve(t *testing.T) {
+	userpathstest.Isolate(t)
+	const providerName = "test_capability_stated_output_cap"
+	provider.RegisterProvider(provider.ProviderInfo{
+		Name: providerName,
+		ResolveModelCapabilities: func(model string) (provider.ModelCapabilities, bool) {
+			return provider.ModelCapabilities{ContextWindowTokens: 1000000, MaxOutputTokens: 384000}, model == "catalogued"
+		},
+	}, func(provider.Config) (provider.Provider, error) { return nil, nil })
+
+	if _, err := core.UpdateGlobalSettings(func(gs *core.GlobalSettings) bool {
+		gs.Models.Limits = map[string]map[string]core.ModelLimits{providerName: {
+			"overridden": {MaxOutputTokens: 200000},
+		}}
+		return true
+	}); err != nil {
+		t.Fatalf("UpdateGlobalSettings: %v", err)
+	}
+	s := &Server{settings: newSettingsStore()}
+	providers := []ProviderStatus{{
+		Name: providerName,
+		ModelsWithContext: []ModelWithContext{
+			{ID: "listed", ContextWindow: 1000000, MaxOutputTokens: 384000, FromAPI: true},
+			{ID: "overridden", ContextWindow: 1000000, MaxOutputTokens: 384000, FromAPI: true},
+			{ID: "modest", ContextWindow: 200000, MaxOutputTokens: 32000, FromAPI: true},
+		},
+	}}
+	s.providersList.Store(&providers)
+
+	resolve := s.createWindowResolver()
+	for model, want := range map[string]worker.ContextWindowInfo{
+		"catalogued": {WindowTokens: 1000000, ReserveTokens: 64000, OutputRaiseCeiling: 384000},
+		"listed":     {WindowTokens: 1000000, ReserveTokens: 64000, OutputRaiseCeiling: 384000},
+		"overridden": {WindowTokens: 1000000, ReserveTokens: 200000, OutputRaiseCeiling: 384000},
+		"modest":     {WindowTokens: 200000, ReserveTokens: 32000, OutputRaiseCeiling: 32000},
+	} {
+		if got := resolve(worker.ModelConfig{Provider: providerName, Model: model}); got != want {
+			t.Errorf("%s: resolver = %+v, want %+v", model, got, want)
+		}
+	}
+}
+
 // TestWindowResolverReportsAssumedWindow pins what the worker is told about a
 // guessed window: that it is one while the provider's fallback stands, and that
 // it no longer is once the user has typed the real number in. Compaction reads

@@ -15,6 +15,10 @@
  *  3. What onActivate injects is the class's declared `static GUIDANCE`, byte
  *     for byte — the property the Extensions pane relies on when it shows a
  *     strategy's guidance to the user as what the model was sent.
+ *  4. An activation run the way the worker asks for it (handleRunStrategyHook)
+ *     that leaves a strategy which declared guidance tells the model that
+ *     guidance has lapsed — else Chat's "you cannot read the project" outlives
+ *     a switch back to Default.
  *
  * The worker-path delivery of these items to the LLM is pinned separately by
  * the Go tests TestInjectedSystemReminderReachesMessages / ...Guidance.
@@ -28,6 +32,7 @@ import {
   assert
 } from '../utilities/test-helpers.js';
 import strategyRegistry from '../../js/registries/strategy-registry.js';
+import { handleRunStrategyHook } from '../../js/services/worker-manager-protocols.js';
 
 /**
  * @typedef {object} TestResult
@@ -45,6 +50,35 @@ function systemReminders(messageThread) {
   return messageThread.getMessages()
     .filter((/** @type {any} */ m) => m.get('type') === 'system-reminder')
     .map((/** @type {any} */ m) => ({ content: m.get('content'), source: m.get('source') }));
+}
+
+/**
+ * Run a root-thread onActivate the way the worker asks for one, in the engine
+ * realm the handler demands, and return the guidance the engine sent back.
+ * @param {any} conversation - The conversation to activate on
+ * @param {string} strategyId - The strategy being switched to
+ * @param {string} previousStrategyId - The strategy last activated
+ * @returns {Promise<Array<{content: string, source?: string}>>} The guidance sent to the worker
+ */
+async function runActivateAsEngine(conversation, strategyId, previousStrategyId) {
+  /** @type {Array<{content: string, source?: string}>} */
+  let sent = [];
+  const wm = {
+    _session: conversation.session,
+    sendToWorker: (/** @type {string} */ _id, /** @type {any} */ msg) => { sent = msg.guidance; }
+  };
+  const g = /** @type {any} */ (globalThis);
+  const had = Object.prototype.hasOwnProperty.call(g, 'JUGGLER_ENGINE');
+  const saved = g.JUGGLER_ENGINE;
+  g.JUGGLER_ENGINE = true;
+  try {
+    await handleRunStrategyHook(wm, conversation.id, {
+      hook: 'onActivate', strategyId, threadItemId: '', requestId: 'probe', previousStrategyId
+    });
+  } finally {
+    if (had) g.JUGGLER_ENGINE = saved; else delete g.JUGGLER_ENGINE;
+  }
+  return sent;
 }
 
 /**
@@ -129,6 +163,23 @@ export async function runTests(_ctx) {
       'default must declare no guidance — the pane says so, so it has to be true');
     strategyRegistry.createStrategy('default', mt).onActivate('read-only');
     assert(systemReminders(mt).length === 0, 'default strategy onActivate must inject nothing');
+  });
+
+  await test('leaving a strategy that declared guidance tells the model it no longer applies', async () => {
+    const conversation = await createTestConversation(session);
+    const sent = await runActivateAsEngine(conversation, 'default', 'read-only');
+    assert(sent.length === 1, `one notice expected for read-only → default, got ${JSON.stringify(sent)}`);
+    assert(/Read-only/.test(sent[0].content) && /no longer appl/.test(sent[0].content),
+      `the notice must name the strategy left and say its instructions lapse; got ${JSON.stringify(sent[0].content)}`);
+    assert(/Default/.test(sent[0].content), `the notice must name the strategy now active; got ${JSON.stringify(sent[0].content)}`);
+  });
+
+  await test('entering from a strategy that declared nothing sends only the new guidance', async () => {
+    const conversation = await createTestConversation(session);
+    const declared = /** @type {any} */ (strategyRegistry.get('read-only')).GUIDANCE;
+    const sent = await runActivateAsEngine(conversation, 'read-only', 'default');
+    assert(sent.length === 1 && sent[0].content === declared,
+      `default → read-only must send read-only's GUIDANCE alone; got ${JSON.stringify(sent)}`);
   });
 
   return { passed, failed, errors };

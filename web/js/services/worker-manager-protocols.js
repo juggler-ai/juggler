@@ -16,7 +16,9 @@
 import { isEngine } from '../../sdk/lib/client-role.js';
 import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
 import { TOOL_STATES } from '../../sdk/lib/message.js';
+import { markUntranslated } from '../../sdk/lib/i18n.js';
 import contextItemRegistry from '../registries/context-item-registry.js';
+import strategyRegistry from '../registries/strategy-registry.js';
 import { whenRegistriesRebuilt } from '../registries/registry-ready.js';
 import actionExecutor from './action-executor.js';
 import { heldDelivery } from './held-calls.js';
@@ -446,6 +448,8 @@ export async function handleRunStrategyHook(wm, conversationId, data) {
         if (content) guidance.push({ content, source: opts.source ?? strategyId });
       };
     }
+    const lapsed = strategyId ? lapsedGuidanceNotice(data.previousStrategyId, strategyId) : '';
+    if (lapsed) guidance.push({ content: lapsed, source: strategyId });
     try {
       await runStrategyHookGuarded(strategy, hook, data.previousStrategyId, conversationId);
     } finally {
@@ -459,6 +463,32 @@ export async function handleRunStrategyHook(wm, conversationId, data) {
   // execution spawning sub-threads — re-enter through the worker, so there is
   // nothing to capture or reply.
   await runStrategyHookGuarded(strategy, hook, data.previousStrategyId, conversationId);
+}
+
+/**
+ * The notice that ends the previous strategy's instructions, for an activation
+ * that leaves a strategy which declared `GUIDANCE`. That guidance is a durable
+ * reminder still in the history ("you cannot read or change the project"), and
+ * a strategy that declares nothing of its own would otherwise leave it standing
+ * as the last word on what the model may do. It goes ahead of the new
+ * strategy's own guidance, and is written whatever the new strategy's
+ * `onActivate` does.
+ * @param {string|null|undefined} previousStrategyId - The strategy last activated
+ * @param {string} strategyId - The strategy being activated
+ * @returns {string} The notice, or '' when the previous strategy declared nothing
+ */
+function lapsedGuidanceNotice(previousStrategyId, strategyId) {
+  if (!previousStrategyId || previousStrategyId === strategyId) return '';
+  const previous = /** @type {any} */ (strategyRegistry.get(previousStrategyId));
+  if (!previous?.GUIDANCE) return '';
+  const current = /** @type {any} */ (strategyRegistry.get(strategyId));
+  const from = previous.MANIFEST?.name || previousStrategyId;
+  const to = current?.MANIFEST?.name || strategyId;
+  return markUntranslated(
+    `STRATEGY CHANGED: the user switched this conversation from ${from} to ${to}. `
+    + `The ${from} instructions given earlier no longer apply. `
+    + 'The tools offered with this request are the ones you can use now.'
+  );
 }
 
 /**

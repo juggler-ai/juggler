@@ -218,11 +218,26 @@ diff-viewer[data-view="split"] .line-content {
     overflow-wrap: anywhere;
 }
 
-diff-viewer diff-no-changes {
-    padding: var(--space-32);
+/* The diff has nothing to draw: there are no changes, or they have not been
+   read yet. One look for both, a quiet line of UI text centred in the panel —
+   pinned left at the panel's width like the notices, so it stays centred in
+   what is visible rather than in the widest line of a diff drawn before it.
+   Loading is a notice in the markup (it says something about the diff), but it
+   stands in for the body, so it takes this look rather than the notice bar's. */
+diff-viewer diff-no-changes,
+diff-viewer diff-notice[data-kind="loading"] {
+    display: block;
+    position: sticky;
+    left: 0;
+    width: 100cqi;
+    box-sizing: border-box;
+    padding: var(--space-32) var(--space-16);
+    background: none;
+    border: 0;
     text-align: center;
+    font-family: var(--font-ui);
+    font-size: var(--font-size-sm);
     color: var(--text-tertiary);
-    font-style: italic;
 }
 
 diff-viewer .diff-hunk {

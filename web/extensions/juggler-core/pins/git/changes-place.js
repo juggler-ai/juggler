@@ -929,6 +929,8 @@ export function createChangesPlace(host) {
   let diffGeneration = 0;
   /** @type {any} */
   let patch = null;
+  /** @type {string|null} The row `patch` is of: a re-read of it keeps it drawn until the new one lands. */
+  let patchKey = null;
   /** @type {string|null} */
   let shownKey = null;
 
@@ -964,6 +966,14 @@ export function createChangesPlace(host) {
     blameAbort?.abort();
     if (!hit) return;
     if (hit.group === 'untracked') return;
+    const key = selected;
+    // Another file's diff, or none yet: say it is on its way rather than leave
+    // the last one drawn, or an empty patch reading as "No changes".
+    if (patchKey !== key) {
+      patch = null;
+      patchKey = null;
+      viewer.setLoading();
+    }
     const mine = ++diffGeneration;
     const controller = new AbortController();
     diffAbort = controller;
@@ -972,11 +982,14 @@ export function createChangesPlace(host) {
       .then((next) => {
         if (!live || mine !== diffGeneration) return;
         patch = next;
+        patchKey = key;
         viewer.setPatch(next);
         if (viewer.blameOn) loadBlame();
       })
       .catch((/** @type {any} */ e) => {
         if (!live || mine !== diffGeneration || controller.signal.aborted) return;
+        patch = null;
+        patchKey = null;
         viewer.setError(errorText(e));
       });
   };
@@ -1033,6 +1046,7 @@ export function createChangesPlace(host) {
       shownKey = null;
       shownSig = '';
       patch = null;
+      patchKey = null;
       diffAbort?.abort();
       const back = /** @type {HTMLButtonElement} */ (createElement('button', 'git-changes__back btn btn-icon btn-xs', '‹'));
       back.type = 'button';

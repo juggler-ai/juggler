@@ -145,6 +145,23 @@ export async function runTests() {
     assert(!history().some((/** @type {string} */ h) => h === ''), `the bash send added a blank entry: ${JSON.stringify(history())}`);
   });
 
+  await run('a scheduled `! cmd` is held in the queue, not run or refused', async () => {
+    const session = await createTestSession();
+    const conversation = await createTestConversation(session);
+    const root = conversation.rootMessageThread;
+
+    const reason = await conversation.sendMessage('! env echo shell-held', null, root,
+      { schedule: { notBefore: Date.now() + 3600000 } });
+    assert(reason === null, `the scheduled shell command was refused: ${reason}`);
+    const queuedBash = () => root.pendingItems.filter((/** @type {any} */ i) => i.get('toolName') === 'bash');
+    await waitFor(() => queuedBash().length > 0,
+      () => `nothing was queued; pending: ${JSON.stringify(root.pendingItems.map((/** @type {any} */ i) => [i.get('type'), i.get('toolName')]))}`);
+    const input = plain(queuedBash()[0].get('toolInput'));
+    assert(input?.command === 'env echo shell-held', `wrong command queued: ${JSON.stringify(input)}`);
+    assert(bashCalls(root).length === 0, 'a scheduled shell command must not run before its time');
+    assert(!conversation.isTurnActive(), 'a scheduled shell command must start no turn');
+  });
+
   await run('a running bash call can be stopped from its properties panel', async () => {
     const session = await createTestSession();
     const conversation = await createTestConversation(session);

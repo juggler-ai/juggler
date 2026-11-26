@@ -32,6 +32,7 @@ the current release). The project follows semantic versioning.
 - Filenames on read, edit, write, search and file cards open on the Pinboard
 - Extension SDK: `services.git` is gone; call the git tool through `services.ops.client`
 - Attaching a video says the model can't take video, instead of "Couldn't read"
+- Shell commands typed as `! cmd` or `/shell cmd` can be scheduled to run later
 
 ## [0.8.2] - 2026-11-20
 

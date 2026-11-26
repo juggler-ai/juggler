@@ -298,7 +298,7 @@ func (r *run) handleSendMessage(payload json.RawMessage) {
 	// thread or idle, and touches no run: it supersedes no request a retry
 	// backoff is waiting to repeat, and it lifts no cap or pause until it fires.
 	if hold, held := heldSendHold(msg, input, r.clock.Now()); held {
-		r.acceptHeldSend(msg.ThreadItemID, input, skillsToLoad, hold)
+		r.acceptHeldSend(msg.ThreadItemID, input, preloads, hold)
 		return
 	}
 

@@ -48,7 +48,7 @@ func TestRemoveQueuedTakesItsWholeSend(t *testing.T) {
 	w.tracker.EnsureInitialized()
 
 	enqueuePendingItemForTest(w, "", ConversationItem{Type: "file-content", ItemID: "FILE_1", IsNew: true})
-	w.enqueueHeldSend("", UserMessageInput{Text: "held"}, []string{"alpha"}, pendingHold{NotBefore: time.Now().Add(time.Hour)})
+	w.enqueueHeldSend("", UserMessageInput{Text: "held"}, sendPreloads([]string{"alpha"}, ""), pendingHold{NotBefore: time.Now().Add(time.Hour)})
 	enqueuePendingItemForTest(w, "", ConversationItem{Type: "file-content", ItemID: "FILE_2", IsNew: true})
 	w.enqueuePendingMessage("", UserMessageInput{Text: "plain"})
 	w.enqueuePendingMessage("", UserMessageInput{Text: "kept"})

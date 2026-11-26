@@ -130,6 +130,45 @@ func TestScheduledSendLiftsTheCapOverAParkedParent(t *testing.T) {
 	requireLabels(t, "queue", queuedLabels(t, w, ""), nil)
 }
 
+// TestScheduledShellCommandRunsAtItsTime: a `! cmd` scheduled for later waits
+// in the queue, writing nothing and running nothing, until its time. Then its
+// approved bash call lands and runs as a typed one does — and, like a typed
+// one, asks for no model turn, landing or finishing.
+func TestScheduledShellCommandRunsAtItsTime(t *testing.T) {
+	fc := newFakeClock()
+	w := heldSendWorker(t, "conv-held-shell", fc, "nobody asked")
+
+	at := fakeEpoch.Add(time.Hour)
+	sendMsg(t, w, SendMessageMessage{Type: "send-message", ShellCommand: "echo hi", NotBefore: at.UnixMilli()})
+	w.quiesce(t)
+	if bash := bashActions(w.doc.GetItems()); len(bash) != 0 {
+		t.Fatalf("the scheduled shell command ran before its time: %+v", bash)
+	}
+	if queued := queuedLabels(t, w, ""); len(queued) != 1 {
+		t.Fatalf("queue = %q, want the one held shell command", queued)
+	}
+
+	fireAt(t, w, fc, at)
+	requireLabels(t, "queue", queuedLabels(t, w, ""), nil)
+	bash := bashActions(w.doc.GetItems())
+	if len(bash) != 1 {
+		t.Fatalf("the scheduled shell command never reached the transcript: %+v", w.doc.GetItems())
+	}
+	requireNoHoldKeys(t, w)
+
+	w.doc.UpdateToolActionFieldsRecursive(bash[0].ToolUseID, map[string]any{
+		"state": StateCompleted, "result": map[string]any{"content": "hi", "isError": false},
+	})
+	w.sched.markReconcile(reconcileTestDriven)
+	w.quiesce(t)
+	if left := w.mock().remaining(); left != 1 {
+		t.Fatalf("a model turn ran for the scheduled shell command (%d scripted response(s) left, want 1)", left)
+	}
+	if a := w.currentRun().threadActivity(""); a != ActivityNone {
+		t.Fatalf("the conversation was left %q, not at rest, by the scheduled shell command", a)
+	}
+}
+
 // TestScheduledFirstMessageNamesTheConversation: a conversation whose first
 // message was scheduled is auto-named from it when it fires, exactly once.
 func TestScheduledFirstMessageNamesTheConversation(t *testing.T) {

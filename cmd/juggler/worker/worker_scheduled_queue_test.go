@@ -165,7 +165,7 @@ func TestHeldSendKeepsItsContextItems(t *testing.T) {
 	enqueuePendingItemForTest(w, "", ConversationItem{
 		Type: "file-content", ItemID: "FILE_1", IsNew: true, Data: json.RawMessage(`{"path":"foo.txt"}`),
 	})
-	sendID, userID, ok := w.enqueueHeldSend("", UserMessageInput{Text: "look at @foo.txt later"}, []string{"alpha"},
+	sendID, userID, ok := w.enqueueHeldSend("", UserMessageInput{Text: "look at @foo.txt later"}, sendPreloads([]string{"alpha"}, ""),
 		pendingHold{NotBefore: at})
 	if !ok || sendID == "" || userID == "" {
 		t.Fatalf("enqueueHeldSend = %q, %q, %v", sendID, userID, ok)

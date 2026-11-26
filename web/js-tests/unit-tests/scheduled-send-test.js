@@ -217,8 +217,9 @@ export async function runTests() {
   }
 
   // ── Test 3: which slash commands a held send can carry, and why not ───────
-  // Only a user-defined send-mode command can be held, as its expanded prompt;
-  // every other kind is refused by the composer with a reason naming it.
+  // A user-defined send-mode command is held as its expanded prompt, and
+  // `/shell` as its command line; every other kind is refused by the composer
+  // with a reason naming it.
   {
     __resetPopupManagerForTests();
     const { box, textarea, container } = mountComposer();
@@ -234,6 +235,11 @@ export async function runTests() {
       const held = await slashCommandHandler.resolveScheduled('/probe-later alpha beta');
       assert('text' in held && held.text === 'Later: alpha beta (alpha)',
         `a send-mode user command must resolve to its expanded prompt, got ${JSON.stringify(held)}`);
+      const shell = await slashCommandHandler.resolveScheduled('/shell  git status ');
+      assert('text' in shell && shell.text === '' && shell.shellCommand === 'git status',
+        `/shell must resolve to its command line, got ${JSON.stringify(shell)}`);
+      assert('refusal' in await slashCommandHandler.resolveScheduled('/shell'),
+        'a bare /shell has nothing to hold and must be refused');
 
       const warnings = /** @type {string[]} */ ([]);
       box.showWarning = (/** @type {string} */ m) => { warnings.push(m); };

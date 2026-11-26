@@ -1920,9 +1920,10 @@ class Conversation {
    *   `schedule` holds the send ("Send later"): the worker queues it at once,
    *   even on an idle thread, and fires it itself. It takes the queueing path —
    *   never refused as busy, never dismissing a pending approval — and asks for
-   *   no turn now. A held slash command is held as the message running it
-   *   would send (a user-defined `send`-mode command's expanded prompt), or
-   *   refused with the reason it can't be (SlashCommandHandler.resolveScheduled).
+   *   no turn now. A held slash command is held as the send running it would
+   *   make (a user-defined `send`-mode command's expanded prompt, `/shell`'s
+   *   command line), or refused with the reason it can't be
+   *   (SlashCommandHandler.resolveScheduled).
    * @returns {Promise<string|null>} null when the message was delivered (or a
    *   slash command was handled); otherwise a short reason describing which
    *   guard dropped it. The drop is silent for users (the UI guard normally
@@ -1935,19 +1936,21 @@ class Conversation {
     let interpretCommands = options.interpretCommands !== false;
     // What goes to the worker.
     let outgoingMessage = userMessage;
+    let shellCommand = options.shellCommand;
     // `! cmd` is how `/shell cmd` is typed: from here on it is that command, so
     // both spellings run, schedule and report alike. `typed` is still what the
     // box holds, and is what up-arrow history keeps.
     const typed = userMessage;
     if (interpretCommands) {
-      const shellCommand = shellShortcutCommand(userMessage);
-      if (shellCommand !== null) userMessage = `/shell ${shellCommand}`;
+      const shortcut = shellShortcutCommand(userMessage);
+      if (shortcut !== null) userMessage = `/shell ${shortcut}`;
     }
 
     // A command runs here and now, and the worker that fires a held send can
-    // only deliver a message. So a held send that reads as a command is held as
-    // the message running it would send, and is not run; one that would do
-    // anything else is refused, saying why, its text left in the box.
+    // only deliver a message (or a user shell command, which it runs itself).
+    // So a held send that reads as a command is held as the send running it
+    // would make, and is not run; one that would do anything else is refused,
+    // saying why, its text left in the box.
     if (schedule && interpretCommands && /^\/[a-zA-Z]/.test(userMessage)) {
       const held = await slashCommandHandler.resolveScheduled(userMessage);
       if ('refusal' in held) {
@@ -1955,6 +1958,7 @@ class Conversation {
         return 'slash command scheduled';
       }
       outgoingMessage = held.text;
+      if (held.shellCommand) shellCommand = held.shellCommand;
       interpretCommands = false;
     }
 
@@ -2171,7 +2175,7 @@ class Conversation {
     // Route to worker - the worker owns the strategy loop. Turns are driven
     // exclusively by the Go worker; there is no viewer-side fallback loop.
     if (this._workerManager.isWorkerReady(this.id)) {
-      this._workerManager.sendMessage(this.id, outgoingMessage, messageThread?.threadItemId || threadItemId, options.attachments, options.skills, schedule, options.shellCommand);
+      this._workerManager.sendMessage(this.id, outgoingMessage, messageThread?.threadItemId || threadItemId, options.attachments, options.skills, schedule, shellCommand);
       const acceptedConfig = messageThread?.modelConfig || this.modelConfig;
       if (acceptedConfig?.provider && acceptedConfig?.model) {
         recentModels.record(acceptedConfig.provider, acceptedConfig.model, acceptedConfig.thinking, acceptedConfig.serviceTier);

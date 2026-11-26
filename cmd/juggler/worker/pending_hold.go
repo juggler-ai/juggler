@@ -7,6 +7,7 @@ package worker
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	ycrdt "github.com/skyterra/y-crdt"
@@ -72,37 +73,48 @@ func generateSendID() string {
 }
 
 // enqueueHeldSend appends one held send to the thread's pending queue, in one
-// untracked transaction: a skill tool-action per name, then the user message,
-// every entry stamped with the hold and a fresh send id — the same order an
-// untimed busy send queues in (handleSendMessage). Reports the send id and the
-// user message's item id, or ok=false (writing nothing) when the thread is gone
-// or the send is empty.
-func (w *ConversationWorker) enqueueHeldSend(threadItemID string, input UserMessageInput, skills []string, hold pendingHold) (sendID, userItemID string, ok bool) {
-	if input.isEmpty() {
+// untracked transaction: its preloads (sendPreloads: skill loads, then a user
+// shell command), then the user message when it has one, every entry stamped
+// with the hold and a fresh send id — the same order an untimed busy send
+// queues in (handleSendMessage). Reports the send id and the id the queue names
+// the send by (pendingEntry.nameID: the user message's, else the shell
+// command's), or ok=false (writing nothing) when the thread is gone or the send
+// carries neither a message nor a shell command.
+func (w *ConversationWorker) enqueueHeldSend(threadItemID string, input UserMessageInput, preloads []ConversationItem, hold pendingHold) (sendID, nameID string, ok bool) {
+	entries := append([]ConversationItem(nil), preloads...)
+	if !input.isEmpty() {
+		user := newUserItem(input)
+		entries = append(entries, user)
+		nameID = user.ItemID
+	} else {
+		for _, item := range preloads {
+			if isUserShellAction(item) {
+				nameID = item.ItemID
+			}
+		}
+	}
+	if nameID == "" {
 		return "", "", false
 	}
 	sendID = generateSendID()
-	stamp := hold.stamp(sendID)
-	entries := make([]ConversationItem, 0, len(skills)+1)
-	for _, name := range dedupSkills(skills) {
-		entries = append(entries, newSkillToolAction(name))
-	}
-	user := newUserItem(input)
-	entries = append(entries, user)
-
-	if !w.appendStampedPending(threadItemID, entries, stamp) {
+	if !w.appendStampedPending(threadItemID, entries, hold.stamp(sendID)) {
 		return "", "", false
 	}
-	w.recordPendingEnqueue(threadItemID, user.ItemID)
-	return sendID, user.ItemID, true
+	if input.isEmpty() {
+		w.batcher.Flush()
+	} else {
+		w.recordPendingEnqueue(threadItemID, nameID)
+	}
+	return sendID, nameID, true
 }
 
 // heldSendHold reads the hold a send-message asks for at now. held is false
 // when nothing it asks for still holds: no hold, or only a time already passed
-// — and for a continuation or a send with no message, which have nothing to
-// queue. Any non-empty Hold is a run-end hold (see entryHold.lifted).
+// — and for a continuation or a send with neither a message nor a shell
+// command, which have nothing to queue. Any non-empty Hold is a run-end hold
+// (see entryHold.lifted).
 func heldSendHold(msg SendMessageMessage, input UserMessageInput, now time.Time) (hold pendingHold, held bool) {
-	if msg.IsContinuation || input.isEmpty() {
+	if msg.IsContinuation || (input.isEmpty() && strings.TrimSpace(msg.ShellCommand) == "") {
 		return pendingHold{}, false
 	}
 	if msg.NotBefore > now.UnixMilli() {
@@ -116,8 +128,8 @@ func heldSendHold(msg SendMessageMessage, input UserMessageInput, now time.Time)
 // only for the end of the run, sent to a thread with no run, has nothing left
 // to wait for: it fires now (fireHeldSend). A send with a time waits for it,
 // which the held-send timer brings (held_send_timer.go). Actor only.
-func (r *run) acceptHeldSend(threadItemID string, input UserMessageInput, skills []string, hold pendingHold) {
-	if _, _, ok := r.enqueueHeldSend(threadItemID, input, skills, hold); !ok {
+func (r *run) acceptHeldSend(threadItemID string, input UserMessageInput, preloads []ConversationItem, hold pendingHold) {
+	if _, _, ok := r.enqueueHeldSend(threadItemID, input, preloads, hold); !ok {
 		r.sendError(threadNotFoundError(threadItemID))
 		return
 	}

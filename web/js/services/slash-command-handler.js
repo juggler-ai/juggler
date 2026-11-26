@@ -209,8 +209,11 @@ class SlashCommandHandler {
    * page that has one may be closed by then. So a command can be scheduled only
    * when running it would just send a message. A user-defined `send`-mode
    * command is exactly that, so it resolves to its expanded prompt, which is
-   * held in its place. Every other command resolves to a refusal that says why,
-   * naming the command as typed:
+   * held in its place. `/shell` (also typed `! cmd`) is a send too — the worker
+   * itself writes and runs its bash call (shell_command.go) — so it resolves to
+   * no text and the command line, held as the send's `shellCommand` (a bare
+   * `/shell`, with no command, is refused as a built-in). Every other command
+   * resolves to a refusal that says why, naming the command as typed:
    * - a `draft`-mode command fills the message box for editing, so there is no
    *   message yet;
    * - a `subthread`-mode command starts a sub-thread, which the worker can't do
@@ -218,8 +221,9 @@ class SlashCommandHandler {
    * - a built-in or extension command acts on the app itself, so it can only
    *   run now.
    * @param {string} input - Full user input, leading `/` included
-   * @returns {Promise<{text: string}|{refusal: string}>} The text to hold, or why
-   *   the command can't be held
+   * @returns {Promise<{text: string, shellCommand?: string}|{refusal: string}>}
+   *   What to hold — the text, and for `/shell` the command line — or why the
+   *   command can't be held
    */
   async resolveScheduled(input) {
     await this.init();
@@ -231,6 +235,10 @@ class SlashCommandHandler {
     }
 
     const manifest = CommandClass.MANIFEST || {};
+    const shellCommand = manifest.id === 'shell' ? (rest ?? '').trim() : '';
+    if (shellCommand) {
+      return { text: '', shellCommand };
+    }
     if (!manifest.userDefined) {
       return {
         refusal: t("/{command} does something in the app rather than send a message, so it can only run now. Only messages and your own prompt commands can be scheduled.", { command: commandName })

@@ -33,6 +33,7 @@
 import { t } from '../../sdk/lib/i18n.js';
 import { basePath } from '../utils/api-url.js';
 import { pageURL } from '../utils/page-url.js';
+import { navigatePageTo } from '../utils/popup-manager.js';
 import { projectsOpenInNewWindow } from '../utils/project-open-mode.js';
 import { hasNativeHost } from '../../sdk/lib/window-control.js';
 import { revealLinkedConversation } from './conversation-commands.js';
@@ -153,7 +154,7 @@ export async function goTo(to, deps = {}) {
     surface = navigationSurface(),
     ownLink = ownProjectLink(),
     reveal = revealLinkedConversation,
-    assign = (url) => { window.location.assign(url); },
+    assign = (url) => { navigatePageTo(url); },
     openTab = (url) => { window.open(url, '_blank', 'noopener'); },
     newWindow = appWindow,
     flushDrafts = bound.flushDrafts,
@@ -215,7 +216,7 @@ async function appServerPage() {
 export async function moveToServerPage(deps = {}) {
   const {
     surface = navigationSurface(),
-    assign = (url) => { window.location.assign(url); },
+    assign = (url) => { navigatePageTo(url); },
     serverPage = appServerPage,
     showError = noticeError,
   } = deps;

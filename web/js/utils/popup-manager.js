@@ -542,6 +542,33 @@ function releaseOverlayStateIfLast() {
   }, 0);
 }
 
+/**
+ * Send this page to `url`, taking the overlay layer's history into account.
+ *
+ * The usual caller is a pick in an overlay — the session switcher — which
+ * closes it and navigates in the same task. Closing the last overlay queues the
+ * sentinel's retraction, and that `history.back()`, a task later, traverses
+ * over the navigation and cancels it: the page goes nowhere. So while a
+ * sentinel stands with nothing left open, the navigation replaces its entry
+ * instead — the retraction finds nothing to retract, and Back from the new page
+ * returns to the one the overlay was opened over.
+ * @param {string} url - Where to.
+ * @param {{assign?: (url: string) => void, replace?: (url: string) => void}} [how] - The
+ *   navigations; `window.location`'s by default.
+ * @returns {void}
+ */
+export function navigatePageTo(url, {
+  assign = (u) => { window.location.assign(u); },
+  replace = (u) => { window.location.replace(u); },
+} = {}) {
+  if (backIntegrationEnabled && overlayStatePushed && openPopups.size === 0) {
+    overlayStatePushed = false;
+    replace(url);
+    return;
+  }
+  assign(url);
+}
+
 // A Back press that pops our sentinel while overlays are open IS the dismissal.
 // The browser already removed the entry, so clear the flag before closing (so
 // the cascade of releases doesn't try to history.back() over it again).

@@ -13,6 +13,7 @@ the current release). The project follows semantic versioning.
 - Git status card shows each repo's branch on one line; click to open it
 - The Usage card shows usage for a second Codex, OpenRouter, DeepSeek or Z.AI account
 - JUGGLER_SERVER_DIR runs a separate server, sharing config, e.g. one per sandbox
+- Picking a session in the switcher in a browser tab opens it again
 - Long conversations no longer fill the disk with old request records
 - Conversations no longer fail to load at startup on a slow disk
 - Sending a message no longer waits for a git snapshot of the project

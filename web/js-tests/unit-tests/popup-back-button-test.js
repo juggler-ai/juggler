@@ -46,6 +46,7 @@ import {
   __resetPopupManagerForTests,
   __settlePopupHistoryForTests,
   __setBackIntegrationForTests,
+  navigatePageTo,
 } from '../../js/utils/popup-manager.js';
 import { modelGestureShouldHandle } from '../../js/services/model-cycler.js';
 import { waitFor, nextTask } from '../utilities/test-helpers.js';
@@ -318,6 +319,32 @@ export async function runTests() {
     tally(check(!isAnyPopupOpen(), 'close-last: nothing open after closing both', errors));
     tally(check(backCount === bBeforeClose + 1,
       `close-last: one history.back() drops the sentinel (got ${backCount - bBeforeClose})`, errors));
+
+    // === leaving the page as an overlay closes takes over the sentinel's entry ===
+    // A pick in the session switcher closes it and then navigates this page in
+    // the same task. The close queues the sentinel's retraction, and that
+    // history.back() a task later traverses over the navigation and cancels it:
+    // tapping a session in a browser tab went nowhere. The navigation replaces
+    // the sentinel's entry instead, so nothing is left to retract.
+    /** @type {string[]} */
+    const went = [];
+    const leaveHow = {
+      assign: (/** @type {string} */ u) => { went.push(`assign ${u}`); },
+      replace: (/** @type {string} */ u) => { went.push(`replace ${u}`); },
+    };
+    const bBeforeLeave = backCount;
+    const relLeaving = markPopupOpen(() => {});
+    relLeaving(); // the pick closes the popover: retraction queued
+    navigatePageTo('/p/other/', leaveHow);
+    await nextTask(); // where the retraction would run
+    tally(check(backCount === bBeforeLeave,
+      `leave: no history.back() to cancel the navigation (got ${backCount - bBeforeLeave})`, errors));
+    tally(check(JSON.stringify(went) === JSON.stringify(['replace /p/other/']),
+      `leave: the navigation replaces the sentinel's entry (got ${JSON.stringify(went)})`, errors));
+    went.length = 0;
+    navigatePageTo('/p/again/', leaveHow);
+    tally(check(JSON.stringify(went) === JSON.stringify(['assign /p/again/']),
+      `leave: with no sentinel up, a plain navigation (got ${JSON.stringify(went)})`, errors));
 
     // === the retraction's pop reads the entry it landed on, not the page ===
     // Where the traversal left us is what the pop itself reports. Reading the

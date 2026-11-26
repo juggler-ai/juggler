@@ -39,13 +39,18 @@ func newTestAppState(t *testing.T) *appState {
 	// running before either goes.
 	t.Cleanup(func() {
 		a.detachServer()
-		var flight chan struct{}
-		a.withConn(func(st *connState) { flight = st.flight })
-		if flight != nil {
-			<-flight
-		}
+		a.awaitFlight()
 	})
 	return a
+}
+
+// awaitFlight waits out the connection's flight running now, if any.
+func (a *appState) awaitFlight() {
+	var flight chan struct{}
+	a.withConn(func(st *connState) { flight = st.flight })
+	if flight != nil {
+		<-flight
+	}
 }
 
 // registerTestWindow adds a bare entry the handshake can be armed against.

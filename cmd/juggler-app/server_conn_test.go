@@ -126,7 +126,7 @@ func relaunchStub(t *testing.T, a *appState, s *stubMachineServer) *stubMachineS
 	t.Helper()
 	s.relaunching.Store(true)
 	s.gone()
-	return newStubMachineServerBuild(t, a, s.version, s.build)
+	return startStubMachineServer(t, a, s.version, s.build, true)
 }
 
 // occupancy is what stopping the stand-in would end.
@@ -152,6 +152,18 @@ func newStubMachineServer(t *testing.T, a *appState, version string) *stubMachin
 // reports build as its build: one build from source of version among others.
 func newStubMachineServerBuild(t *testing.T, a *appState, version, build string) *stubMachineServer {
 	t.Helper()
+	return startStubMachineServer(t, a, version, build, false)
+}
+
+// startStubMachineServer is newStubMachineServerBuild for a stand-in that is,
+// with successor, the process replacing one that relaunched (relaunchStub). The
+// app's follow of that relaunch waits for a server to come back while the old
+// process lives (machineserver.Client.AwaitRelaunched), and the old process is
+// this test's, which lives on: so a successor stays up, once the app has let
+// it go, until the flight following it has landed — on it, which it does once
+// it reaches it — or a follow still looking would never find it.
+func startStubMachineServer(t *testing.T, a *appState, version, build string, successor bool) *stubMachineServer {
+	t.Helper()
 	s := &stubMachineServer{t: t, app: a, dir: a.connectOpts.ConfigDir, version: version, build: build, stopped: make(chan struct{}), opened: make(chan string, 16), shutdownAsked: make(chan struct{}, 16), attaching: make(chan struct{}, 16)}
 	d := make(chan struct{})
 	s.drop.Store(&d)
@@ -159,7 +171,12 @@ func newStubMachineServerBuild(t *testing.T, a *appState, version, build string)
 	s.list.Store(&empty)
 	s.srv = httptest.NewServer(http.HandlerFunc(s.serve))
 	t.Cleanup(s.gone)
-	t.Cleanup(a.detachServer)
+	t.Cleanup(func() {
+		a.detachServer()
+		if successor {
+			a.awaitFlight()
+		}
+	})
 	s.publish()
 	return s
 }

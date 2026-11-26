@@ -164,6 +164,9 @@ type registryResp struct {
 	// group taken if they ignore it. Handed out so the escalation runs off the
 	// registry goroutine.
 	stopping []stoppingTask
+	// stoppedFirst answers regUpdateCmd: the task was stopped before the
+	// registry held its command.
+	stoppedFirst bool
 }
 
 var (
@@ -269,11 +272,11 @@ func runShellRegistry() {
 				case !sameProject(shell.ProjectRoot, op.projectRoot):
 					continue
 				}
-				// A task registered a moment ago may not have reached cmd.Start
-				// yet, so there is nothing to signal — but its context is
-				// cancelled here and the command is built with CommandContext, so
-				// it dies at Start rather than escaping. It counts as stopped:
-				// what was stopped is the task, not necessarily a process.
+				// A task registered a moment ago may not have handed its command
+				// over yet, so there is nothing to signal — but its context is
+				// cancelled here, so it dies at Start, and one already started has
+				// its group taken by its spawner on handing it over. It counts as
+				// stopped: what was stopped is the task, not necessarily a process.
 				if task := signalShellStop(shell); task != nil {
 					stopping = append(stopping, *task)
 				}
@@ -314,9 +317,14 @@ func runShellRegistry() {
 			}
 
 		case regUpdateCmd:
+			// Only a stop ends a task before its spawner has handed the command
+			// over; the spawner's own verdict comes after.
+			stoppedFirst := false
 			if shell := shells[op.id]; shell != nil {
 				shell.cmd = op.cmd
+				stoppedFirst = shell.status != "running"
 			}
+			op.resp <- registryResp{stoppedFirst: stoppedFirst}
 
 		case regAppendOutput:
 			if shell := shells[op.id]; shell != nil {
@@ -504,9 +512,13 @@ func getShellDelta(id string) TaskOutputState {
 	return (<-resp).snapshot
 }
 
-// updateShellCmd updates the cmd field via the registry goroutine
-func updateShellCmd(id string, cmd *exec.Cmd) {
-	registryCh() <- registryOp{kind: regUpdateCmd, id: id, cmd: cmd}
+// updateShellCmd hands the started command to the registry, and reports whether
+// the task had already been stopped by then. Such a stop found no command to
+// signal or escalate against, so taking the group is left to the caller.
+func updateShellCmd(id string, cmd *exec.Cmd) (stoppedFirst bool) {
+	resp := make(chan registryResp, 1)
+	registryCh() <- registryOp{kind: regUpdateCmd, id: id, cmd: cmd, resp: resp}
+	return (<-resp).stoppedFirst
 }
 
 // appendShellOutput appends an output delta via the registry goroutine without

@@ -229,9 +229,15 @@ func (ops *ShellOperations) startBackground(params map[string]any) (any, error) 
 		// writes cmd.Process, and the registry reads it (signalShellStop) from its
 		// own goroutine — publishing beforehand puts the handle in reach of a
 		// reader with nothing ordering it after that write. A kill arriving in the
-		// gap still stops the task: it cancels the context, and a command built
-		// with CommandContext dies at Start rather than escaping.
-		updateShellCmd(shellID, cmd)
+		// gap reaches only the context: before Start that is enough, since a
+		// command built with CommandContext dies there, but after it the context's
+		// kill takes the leader alone, and a child the shell forked would outlive
+		// the stop holding the output pipe. So a task stopped before the registry
+		// held its command has its group taken here — at once, since the leader
+		// has had no polite signal to answer, only the context's kill.
+		if updateShellCmd(shellID, cmd) {
+			stoppingTask{cmd: cmd, reaped: reaped}.forceKillGroup()
+		}
 
 		cmdDone := make(chan error, 1)
 		go func() {

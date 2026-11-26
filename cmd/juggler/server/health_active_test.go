@@ -8,9 +8,9 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
+	"path/filepath"
 	"runtime"
 	"testing"
-	"time"
 
 	"juggler/cmd/juggler/ops"
 	"juggler/cmd/juggler/worker"
@@ -66,29 +66,32 @@ func TestHealthActiveCountsBackgroundTasks(t *testing.T) {
 		t.Cleanup(func() { ops.KillTask(id) })
 		return id
 	}
-	waitFor := func(want int) {
+	// The inventory announces each start and exit in the project once the table
+	// holds it, so each poll is taken at the moment it must already agree.
+	changed := make(chan struct{}, 16)
+	remove := ops.OnProcessesChanged(func(root string) {
+		if filepath.Clean(root) == filepath.Clean(project) {
+			changed <- struct{}{}
+		}
+	})
+	defer remove()
+	pollAfter := func(what string, want int) {
 		t.Helper()
-		deadline := time.Now().Add(5 * time.Second)
-		for {
-			active, tasks := poll()
-			if active {
-				t.Fatalf("a background task alone made the session read as running a turn")
-			}
-			if tasks == want {
-				return
-			}
-			if time.Now().After(deadline) {
-				t.Fatalf("health poll counted %d background tasks, want %d", tasks, want)
-			}
-			time.Sleep(10 * time.Millisecond)
+		<-changed // bounded by the test's own deadline
+		active, tasks := poll()
+		if active {
+			t.Fatalf("a background task alone made the session read as running a turn")
+		}
+		if tasks != want {
+			t.Fatalf("after the task's %s, the health poll counted %d background tasks, want %d", what, tasks, want)
 		}
 	}
 
 	start(other)
 	ours := start(project)
-	waitFor(1)
+	pollAfter("start", 1)
 	ops.KillTask(ours)
-	waitFor(0)
+	pollAfter("exit", 0)
 }
 
 func TestHealthActiveQuitWarning(t *testing.T) {

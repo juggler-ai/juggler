@@ -424,14 +424,12 @@ func TestProcessInventory_AnnouncesChanges(t *testing.T) {
 	id, _ := res.(map[string]any)["task_id"].(string)
 	defer KillTask(id)
 
-	for _, what := range []string{"start", "exit"} {
-		select {
-		case <-changed:
-		case <-time.After(5 * time.Second):
-			t.Fatalf("no change announced on %s", what)
-		}
-		if what == "start" {
-			StopProcess(root, id)
-		}
+	// Each wait is bounded by the test's own deadline, not a span of its own:
+	// how soon a stopped task's exit lands is the machine's, and a missing
+	// announcement hangs here with the test named.
+	<-changed // start
+	if !StopProcess(root, id) {
+		t.Fatal("StopProcess found no running task to stop")
 	}
+	<-changed // exit
 }

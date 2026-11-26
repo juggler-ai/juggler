@@ -265,6 +265,51 @@ func TestKilledBackgroundTaskStillForceKillsSurvivors(t *testing.T) {
 	waitForEscalation(t, escalations, "a task whose child survived the polite stop was never force-killed")
 }
 
+// TestKillBeforeTheRegistryHoldsTheCommandTakesItsGroup covers a stop landing
+// after the command has started but before the registry holds it — the window
+// afterStart runs in. That stop reaches only the command's context, whose kill
+// takes the leader alone, so a child the shell forked would live on holding the
+// output pipe. The spawner must take the group once it hands the command over.
+//
+// The escalation, which the hook counts and does not perform, comes before the
+// spawner waits on the command at all, so it is counted by the time the task
+// leaves the inventory; the short reap grace only ends a wait the uncounted kill
+// leaves blocked.
+func TestKillBeforeTheRegistryHoldsTheCommandTakesItsGroup(t *testing.T) {
+	requireGracefulStop(t)
+
+	root := t.TempDir()
+	shellOps := NewShellOperations(NewPathScope(root, nil))
+	shellOps.reapGrace = 100 * time.Millisecond
+	escalations := countEscalations(t, root)
+
+	ids := make(chan string, 1)
+	stopped := make(chan struct{})
+	shellOps.afterStart = func() {
+		defer close(stopped)
+		if !KillTask(<-ids) {
+			t.Errorf("KillTask did not stop a task that had just started")
+		}
+	}
+	res, err := shellOps.startBackground(map[string]any{"command": "sleep 30 & wait"})
+	if err != nil {
+		t.Fatalf("startBackground failed: %v", err)
+	}
+	id, _ := res.(map[string]any)["task_id"].(string)
+	ids <- id
+	<-stopped
+
+	// The task is listed from before its start until its spawner is done. Bounded
+	// by the test's own deadline: the stop has cancelled the command, and the reap
+	// grace ends the spawner's wait whatever the kill left behind.
+	for hasProcess(id)(ListProcesses(root)) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := escalations(); n != 1 {
+		t.Fatalf("a task stopped before the registry held its command had its group taken %d time(s), want 1 — a child its shell forked outlives the stop", n)
+	}
+}
+
 // TestStopBackgroundTasksDoesNotForceKillReapedPids covers the shutdown stop,
 // which signals every task and then takes the groups of any that ignored it
 // after one shared grace.

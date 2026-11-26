@@ -45,7 +45,7 @@ const t = translator('@juggler/core');
  * The most repositories the Repositories section starts open for; with more,
  * it starts folded, and the filter or a click opens it.
  */
-export const REPOS_OPEN_UP_TO = 4;
+const REPOS_OPEN_UP_TO = 4;
 
 /**
  * A repository of the tree, as the list shows it.

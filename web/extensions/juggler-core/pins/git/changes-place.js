@@ -228,6 +228,7 @@ function sideTitles(stopped, head) {
  *   the tree, and whether they are still being found: a list still being found never moves
  *   the pin off the repository it shows; a finished one without it moves it to the root.
  * @property {(repo: string) => void} showRepo - Show one of them, by its path in the tree.
+ * @property {() => {path: string}[]} repos - The repositories in the tree, as `setRepos` last gave them.
  * @property {() => string} repo - The repository shown.
  * @property {() => number|null} dirtyCount - Its changed files, null before the first read.
  * @property {() => void} teardown - Stop.
@@ -1500,6 +1501,7 @@ export function createChangesPlace(host) {
     },
     focus: () => scroll.focus(),
     repo: () => repo,
+    repos: () => repos,
     dirtyCount: () => (read ? files().length : null),
     showRepo: (next) => {
       // One the tree, as last read, does not hold is not switched to.

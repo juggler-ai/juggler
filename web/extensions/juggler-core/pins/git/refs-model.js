@@ -11,9 +11,13 @@
  * An action is data, `{type, …}`, which the place carries out. A label is
  * worded here, when it is asked for, through `t`.
  *
- * Keys: `wt:<path>` a worktree, `br:<name>` a branch, `rm:<remote>/<name>` a
- * remote's branch (a remote's name holds no `/`), `tg:<name>` a tag,
- * `st:<sha>` a stash and `sm:<path>` a submodule.
+ * Keys: `rp:<path>` a repository of the tree, `wt:<path>` a worktree,
+ * `br:<name>` a branch, `rm:<remote>/<name>` a remote's branch (a remote's
+ * name holds no `/`), `tg:<name>` a tag, `st:<sha>` a stash and
+ * `sm:<path>` a submodule.
+ *
+ * The repositories are the tree's, not the one shown: the section above the
+ * rest, which are all about the repository it has picked.
  *
  * A submodule is offered only Update — checking it out at the commit its
  * repository records — and Open as repository, where everything else about it
@@ -22,6 +26,7 @@
  */
 
 import { translator } from 'juggler/i18n';
+import { repoLabel } from '../../lib/git-status.js';
 
 const t = translator('@juggler/core');
 
@@ -32,6 +37,22 @@ const t = translator('@juggler/core');
  * @typedef {GitRefs['stashes'][number]} Stash
  * @typedef {import('../../lib/git-client.js').GitWorktrees['trees'][number]} Tree
  * @typedef {import('../../lib/git-client.js').GitSubmodules['submodules'][number]} Submodule
+ * @typedef {{path: string} & Partial<import('../../lib/git-client.js').GitRepo>} TreeRepo - A
+ *   repository the tree holds, with its status when it has been read.
+ */
+
+/**
+ * The most repositories the Repositories section starts open for; with more,
+ * it starts folded, and the filter or a click opens it.
+ */
+export const REPOS_OPEN_UP_TO = 4;
+
+/**
+ * A repository of the tree, as the list shows it.
+ * @typedef {object} RepoView
+ * @property {TreeRepo} repo - Its status, as the tree's last status read gave it.
+ * @property {string} label - Its name: its path in the tree, or the tree's folder for the root.
+ * @property {boolean} current - Whether it is the one the pin shows.
  */
 
 /**
@@ -52,6 +73,7 @@ const t = translator('@juggler/core');
 
 /**
  * @typedef {object} RefsState
+ * @property {RepoView[]} repos - The tree's repositories, in the tree's order.
  * @property {GitRefs|null} refs - The last refs read.
  * @property {TreeView[]} trees - The last worktree read, annotated; the main tree first.
  * @property {Submodule[]} submodules - The last submodules read.
@@ -76,15 +98,19 @@ const t = translator('@juggler/core');
 /**
  * @typedef {object} RefRow
  * @property {string} key - The row's key.
- * @property {'wt'|'branch'|'remote'|'tag'|'stash'|'submodule'} ctx - What it is.
- * @property {any} entity - Its tree view, branch, `{remote, branch}`, tag, stash or submodule.
+ * @property {'repository'|'wt'|'branch'|'remote'|'tag'|'stash'|'submodule'} ctx - What it is.
+ * @property {any} entity - Its repository view, tree view, branch, `{remote, branch}`, tag, stash or submodule.
  */
 
 /**
  * @typedef {object} RefSection
- * @property {string} id - `worktrees`, `branches`, `remote:<name>`, `tags`, `stashes` or `submodules`.
+ * @property {string} id - `repos`, `worktrees`, `branches`, `remote:<name>`, `tags`, `stashes` or `submodules`.
  * @property {string} title - Its heading.
  * @property {RefRow[]} rows - Its rows.
+ * @property {boolean} [defaultFolded] - Whether it starts folded, for a section
+ *   whose start depends on what it holds; one without it starts open. A section
+ *   with it remembers the user's fold either way, so a list that grows past the
+ *   threshold does not fold away a section the user opened.
  */
 
 /**
@@ -113,6 +139,9 @@ function annotateTree(tree, workspaces) {
 /**
  * What the model is asked about, from the last reads and the pin.
  * @param {object} known - What is known.
+ * @param {TreeRepo[]} [known.repos] - The tree's repositories.
+ * @param {string} [known.repo] - The one the pin shows, by its path in the tree.
+ * @param {string} [known.root] - The tree's root, which names its root repository.
  * @param {GitRefs|null} known.refs - The last refs read.
  * @param {Tree[]} known.trees - The last worktree read.
  * @param {Submodule[]} known.submodules - The last submodules read.
@@ -122,10 +151,18 @@ function annotateTree(tree, workspaces) {
  * @param {boolean} known.logOpen - Whether the command log is open.
  * @returns {RefsState} The state.
  */
-export function refsState({ refs, trees, submodules, workspaces, dirty, following, logOpen }) {
+export function refsState({ repos = [], repo = '', root = '', refs, trees, submodules, workspaces, dirty, following, logOpen }) {
   const views = trees.map((tree) => annotateTree(tree, workspaces));
   const viewed = views.find((v) => v.tree.current);
-  return { refs, trees: views, submodules, dirty: dirty ?? viewed?.tree.dirty ?? 0, following, logOpen };
+  return {
+    repos: repos.map((r) => ({ repo: r, label: repoLabel(root, r.path), current: r.path === repo })),
+    refs,
+    trees: views,
+    submodules,
+    dirty: dirty ?? viewed?.tree.dirty ?? 0,
+    following,
+    logOpen,
+  };
 }
 
 /**
@@ -155,8 +192,10 @@ export function baseName(path) {
 }
 
 /**
- * The sections in their order: worktrees, branches, each remote, tags,
- * stashes, and submodules when the repository has any.
+ * The sections in their order: the tree's repositories when it holds more
+ * than one, then the shown repository's worktrees, branches, each remote,
+ * tags, stashes, and submodules when it has any. The repositories start open
+ * when there are a few, up to {@link REPOS_OPEN_UP_TO}, and folded beyond.
  *
  * Git counts the repository's own checkout as its main worktree. Alone, it is
  * only the tree in view, so the section lists it only beside a linked one,
@@ -168,11 +207,20 @@ export function sectionsOf(state) {
   const refs = state.refs;
   const trees = state.trees.length === 1 && state.trees[0]?.tree.main ? [] : state.trees;
   /** @type {RefSection[]} */
-  const out = [{
+  const out = [];
+  if (state.repos.length > 1) {
+    out.push({
+      id: 'repos',
+      title: t('Repositories'),
+      rows: state.repos.map((v) => ({ key: `rp:${v.repo.path}`, ctx: /** @type {const} */ ('repository'), entity: v })),
+      defaultFolded: state.repos.length > REPOS_OPEN_UP_TO,
+    });
+  }
+  out.push({
     id: 'worktrees',
     title: t('Worktrees'),
     rows: trees.map((v) => ({ key: `wt:${v.tree.path}`, ctx: /** @type {const} */ ('wt'), entity: v })),
-  }];
+  });
   if (!refs) return out;
   out.push({
     id: 'branches',
@@ -210,12 +258,14 @@ export function sectionsOf(state) {
 
 /**
  * What the list's filter matches a row by: the name it shows — a remote
- * branch with its remote, a stash by its message, a submodule by its path.
+ * branch with its remote, a stash by its message, a submodule by its path, a
+ * repository by its label.
  * @param {RefRow} row - The row.
  * @returns {string} Its name.
  */
 export function rowName(row) {
   switch (row.ctx) {
+    case 'repository': return row.entity.label;
     case 'wt': return row.entity.name;
     case 'remote': return `${row.entity.remote}/${row.entity.branch.name}`;
     case 'stash': return row.entity.message;
@@ -412,6 +462,16 @@ function submoduleItems(m) {
 }
 
 /**
+ * @param {RepoView} v - The repository.
+ * @returns {RefItem[]} Its actions.
+ */
+function repositoryItems(v) {
+  return [v.current
+    ? { label: t('Showing this repository'), disabled: true }
+    : { label: t('Show this repository'), action: { type: 'show-repo', path: v.repo.path } }];
+}
+
+/**
  * @param {TreeView} v - The tree.
  * @returns {RefItem[]} Its actions.
  */
@@ -464,7 +524,7 @@ function treeItems(v) {
 
 /**
  * The actions on one thing: the ⋯ menu's rows, and the detail pane's buttons.
- * @param {'wt'|'branch'|'remote'|'tag'|'stash'|'submodule'|'repo'|'section'} ctx - What it is.
+ * @param {'repository'|'wt'|'branch'|'remote'|'tag'|'stash'|'submodule'|'repo'|'section'} ctx - What it is.
  * @param {string} key - Its key; for `section`, the section's id.
  * @param {RefsState} state - What is known.
  * @returns {RefItem[]} Its items, in order.
@@ -520,5 +580,6 @@ export function menuFor(ctx, key, state) {
   if (row.ctx === 'tag') return tagItems(state, row.entity);
   if (row.ctx === 'stash') return stashItems(row.entity);
   if (row.ctx === 'submodule') return submoduleItems(row.entity);
+  if (row.ctx === 'repository') return repositoryItems(row.entity);
   return treeItems(row.entity);
 }

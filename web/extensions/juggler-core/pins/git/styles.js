@@ -1517,6 +1517,12 @@ export function injectGitClientStyles() {
   user-select: none;
 }
 
+/* The tree's repositories stand apart from the shown repository's sections by
+   a gap, not a rule; they lie in normal flow, outside the windowed list. */
+.git-refs__repos {
+  margin-bottom: var(--space-12);
+}
+
 /* A section with nothing in it says so by its count alone. */
 .git-refs__sect[data-empty] .git-refs__fold {
   opacity: 0.7;

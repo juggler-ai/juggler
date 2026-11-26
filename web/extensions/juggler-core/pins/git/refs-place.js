@@ -9,6 +9,15 @@
  * its actions as buttons — the same actions its ⋯ menu offers, from
  * pins/git/refs-model.
  *
+ * **Repositories.** A tree holding more than one repository lists them first,
+ * from the tree's status as the pin last had it (the host's `repos`), so a
+ * click shows another one. They are drawn in normal flow above the rest even
+ * when the rest is windowed, with a gap rather than a rule between: they are
+ * the tree's, and everything below is the shown repository's.
+ *
+ * **Folding.** A section's fold is the user's choice where they made one, else
+ * its default (refs-model's `defaultFolded`, else open).
+ *
  * **Reads.** `refs`, `worktrees` and `submodules` are read when the place is
  * first shown and each time it is shown again, and after that on a
  * `git-change` naming `refs` or `head` for its repository, on `git-resync`,
@@ -84,8 +93,12 @@ const t = translator('@juggler/core');
  * @property {(op: import('../../lib/git-client.js').GitOp, e: any, anchor: Element) => boolean} pushFailed - A push
  *   from here failed: true when it was turned down or needs a remote named, and
  *   the head's choices (Pull, a forced push, which remote) are offered.
- * @property {() => string[]} folded - The sections folded away, by id.
- * @property {(ids: string[]) => void} setFolded - Remember which sections are folded.
+ * @property {() => Record<string, 'open'|'folded'>} sections - The sections the user
+ *   folded or opened, by id.
+ * @property {(choices: Record<string, 'open'|'folded'>) => void} setSections - Remember them.
+ * @property {() => import('./refs-model.js').TreeRepo[]} repos - The tree's
+ *   repositories, with their status as last read.
+ * @property {() => string} root - The tree's root, which names its root repository.
  * @property {(tree: TreeView) => void} viewTree - Show that tree.
  * @property {(scope: string) => void} showScope - Review this scope.
  * @property {(target: {sha: string, stash?: string}) => void} showHistory - Select a
@@ -110,6 +123,7 @@ const t = translator('@juggler/core');
  * @property {() => void} shown - It was brought forward: read it.
  * @property {() => void} refresh - Read again.
  * @property {() => void} setTree - Another tree or repository: watch and read it afresh.
+ * @property {() => void} reposChanged - The tree's repositories, or their status, changed.
  * @property {(event: KeyboardEvent) => boolean} handleKey - A key outside a text field; true when used.
  * @property {() => void} focus - Focus the list.
  * @property {(ctx: 'repo', anchor: HTMLElement) => void} openMenu - The head's ⋯ menu.
@@ -172,6 +186,9 @@ export function createRefsPlace(host) {
     spacerClass: 'git-refs__spacer',
     rowHeight: remHeight(1.5),
     headerHeight: remHeight(2),
+    // The repositories go above it, in normal flow.
+    originOf: () => windowed.spacer.getBoundingClientRect().top - scroll.getBoundingClientRect().top
+      - scroll.clientTop + scroll.scrollTop,
     isHeader: (item) => item.header,
     keyOf: (item) => item.key,
     build: (item) => item.build(),
@@ -185,6 +202,9 @@ export function createRefsPlace(host) {
 
   /** @returns {RefsState} What the model is asked about. */
   const state = () => refsState({
+    repos: host.repos(),
+    repo: host.repo(),
+    root: host.root(),
     refs,
     trees,
     submodules,
@@ -578,6 +598,7 @@ export function createRefsPlace(host) {
         });
         break;
       case 'view-stash': host.showScope(`${a.stash}^1..${a.stash}`); break;
+      case 'show-repo': host.showRepo(a.path); break;
       case 'submodule-update': void updateSubmodule((op) => run(op), host.toast, host.repo(), a.path); break;
       case 'open-repo': {
         const repo = host.repo();
@@ -700,7 +721,21 @@ export function createRefsPlace(host) {
     el.setAttribute('role', 'option');
     el.setAttribute('aria-selected', String(row.key === selected));
     const name = createElement('span', 'git-refs__name text-truncate');
-    if (row.ctx === 'wt') {
+    if (row.ctx === 'repository') {
+      /** @type {import('./refs-model.js').RepoView} */
+      const v = row.entity;
+      const r = v.repo;
+      el.append(span('git-refs__here', v.current ? '●' : '', v.current ? t('Showing') : ''));
+      if (v.current) el.setAttribute('aria-current', 'true');
+      name.append(span('git-refs__label', v.label));
+      if (r.branch) name.append(span('git-refs__dir', r.branch));
+      else if (r.head) name.append(span('git-refs__dir', t('{sha} detached', { sha: r.head.slice(0, 7) })));
+      el.append(name);
+      if (r.unread) el.append(span('git-refs__dirty', '?', t("Couldn't read its changes")));
+      else if (r.total) el.append(span('git-refs__dirty', `●${r.total}`, t('{count, plural, one {# changed file} other {# changed files}}', { count: r.total })));
+      const nums = [r.ahead ? `↑${r.ahead}` : '', r.behind ? `↓${r.behind}` : ''].filter(Boolean).join('');
+      if (nums) el.append(span('git-refs__nums', nums));
+    } else if (row.ctx === 'wt') {
       /** @type {TreeView} */
       const v = row.entity;
       el.append(icon(v.tree.main ? 'repo' : 'wt'));
@@ -785,16 +820,27 @@ export function createRefsPlace(host) {
   };
 
   /**
-   * Fold a section away, or open it again; the pin remembers which are folded.
+   * @param {import('./refs-model.js').RefSection} section - A section.
+   * @returns {boolean} Whether it is folded: as the user left it, else by default.
+   */
+  const isFolded = (section) => {
+    const choice = host.sections()[section.id];
+    return choice ? choice === 'folded' : Boolean(section.defaultFolded);
+  };
+
+  /**
+   * Fold a section away, or open it again; the pin remembers the choice. Opening
+   * one whose default is open is remembered as no choice at all.
    * @param {string} id - The section.
    * @param {boolean} fold - Fold it, rather than open it.
+   * @param {boolean} [hasDefault] - Its start depends on what it holds, so the choice is kept either way.
    */
-  const setFolded = (id, fold) => {
-    const next = new Set(host.folded());
-    if (fold === next.has(id)) return;
-    if (fold) next.add(id);
-    else next.delete(id);
-    host.setFolded([...next]);
+  const setFolded = (id, fold, hasDefault = false) => {
+    const choices = { ...host.sections() };
+    if (fold || hasDefault) choices[id] = fold ? 'folded' : 'open';
+    else delete choices[id];
+    if (JSON.stringify(choices) === JSON.stringify(host.sections())) return;
+    host.setSections(choices);
     render();
   };
 
@@ -805,8 +851,9 @@ export function createRefsPlace(host) {
     let shownCount = 0;
     // A folded section keeps its header and drops its rows — unless the filter
     // is looking for something, which it finds in every section.
-    const folded = new Set(filter.active() ? [] : host.folded());
-    for (const section of sectionsOf(s)) {
+    const sections = sectionsOf(s);
+    const folded = new Set(filter.active() ? [] : sections.filter(isFolded).map((section) => section.id));
+    for (const section of sections) {
       const rows = folded.has(section.id) ? [] : section.rows.filter((row) => filter.matches(rowName(row)));
       if (filter.active() && !rows.length) continue;
       shown.push({ section, rows });
@@ -848,10 +895,28 @@ export function createRefsPlace(host) {
       head.append(acts);
       return head;
     };
-    /** @type {HTMLElement[]} */
-    const children = [];
     /** @type {string[]} */
     const keys = [];
+    // The repositories, in normal flow above everything else.
+    /** @type {HTMLElement[]} */
+    const lead = [];
+    const reposAt = shown.findIndex(({ section }) => section.id === 'repos');
+    const repos = reposAt >= 0 ? shown.splice(reposAt, 1)[0] : undefined;
+    if (repos) {
+      const { section, rows } = repos;
+      shownCount -= rows.length;
+      const group = createElement('div', 'git-refs__repos');
+      group.setAttribute('role', 'group');
+      group.setAttribute('aria-label', section.title);
+      group.append(buildSect(section));
+      for (const row of rows) {
+        keys.push(row.key);
+        group.append(buildRow(row, s));
+      }
+      lead.push(group);
+    }
+    /** @type {HTMLElement[]} */
+    const children = [];
     if (shownCount > WINDOWED_ABOVE) {
       /** @type {import('juggler/utils/virtual-list').SectionItem[]} */
       const items = [];
@@ -893,12 +958,14 @@ export function createRefsPlace(host) {
       if (readError) children.push(inlineError('git-refs__error', t("Couldn't refresh. {error}", { error: readError }), () => readAll()));
     }
     order = keys;
-    if (itemIndex.size && scroll.firstChild === windowed.spacer) {
+    if (itemIndex.size && windowed.spacer.parentNode === scroll) {
       // The spacer stays put, so nothing drawn in it loses focus or hover.
+      while (windowed.spacer.previousSibling) windowed.spacer.previousSibling.remove();
       while (windowed.spacer.nextSibling) windowed.spacer.nextSibling.remove();
+      windowed.spacer.before(...lead);
       scroll.append(...children.slice(1));
     } else {
-      scroll.replaceChildren(...children);
+      scroll.replaceChildren(...lead, ...children);
     }
     if (itemIndex.size) windowed.render();
   };
@@ -951,7 +1018,22 @@ export function createRefsPlace(host) {
     const title = createElement('span', 'git-refs__crumb-title text-truncate');
     crumb.append(title);
     const meta = createElement('div', 'git-refs__meta');
-    if (row.ctx === 'wt') {
+    if (row.ctx === 'repository') {
+      /** @type {import('./refs-model.js').RepoView} */
+      const v = row.entity;
+      const r = v.repo;
+      title.append(icon('repo'), span('git-refs__label', v.label));
+      /** @type {string[]} */
+      const st = [];
+      if (r.unread) st.push(t("couldn't read its changes"));
+      else if (r.total !== undefined) st.push(r.total ? t('{count, plural, one {# changed file} other {# changed files}}', { count: r.total }) : t('clean'));
+      if (r.upstream) st.push(t('↑{ahead} ↓{behind} {upstream}', { ahead: r.ahead || 0, behind: r.behind || 0, upstream: r.upstream }));
+      meta.append(facts([
+        [t('Path'), r.path || t('the tree’s root')],
+        [t('HEAD'), r.branch ? r.branch : r.head ? t('{sha} (detached)', { sha: r.head.slice(0, 7) }) : t('none')],
+        ...(st.length ? [/** @type {[string, string]} */ ([t('State'), st.join(' · ')])] : []),
+      ]));
+    } else if (row.ctx === 'wt') {
       /** @type {TreeView} */
       const v = row.entity;
       const tree = v.tree;
@@ -1106,7 +1188,7 @@ export function createRefsPlace(host) {
 
   /**
    * A sidebar row was clicked: go to what it names. A stash's changes are
-   * reviewed and a submodule is opened as the repository, so nothing in the
+   * reviewed, and a repository shown and a submodule opened as one, so nothing in the
    * sidebar leads to the Refs place, which a full pin never shows.
    * @param {string} key - The row.
    * @param {Element} anchor - The row's element.
@@ -1123,6 +1205,7 @@ export function createRefsPlace(host) {
       case 'tag': host.showHistory({ sha: row.entity.target }); break;
       case 'stash': act({ type: 'view-stash', stash: row.entity.sha }, anchor); break;
       case 'submodule': act({ type: 'open-repo', path: row.entity.path }, anchor); break;
+      case 'repository': host.showRepo(row.entity.repo.path); break;
     }
   };
 
@@ -1131,7 +1214,8 @@ export function createRefsPlace(host) {
     const fold = target.closest('.git-refs__fold');
     if (fold) {
       const id = fold.closest('.git-refs__sect')?.getAttribute('data-section') || '';
-      if (id && !filter.active()) setFolded(id, fold.getAttribute('aria-expanded') === 'true');
+      const section = sectionsOf(state()).find((sect) => sect.id === id);
+      if (section && !filter.active()) setFolded(id, fold.getAttribute('aria-expanded') === 'true', section.defaultFolded !== undefined);
       return;
     }
     const sectMore = target.closest('.git-refs__sect-more');
@@ -1239,6 +1323,7 @@ export function createRefsPlace(host) {
       readAll(caught === 'resync');
     },
     refresh: () => readAll(),
+    reposChanged: () => { if (opened) render(); },
     setTree: () => {
       if (!live) return;
       unwatch?.();
@@ -1286,7 +1371,7 @@ export function createRefsPlace(host) {
         view: (view) => host.viewTree(view),
         switchBranch: () => {
           host.showRefs();
-          if (host.folded().includes('branches')) host.setFolded(host.folded().filter((id) => id !== 'branches'));
+          setFolded('branches', false);
           reveal = 'branches';
           selected = null;
           setLevel('list');

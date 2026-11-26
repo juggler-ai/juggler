@@ -166,6 +166,28 @@ function placeOf(config) {
   return normalizeScope(config?.scope) !== DEFAULT_SCOPE ? 'review' : 'history';
 }
 
+/**
+ * The Refs sections the user folded or opened, by id: `config.sections`, or,
+ * from a config written before that, `config.folded`'s list of folded ones.
+ * @param {Record<string, unknown>} config - The pin's config.
+ * @returns {Record<string, 'open'|'folded'>} The choices.
+ */
+function sectionChoices(config) {
+  /** @type {Record<string, 'open'|'folded'>} */
+  const out = {};
+  const sections = config?.sections;
+  if (sections && typeof sections === 'object' && !Array.isArray(sections)) {
+    for (const [id, choice] of Object.entries(sections)) {
+      if (choice === 'open' || choice === 'folded') out[id] = choice;
+    }
+    return out;
+  }
+  if (Array.isArray(config?.folded)) {
+    for (const id of config.folded) if (typeof id === 'string') out[id] = 'folded';
+  }
+  return out;
+}
+
 /** The select's value for "type an expression". */
 const CUSTOM = 'custom';
 
@@ -1321,13 +1343,16 @@ class GitPin extends PinboardItemType {
       showRefs: () => showPlace('refs', true),
       network: (kind) => askNetwork(kind, head.primaryButton),
       pushFailed: (op, e, anchor) => pushFailed(op, e, anchor),
-      folded: () => (Array.isArray(config.folded) ? config.folded.filter((id) => typeof id === 'string') : []),
-      setFolded: (ids) => {
+      sections: () => sectionChoices(config),
+      setSections: (choices) => {
         const saved = { ...config };
         delete saved.folded;
-        if (ids.length) saved.folded = ids;
+        delete saved.sections;
+        if (Object.keys(choices).length) saved.sections = choices;
         writeInPlace(saved, 'folded sections');
       },
+      repos: () => changes.repos(),
+      root: treeRoot,
       refreshAll: () => {
         changes.refresh();
         refs.refresh();
@@ -1387,17 +1412,26 @@ class GitPin extends PinboardItemType {
     // The repositories the tree holds: the visible tree's status follows the
     // conversation, so a pin fixed to a workspace asks that tree's review.
     // Until the first answer, the picker says they are still being found.
-    const followedRepos = () => changes.setRepos(status()?.repos || [], gitOf().scanning?.() ?? false);
+    // Refs lists them too, with their status, when the tree holds several.
+    /**
+     * @param {import('../lib/git-client.js').GitRepo[]} repos - The tree's repositories.
+     * @param {boolean} [pending] - Whether they are still being found.
+     */
+    const setRepos = (repos, pending = false) => {
+      changes.setRepos(repos, pending);
+      refs.reposChanged();
+    };
+    const followedRepos = () => setRepos(status()?.repos || [], gitOf().scanning?.() ?? false);
     const readRepos = async () => {
       if (isPinned(config)) {
         const known = pinnedReview?.repos || [];
-        if (!pinnedReview) changes.setRepos(known, true);
+        if (!pinnedReview) setRepos(known, true);
         try {
           pinnedReview = await gitOf().review(workspaceOption());
-          if (live) changes.setRepos(pinnedReview.repos || []);
+          if (live) setRepos(pinnedReview.repos || []);
         } catch (_) {
           // The root repository is shown regardless.
-          if (live) changes.setRepos(known);
+          if (live) setRepos(known);
         }
       } else {
         followedRepos();

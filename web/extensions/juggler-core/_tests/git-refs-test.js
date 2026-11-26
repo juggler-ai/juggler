@@ -14,7 +14,7 @@
 import GitPin from '../pins/git-pin.js';
 import { isolateFocus } from '../../../js-tests/utilities/isolate-focus.js';
 import { assert, nextTask, waitFor } from '../../../js-tests/utilities/test-helpers.js';
-import { changesOf, confirmPop, mountPin, refsOf, treeOf } from './git-pin-helpers.js';
+import { changesOf, confirmPop, mountPin, refsOf, repo, treeOf } from './git-pin-helpers.js';
 
 /**
  * @param {object} _ctx - Test context (unused).
@@ -138,7 +138,7 @@ export async function runTests(_ctx) {
       'and its header says it is folded');
     assert(Boolean(m.body.querySelector('[data-key="st:ccccccc"]')), 'the other sections are left alone');
     const saved = m.configWrites().at(-1);
-    assert(saved?.options.inPlace === true && JSON.stringify(saved.config.folded) === '["tags"]',
+    assert(saved?.options.inPlace === true && JSON.stringify(saved.config.sections) === '{"tags":"folded"}',
       `which sections are folded is written down, in place: ${JSON.stringify(saved)}`);
     m.teardown();
 
@@ -147,8 +147,70 @@ export async function runTests(_ctx) {
       'mounted again from it, the section is still folded');
     /** @type {HTMLElement} */ (again.body.querySelector('[data-section="tags"] .git-refs__fold')).click();
     assert(Boolean(again.body.querySelector('[data-key="tg:v1"]')), 'and opens again on a click');
-    assert(!('folded' in (again.configWrites().at(-1)?.config || {})), 'with nothing folded, nothing is written');
+    assert(!('sections' in (again.configWrites().at(-1)?.config || {})), 'with nothing folded, nothing is written');
     again.teardown();
+
+    const legacy = await mounted({ config: { place: 'refs', folded: ['tags'] } });
+    assert(!legacy.body.querySelector('[data-key="tg:v1"]'), 'a config that lists its folded sections the older way still folds them');
+    legacy.teardown();
+  });
+
+  /**
+   * @param {number} count - Repositories in the tree, the root first.
+   * @returns {any} The tree's status.
+   */
+  const treeWith = (count) => ({
+    root: '/tmp/proj',
+    repos: Array.from({ length: count }, (_, i) => repo(i ? { path: `lib${i}`, branch: `b${i}`, total: i } : {})),
+  });
+  /**
+   * @param {any} m - The mounted pin.
+   * @returns {string[]} The Repositories section's row keys, as drawn.
+   */
+  const repoRows = (m) => [...m.body.querySelectorAll('.git-refs__repos .git-refs__row')].map((r) => r.getAttribute('data-key') || '');
+
+  await test('a tree of one repository lists no Repositories; one of a few lists them first, open, with their status', async () => {
+    const one = await mounted({ status: treeWith(1) });
+    assert(!one.body.querySelector('[data-section="repos"]'), 'one repository has nothing to switch to');
+    one.teardown();
+
+    const m = await mounted({ status: treeWith(3) });
+    await waitFor(() => repoRows(m).length === 3, 'the repositories to be listed');
+    const sections = [...m.body.querySelectorAll('.git-refs__sect')].map((s) => s.getAttribute('data-section'));
+    assert(sections[0] === 'repos', `they come first: ${JSON.stringify(sections)}`);
+    assert(JSON.stringify(repoRows(m)) === '["rp:","rp:lib1","rp:lib2"]', `in the tree's order: ${JSON.stringify(repoRows(m))}`);
+    const shown = m.body.querySelector('.git-refs__row[data-key="rp:"]');
+    assert(shown?.getAttribute('aria-current') === 'true', 'the one shown is marked');
+    const lib2 = m.body.querySelector('.git-refs__row[data-key="rp:lib2"]')?.textContent || '';
+    assert(lib2.includes('b2') && lib2.includes('●2'), `a row carries its branch and changed files: ${lib2}`);
+    pick(m, 'rp:lib2');
+    action(m, 'Show this repository').click();
+    await waitFor(() => m.reads().some((/** @type {any} */ r) => r.kind === 'refs' && r.options.repo === 'lib2'), 'Refs to read lib2');
+    assert(m.configWrites().at(-1)?.config.repo === 'lib2', 'the pin shows lib2 now');
+    m.teardown();
+  });
+
+  await test('Repositories start folded past four, and a fold the user chose sticks whatever the count', async () => {
+    const m = await mounted({ status: treeWith(5) });
+    await waitFor(() => m.body.querySelector('[data-section="repos"]'), 'the Repositories header');
+    const fold = () => /** @type {HTMLElement} */ (m.body.querySelector('[data-section="repos"] .git-refs__fold'));
+    assert(fold().getAttribute('aria-expanded') === 'false' && repoRows(m).length === 0, 'five start folded');
+    fold().click();
+    assert(repoRows(m).length === 5, 'and open on a click');
+    const saved = m.configWrites().at(-1);
+    assert(saved?.config.sections?.repos === 'open', `the open is written down: ${JSON.stringify(saved?.config)}`);
+    m.teardown();
+
+    const again = await mounted({ status: treeWith(5), config: saved.config });
+    await waitFor(() => repoRows(again).length === 5, 'opened, five stay open when mounted again');
+    /** @type {HTMLElement} */ (again.body.querySelector('[data-section="repos"] .git-refs__fold')).click();
+    const folded = again.configWrites().at(-1)?.config;
+    again.teardown();
+
+    const few = await mounted({ status: treeWith(2), config: folded });
+    await waitFor(() => few.body.querySelector('[data-section="repos"]'), 'the Repositories header');
+    assert(repoRows(few).length === 0, `folded by the user, it stays folded however few there are: ${JSON.stringify(folded)}`);
+    few.teardown();
   });
 
   await test('/ filters the rows by name: sections left empty go, j walks what is shown, Esc brings all back', async () => {

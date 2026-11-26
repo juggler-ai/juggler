@@ -90,7 +90,7 @@ func RunTerminal(opts TerminalOptions) int {
 			fmt.Fprintf(opts.Stderr, "juggler: %v\n", err)
 			return 1
 		}
-		c, err := Connect(ConnectOptions{})
+		c, err := Connect(ConnectOptions{Signals: opts.Signals})
 		if errors.Is(err, ErrNoServer) {
 			continue
 		}

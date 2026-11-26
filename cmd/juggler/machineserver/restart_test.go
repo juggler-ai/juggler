@@ -343,6 +343,30 @@ func TestShutdownMidRespawnKillsTheHandshakingChild(t *testing.T) {
 	}
 }
 
+// TestShutdownReturnsThoughAChildIsNeverReaped: a child the kill cannot end —
+// stuck in the kernel on its way out, so its reap never returns — is given up
+// on once the kill's grace is spent, and shutdown returns, so the machine lock
+// goes with the server, rather than waiting on the reap for good.
+func TestShutdownReturnsThoughAChildIsNeverReaped(t *testing.T) {
+	orig := reapChild
+	release := make(chan struct{})
+	reapChild = func(p *os.Process) (*os.ProcessState, error) {
+		<-release
+		return p.Wait()
+	}
+	t.Cleanup(func() { reapChild = orig })
+	s, front := restartServer(t, sleepless)
+	// Registered after restartServer's, so it runs first: its shutdown, should
+	// this one hang, then ends rather than holding the package to its timeout.
+	t.Cleanup(func() { close(release) })
+	openStandIn(t, front)
+	shutDownWithin(t, s, 4*childStopGrace)
+	supervisorsEnded(t, s, "after shutdown with an unreaped child")
+	if list := s.reg.snapshot(); len(list) != 0 {
+		t.Fatalf("after shutdown: sessions %+v, want none", list)
+	}
+}
+
 // TestStopWhileStartingCancelsTheSpawn: stopping a session whose first child
 // is still in its handshake kills that child and removes the session (204),
 // rather than refusing until the spawn ends; the open that started it fails.

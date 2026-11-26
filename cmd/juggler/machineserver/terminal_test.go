@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -223,6 +224,52 @@ func TestBareJugglerWithNoServerServesInItsForeground(t *testing.T) {
 	if (lock.probe() == lockHeld) || lock.readInfo() != nil || len(s.reg.snapshot()) != 0 {
 		t.Fatalf("after Ctrl-C: lock held %v, server.json %+v, sessions %+v; want none of them",
 			(lock.probe() == lockHeld), lock.readInfo(), s.reg.snapshot())
+	}
+}
+
+// TestCtrlCEndsTheWaitForAServerThatNeverAnswers: a server that holds the lock
+// but neither answers nor exits — one wedged in its shutdown — leaves bare
+// juggler waiting on it. Ctrl-C ends the wait and the run, naming the server
+// it was waiting on.
+func TestCtrlCEndsTheWaitForAServerThatNeverAnswers(t *testing.T) {
+	userpathstest.Isolate(t)
+	lock := NewMachineLock(userpaths.ServerDir())
+	if acquired, _, err := lock.TryAcquire(ServerInfo{Version: core.Version, Token: testToken}); err != nil || !acquired {
+		t.Fatalf("acquire: %v %v", acquired, err)
+	}
+	t.Cleanup(func() { _ = lock.Release() })
+	// An address nothing answers at, as a server's is once it stops listening.
+	if err := lock.UpdateAddr("127.0.0.1:1"); err != nil {
+		t.Fatal(err)
+	}
+	waiting := make(chan struct{}, 1)
+	orig := connectWaiting
+	connectWaiting = func() {
+		select {
+		case waiting <- struct{}{}:
+		default:
+		}
+	}
+	t.Cleanup(func() { connectWaiting = orig })
+
+	r := runTerminal(t, TerminalOptions{})
+	select {
+	case <-waiting:
+	case code := <-r.code:
+		r.code <- code
+		t.Fatalf("exited %d before waiting on the server; stderr %q", code, r.errOut.text())
+	}
+	r.sig <- os.Interrupt
+	select {
+	case code := <-r.code:
+		r.code <- code
+		if code == 0 || !strings.Contains(r.errOut.text(), strconv.Itoa(os.Getpid())) {
+			t.Fatalf("after Ctrl-C: exit %d, stderr %q; want a failure naming pid %d", code, r.errOut.text(), os.Getpid())
+		}
+	case <-time.After(10 * time.Second):
+		// Letting the lock go ends the wait, so the run's cleanup can stop it.
+		_ = lock.Release()
+		t.Fatalf("Ctrl-C did not end the wait; stderr %q", r.errOut.text())
 	}
 }
 

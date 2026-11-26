@@ -7,12 +7,14 @@ package machineserver
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"juggler/cmd/juggler/childcontain"
@@ -50,7 +52,10 @@ type child struct {
 	cmd       *exec.Cmd
 	contained *childcontain.Child
 	addr      string
-	exited    chan struct{} // closed by the monitor goroutine when the process exits
+	// exited closes when the process has been reaped, or when a kill has had
+	// its grace and the process still has not been (see end).
+	exited chan struct{}
+	ended  sync.Once
 	// exit is how the process ended (nil if it couldn't be reaped), and
 	// waitErr why it couldn't. Both are written once, before exited closes,
 	// and read only after.
@@ -80,6 +85,16 @@ var newChildCommand = func(bin, project string, extra []string) *exec.Cmd {
 	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 	return exec.Command(bin, args...) //nolint:gosec // operator-controlled bin+args, no shell
 }
+
+// reapChild waits for a session child's process to exit and reaps it. A
+// package variable so tests can stand in a reap that never returns, as for a
+// process stuck in the kernel on its way out.
+var reapChild = func(p *os.Process) (*os.ProcessState, error) { return p.Wait() }
+
+// errUnreaped is a child's waitErr when it was given up on: killed, its grace
+// spent, and still not reaped — a process stuck in the kernel on its way out,
+// which no signal can end.
+var errUnreaped = errors.New("it did not exit after being killed")
 
 // launchIdentityEnv are the variables macOS gives a launched app to name its
 // launch: its bundle identifier and its launchd job. Whoever started this
@@ -163,10 +178,11 @@ func spawnChild(ctx context.Context, bin, project string, extra, env []string) (
 
 	// Monitor: reap the process and release containment resources exactly once,
 	// whatever caused the exit. Everyone else observes c.exited.
+	reap := reapChild
 	go func() {
-		c.exit, c.waitErr = cmd.Process.Wait()
+		exit, err := reap(cmd.Process)
 		c.contained.Cleanup()
-		close(c.exited)
+		c.end(exit, err)
 	}()
 
 	// Scan stdout for the ready handshake, then keep draining so the child
@@ -237,22 +253,40 @@ func (s *SessionChild) Exited() <-chan struct{} { return s.c.exited }
 // process tree, and returns once it has exited.
 func (s *SessionChild) Stop() { s.c.stop() }
 
-// kill tree-kills a child that never finished its handshake, and returns once
-// it has been reaped (or, as stop does, shortly after the kill as a backstop).
-func (c *child) kill() {
-	_ = c.contained.Terminate()
+// end records how the child ended and closes exited, once: the first of the
+// monitor's reap and a kill giving up on it (abandonKilled) wins.
+func (c *child) end(exit *os.ProcessState, err error) {
+	c.ended.Do(func() {
+		c.exit, c.waitErr = exit, err
+		close(c.exited)
+	})
+}
+
+// awaitKilled waits for a child that has just been tree-killed to be reaped.
+// One that is not within the grace is stuck where no signal reaches it, and
+// is given up on: exited closes for it as for any other, so its supervisor,
+// and a shutdown waiting on that supervisor, do not wait on the reap for good.
+// The monitor stays parked in the reap, which ends with the process, if ever.
+func (c *child) awaitKilled() {
 	select {
 	case <-c.exited:
 	case <-time.After(childStopGrace):
-		jlog.Error("[machineserver] session child pid %d did not exit after kill", c.cmd.Process.Pid)
+		jlog.Error("[machineserver] session child pid %d did not exit after kill; giving up on it", c.cmd.Process.Pid)
+		c.end(nil, errUnreaped)
 	}
 }
 
+// kill tree-kills a child that never finished its handshake, and returns once
+// it has been reaped or given up on (awaitKilled).
+func (c *child) kill() {
+	_ = c.contained.Terminate()
+	c.awaitKilled()
+}
+
 // stop tears the child down: graceful interrupt, a grace period, then a
-// process-tree kill. It returns once the process has exited (or shortly after
-// the kill was issued, as a backstop against an unreapable process). On
-// Windows, where signalling another process is unsupported, it tree-kills
-// immediately.
+// process-tree kill. It returns once the process has exited, or has been given
+// up on as unreapable (awaitKilled). On Windows, where signalling another
+// process is unsupported, it tree-kills immediately.
 func (c *child) stop() {
 	if c == nil || c.cmd == nil || c.cmd.Process == nil {
 		return
@@ -267,11 +301,7 @@ func (c *child) stop() {
 			_ = c.contained.Terminate()
 		}
 	}
-	select {
-	case <-c.exited:
-	case <-time.After(childStopGrace):
-		jlog.Error("[machineserver] session child pid %d did not exit after kill", c.cmd.Process.Pid)
-	}
+	c.awaitKilled()
 }
 
 // exitedCleanly reports whether the exited process ended with status 0: a

@@ -39,6 +39,25 @@ type ConnectOptions struct {
 	// Start, when set, is how Connect starts a server when none is running.
 	// Without it, no server running is ErrNoServer.
 	Start Starter
+	// Signals, when set, ends a wait for a server that holds the lock but does
+	// not answer: one arriving is a *WaitInterruptedError. A caller that
+	// listens for Ctrl-C itself passes its channel, since the signal reaches
+	// nothing else while Connect waits.
+	Signals <-chan os.Signal
+}
+
+// WaitInterruptedError is Connect's answer when a signal ended its wait for a
+// server that held the lock without answering. PID is the server the lock's
+// record names, 0 when there is none.
+type WaitInterruptedError struct {
+	PID int
+}
+
+func (e *WaitInterruptedError) Error() string {
+	if e.PID == 0 {
+		return "stopped waiting for the Juggler server that holds this machine's lock to answer"
+	}
+	return fmt.Sprintf("stopped waiting for the Juggler server (pid %d) to answer or exit; if it never does, end it with `kill -9 %d`", e.PID, e.PID)
 }
 
 // connectWaiting is called each time Connect waits for a server that holds
@@ -108,8 +127,8 @@ func DetachedStarter(bin string) Starter {
 //     the winner like any other.
 //
 // No wait is bounded by a clock: each lasts while the process it waits on
-// lives (worthWaiting). Without opts.Start, no server to wait for is
-// ErrNoServer.
+// lives (worthWaiting), or until opts.Signals delivers. Without opts.Start, no
+// server to wait for is ErrNoServer.
 func Connect(opts ConnectOptions) (*Client, error) {
 	dir := opts.ConfigDir
 	if dir == "" {
@@ -146,7 +165,15 @@ func Connect(opts ConnectOptions) (*Client, error) {
 			oursPID, ours = pid, exited
 		}
 		connectWaiting()
-		time.Sleep(connectPoll)
+		select {
+		case <-opts.Signals:
+			e := &WaitInterruptedError{}
+			if info != nil {
+				e.PID = info.PID
+			}
+			return nil, e
+		case <-time.After(connectPoll):
+		}
 	}
 }
 

@@ -35,12 +35,15 @@ jobs:
   build:
     name: Build & Test (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
-    # Generous over the browser-suite timeout (30m on Linux, 15m elsewhere) to
-    # leave room for the checkout (large wails submodule) and build. The
-    # go-test timeout must be the one that fires: it panics with a goroutine
-    # dump naming the in-flight tests, whereas a runner-level cancellation
-    # kills the job with no diagnostic at all.
-    timeout-minutes: 45
+    # Sized to every step running, a failed one included, each up to its own
+    # go-test timeout. The go-test timeout must be the one that fires: it
+    # panics with a goroutine dump naming the in-flight tests, whereas a
+    # runner-level cancellation kills the job with no diagnostic at all. The
+    # macOS leg measured (run 45866125277): setup 1m, lint 13m, build 1m, Go
+    # packages 10m (a hang adds up to their 5m timeout), fork patches 2m, then
+    # the browser suite under its 15m timeout — about 47m at worst. Linux
+    # spends less on lint and has a 30m browser timeout, about 55m.
+    timeout-minutes: 60
     strategy:
       # Don't cancel sibling matrix legs on first failure — each platform
       # surfaces different issues (build-tag drift, line endings, cgo/WKWebView
@@ -174,7 +177,16 @@ jobs:
 
       # Single lint entry point: identical to `make lint` locally, so a
       # contributor who passes lint at their terminal also passes CI lint.
+      #
+      # From here on a failing step does not hide the ones after it: one run
+      # reports every layer that fails, not just the first. A step's `if:`
+      # without a status function is read as `success() && …`, so each one
+      # names its own: `!cancelled()` stays true after an earlier failure, and
+      # the step outcome beside it is what it actually needs. Lint is the last
+      # step setup gates; it is skipped only when setup failed, which is what
+      # stops the build. Every failed step still fails the job.
       - name: Run linters
+        id: lint
         shell: bash
         run: make lint
 
@@ -191,6 +203,8 @@ jobs:
       # picks the platform executable name, so the harness's serverBinary()
       # finds it on Windows, where `go build -o` writes the name verbatim.
       - name: Build binaries
+        id: build
+        if: ${{ !cancelled() && steps.lint.outcome != 'skipped' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -203,7 +217,7 @@ jobs:
       # compile-regression guard: juggler-app's Linux build is new, so a break
       # should surface on the first offending push.
       - name: Build Linux desktop app
-        if: runner.os == 'Linux'
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && runner.os == 'Linux' }}
         shell: bash
         run: go build -o bin/juggler-app ./cmd/juggler-app
 
@@ -230,6 +244,7 @@ jobs:
       # an idle machine. `claudecode` runs before the heavy binaries start and is
       # 1.2x macOS, which is what this leg costs when nothing is fighting it.
       - name: Run Go package tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         shell: bash
         run: |
           pkgs="$(make -s print-GO_TEST_PACKAGES)"
@@ -250,6 +265,7 @@ jobs:
       # place the Linux and Windows halves of those patches run. GTK needs a
       # display on Linux, as the browser suite does.
       - name: Run Wails fork patch tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         shell: bash
         run: |
           if [ "${RUNNER_OS}" = "Linux" ]; then
@@ -289,6 +305,7 @@ jobs:
       # initialise, browser suites stuck rather than slow. A dev workstation
       # has the cores to run them together; a hosted runner does not.
       - name: Run tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         shell: bash
         env:
           JUGGLER_TEST_WINDOWS: 2

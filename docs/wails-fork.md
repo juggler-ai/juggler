@@ -12,8 +12,8 @@ This page is the ledger of those patches and the procedure for rebasing them.
 
 ## Patch ledger
 
-As of the rebase onto upstream `b64935046` (v3.2.0-nightly.20261103 + 1),
-2026-11-04; the Upstream column was last checked on 2026-11-04.
+As of the rebase onto upstream `186286788` (v3.2.0-nightly.20261123 + 3),
+2026-11-26; the Upstream column was last checked on 2026-11-26.
 The stack is listed in order, oldest first. "Used by" names the code here that
 needs the patch, so you can see what breaks if a patch is dropped or upstream's
 version of it lands with a different API.

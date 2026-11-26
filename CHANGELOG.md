@@ -24,6 +24,7 @@ the current release). The project follows semantic versioning.
 - Replies budget at most 64k output unless you set Max output, so compaction starts later
 - No more repeated compaction attempts when tools fill the window; a notice explains instead
 - Windows opening while the computer is busy no longer show "This session stopped"
+- "Preparing request" says when the engine is busy or slow, instead of looking stuck
 - A window onto another computer's server keeps trying at launch, then connects itself
 - On Windows, Ctrl+Shift+N opens one window, not two
 - Ctrl+Shift+Q quits even while the Pinboard, a menu or a dialog is open

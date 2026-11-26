@@ -180,6 +180,11 @@ type ConversationWorker struct {
 	// worker runs.
 	contextCheck, contextCeiling time.Duration
 
+	// slowEngineAfter and quietEngineAfter decide when that wait tells the user
+	// about the engine (EngineSlowAfter, EngineQuietAfter). Set at construction;
+	// a test sets them on its own worker before it runs.
+	slowEngineAfter, quietEngineAfter time.Duration
+
 	// historyNavStopCheck and historyNavStopCeiling bound undo/redo's wait for
 	// the turns it stops (defaultHistoryNavStopCheck, defaultHistoryNavStopCeiling).
 	// Set at construction; a test sets them on its own worker before it runs.
@@ -385,6 +390,8 @@ func NewConversationWorker(conversationID, authorID string) *ConversationWorker 
 		llmTimeout:            LLMTimeout,
 		contextCheck:          ContextTimeout,
 		contextCeiling:        ContextCeiling,
+		slowEngineAfter:       EngineSlowAfter,
+		quietEngineAfter:      EngineQuietAfter,
 		historyNavStopCheck:   defaultHistoryNavStopCheck,
 		historyNavStopCeiling: defaultHistoryNavStopCeiling,
 		clock:                 realClock(),

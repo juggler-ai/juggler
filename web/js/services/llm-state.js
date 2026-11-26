@@ -855,7 +855,10 @@ class LLMState {
         this._conversations.get(conversationId)?.armSelfHeal?.();
         this._conversations.get(conversationId)?.settlePendingMessage?.(threadItemId);
         this.start(conversationId, frame.startedAt, threadItemId);
-        this.updateStatus(conversationId, 'preparing', tokenData, threadItemId);
+        // The worker restates a preparing status in its own words while a slow
+        // engine holds the turn up (engine_wait_notice.go); empty is the plain
+        // "Preparing request".
+        this.updateStatus(conversationId, 'preparing', { ...tokenData, message }, threadItemId);
         break;
       }
 

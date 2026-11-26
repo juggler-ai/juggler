@@ -206,12 +206,13 @@ export class StatusMessageBuilder {
   }
 
   /**
-   * Builds status message for preparing request
-   * @param {StreamingStatusData} [data] - Optional data with elapsed time
+   * Builds status message for preparing request. A `message` replaces the
+   * label: the worker's account of a slow engine, already translated.
+   * @param {StreamingStatusData & {message?: string}} [data] - Optional data with elapsed time and worker message
    * @returns {string} Formatted status message
    */
   static buildPreparingStatus(data = {}) {
-    return this._withElapsed(t('Preparing request'), data);
+    return this._withElapsed(data.message || t('Preparing request'), data);
   }
 
   /**

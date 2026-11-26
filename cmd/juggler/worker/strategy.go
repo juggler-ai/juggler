@@ -79,6 +79,19 @@ const (
 	// attached and never answers this request. Far past any answer a working
 	// engine gives on any core; read from the worker's contextCeiling.
 	ContextCeiling = 10 * time.Minute
+
+	// EngineSlowAfter is how long the wait shows a plain "Preparing request"
+	// before it says what the engine is doing instead. A healthy engine answers
+	// in milliseconds, so past this the user is waiting on a slow or busy engine
+	// and deserves to be told so. Read from the worker's engineSlowAfter.
+	EngineSlowAfter = 5 * time.Second
+
+	// EngineQuietAfter is how long an engine that has picked a request up may
+	// go without saying it is still working on it before the status says it has
+	// gone quiet: three of the engine's request-working ticks
+	// (REQUEST_WORKING_INTERVAL_MS, worker-manager-protocols.js). Read from the
+	// worker's engineQuietAfter.
+	EngineQuietAfter = 15 * time.Second
 )
 
 // runStrategyLoop orchestrates the LLM conversation loop.

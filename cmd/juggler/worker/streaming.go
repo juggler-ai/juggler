@@ -782,13 +782,25 @@ func (r *run) waitForLLMResponse(turnID string, timeout time.Duration) (*LLMResp
 // It waits for as long as the engine that was asked stays attached, checking
 // every `check`, and at most `ceiling` (see ContextTimeout). An engine that
 // goes away can never answer, so that fails at the next check and says so.
-func (r *run) waitForContextAndTools(check, ceiling time.Duration, contextReply, toolsReply <-chan json.RawMessage) (json.RawMessage, json.RawMessage, error) {
+//
+// The progress channels carry the engine's word that it is working on either
+// request, and notice turns that word and the time waited into the status line
+// (engineWaitNotice); a nil notice says nothing.
+func (r *run) waitForContextAndTools(check, ceiling time.Duration, contextReply, toolsReply <-chan json.RawMessage,
+	contextProgress, toolsProgress <-chan struct{}, notice *engineWaitNotice,
+) (json.RawMessage, json.RawMessage, error) {
 	asked := r.callbacks.engineClientID()
 	started := time.Now()
 	ticker := time.NewTicker(check)
 	defer ticker.Stop()
 	ceilingTimer := time.NewTimer(ceiling)
 	defer ceilingTimer.Stop()
+	var noticeTick <-chan time.Time
+	if notice != nil {
+		noticeTicker := time.NewTicker(notice.tick())
+		defer noticeTicker.Stop()
+		noticeTick = noticeTicker.C
+	}
 
 	var contextResult, toolsResult json.RawMessage
 	needContext := contextReply != nil
@@ -808,6 +820,14 @@ func (r *run) waitForContextAndTools(check, ceiling time.Duration, contextReply,
 		select {
 		case contextResult = <-ctxChan:
 		case toolsResult = <-toolsChan:
+		case <-contextProgress:
+			notice.heard(time.Now())
+			notice.update(time.Now())
+		case <-toolsProgress:
+			notice.heard(time.Now())
+			notice.update(time.Now())
+		case <-noticeTick:
+			notice.update(time.Now())
 		case <-r.t.wake:
 			if r.loadState() == StateCancelling {
 				return nil, nil, ErrCancelled

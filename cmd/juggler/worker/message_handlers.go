@@ -1083,6 +1083,16 @@ func (w *ConversationWorker) resetRunningToolsForReattach() {
 // the string must match the event name sent there.
 const engineTraceToolOverdue = "tool-overdue"
 
+// engineTraceRequestRecv and engineTraceRequestWorking are the traces the
+// engine sends when it picks up a context or tools request and, every few
+// seconds after, while it is still working on it (beginRoundTrip and
+// sendRequestWorkingTraces in web/js/services/worker-manager-protocols.js).
+// Wire contracts with the engine, like engineTraceToolOverdue.
+const (
+	engineTraceRequestRecv    = "request-recv"
+	engineTraceRequestWorking = "request-working"
+)
+
 // handleEngineTrace persists a diagnostic event the engine emits over its WS
 // (sendEngineTrace) into the per-project server log, tagged with this worker's
 // conversation. The engine's WebView console is not captured anywhere, so this
@@ -1123,10 +1133,20 @@ func (w *ConversationWorker) handleEngineTrace(payload json.RawMessage) {
 		ActionID  string  `json:"actionId"`
 		Reason    string  `json:"reason"`
 		RunningMs float64 `json:"runningMs"`
+		RequestID string  `json:"requestId"`
 	}
 	decoded := json.Unmarshal(payload, &probe) == nil
 	if decoded && probe.ToolUseID != "" {
 		w.tools.recordTrace(probe.ToolUseID, probe.Event, probe.Reason, now)
+	}
+	if decoded && probe.RequestID != "" &&
+		(probe.Event == engineTraceRequestRecv || probe.Event == engineTraceRequestWorking) {
+		// The turn waiting on this request reads these to tell the user what a
+		// slow engine is doing (waitForContextAndTools). The trace does not say
+		// which of the two requests it is about; the slot without that id
+		// ignores it.
+		w.engine.contextReply.noteProgress(probe.RequestID)
+		w.engine.toolsReply.noteProgress(probe.RequestID)
 	}
 	if decoded {
 		// On the tape, because this is the only account of what the engine did

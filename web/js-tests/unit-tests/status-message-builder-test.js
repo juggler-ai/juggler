@@ -147,5 +147,32 @@ export async function runTests() {
     }
   });
 
+  // While a slow engine holds a turn up, the worker restates its preparing
+  // status in words of its own (engine_wait_notice.go). Dropping them leaves
+  // the line reading "Preparing request" for minutes, which looks like a wedge.
+  await run('a preparing frame with a message draws the message, a bare one the default', async () => {
+    const llm = /** @type {any} */ (new LLMState());
+    const convId = 'conv-status-builder-preparing-message';
+    llm._conversations.set(convId, {
+      showWarning: () => {},
+      restorePendingMessage: () => {},
+      trySelfHealMissingModel: () => false,
+      armSelfHeal: () => {},
+      settlePendingMessage: () => {},
+    });
+    try {
+      const startedAt = Date.now();
+      const slow = 'Engine is slow — still preparing the request';
+      llm._handleProcessingStateChange(convId, { status: 'preparing', startedAt, message: slow });
+      let line = llm.getStatusMessage(convId);
+      assert(line.startsWith(slow), `status line = "${line}", want it to lead with "${slow}"`);
+      llm._handleProcessingStateChange(convId, { status: 'preparing', startedAt, message: '' });
+      line = llm.getStatusMessage(convId);
+      assert(line.startsWith(StatusMessageBuilder.buildPreparingStatus()), `status line = "${line}", want the plain preparing label back`);
+    } finally {
+      llm.stop(convId);
+    }
+  });
+
   return { passed, failed, errors };
 }

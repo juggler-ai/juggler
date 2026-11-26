@@ -48,19 +48,29 @@ func (r *run) requestContextAndTools() (*ContextResult, []ToolDefinition, error)
 	// seeds were cloned at creation). Idempotent — a no-op once the thread owns
 	// its system-prompt item, and at root.
 	r.doc.SeedThreadIfUnseeded(threadItemID)
-	return r.requestContextAndToolsForItemIDs(r.doc.GetContextItemIDsForThread(threadItemID))
+	// A turn waits under "preparing", so a slow engine is reported by restating
+	// that status (engineWaitNotice).
+	return r.requestContextAndToolsFor(r.doc.GetContextItemIDsForThread(threadItemID), true)
 }
 
 // requestContextAndToolsForItemIDs renders an explicit source snapshot while
 // requesting the current tool definitions. Compaction uses this to reconstruct
 // the request that preceded a fold: standing context remains in the parent array
-// while conversational history lives in the folded thread.
+// while conversational history lives in the folded thread. Its run shows a
+// status of its own, which the wait leaves alone.
 func (r *run) requestContextAndToolsForItemIDs(itemIDs []string) (*ContextResult, []ToolDefinition, error) {
+	return r.requestContextAndToolsFor(itemIDs, false)
+}
+
+// requestContextAndToolsFor is both of the above; notice says whether the wait
+// restates the run's preparing status while the engine is slow.
+func (r *run) requestContextAndToolsFor(itemIDs []string, notice bool) (*ContextResult, []ToolDefinition, error) {
 	var contextReply <-chan json.RawMessage
+	var contextProgress <-chan struct{}
 	if len(itemIDs) > 0 {
 		rid := generateRequestID()
 		var unregister func()
-		contextReply, unregister = r.engine.contextReply.register(rid)
+		contextReply, contextProgress, unregister = r.engine.contextReply.registerWithProgress(rid)
 		defer unregister()
 		r.sendRenderContextItemsRequest(rid, itemIDs)
 	}
@@ -70,7 +80,7 @@ func (r *run) requestContextAndToolsForItemIDs(itemIDs []string) (*ContextResult
 	// which is also why the slot accepts only this request's answer: another
 	// request's describes another thread's tools.
 	toolsRequestID := generateRequestID()
-	toolsReply, unregisterTools := r.engine.toolsReply.register(toolsRequestID)
+	toolsReply, toolsProgress, unregisterTools := r.engine.toolsReply.registerWithProgress(toolsRequestID)
 	defer unregisterTools()
 	r.send(RequestToolsMessage{
 		Type:         msgRequestTools,
@@ -79,7 +89,15 @@ func (r *run) requestContextAndToolsForItemIDs(itemIDs []string) (*ContextResult
 		SentAt:       time.Now().UnixMilli(),
 	})
 
-	ctxRaw, toolsRaw, err := r.waitForContextAndTools(r.contextCheck, r.contextCeiling, contextReply, toolsReply)
+	var waitNotice *engineWaitNotice
+	if notice {
+		waitNotice = r.newEngineWaitNotice(time.Now())
+	}
+	ctxRaw, toolsRaw, err := r.waitForContextAndTools(r.contextCheck, r.contextCeiling,
+		contextReply, toolsReply, contextProgress, toolsProgress, waitNotice)
+	if err == nil {
+		waitNotice.answered()
+	}
 	if err != nil {
 		return nil, nil, err
 	}

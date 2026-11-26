@@ -30,6 +30,7 @@ type replySlot struct {
 type replyRegistration struct {
 	requestID string
 	response  chan json.RawMessage
+	progress  chan struct{}
 	cancel    chan struct{}
 }
 
@@ -47,9 +48,17 @@ type deliverReply struct {
 	payload json.RawMessage
 }
 
+type progressReply struct {
+	requestID string
+}
+
 // pendingReply is one open registration in the registry.
 type pendingReply struct {
 	response chan json.RawMessage
+	// progress carries the engine's word that it is working on the request
+	// (noteProgress). One deep and never blocking: the waiter only needs to know
+	// that word has arrived since it last looked, not how many times.
+	progress chan struct{}
 	cancel   chan struct{}
 	answered bool
 }
@@ -79,15 +88,16 @@ func (s *replySlot) run() {
 		switch command := command.(type) {
 		case registerReply:
 			response := make(chan json.RawMessage, 1)
+			progress := make(chan struct{}, 1)
 			cancel := make(chan struct{})
-			entry := pendingReply{response: response, cancel: cancel}
+			entry := pendingReply{response: response, progress: progress, cancel: cancel}
 			if payload, ok := injections.take(); ok {
 				entry.answered = true
 				response <- payload
 			}
 			pending[command.requestID] = entry
 			registrationOrder = append(registrationOrder, command.requestID)
-			command.result <- replyRegistration{requestID: command.requestID, response: response, cancel: cancel}
+			command.result <- replyRegistration{requestID: command.requestID, response: response, progress: progress, cancel: cancel}
 		case unregisterReply:
 			if current, ok := pending[command.requestID]; ok && current.cancel == command.cancel {
 				delete(pending, command.requestID)
@@ -122,6 +132,15 @@ func (s *replySlot) run() {
 			current.answered = true
 			pending[head.RequestID] = current
 			current.response <- command.payload
+		case progressReply:
+			// An id this slot holds no open request for belongs to another slot's
+			// request, or to one that has ended; either way nobody here wants it.
+			if current, ok := pending[command.requestID]; ok && !current.answered {
+				select {
+				case current.progress <- struct{}{}:
+				default:
+				}
+			}
 		default:
 			if !injections.handle(command, pending, registrationOrder) {
 				panic(fmt.Sprintf("replySlot %s: unknown command %T", s.name, command))
@@ -134,23 +153,41 @@ func (s *replySlot) run() {
 // unregister function. The unregister is identity-checked, so a late cleanup
 // cannot remove a newer registration that happens to reuse an id.
 func (s *replySlot) register(requestID string) (<-chan json.RawMessage, func()) {
+	reply, _, unregister := s.registerWithProgress(requestID)
+	return reply, unregister
+}
+
+// registerWithProgress is register plus a channel that fires when the engine
+// says it is working on the request (noteProgress). That word arrives before
+// the answer, and a turn waiting on a slow engine uses it to tell the user
+// whether the engine has even picked the request up.
+func (s *replySlot) registerWithProgress(requestID string) (reply <-chan json.RawMessage, progress <-chan struct{}, unregister func()) {
 	result := make(chan replyRegistration)
 	select {
 	case s.commands <- registerReply{requestID: requestID, result: result}:
 	case <-s.done:
-		return nil, func() {}
+		return nil, nil, func() {}
 	}
 	var registration replyRegistration
 	select {
 	case registration = <-result:
 	case <-s.done:
-		return nil, func() {}
+		return nil, nil, func() {}
 	}
-	return registration.response, func() {
+	return registration.response, registration.progress, func() {
 		select {
 		case s.commands <- unregisterReply{requestID: registration.requestID, cancel: registration.cancel}:
 		case <-s.done:
 		}
+	}
+}
+
+// noteProgress passes on the engine's word that it is working on requestID to
+// the registration waiting for it, if this slot has one.
+func (s *replySlot) noteProgress(requestID string) {
+	select {
+	case s.commands <- progressReply{requestID: requestID}:
+	case <-s.done:
 	}
 }
 

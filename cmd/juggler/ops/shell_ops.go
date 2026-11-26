@@ -40,6 +40,17 @@ type ShellOperations struct {
 	// read how a command ended, with the command's context and a channel that
 	// closes once its exit is waiting to be read. Nil in production.
 	beforeOutcome func(ctx context.Context, exited <-chan struct{})
+
+	// afterStart, set by tests, runs on the goroutine that started a shell
+	// command, as soon as it has started. Nil in production.
+	afterStart func()
+}
+
+// started runs the afterStart hook, if a test set one.
+func (ops *ShellOperations) started() {
+	if ops.afterStart != nil {
+		ops.afterStart()
+	}
 }
 
 // NewShellOperations creates a new shell operations handler

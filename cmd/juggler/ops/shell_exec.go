@@ -200,6 +200,17 @@ func (ops *ShellOperations) startBackground(params map[string]any) (any, error) 
 		cmd.Stdout = pipeWriter
 		cmd.Stderr = pipeWriter
 
+		// Listed while it runs, from before it starts: whoever hears the
+		// command's first write asks the inventory who is running then (shell
+		// attribution does), and a command not yet listed is nobody's. A stop
+		// from the inventory is the kill op, so it reads on the tool action
+		// exactly as a TaskStop would; one arriving before the start cancels the
+		// context, so the command never starts. Unnumbered: a background task is
+		// never superseded, so its order is never asked.
+		untrack := trackProcess(shellID, ProcessBackground, command, ops.scope, cmd.Dir, p.owner(), 0,
+			func() { killShell(shellID) })
+		defer untrack()
+
 		if startErr := startContained(cmd); startErr != nil {
 			pipeWriter.Close()
 			pipeReader.Close()
@@ -212,6 +223,7 @@ func (ops *ShellOperations) startBackground(params map[string]any) (any, error) 
 			time.AfterFunc(1*time.Hour, func() { removeBackgroundShell(shellID) })
 			return
 		}
+		ops.started()
 
 		// Hand the command to the registry only now that it is started. Start
 		// writes cmd.Process, and the registry reads it (signalShellStop) from its
@@ -220,14 +232,6 @@ func (ops *ShellOperations) startBackground(params map[string]any) (any, error) 
 		// gap still stops the task: it cancels the context, and a command built
 		// with CommandContext dies at Start rather than escaping.
 		updateShellCmd(shellID, cmd)
-
-		// Listed while it runs. A stop from the inventory is the kill op, so it
-		// reads on the tool action exactly as a TaskStop would.
-		// Unnumbered: a background task is never superseded, so its order is
-		// never asked.
-		untrack := trackProcess(shellID, ProcessBackground, command, ops.scope, cmd.Dir, p.owner(), 0,
-			func() { killShell(shellID) })
-		defer untrack()
 
 		cmdDone := make(chan error, 1)
 		go func() {
@@ -418,8 +422,19 @@ func (ops *ShellOperations) execute(ctx context.Context, params map[string]any) 
 	cmd.Stdout = output
 	cmd.Stderr = output // Merge stderr into stdout - interleaved naturally
 
+	// Listed while the caller waits on it, from before it starts, so whoever
+	// hears its first write finds it running (startBackground says why). A stop
+	// cancels execCtx, which the select below turns into taking the process
+	// group; one arriving before the start keeps the command from starting.
+	stopper := newUserStop(cancel)
+	untrack := trackProcess(spillID, ProcessForeground, command, ops.scope, cmd.Dir, p.owner(), order, stopper.stop)
+	defer untrack()
+
 	// Start the command
 	if err := startContained(cmd); err != nil {
+		if stopper.requested() {
+			return nil, errKilledByUser
+		}
 		// Starting counts against the deadline, and a start slow enough to
 		// outlast it (a loaded Windows machine) ends with Start refusing the
 		// expired context: the command timed out, not failed to start.
@@ -428,12 +443,7 @@ func (ops *ShellOperations) execute(ctx context.Context, params map[string]any) 
 		}
 		return nil, fmt.Errorf("command start failed: %w", err)
 	}
-
-	// Listed while the caller waits on it; a stop cancels execCtx, which the
-	// select below turns into taking the process group.
-	stopper := newUserStop(cancel)
-	untrack := trackProcess(spillID, ProcessForeground, command, ops.scope, cmd.Dir, p.owner(), order, stopper.stop)
-	defer untrack()
+	ops.started()
 
 	// Wait for command with timeout / caller cancellation.
 	//

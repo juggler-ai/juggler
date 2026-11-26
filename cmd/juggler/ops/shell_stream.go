@@ -118,10 +118,23 @@ func (ops *ShellOperations) ExecuteStreamingFor(
 	cmd.Stdout = pipeWriter
 	cmd.Stderr = pipeWriter
 
+	// Listed while it runs, from before it starts, so whoever hears its first
+	// write finds it running (startBackground says why). A stop cancels ctx,
+	// which the cancel branch below turns into SIGTERM and then the process
+	// group; one arriving before the start keeps the command from starting.
+	// Untracked on return — the output channel's close is deferred first, so it
+	// runs after this.
+	stopper := newUserStop(cancel)
+	untrack := trackProcess(shellID, ProcessForeground, command, ops.scope, workingDir, owner, order, stopper.stop)
+	defer untrack()
+
 	// Start command
 	if err := startContained(cmd); err != nil {
 		errMsg := fmt.Sprintf("command start failed: %v", err)
-		if ctx.Err() == context.DeadlineExceeded {
+		switch {
+		case stopper.requested():
+			errMsg = killedByUser
+		case ctx.Err() == context.DeadlineExceeded:
 			// Starting counts against the deadline; one that outlasted it timed out.
 			errMsg = fmt.Sprintf("command timeout (exceeded %v)", timeout)
 		}
@@ -132,13 +145,7 @@ func (ops *ShellOperations) ExecuteStreamingFor(
 		}
 		return
 	}
-
-	// Listed while it runs; a stop cancels ctx, which the cancel branch below
-	// turns into SIGTERM and then the process group. Untracked on return — the
-	// output channel's close is deferred first, so it runs after this.
-	stopper := newUserStop(cancel)
-	untrack := trackProcess(shellID, ProcessForeground, command, ops.scope, workingDir, owner, order, stopper.stop)
-	defer untrack()
+	ops.started()
 
 	// Channel to signal command completion, and the channel that closes the
 	// moment the process is reaped and its pid stops naming it (see stoppingTask).

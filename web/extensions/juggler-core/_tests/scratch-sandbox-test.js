@@ -27,7 +27,7 @@ import {
   createTestSession,
   releaseTestConversation,
   waitForWorkerReady,
-  withTimeout,
+  shellWithin,
   assert
 } from '../../../js-tests/utilities/test-helpers.js';
 import { fetchJson } from '../../../js/services/http.js';
@@ -140,13 +140,14 @@ const SHELL_WAIT_MS = 15000;
  *
  * For the commands whose failure is an answer — `test -e` of a copy that
  * should be gone — and for cleanup. The command is a named wait, so one that
- * never returns is reported by name rather than as a silent suite timeout.
+ * never returns is reported by name rather than as a silent suite timeout, and
+ * it runs for as long as that wait lasts ({@link shellWithin}).
  * @param {any} ops - Operations, project-pinned or bound to a sandbox.
  * @param {string} command - What to run.
  * @returns {Promise<any>} The result.
  */
 function shell(ops, command) {
-  return withTimeout(ops.shell({ command }), SHELL_WAIT_MS, `\`${command}\` to return`);
+  return shellWithin(ops, command, SHELL_WAIT_MS);
 }
 
 /**

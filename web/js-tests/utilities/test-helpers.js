@@ -35,6 +35,7 @@ import { noteProjectSize } from './project-size.js';
 import { forgetOwnConversation } from './conversation-claims.js';
 import { pollPatiently, racePatiently, whyGivingUp } from './test-patience.js';
 import { noteProgress } from './test-deadline.js';
+import { MAX_EXEC_TIMEOUT_MS } from '../../js/services/ops-api.js';
 
 
 /**
@@ -991,6 +992,31 @@ export async function withTimeout(promise, timeoutMs, description) {
   const settled = await racePatiently(promise, timeoutMs, { what: description });
   if (settled) return settled.value;
   throw new Error(`Timeout: ${description} (${timeoutMs}ms) — ${await whyGivingUp()}`);
+}
+
+/**
+ * Run a command through `ops.shell` for as long as the test waits for it
+ * ({@link withTimeout}, which follows the test's deadline), and no longer.
+ *
+ * The shell's own deadline is a fixed span of wall time — 30s unless the call
+ * names one — which a loaded machine can spend on a fixture of a dozen git
+ * commands while the test is still making progress, and then the command dies
+ * however live the test is. So the command is given the longest deadline the
+ * server allows, and the wait is what bounds it: when the wait gives up, the
+ * request is aborted, which kills the command.
+ * @param {any} ops - Operations with a `shell(params, signal)`, project-pinned or bound to a workspace.
+ * @param {string} command - What to run.
+ * @param {number} nominalMs - The wait's nominal bound, as for {@link withTimeout}.
+ * @returns {Promise<any>} What the command reported, whether or not it succeeded.
+ */
+export async function shellWithin(ops, command, nominalMs) {
+  const stop = new AbortController();
+  try {
+    return await withTimeout(ops.shell({ command, timeout: MAX_EXEC_TIMEOUT_MS }, stop.signal),
+      nominalMs, `\`${command}\` to return`);
+  } finally {
+    stop.abort();
+  }
 }
 
 // Re-export message factories for convenience in tests

@@ -16,6 +16,9 @@
  *   4. The picks outgrowing settings.json's cap on one value, which would have
  *      the server refuse the whole write.
  *   5. The window's own on/off not reaching the marks the border is drawn by.
+ *   6. The header button going dead once it has been moved: a narrow header's
+ *      "…" popup lends it by re-parenting it, which disconnects and reconnects
+ *      it, and only a narrow header (a phone's) ever does.
  *
  * Checked by eye instead: how the border looks, and that it follows the
  * window's corners (cmd/juggler-app's TestHostQueryCarriesTheCornerRadius
@@ -31,6 +34,7 @@ import {
   pickedProjectColour, projectColour, setProjectColour,
 } from '../../js/utils/project-colour.js';
 import { isWindowBorderOn, paintWindowBorder, setWindowBorder } from '../../js/utils/window-border.js';
+import '../../js/components/window-border-button.js';
 import {
   __resetPrefsForTests, adoptGlobalSettings, cachedMachinePref,
 } from '../../js/services/prefs.js';
@@ -201,6 +205,33 @@ export async function runTests() {
       await setWindowBorder(false);
       paintWindowBorder(target);
       eq(target.dataset.windowBorder, undefined, 'unmarked when off');
+    });
+
+    await run('the border button still opens its menu after it has been moved', async () => {
+      reset();
+      window.__projectKey = uniqueKey();
+      const row = document.createElement('div');
+      const strip = document.createElement('div');
+      document.body.append(row, strip);
+      const element = document.createElement('window-border-button');
+      row.append(element);
+      try {
+        // What the "…" popup does to lend it, and to give it back.
+        strip.append(element);
+        for (const where of ['lent', 'given back']) {
+          const button = /** @type {HTMLButtonElement|null} */ (element.querySelector('button'));
+          if (!button) throw new Error(`${where}: no button`);
+          button.click();
+          eq(button.getAttribute('aria-expanded'), 'true', `${where}: open after a press`);
+          eq(!!document.querySelector('.project-colour-menu'), true, `${where}: the menu is on the page`);
+          button.click();
+          eq(button.getAttribute('aria-expanded'), 'false', `${where}: closed after a second press`);
+          row.append(element);
+        }
+      } finally {
+        row.remove();
+        strip.remove();
+      }
     });
 
     await run('a page with no project is never framed', async () => {

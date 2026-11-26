@@ -55,6 +55,13 @@ class WindowBorderButton extends JugglerElement {
 
   connectedCallback() {
     this._build();
+    // Per connection, not in _build: the "…" popup lends the button by moving
+    // it, and every disconnect drains this element's listeners.
+    this.on(/** @type {HTMLButtonElement} */ (this._button), 'click', (e) => {
+      e.stopPropagation();
+      if (this._release) this._closeMenu();
+      else this._openMenu();
+    });
     this.onWindow(WINDOW_BORDER_EVENT, () => this.render());
     this.onWindow(PROJECT_COLOURS_EVENT, () => this.render());
     this.render();
@@ -78,11 +85,6 @@ class WindowBorderButton extends JugglerElement {
     btn.setAttribute('aria-haspopup', 'menu');
     btn.setAttribute('aria-expanded', 'false');
     btn.innerHTML = FRAME_SVG;
-    this.on(btn, 'click', (e) => {
-      e.stopPropagation();
-      if (this._release) this._closeMenu();
-      else this._openMenu();
-    });
     this.appendChild(btn);
     this._button = btn;
   }

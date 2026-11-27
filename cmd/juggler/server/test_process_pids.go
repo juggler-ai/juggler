@@ -67,7 +67,7 @@ func (s *Server) noteTestEngineQuiet(quiet bool) {
 	if s.testPool.engineQuietNoted.Swap(true) {
 		return
 	}
-	jlog.Info("[engine] quiet for %v", s.engineSilence().Round(time.Second))
+	jlog.Info("[engine] quiet for %v (%s)", s.engineSilence().Round(time.Second), s.lastEngineBeat(time.Now()))
 	if logPath := jlog.FilePath(); logPath != "" {
 		path := filepath.Join(filepath.Dir(logPath), "engine-quiet-"+time.Now().Format("20060102-150405")+"-goroutines.log")
 		if f, err := os.Create(path); err == nil {

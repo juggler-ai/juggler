@@ -69,7 +69,7 @@ var serverFrameTypedefs = []frameTypedef{
 	{entry: wireschema.Entry{Name: "AgentRunProgressFrame", Value: agentRunProgressFrame{}, Types: frameTypes(frameAgentRunProgress)}, out: true, in: true},
 	{entry: wireschema.Entry{Name: "AgentRunResultFrame", Value: agentRunResultFrame{}, Types: frameTypes(frameAgentRunResult)}, out: true, in: true},
 
-	{entry: wireschema.Entry{Name: "EngineHeartbeatFrame", Value: bareFrame{}, Types: frameTypes(frameEngineHeartbeat)}, in: true},
+	{entry: wireschema.Entry{Name: "EngineHeartbeatFrame", Value: EngineHeartbeat{}, Types: frameTypes(frameEngineHeartbeat)}, in: true},
 	{entry: wireschema.Entry{Name: "ViewerHeartbeatFrame", Value: bareFrame{}, Types: frameTypes(frameViewerHeartbeat)}, in: true},
 	{entry: wireschema.Entry{Name: "ViewerFaultFrame", Value: ViewerFault{}, Types: frameTypes(frameViewerFault)}, in: true},
 	{entry: wireschema.Entry{Name: "ShellStartFrame", Value: ShellStartRequest{}, Types: frameTypes(frameShellStart)}, in: true},

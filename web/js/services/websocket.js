@@ -256,6 +256,10 @@ class WebSocketService {
     this._lastInboundAt = 0;
     /** @type {number} @private - When something was last handed to the transport, as epoch ms. */
     this._lastOutboundAt = 0;
+    /** @type {number} @private - How many engine heartbeats this realm has tried to send. */
+    this._engineBeatSeq = 0;
+    /** @type {number} @private - How many of those the link refused before they reached the transport. */
+    this._engineBeatRefused = 0;
     /** @type {number} @private - When the current connection attempt started, as epoch ms. */
     this._connectStartedAt = 0;
     /**
@@ -1123,13 +1127,19 @@ class WebSocketService {
    * cannot be answered on behalf of an engine that has stopped.
    *
    * Silent: a beat that misses because the link is down is not news, and the
-   * reconnect path reports that already.
+   * reconnect path reports that already. Each beat is numbered and carries how
+   * many earlier ones the link refused, so the server can tell from a gap
+   * whether the beats were never sent (the timer did not fire), refused here, or
+   * sent and lost on the way.
    * @returns {boolean} True if sent
    */
   sendEngineHeartbeat() {
+    this._engineBeatSeq += 1;
     /** @type {import('../protocol/server-wire-types.gen.js').EngineHeartbeatFrame} */
-    const frame = { type: 'engine-heartbeat' };
-    return this._sendJson(frame, 'engine-heartbeat', { silent: true });
+    const frame = { type: 'engine-heartbeat', seq: this._engineBeatSeq, refused: this._engineBeatRefused };
+    const sent = this._sendJson(frame, 'engine-heartbeat', { silent: true });
+    if (!sent) this._engineBeatRefused += 1;
+    return sent;
   }
 
   /**

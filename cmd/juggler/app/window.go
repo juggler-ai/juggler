@@ -179,7 +179,7 @@ func runHeadlessServerApp(srv *server.Server, selected selectedEngineHost, relau
 //
 // shouldQuitLater answers every native quit (serverShouldQuitLater).
 func headlessServerAppOptions(shouldQuitLater func(decide func(quit bool))) application.Options {
-	return application.Options{
+	return withWailsLog(application.Options{
 		Name:        fmt.Sprintf("Juggler Server %d", os.Getpid()),
 		Description: "AI Code Agent",
 		// This process handles SIGINT/SIGTERM itself, in waitForExit, and owes
@@ -222,7 +222,7 @@ func headlessServerAppOptions(shouldQuitLater func(decide func(quit bool))) appl
 			DisabledFeatures:              serverWebViewDisabledFeatures,
 			DisableQuitOnLastWindowClosed: true,
 		},
-	}
+	})
 }
 
 // serverWebViewDisabledFeatures are the Chromium features turned off in the

@@ -202,10 +202,14 @@ func (s *Server) runRealtimeClientLoop(ctx context.Context, client RealtimeClien
 
 			switch frameType(generic.Type) {
 			case frameEngineHeartbeat:
-				// Liveness only; the stamp above is the whole effect. Sent from the
+				// Liveness; the stamp above is the effect that matters. Sent from the
 				// engine's module worker, the realm that must be running for a tool to
 				// execute, so it cannot be answered by a transport whose page has
-				// stopped (see engine_liveness.go).
+				// stopped (see engine_liveness.go). Its number is recorded so a gap
+				// in the beats can be explained.
+				if beat, ok := unmarshalWS[EngineHeartbeat](msgBytes, "engine-heartbeat"); ok {
+					s.noteEngineBeat(beat, time.Now())
+				}
 
 			case frameViewerHeartbeat:
 				// Liveness only, same as above: a viewer saying it is still there on a

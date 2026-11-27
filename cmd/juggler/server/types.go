@@ -30,6 +30,16 @@ type ViewerFault struct {
 	Detail  string    `json:"detail,omitempty"` // Anything else that narrows it down
 }
 
+// EngineHeartbeat is the engine's proof that its realm is running (see
+// engine_liveness.go). Seq numbers every beat the realm tried to send, and
+// Refused counts the earlier ones its own link refused, so a gap between two
+// beats the server heard says where the missing ones went.
+type EngineHeartbeat struct {
+	Type    frameType `json:"type"`              // "engine-heartbeat"
+	Seq     int64     `json:"seq,omitempty"`     // This beat's number in its realm, from 1
+	Refused int64     `json:"refused,omitempty"` // Beats before this one the link refused
+}
+
 // ShellStartRequest represents a request to start a streaming shell command
 type ShellStartRequest struct {
 	Type        frameType `json:"type"`                  // "shell-start"

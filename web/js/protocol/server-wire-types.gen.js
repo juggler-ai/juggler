@@ -279,9 +279,14 @@
  */
 
 /**
- * The same struct as HeartbeatFrame.
+ * EngineHeartbeat is the engine's proof that its realm is running (see
+ * engine_liveness.go). Seq numbers every beat the realm tried to send, and
+ * Refused counts the earlier ones its own link refused, so a gap between two
+ * beats the server heard says where the missing ones went.
  * @typedef {object} EngineHeartbeatFrame
  * @property {'engine-heartbeat'} type
+ * @property {number} [seq] - This beat's number in its realm, from 1
+ * @property {number} [refused] - Beats before this one the link refused
  */
 
 /**

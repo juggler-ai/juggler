@@ -137,13 +137,17 @@ export async function runTests() {
         `test setup (${label}): the row must run past the viewport bottom, or ` +
         'framing it has nothing to move');
 
+      // Stillness is read from the scroll offset, not the row's rect: the batch
+      // above put the on-screen rows into the insert animation's 10px glide,
+      // which a window that paints plays out between two rect readings.
+      const scrollBefore = list.scrollTop;
       el.click();
       assert(col.getSelectedItemId() === el.getAttribute('message-id'),
         `clicking ${label} should select it`);
       await twoFrames();
-      const after = el.getBoundingClientRect().top;
-      assert(Math.abs(after - before) < 2,
-        `clicking ${label} must not scroll, but the row moved ${after - before}px`);
+      const moved = list.scrollTop - scrollBefore;
+      assert(Math.abs(moved) < 2,
+        `clicking ${label} must not scroll, but the column scrolled ${moved}px`);
     }
 
     // Control: a programmatic (keyboard-path) selection of the same tail still

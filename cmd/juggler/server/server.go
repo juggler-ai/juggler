@@ -182,6 +182,9 @@ type wsFleet struct {
 	// as unix nanoseconds. An open socket is not proof (see engine_liveness.go),
 	// so this — not engineClient alone — is what IsEngineConnected answers from.
 	engineHeartbeatAt atomic.Int64
+	// engineLastBeat is the last engine-heartbeat heard and when, or nil before
+	// the first (see noteEngineBeat).
+	engineLastBeat atomic.Pointer[engineBeat]
 	// engineLivenessWindowNs overrides engineLivenessWindow when non-zero.
 	// Test-only seam, so a test need not wait out the production window.
 	engineLivenessWindowNs atomic.Int64

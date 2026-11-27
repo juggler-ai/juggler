@@ -1535,10 +1535,19 @@ class Session {
    *
    * The server makes it ephemeral — never in the session's list, order or cap —
    * and bound to the run, which tears it down when the run ends. So everything
-   * that announces or places a conversation is left out here: no local-create
-   * bracket (the server broadcasts nothing to bracket), no place in the tab bar
-   * or a workspace box, no `conversation:created`. It is only registered, so its
-   * worker's syncs find it and the engine's tools can run in it.
+   * that announces or places a conversation is left out here: no place in the
+   * tab bar or a workspace box, no `conversation:created`. It is only
+   * registered, so its worker's syncs find it and the engine's tools can run in
+   * it.
+   *
+   * The create is still bracketed as a local one. The server broadcasts no
+   * `created` for it, but its worker starts syncing as soon as the server has
+   * made it — before the response, so before `createNew` has adopted it — and
+   * the engine's auto-load would take that sync for a conversation it has
+   * never heard of and load it from disk. That load fails (there is nothing on
+   * disk to describe), and its failure terminates the worker the create is
+   * waiting on. The bracket is what holds the auto-load off until the create
+   * has adopted the conversation.
    * @param {{name?: string, agentRun: string, workspaceId?: string, strategyId?: string}} options -
    *   `name` labels it in logs; `agentRun` is the run it belongs to;
    *   `workspaceId` the tree it works in; `strategyId` the strategy it runs
@@ -1548,12 +1557,20 @@ class Session {
    */
   async createEphemeralConversation({ name = '', agentRun, workspaceId = '', strategyId = '' }) {
     const requestedName = name || markUntranslated('Agent run');
-    const response = await this._apiService.createConversation(requestedName, this._generateConversationId(), {
-      origin: 'agent-run',
-      ephemeral: true,
-      agentRun
-    });
-    const conversation = await workerManager.loader.createNew(response.id, response.name, this, { workspaceId, unplaced: true });
+    const requestedId = this._generateConversationId();
+    this.sync.beginLocalCreate(requestedId);
+    let response;
+    let conversation;
+    try {
+      response = await this._apiService.createConversation(requestedName, requestedId, {
+        origin: 'agent-run',
+        ephemeral: true,
+        agentRun
+      });
+      conversation = await workerManager.loader.createNew(response.id, response.name, this, { workspaceId, unplaced: true });
+    } finally {
+      this.sync.endLocalCreate(requestedId, response?.id);
+    }
     await seedCreationDefaults(this, conversation, { strategyId });
     await this.initialiseConversation(conversation, { workspaceId }, { atCreation: true });
     return conversation;

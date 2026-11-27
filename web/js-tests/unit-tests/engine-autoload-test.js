@@ -24,6 +24,7 @@
 import { assert, waitFor } from '../utilities/test-helpers.js';
 import { WorkerManager } from '../../js/services/worker-manager.js';
 import ConversationSyncReducer from '../../js/model/conversation-sync-reducer.js';
+import Session from '../../js/model/session.js';
 
 /**
  * @typedef {object} TestResult
@@ -226,6 +227,29 @@ export async function runTests(_ctx) {
     await pending;
     assert(probe.attempts() === 0, `the create brought the conversation up, so nothing is left to load; got ${probe.attempts()} loads`);
     assert(applied.length === 1, `the sync's bytes must reach the conversation the create adopted; ${applied.length} applied`);
+  });
+
+  await run('an agent run\'s create holds the auto-load off as an ordinary create does', async () => {
+    // The run's worker syncs while its create request is still out — before
+    // the response, so before anything has adopted the conversation — and an
+    // auto-load let through then fails and terminates that worker. The bracket
+    // is what stops it, so it must be open for as long as the request is.
+    /** @type {string[]} */
+    const seen = [];
+    const fakeApi = {
+      createConversation: async (/** @type {string} */ _name, /** @type {string} */ id) => {
+        seen.push(session.sync.whenLocalCreateSettles(id) ? 'bracketed' : 'open to the auto-load');
+        throw new Error('stop here: the request is all this case looks at');
+      }
+    };
+    const session = new Session(/** @type {any} */ (fakeApi));
+    try {
+      await session.createEphemeralConversation({ agentRun: 'run_probe' }).catch(() => {});
+      assert(seen.length === 1, `the create should have made one request; made ${seen.length}`);
+      assert(seen[0] === 'bracketed', `while the run's create request was out its conversation was ${seen[0]}`);
+    } finally {
+      session.destroy();
+    }
   });
 
   await run('and it loads as usual when the create adopted nothing', async () => {

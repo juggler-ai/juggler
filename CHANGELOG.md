@@ -26,6 +26,7 @@ the current release). The project follows semantic versioning.
 - Windows opening while the computer is busy no longer show "This session stopped"
 - "Preparing request" says when the engine is busy or slow, instead of looking stuck
 - On Windows, Ctrl+Shift+N opens one window, not two
+- Sub-agent runs no longer occasionally fail the moment they start
 - Settings → Project files can delete transaction records older than a chosen age
 - Claude models via OpenRouter use prompt caching, and show cache writes
 - Extension SDK: strategies can hide controls; extensions can ship identity presets

@@ -433,7 +433,7 @@ func runTestPoolWindowApp(srv *server.Server, devMode bool, headless bool, testI
 		}
 	}
 
-	app := application.New(application.Options{
+	app := application.New(withWailsLog(application.Options{
 		Name:        "Juggler",
 		Description: "AI Code Agent",
 		Icon:        appIcon,
@@ -465,7 +465,7 @@ func runTestPoolWindowApp(srv *server.Server, devMode bool, headless bool, testI
 			DisabledFeatures:      serverWebViewDisabledFeatures,
 			WebviewUserDataPath:   webview2DataPath,
 		},
-	})
+	}))
 	wa.app = app
 
 	// Place the window at the saved position+state during native window

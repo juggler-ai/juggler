@@ -15,7 +15,7 @@
  */
 
 import { runAgent } from '../../sdk/ops.js';
-import { budgetFor, deadlineTimer, noteCaseFinished, noteProgress } from './test-deadline.js';
+import { budgetFor, deadlineTimer, noteCaseFinished, noteProgress, testDeadlineMs } from './test-deadline.js';
 import workerManager from '../../js/services/worker-manager.js';
 import {
   initializeRegistries,
@@ -43,9 +43,8 @@ import {
 export const MODEL = { provider: 'test-provider', model: 'test-model' };
 
 /**
- * A run's nominal wait. Only its share of the test's deadline is meant: the
- * wait follows that deadline as the runner moves it for a suite still making
- * progress, so a slow core is waited for and a stuck run is not.
+ * A run's wait when no test deadline is armed. With one armed, a run may spend
+ * all of it (see {@link run}).
  */
 const RUN_NOMINAL_MS = 30000;
 
@@ -92,6 +91,14 @@ export function toolReply(calls, text = '') {
  * its own: the run is cancelled, and the case fails saying so, only once the
  * deadline has passed without moving. Each progress line the run reports is
  * progress of the test.
+ *
+ * The run is given the whole of the armed deadline, not the share of it an
+ * ordinary wait takes. Most of a run is invisible to the runner's progress
+ * stamp — the engine builds the run's conversation in its own realm, the run
+ * travels over the socket rather than `fetch`, and a turn that only speaks
+ * reports no progress line — so a share of the deadline is in effect a fixed
+ * span, which a slow core outruns. The case is waiting on nothing else, and the
+ * runner's own watchdog still reports a run that has stopped.
  * @param {Parameters<typeof runAgent>[0]} options - The run, as `runAgent` takes it
  * @param {AbortSignal} [signal] - The case's own cancel
  * @returns {Promise<Awaited<ReturnType<typeof runAgent>>>} The run's result
@@ -102,7 +109,7 @@ export async function run(options, signal) {
   if (signal?.aborted) controller.abort();
   signal?.addEventListener('abort', forward, { once: true });
   let expired = false;
-  const cancelTimer = deadlineTimer(() => { expired = true; controller.abort(); }, budgetFor(RUN_NOMINAL_MS));
+  const cancelTimer = deadlineTimer(() => { expired = true; controller.abort(); }, budgetFor(RUN_NOMINAL_MS, testDeadlineMs()));
   try {
     const result = await runAgent({
       ...options,

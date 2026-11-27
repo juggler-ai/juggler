@@ -5,6 +5,7 @@
 package server
 
 import (
+	"fmt"
 	"sync/atomic"
 	"time"
 
@@ -92,6 +93,48 @@ func engineTrafficProvesLiveness(generic GenericWSMessage) bool {
 // the code that opened it) and on every admissible inbound engine message.
 func (s *Server) noteEngineAlive() {
 	s.engineHeartbeatAt.Store(time.Now().UnixNano())
+}
+
+// engineBeat is one engine-heartbeat as heard: its number, the engine's count
+// of refused beats when it was sent, and when it arrived.
+type engineBeat struct {
+	seq, refused int64
+	at           time.Time
+}
+
+// noteEngineBeat records a heartbeat, and names a gap since the one before.
+//
+// A gap is either beats the engine never sent (its timer did not fire, so the
+// beat arrives late but next in sequence), beats its own link refused (a
+// disconnected socket; counted in Refused), or beats it handed to the
+// transport that never arrived — the case that puts the fault below the realm,
+// in the browser's socket path. Each is a different place to look, and only
+// the numbers tell them apart. A beat numbered no higher than the last is a
+// new realm counting from 1 again, which is no gap.
+func (s *Server) noteEngineBeat(beat EngineHeartbeat, now time.Time) {
+	prev := s.engineLastBeat.Swap(&engineBeat{seq: beat.Seq, refused: beat.Refused, at: now})
+	if prev == nil || beat.Seq <= prev.seq {
+		return
+	}
+	skipped := beat.Seq - prev.seq - 1
+	gap := now.Sub(prev.at)
+	if skipped == 0 && gap <= 2*engineHeartbeatInterval {
+		return
+	}
+	refused := min(max(beat.Refused-prev.refused, 0), skipped)
+	jlog.Info("[engine] heartbeat #%d came %v after #%d (one is sent every %v): of the %d between them, "+
+		"%d were refused by the engine's own link and %d were sent and never arrived",
+		beat.Seq, gap.Round(time.Millisecond), prev.seq, engineHeartbeatInterval, skipped, refused, skipped-refused)
+}
+
+// lastEngineBeat describes the last heartbeat heard, for a log line about
+// silence.
+func (s *Server) lastEngineBeat(now time.Time) string {
+	b := s.engineLastBeat.Load()
+	if b == nil {
+		return "no heartbeat heard yet"
+	}
+	return fmt.Sprintf("last heartbeat #%d, %v ago, with %d refused before it", b.seq, now.Sub(b.at).Round(time.Second), b.refused)
 }
 
 // livenessWindow is engineLivenessWindow unless a test has shortened it.
@@ -423,8 +466,8 @@ func (s *Server) evictSilentEngine(now time.Time, silence time.Duration) {
 	}
 	s.engineEvictedAt.Store(now.UnixNano())
 	jlog.Error("[engine] evicting a silent engine after %v with no word from its realm, counted while its "+
-		"scheduling tier was run (%v by the clock; client=%s, queued writes: %d); closing the socket so it reconnects",
+		"scheduling tier was run (%v by the clock; %s; client=%s, queued writes: %d); closing the socket so it reconnects",
 		silence.Round(time.Second), now.Sub(time.Unix(0, s.engineHeartbeatAt.Load())).Round(time.Second),
-		client.ClientID(), client.QueuedWrites())
+		s.lastEngineBeat(now), client.ClientID(), client.QueuedWrites())
 	client.Close()
 }

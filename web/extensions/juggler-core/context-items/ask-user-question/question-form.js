@@ -61,7 +61,7 @@ injectStylesOnce('ask-question-note-styles', `
   flex-direction: column;
   gap: var(--space-2);
   margin-top: var(--space-6);
-  padding-left: calc(1rem + var(--space-8));
+  padding-left: calc(var(--space-16) + var(--space-8));
 }
 
 .ask-question-note-text {

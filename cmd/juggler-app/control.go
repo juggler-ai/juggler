@@ -390,14 +390,17 @@ var windowActions = map[string]controlAction{
 // in it is the reason to detach a board at all — and comes back when the
 // window it belonged to does.
 //
-// A window on a server by URL gets the same new window as any other, on its
-// own server: that server's page, where the user picks one of its projects.
-// The project the query names is not taken — it is a path on another machine,
-// and any new window on this machine's server would be this machine's — so
-// such a window can open windows onto nothing but the server it already shows.
-// Nor are the theme, mode and zoom such a page hands over: they are that
-// machine's, and the new window's header is this machine's sessions page,
-// which wears this machine's own.
+// A window on a server by URL opens its new window on its own server: that
+// server's page, where the user picks one of its projects. The project the
+// query names is a path on that server's machine, never a folder of this
+// one's, so it is filed with the new window as the project it shows there
+// (windowSpec.remoteProject); the page opens that project's session there by
+// its path as a relaunch's does (controlReopen), and no conversation is
+// carried. A main window on that server already filed with the project is
+// raised instead (raiseRemoteProjectWindow), as on this machine's server.
+// The theme, mode and zoom such a page hands over are not taken: they are
+// that machine's, and the new window's header is this machine's sessions
+// page, which wears this machine's own.
 func (a *appState) controlNewWindow(w http.ResponseWriter, r *http.Request, e *winEntry) {
 	opts := windowOptsFromQuery(r.URL.Query())
 	if callerOf(r).remote && !opts.isPinboard() {
@@ -423,7 +426,12 @@ func (a *appState) controlNewWindow(w http.ResponseWriter, r *http.Request, e *w
 		return
 	}
 	if ok && spec.isURL() {
-		openNewWindow(a, windowSpec{url: spec.url, connected: spec.connected}, opts)
+		next := windowSpec{url: spec.url, connected: spec.connected, remoteProject: strings.TrimSpace(r.URL.Query().Get("project"))}
+		if a.raiseRemoteProjectWindow(e, next, linkedOpts(r).linkedConversation) {
+			writeJSON(w, http.StatusOK, map[string]any{"raised": true})
+			return
+		}
+		openNewWindow(a, next, opts)
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -546,14 +554,33 @@ func (a *appState) raiseProjectWindow(e *winEntry, spec windowSpec, conversation
 	if spec.project == "" {
 		return false
 	}
+	return a.raiseMainWindow(e, conversation, func(s windowSpec) bool { return s.sameView(spec) })
+}
+
+// raiseRemoteProjectWindow raises the main window other than e on spec's
+// server by URL that is filed with spec.remoteProject — showing that project's
+// session there, or opening it — at conversation (raiseWindow), and reports
+// whether there was one.
+func (a *appState) raiseRemoteProjectWindow(e *winEntry, spec windowSpec, conversation string) bool {
+	if spec.remoteProject == "" {
+		return false
+	}
+	return a.raiseMainWindow(e, conversation, func(s windowSpec) bool {
+		return s.url == spec.url && s.remoteProject == spec.remoteProject
+	})
+}
+
+// raiseMainWindow raises the oldest main window other than e whose spec
+// matches, at conversation (raiseWindow), and reports whether there was one.
+// The oldest, so the same window answers every time.
+func (a *appState) raiseMainWindow(e *winEntry, conversation string, matches func(windowSpec) bool) bool {
 	var match *winEntry
 	a.reg(func(st *regState) {
 		best := -1
 		for _, w := range st.windows {
-			if w == e || w.role != roleMain || !w.view.spec.sameView(spec) {
+			if w == e || w.role != roleMain || !matches(w.view.spec) {
 				continue
 			}
-			// The oldest, so the same window answers every time.
 			if n := winNum(w.id); match == nil || n < best {
 				best, match = n, w
 			}

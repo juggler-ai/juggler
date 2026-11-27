@@ -513,9 +513,11 @@ class APIService {
 
   /**
    * Open a new desktop window: on the server's page, where a project is
-   * chosen, or onto a project of this machine's server, at one of its
+   * chosen, or onto a project of this window's server, at one of its
    * conversations — unless a window already shows that project, which the app
-   * raises at the conversation instead. Only works in the native desktop app,
+   * raises at the conversation instead. On a server by URL the project is a
+   * path on that server's machine, whose session the new window's page opens
+   * there, on no particular conversation. Only works in the native desktop app,
    * which handles it via its loopback nativeCtl endpoint by opening another
    * in-process window; a plain browser tab has no native host, so this is a
    * no-op there.

@@ -14,8 +14,8 @@ import (
 // possibly on another machine. The project paths its page offers are paths on
 // that machine, so the app cannot open one of them in a window of its own: it
 // would spawn a local server for a folder that is not here. The page is told
-// which kind of window it is, so it switches in place as a browser would, and
-// a new window it asks for opens on its own server, whatever project it names.
+// which kind of window it is, and a new window it asks for opens on its own
+// server, filed with the project it names there.
 
 func TestWindowPageURLMarksAWindowOnAnExternalServer(t *testing.T) {
 	if q := query(t, windowOpts{external: true}); q.Get("external") != "1" {
@@ -26,23 +26,53 @@ func TestWindowPageURLMarksAWindowOnAnExternalServer(t *testing.T) {
 	}
 }
 
-func TestAWindowOnAnExternalServerCannotOpenAProjectInANewWindow(t *testing.T) {
+// TestAWindowOnAnExternalServerOpensItsProjectInANewWindowThere: a project a
+// window on a server by URL asks a new window for is a path on that server's
+// machine, so the new window is that server's, filed with the project
+// (windowSpec.remoteProject) — which its page opens there, as a relaunch's does
+// (controlReopen) — and never a local server's for a folder that is not here.
+// One project there has one window: a main window on the same server already
+// filed with it is raised instead. One on another server, or this machine's
+// window of a folder by the same path, is not that project's.
+func TestAWindowOnAnExternalServerOpensItsProjectInANewWindowThere(t *testing.T) {
 	var got []windowSpec
 	saved := openNewWindow
 	openNewWindow = func(_ *appState, spec windowSpec, _ windowOpts) { got = append(got, spec) }
 	t.Cleanup(func() { openNewWindow = saved })
+	var raised []string
+	savedRaise := raiseWindow
+	raiseWindow = func(e *winEntry, conversation string) { raised = append(raised, e.id+" "+conversation) }
+	t.Cleanup(func() { raiseWindow = savedRaise })
 
 	a := newTestAppState(t)
-	remote := windowSpec{url: "http://remote:8080"}
-	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: remote, serverURL: "http://remote:8080"}})
+	const server = "http://remote:8080"
+	remote := windowSpec{url: server}
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: remote, serverURL: server + "/p/beta-0123abcd"}})
+	registerWindow(a, &winEntry{id: "w2", role: roleMain, view: windowView{spec: windowSpec{url: "http://other:8080", remoteProject: "/home/remote/proj"}}})
+	registerWindow(a, &winEntry{id: "w3", role: roleMain, view: windowView{spec: windowSpec{project: "/home/remote/proj"}}})
 
-	rec := controlRequest(a, http.MethodPost, "/win/w1/new?project=%2Fhome%2Fremote%2Fproj")
-
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
+	post := func(query string) int {
+		return controlRequest(a, http.MethodPost, "/win/w1/new?"+query).Code
 	}
-	if len(got) != 1 || got[0] != remote {
-		t.Fatalf("opened %+v; want one window on %+v — a remote path must not spawn a local server", got, remote)
+	if code := post("project=%2Fhome%2Fremote%2Fproj"); code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", code, http.StatusNoContent)
+	}
+	want := windowSpec{url: server, remoteProject: "/home/remote/proj"}
+	if len(got) != 1 || got[0] != want || len(raised) != 0 {
+		t.Fatalf("opened %+v, raised %v; want one window on %+v", got, raised, want)
+	}
+	got = nil
+	if code := post(""); code != http.StatusNoContent || len(got) != 1 || got[0] != remote {
+		t.Fatalf("no project: %d, opened %+v; want one window on the server's page, %+v", code, got, remote)
+	}
+
+	got = nil
+	registerWindow(a, &winEntry{id: "w4", role: roleMain, view: windowView{spec: want, serverURL: server + "/p/proj-0123abcd"}})
+	if code := post("project=%2Fhome%2Fremote%2Fproj&conversation=conv_abc123"); code != http.StatusOK || len(got) != 0 {
+		t.Fatalf("a project with a window: %d, opened %+v; want 200 and no window", code, got)
+	}
+	if len(raised) != 1 || raised[0] != "w4 conv_abc123" {
+		t.Fatalf("raised %v; want w4, at conv_abc123", raised)
 	}
 }
 

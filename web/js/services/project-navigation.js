@@ -18,9 +18,10 @@
  *   this one as it was. A refusal is shown.
  *   Leaving a project this way is closing its window: an idle session retires
  *   once no window shows it, a busy one runs on.
- * - A new window asked for (⌘-click, ⌘↵) on this machine's server: the app
- *   opens one onto the project, or raises the one already on it. A window on a
- *   server by URL may open no window onto a project, so it attaches.
+ * - A new window asked for (⌘-click, ⌘↵) in a desktop window: the app opens
+ *   one onto the project, or raises the one already on it. On a server by URL
+ *   that window is the server's, and its page opens the project's session
+ *   there, by its path on that server's machine.
  * - A browser tab: this page goes to the project's link, `?c=` naming the
  *   conversation, as the sessions page's own links go; a new window asked for
  *   is a tab of its own.
@@ -178,7 +179,7 @@ export async function goTo(to, deps = {}) {
   }
 
   // This window stays as it is: nothing to flush.
-  if (to.newWindow && surface === 'local') {
+  if (to.newWindow) {
     await newWindow({ project: to.project, conversation });
     return;
   }

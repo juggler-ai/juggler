@@ -155,11 +155,6 @@ export async function runTests() {
       await goTo(alpha, w.deps);
       same(w.log, [['flush'], attached], surface);
     }
-    // A window on a server by URL can open no window onto a project, so a new
-    // one asked for there is this one.
-    const url = world('url');
-    await goTo({ ...alpha, newWindow: true }, url.deps);
-    same(url.log, [['flush'], attached], 'url ⌘-click');
   });
 
   await test('a project open in another window is raised, and this one stays as it is', async () => {
@@ -190,10 +185,14 @@ export async function runTests() {
     same(tab.log, [['assign', pageURL('/')]], 'tab');
   });
 
-  await test('a new window asked for on this machine\'s server is the app\'s', async () => {
-    const w = world('local');
-    await goTo({ ...alpha, newWindow: true }, w.deps);
-    same(w.log, [['window', '/work/alpha', 'conv_a1']], '⌘-click');
+  // On a server by URL the project is a path on that server's machine, which
+  // the app opens a window of that server's onto; this window stays as it is.
+  await test('a new window asked for in a desktop window is the app\'s', async () => {
+    for (const surface of /** @type {const} */ (['local', 'url'])) {
+      const w = world(surface);
+      await goTo({ ...alpha, newWindow: true }, w.deps);
+      same(w.log, [['window', '/work/alpha', 'conv_a1']], `${surface} ⌘-click`);
+    }
   });
 
   return { passed, failed, errors };

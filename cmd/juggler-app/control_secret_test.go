@@ -216,10 +216,10 @@ func TestARemoteWindowsSecretReachesOnlyItsOwnWindow(t *testing.T) {
 
 // TestARemoteWindowOpensWindowsOnlyOntoItsOwnServer: a window on a server by
 // URL opens a new window as any window does — New Window, ⇧⌘N, the header's
-// button — and it opens on that same server's page, whatever project the
-// request names; a board of one of its own conversations opens on that server
-// too. Nothing it asks for opens this machine's server's page or a project
-// path.
+// button — and it opens on that same server's page, a project the request
+// names filed as that server's project (remoteProject); a board of one of its
+// own conversations opens on that server too. Nothing it asks for opens this
+// machine's server's page or a project path here.
 func TestARemoteWindowOpensWindowsOnlyOntoItsOwnServer(t *testing.T) {
 	type opened struct {
 		spec windowSpec
@@ -234,18 +234,20 @@ func TestARemoteWindowOpensWindowsOnlyOntoItsOwnServer(t *testing.T) {
 	remote := windowSpec{url: "http://devbox:3939", connected: true}
 	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: remote, serverURL: remote.url + "/p/proj-0123abcd"}})
 
-	for _, action := range []string{
-		"new",
-		"new?project=%2Ftmp",
-		"new?view=frobnicate&project=%2Ftmp",
+	there := remote
+	there.remoteProject = "/tmp"
+	for action, want := range map[string]windowSpec{
+		"new":                                remote,
+		"new?project=%2Ftmp":                 there,
+		"new?view=frobnicate&project=%2Ftmp": there,
 	} {
 		got = nil
 		if rec := controlAs(a, "w1", "w1", action); rec.Code != http.StatusNoContent {
 			t.Errorf("a remote window's %s = %d, want 204", action, rec.Code)
 			continue
 		}
-		if len(got) != 1 || got[0].spec != remote || got[0].opts.isPinboard() || got[0].opts.openedBy != "" {
-			t.Errorf("a remote window's %s opened %+v; want one main window on %+v", action, got, remote)
+		if len(got) != 1 || got[0].spec != want || got[0].opts.isPinboard() || got[0].opts.openedBy != "" {
+			t.Errorf("a remote window's %s opened %+v; want one main window on %+v", action, got, want)
 		}
 	}
 

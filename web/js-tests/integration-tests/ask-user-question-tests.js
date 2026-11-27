@@ -441,11 +441,83 @@ const askUserQuestionCustomAnswerTest = {
   }
 };
 
+/**
+ * A note typed beside a picked option travels with it: the pick stays the
+ * answer and the model reads the note on its own line beneath it.
+ * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
+ */
+const askUserQuestionOptionWithNoteTest = {
+  name: 'ask-user-question-option-with-note',
+  description: 'AskUserQuestion should submit a note together with the picked option',
+  fixture: 'unit-test-fixture',
+
+  llmResponses: [
+    toolUseResponse(
+      'call_1',
+      'AskUserQuestion',
+      {
+        questions: [{
+          question: 'Which approach should we use?',
+          header: 'Approach',
+          options: [
+            { label: 'Option A', description: 'First approach' },
+            { label: 'Option B', description: 'Second approach' }
+          ],
+          multiSelect: false
+        }]
+      },
+      'Let me ask about the approach.'
+    ),
+    textResponse('Option A, keeping the hook private.')
+  ],
+
+  operations: [
+    { type: 'send-message', message: 'Help me decide' },
+    { type: 'wait-for-approval', toolUseId: 'call_1' },
+    { type: 'click-dom', selector: '.question-option-btn', text: 'Option A' },
+    // The note row only shows once a preset is picked.
+    { type: 'set-dom-value', selector: '.ask-question-note:not([hidden]) .ask-question-note-field', value: 'Keep the runtime reader hook private.' },
+    { type: 'click-dom', selector: '.multi-question-submit' },
+    { type: 'wait-for-idle' }
+  ],
+
+  expectedDocument: {
+    items: [
+      { type: 'system-prompt', itemId: '$ITEM_1' },
+      { type: 'user', content: 'Help me decide' },
+      { type: 'assistant', content: 'Let me ask about the approach.' },
+      {
+        type: 'tool-action',
+        toolUseId: '$TOOL_1',
+        toolName: 'AskUserQuestion',
+        toolInput: {
+          questions: [{
+            header: 'Approach',
+            multiSelect: false,
+            options: [
+              { description: 'First approach', label: 'Option A' },
+              { description: 'Second approach', label: 'Option B' }
+            ],
+            question: 'Which approach should we use?'
+          }]
+        },
+        state: 'completed',
+        result: {
+          content: 'Approach: Option A\n  Note: Keep the runtime reader hook private.',
+          isError: false
+        }
+      },
+      { type: 'assistant', content: 'Option A, keeping the hook private.' }
+    ]
+  }
+};
+
 // Export all tests
 export const tests = [
   askUserQuestionAnswerFlowTest,
   askUserQuestionMultipleQuestionsTest,
   askUserQuestionNoAutoSubmitTest,
   askUserQuestionMultiSelectTest,
-  askUserQuestionCustomAnswerTest
+  askUserQuestionCustomAnswerTest,
+  askUserQuestionOptionWithNoteTest
 ];

@@ -6,6 +6,8 @@ the current release). The project follows semantic versioning.
 
 ## [Unreleased]
 
+- Question cards let you add a note to the option you pick
+
 ## [0.8.3] - 2026-11-26
 
 - Import Claude Code, Codex, Pi and OpenCode conversations on first launch.

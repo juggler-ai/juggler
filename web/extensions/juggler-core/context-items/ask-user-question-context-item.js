@@ -82,7 +82,18 @@ function optionRow(label, description, selected, extraClass = '') {
 /**
  * @typedef {object} AskUserQuestionResult
  * @property {Record<string, string|string[]>} answers - User's answers keyed by question header
+ * @property {Record<string, string>} [notes] - Notes the user attached to a picked option, keyed by question header; absent when none
  */
+
+/**
+ * Render a question's note for the model: indented under its answer, every line
+ * of it, so a multi-line note can't read as another question's answer.
+ * @param {string} note - The user's note
+ * @returns {string} The note line(s)
+ */
+function noteLineForModel(note) {
+  return `  Note: ${note.split('\n').join('\n  ')}`;
+}
 
 /**
  * AskUserQuestionContextItem - Ask the user questions during execution
@@ -275,20 +286,28 @@ class AskUserQuestionContextItem extends ContextItem {
    * before execution. This is the elicitation half of {@link INTERACTION_KIND}:
    * the response string carries the answer, not a verdict.
    *
-   * The form submits a JSON-encoded answers object; a bare single-question
-   * resolution (a lone selected label) is the fallback, keyed under the first
-   * question's header.
+   * The form submits a JSON `{answers, notes?}` envelope. A flat JSON answers
+   * object (what a test or program resolves with) and a bare single-question
+   * resolution (a lone selected label, keyed under the first question's header)
+   * are read too. An envelope is told from a flat object by `answers` holding
+   * an object: a flat object's values are only ever strings or arrays.
    * @override
    * @param {Record<string, unknown>} toolInput - Original tool input
    * @param {string} response - The resolveApproval response string
-   * @returns {Record<string, unknown>} Tool input with `answers` populated
+   * @returns {Record<string, unknown>} Tool input with `answers` (and any `notes`) populated
    */
   static applyApprovalResponse(toolInput, response) {
     if (!response) return toolInput;
     let answers;
     try {
-      // Multi-question: response is a JSON-encoded answers object.
       answers = JSON.parse(response);
+      const envelope = answers?.answers;
+      if (envelope && typeof envelope === 'object' && !Array.isArray(envelope)) {
+        const notes = answers.notes;
+        return notes && typeof notes === 'object'
+          ? { ...toolInput, answers: envelope, notes }
+          : { ...toolInput, answers: envelope };
+      }
     } catch {
       // Single-question: response is the selected label.
       const questions = /** @type {Array<{header?: string}>|undefined} */ (toolInput.questions);
@@ -308,8 +327,9 @@ class AskUserQuestionContextItem extends ContextItem {
   async execute(params) {
     // The answers should be populated by the UI approval flow
     const answers = /** @type {Record<string, string|string[]>} */ (params.answers || {});
+    const notes = /** @type {Record<string, string>|undefined} */ (params.notes);
 
-    return { answers };
+    return notes && Object.keys(notes).length ? { answers, notes } : { answers };
   }
 
   /**
@@ -324,9 +344,10 @@ class AskUserQuestionContextItem extends ContextItem {
 
     const result = /** @type {AskUserQuestionResult} */ (outcome.result);
     const answers = result.answers || {};
+    const notes = result.notes || {};
 
-    // Format answers for LLM: the headers and answers are data; the empty
-    // case is the model's English.
+    // Format answers for LLM: the headers, answers and notes are data; the
+    // "Note:" tag and the empty case are the model's English.
     const lines = [];
     for (const [header, answer] of Object.entries(answers)) {
       if (Array.isArray(answer)) {
@@ -334,6 +355,8 @@ class AskUserQuestionContextItem extends ContextItem {
       } else {
         lines.push(`${header}: ${answer}`);
       }
+      const note = notes[header];
+      if (note) lines.push(noteLineForModel(note));
     }
 
     return this.successSummary(lines.join('\n') || markUntranslated('No answers provided'));
@@ -372,10 +395,13 @@ class AskUserQuestionContextItem extends ContextItem {
       success: () => {
         const result = /** @type {AskUserQuestionResult} */ (actionStatus?.result);
         const answerEntries = Object.entries(result.answers || {});
-        // One answer is shown as the user gave it, under its header: all data.
+        // One answer is shown as the user gave it, under its header, with any
+        // note after a dash: all data.
         if (answerEntries.length === 1) {
           const [header, answer] = /** @type {[string, string | string[]]} */ (answerEntries[0]); // bounded: length===1
-          return `${header}: ${Array.isArray(answer) ? answer.join(', ') : answer}`;
+          const line = `${header}: ${Array.isArray(answer) ? answer.join(', ') : answer}`;
+          const note = result.notes?.[header];
+          return note ? `${line} — ${note}` : line;
         }
         return answerEntries.length > 1
           ? t('{count, plural, one {Answered # question} other {Answered # questions}}', { count: answerEntries.length })
@@ -402,10 +428,11 @@ class AskUserQuestionContextItem extends ContextItem {
    * Build the expandable details element showing questions, options, and answers.
    * @param {Question[]} questions - The questions that were asked
    * @param {Record<string, string|string[]>} answers - User's answers keyed by header
+   * @param {Record<string, string>} [notes] - User's notes keyed by header
    * @returns {HTMLElement} Details element
    * @private
    */
-  _buildDetailsElement(questions, answers) {
+  _buildDetailsElement(questions, answers, notes = {}) {
     const container = document.createElement('div');
     container.className = 'ask-user-question-details';
 
@@ -442,6 +469,23 @@ class AskUserQuestionContextItem extends ContextItem {
       }
 
       questionBlock.appendChild(optionsList);
+
+      // The note the user attached to their pick, beneath the options (styled
+      // by the sheet question-form.js injects).
+      const note = notes[q.header];
+      if (note) {
+        const noteBlock = document.createElement('div');
+        noteBlock.className = 'ask-question-note-detail';
+        const noteLabel = document.createElement('span');
+        noteLabel.className = 'ask-question-note-label caps-label';
+        noteLabel.textContent = t('Note');
+        const noteText = document.createElement('span');
+        noteText.className = 'ask-question-note-text';
+        noteText.textContent = note;
+        noteBlock.append(noteLabel, noteText);
+        questionBlock.appendChild(noteBlock);
+      }
+
       container.appendChild(questionBlock);
     }
 
@@ -464,10 +508,10 @@ class AskUserQuestionContextItem extends ContextItem {
     // (`fullResult.result.answers`), never from the model's "Header: a, b"
     // text, which a header or answer holding ": " or ", " makes ambiguous.
     const fullResult = toolActionResultField(toolAction, 'fullResult');
-    /** @type {Record<string, string|string[]>} */
-    const answers = /** @type {AskUserQuestionResult|undefined} */ (fullResult?.result)?.answers || {};
+    const stored = /** @type {AskUserQuestionResult|undefined} */ (fullResult?.result);
+    const answers = stored?.answers || {};
     const section = ctx.helpers.labeledSubsection(t('Questions'));
-    section.appendChild(this._buildDetailsElement(questions, answers));
+    section.appendChild(this._buildDetailsElement(questions, answers, stored?.notes));
     wrapper.appendChild(section);
     return { skipResultSection: true };
   }

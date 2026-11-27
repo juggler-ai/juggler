@@ -28,6 +28,7 @@ const CORE_TEXT = [
   'No answer provided', 'Cancelled',
   '{count, plural, one {# question} other {# questions}}',
   'Submit', 'Cancel', 'Type another answer…', 'Type a different answer…',
+  'Note', 'Add a note…',
 ];
 
 /**
@@ -58,14 +59,40 @@ function find(root, selector, type) {
  * The tool-action `result` the action pipeline stores for these answers: the
  * model's text (as getSummary writes it) beside the structured record.
  * @param {Record<string, string|string[]>} answers - Answers keyed by header
- * @returns {{content: string, fullResult: {result: {answers: Record<string, string|string[]>}}}} The stored result
+ * @param {Record<string, string>} [notes] - Notes keyed by header, when any
+ * @returns {{content: string, fullResult: {result: {answers: Record<string, string|string[]>, notes?: Record<string, string>}}}} The stored result
  */
-function storedResult(answers) {
+function storedResult(answers, notes) {
   const item = new AskUserQuestionContextItem(/** @type {any} */ ({
     id: 'test', session: {}, conversation: {}, messageThread: {}
   }));
-  const content = String(item.getSummary(/** @type {any} */ ({ success: true, result: { answers } })).summary);
-  return { content, fullResult: { result: { answers } } };
+  const result = notes ? { answers, notes } : { answers };
+  const content = String(item.getSummary(/** @type {any} */ ({ success: true, result })).summary);
+  return { content, fullResult: { result } };
+}
+
+/**
+ * Render the details view and return the note text drawn for each question,
+ * in question order ('' where a question shows none).
+ * @param {Question[]} questions - Question definitions
+ * @param {Record<string, string|string[]>} answers - The stored answers
+ * @param {Record<string, string>} [notes] - The stored notes
+ * @returns {string[]} The note text per question
+ */
+function renderNotes(questions, answers, notes) {
+  const item = new AskUserQuestionContextItem(/** @type {any} */ ({
+    id: 'test', session: {}, conversation: {}, messageThread: {}
+  }));
+  const wrapper = document.createElement('div');
+  /** @type {any} */ (item).renderToolActionDetails(wrapper, {
+    toolAction: { get: (/** @type {string} */ key) => (key === 'result' ? storedResult(answers, notes) : undefined) },
+    toolName: 'askuserquestion',
+    input: { questions },
+    helpers: { labeledSubsection },
+    conversation: null, messageThread: null, session: null, selectedItemId: 'test'
+  });
+  return Array.from(wrapper.querySelectorAll('.question-block'))
+    .map(block => block.querySelector('.ask-question-note-text')?.textContent ?? '');
 }
 
 /**
@@ -170,13 +197,25 @@ function makeThread() {
 }
 
 /**
+ * What a form submitted through `thread`, parsed: the `{answers, notes?}`
+ * envelope the form always sends.
+ * @param {ThreadStub} thread - The thread stub the form resolved through
+ * @returns {{answers: Record<string, string|string[]>, notes?: Record<string, string>}} The submission
+ */
+function submission(thread) {
+  if (thread.lastResolve === null) throw new Error('the form submitted nothing');
+  const parsed = JSON.parse(thread.lastResolve);
+  if (!parsed || typeof parsed.answers !== 'object') throw new Error(`expected an {answers} envelope, got ${thread.lastResolve}`);
+  return parsed;
+}
+
+/**
  * The answers a form submitted through `thread`, parsed.
  * @param {ThreadStub} thread - The thread stub the form resolved through
  * @returns {Record<string, string|string[]>} The submitted answers
  */
 function submitted(thread) {
-  if (thread.lastResolve === null) throw new Error('the form submitted nothing');
-  return JSON.parse(thread.lastResolve);
+  return submission(thread).answers;
 }
 
 /**
@@ -433,7 +472,7 @@ export async function runTests() {
     const field = find(form, '.question-custom-field', window.HTMLTextAreaElement);
     typeCustom(form, 'typed and entered');
     pressEnter(field);
-    assert(thread.lastResolve !== null && JSON.parse(thread.lastResolve).Choice === 'typed and entered',
+    assert(thread.lastResolve !== null && submitted(thread).Choice === 'typed and entered',
       `expected Enter to submit the typed answer, got ${thread.lastResolve}`);
   });
 
@@ -505,6 +544,151 @@ export async function runTests() {
     assert(custom === null, `expected no custom-answer row, got ${JSON.stringify(custom)}`);
   });
 
+  // --- A note attached to a picked option ----------------------------------
+
+  /**
+   * @param {HTMLElement} form - The form
+   * @param {string} text - Text to type into the first question's note
+   * @param {number} [index] - Which question's note
+   */
+  const typeNote = (form, text, index = 0) => {
+    const field = form.querySelectorAll('.ask-question-note-field')[index];
+    if (!(field instanceof window.HTMLTextAreaElement)) throw new Error(`no note field #${index}`);
+    field.value = text;
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  /**
+   * @param {HTMLElement} form - The form
+   * @param {number} [index] - Which question's note
+   * @returns {boolean} Whether that question's note row is shown
+   */
+  const noteShown = (form, index = 0) => {
+    const row = form.querySelectorAll('.ask-question-note')[index];
+    if (!(row instanceof HTMLElement)) throw new Error(`no note row #${index}`);
+    return !row.hidden;
+  };
+
+  check('the note is hidden until a preset is picked', () => {
+    const form = buildForm(singleQuestions, 'tu_note_hidden', makeThread());
+    assert(!noteShown(form), 'note row must be hidden with nothing picked');
+    click(form, 'Alpha');
+    assert(noteShown(form), 'note row must show once a preset is picked');
+  });
+
+  check('a note keeps the pick and is submitted beside it', () => {
+    const thread = makeThread();
+    const form = buildForm(singleQuestions, 'tu_note_submit', thread);
+    click(form, 'Alpha');
+    typeNote(form, '  Keep the hook private.  ');
+    assert(selectedLabels(form).join(',') === 'Alpha',
+      `typing a note must not deselect the pick, got ${selectedLabels(form).join(',')}`);
+    find(form, '.multi-question-submit', window.HTMLButtonElement).click();
+    const sent = submission(thread);
+    assert(sent.answers.Choice === 'Alpha', `expected the pick, got ${thread.lastResolve}`);
+    assert(sent.notes?.Choice === 'Keep the hook private.', `expected the trimmed note, got ${thread.lastResolve}`);
+  });
+
+  check('a blank note is left out of the submission', () => {
+    const thread = makeThread();
+    const form = buildForm(singleQuestions, 'tu_note_blank', thread);
+    click(form, 'Beta');
+    typeNote(form, '   ');
+    find(form, '.multi-question-submit', window.HTMLButtonElement).click();
+    assert(submission(thread).notes === undefined, `expected no notes, got ${thread.lastResolve}`);
+  });
+
+  check('a note survives a form rebuild', () => {
+    const thread = makeThread();
+    const form1 = buildForm(singleQuestions, 'tu_note_rebuild', thread);
+    click(form1, 'Alpha');
+    typeNote(form1, 'still here');
+    const form2 = buildForm(singleQuestions, 'tu_note_rebuild', thread);
+    assert(noteShown(form2), 'restored pick must show the note row');
+    assert(find(form2, '.ask-question-note-field', window.HTMLTextAreaElement).value === 'still here',
+      'note should be restored from the draft after a rebuild');
+  });
+
+  check('typing your own answer hides the note and drops it from the submission', () => {
+    const thread = makeThread();
+    const form = buildForm(singleQuestions, 'tu_note_custom', thread);
+    click(form, 'Alpha');
+    typeNote(form, 'a condition');
+    typeCustom(form, 'neither, do this');
+    assert(!noteShown(form), 'note row must hide once your own answer replaces the pick');
+    find(form, '.multi-question-submit', window.HTMLButtonElement).click();
+    const sent = submission(thread);
+    assert(sent.answers.Choice === 'neither, do this' && sent.notes === undefined,
+      `expected the typed answer and no note, got ${thread.lastResolve}`);
+  });
+
+  check('a note alone does not answer the question', () => {
+    const thread = makeThread();
+    const form = buildForm(singleQuestions, 'tu_note_alone', thread);
+    click(form, 'Alpha');
+    typeNote(form, 'note');
+    click(form, 'Alpha'); // single-select: re-clicking keeps it picked
+    const submit = find(form, '.multi-question-submit', window.HTMLButtonElement);
+    assert(!submit.disabled, 'a picked option answers the question');
+    const multiForm = buildForm(multiQuestions, 'tu_note_alone_multi', makeThread());
+    click(multiForm, 'Messages');
+    typeNote(multiForm, 'note');
+    click(multiForm, 'Messages'); // untick: nothing picked now
+    assert(!noteShown(multiForm), 'note row must hide when the last pick is removed');
+    assert(find(multiForm, '.multi-question-submit', window.HTMLButtonElement).disabled,
+      'a note with nothing picked must not satisfy the question');
+  });
+
+  check('Enter in the note submits; Shift+Enter does not', () => {
+    const thread = makeThread();
+    const form = buildForm(singleQuestions, 'tu_note_enter', thread);
+    click(form, 'Beta');
+    typeNote(form, 'line');
+    const field = find(form, '.ask-question-note-field', window.HTMLTextAreaElement);
+    pressEnter(field, { shiftKey: true });
+    assert(thread.lastResolve === null, `Shift+Enter must not submit, got ${thread.lastResolve}`);
+    pressEnter(field);
+    assert(submission(thread).notes?.Choice === 'line', `expected Enter to submit the note, got ${thread.lastResolve}`);
+  });
+
+  check('multi-select carries one note beside its picks', () => {
+    const thread = makeThread();
+    const form = buildForm(multiQuestions, 'tu_note_multi', thread);
+    click(form, 'Messages');
+    click(form, 'File refs');
+    typeNote(form, 'only the visible ones');
+    find(form, '.multi-question-submit', window.HTMLButtonElement).click();
+    const sent = submission(thread);
+    assert(Array.isArray(sent.answers.Surfaces) && sent.answers.Surfaces.length === 2,
+      `expected both picks, got ${thread.lastResolve}`);
+    assert(sent.notes?.Surfaces === 'only the visible ones', `expected the note, got ${thread.lastResolve}`);
+  });
+
+  check('details draws a note under its question, and none where there is none', () => {
+    const only = /** @type {Question} */ (singleQuestions[0]);
+    const twoQuestions = [only, { ...only, header: 'Other', question: 'Another' }];
+    const notes = renderNotes(twoQuestions, { Choice: 'Alpha', Other: 'Beta' }, { Choice: 'with a condition' });
+    assert(notes[0] === 'with a condition' && notes[1] === '',
+      `expected the note on the first question only, got ${JSON.stringify(notes)}`);
+    const legacy = renderNotes(twoQuestions, { Choice: 'Alpha', Other: 'Beta' });
+    assert(legacy.every(n => n === ''), `a record without notes draws none, got ${JSON.stringify(legacy)}`);
+  });
+
+  check('the model reads each note on an indented line under its answer', () => {
+    const { content } = storedResult({ Plan: 'Approve 1 to 6', Scope: ['a', 'b'] }, { Plan: 'Keep it private.' });
+    assert(content === 'Plan: Approve 1 to 6\n  Note: Keep it private.\nScope: a, b',
+      `unexpected model text: ${JSON.stringify(content)}`);
+  });
+
+  check('a single answered question shows its note on the row', () => {
+    const item = new AskUserQuestionContextItem(/** @type {any} */ ({
+      id: 'test', session: {}, conversation: {}, messageThread: {}
+    }));
+    const ui = /** @type {any} */ (item.getStatusUI(/** @type {any} */ ({
+      success: true, result: { answers: { Choice: 'Alpha' }, notes: { Choice: 'carefully' } }
+    }), { questions: singleQuestions }));
+    assert(String(ui?.summary) === 'Choice: Alpha — carefully', `unexpected row text: ${JSON.stringify(ui?.summary)}`);
+  });
+
   // ==========================================================================
   // applyApprovalResponse — the elicitation seam that folds the captured answer
   // back into the tool input before execution.
@@ -523,6 +707,25 @@ export async function runTests() {
     assert(Array.isArray(answers.Approach) && answers.Approach.length === 2,
       `expected the parsed answers object, got ${JSON.stringify(out.answers)}`);
     assert(out.questions === askInput.questions, 'original input fields must be preserved');
+  });
+
+  check('applyApprovalResponse unwraps the form\'s {answers, notes} envelope', () => {
+    const out = AskUserQuestionContextItem.applyApprovalResponse(
+      askInput, JSON.stringify({ answers: { Approach: 'A' }, notes: { Approach: 'but slowly' } }));
+    const answers = /** @type {Record<string, string|string[]>} */ (out.answers);
+    const notes = /** @type {Record<string, string>|undefined} */ (out.notes);
+    assert(answers.Approach === 'A', `expected the envelope's answers, got ${JSON.stringify(out.answers)}`);
+    assert(notes?.Approach === 'but slowly', `expected the envelope's notes, got ${JSON.stringify(out.notes)}`);
+    const bare = AskUserQuestionContextItem.applyApprovalResponse(askInput, JSON.stringify({ answers: { Approach: 'A' } }));
+    assert(bare.notes === undefined, `an envelope without notes adds none, got ${JSON.stringify(bare.notes)}`);
+  });
+
+  check('applyApprovalResponse still reads a flat answers object headed "answers"', () => {
+    const out = AskUserQuestionContextItem.applyApprovalResponse(
+      { questions: [{ header: 'answers', options: [] }] }, JSON.stringify({ answers: 'Yes' }));
+    const answers = /** @type {Record<string, string|string[]>} */ (out.answers);
+    assert(answers.answers === 'Yes' && out.notes === undefined,
+      `a string-valued "answers" header is a flat answer, got ${JSON.stringify(out)}`);
   });
 
   check('applyApprovalResponse treats a non-JSON response as a single label', () => {
@@ -559,7 +762,7 @@ export async function runTests() {
         assert(strings.length > 0, `${where} drew nothing`);
         strings.forEach((s, i) => { shown[`${where} #${i}`] = s; });
       };
-      const data = '.option-btn-label, .option-btn-desc, .option-label, .question-text';
+      const data = '.option-btn-label, .option-btn-desc, .option-label, .question-text, .ask-question-note-text';
 
       // Digit-only data; no option descriptions, so every description shown is ours.
       const qs = [
@@ -594,23 +797,26 @@ export async function runTests() {
       // Properties panel: picked, unpicked and typed answers.
       const wrapper = document.createElement('div');
       /** @type {any} */ (item).renderToolActionDetails(wrapper, {
-        toolAction: { get: (/** @type {string} */ key) => (key === 'result' ? storedResult({ 2: '3', 6: ['7', '9'] }) : undefined) },
+        toolAction: { get: (/** @type {string} */ key) => (key === 'result' ? storedResult({ 2: '3', 6: ['7', '9'] }, { 2: '10' }) : undefined) },
         toolName: 'askuserquestion',
         input: { questions: qs },
         helpers: { labeledSubsection },
         conversation: null, messageThread: null, session: null, selectedItemId: 'test'
       });
       assert(wrapper.querySelector('.custom-answer') !== null, 'details must draw the typed answer');
+      assert(wrapper.querySelector('.ask-question-note-detail') !== null, 'details must draw the note');
       collect('details', wrapper, data);
 
       // The model's side stays English under any UI language.
       const model = {
         answers: item.getSummary(/** @type {any} */ ({ success: true, result: { answers: { 2: '3', 6: ['7', '8'] } } })).summary,
+        noted: item.getSummary(/** @type {any} */ ({ success: true, result: { answers: { 2: '3' }, notes: { 2: '9' } } })).summary,
         noAnswers: item.getSummary(/** @type {any} */ ({ success: true, result: { answers: {} } })).summary,
         failed: item.getSummary(/** @type {any} */ ({ success: false })).summary,
         invalid: (await item.validate({ questions: [] })).error,
       };
       assert(model.answers === '2: 3\n6: 7, 8', `the model's answers changed: ${JSON.stringify(model.answers)}`);
+      assert(model.noted === '2: 3\n  Note: 9', `the model's note line changed: ${JSON.stringify(model.noted)}`);
       assert(model.noAnswers === 'No answers provided', `the model's empty result changed: ${JSON.stringify(model.noAnswers)}`);
       assert(String(model.failed).includes('Failed to get user response'), `the model's failure changed: ${JSON.stringify(model.failed)}`);
       assert(model.invalid === 'At least one question is required', `the validation error changed: ${JSON.stringify(model.invalid)}`);

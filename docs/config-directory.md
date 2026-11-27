@@ -53,6 +53,13 @@ Each project has two kinds of files:
 Juggler does not add `.juggler/` to `.gitignore` for you. To keep local state
 out of git, exclude it yourself, for example in `.git/info/exclude`.
 
+A file you drop into a conversation that is too large, or not text, to include
+in the message is saved in `<project>/.juggler-drops/` instead, so the agent
+can read it with its file tools. That folder holds its own `.gitignore`, so its
+contents are never committed. It stays in the project even when local state
+is kept outside it, since that is where the agent's tools can reach it. Delete
+the folder whenever you like; nothing else refers to it.
+
 ### Keeping local state outside the project
 
 If a tool that walks your project (a formatter, a linter, a file watcher)

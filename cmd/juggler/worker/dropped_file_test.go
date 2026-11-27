@@ -78,6 +78,17 @@ func TestCompactionSummaryNamesFoldedDroppedFiles(t *testing.T) {
 		}
 	}
 
+	// A drop stored in the project is named with its path, which is all it
+	// takes to read it again, and not offered to restore_dropped_file.
+	stored, _ := json.Marshal([]ConversationItem{
+		{Type: ItemTypeDroppedFile, ItemID: "DROP_3", Data: []byte(`{"filename":"big.csv","content":"","absPath":"/p/.juggler-drops/ab/big.csv"}`)},
+	})
+	fold.Items = stored
+	content, _ = buildThreadResultMap(fold)["content"].(string)
+	if !strings.Contains(content, "- DROP_3: big.csv, saved at /p/.juggler-drops/ab/big.csv") || strings.Contains(content, "restore_dropped_file") {
+		t.Errorf("a stored drop must be named with its path alone:\n%s", content)
+	}
+
 	plain, _ := json.Marshal([]ConversationItem{{Type: ItemTypeUser, ItemID: "u1", Content: "hi"}})
 	fold.Items = plain
 	content, _ = buildThreadResultMap(fold)["content"].(string)

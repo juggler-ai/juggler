@@ -17,6 +17,7 @@ import {
   handleFiles, handleTextFiles, uploadAndAdd, renderAttachmentChips,
 } from '../../js/components/composer-attachments.js';
 import apiService from '../../js/services/api.js';
+import { HttpError } from '../../js/services/http.js';
 import fileViewerRegistry from '../../js/registries/file-viewer-registry.js';
 import { normalizeTextFiles } from '../../js/utils/attachments.js';
 import { pdfBytes, PDF_TEXT } from '../utilities/pdf-fixture.js';
@@ -98,8 +99,68 @@ export async function runTests() {
     assert(staged.content.includes(PDF_TEXT) && staged.content.includes('<file path="1.pdf">'),
       `the snapshot should be the viewer's extraction: ${JSON.stringify(staged.content)}`);
     // The mark survives the draft round-trip, or a reload would wrap the text twice.
-    const [restored] = normalizeTextFiles([{ ...staged }]);
+    const [restored] = /** @type {import('../../js/utils/attachments.js').TextFileSnapshot[]} */ (normalizeTextFiles([{ ...staged }]));
     assert(restored?.extracted === true, `the draft dropped the extracted mark: ${JSON.stringify(restored)}`);
+  });
+
+  // A drop too large to inline, or that is not text, is uploaded to the
+  // project and staged as the path it was stored at — never refused, and an
+  // oversized one never read.
+  for (const [what, file] of /** @type {Array<[string, File]>} */ ([
+    ['past the inline cap, from its size alone', fileWithSize('12.log', 'text/plain', 2 * 1024 * 1024 * 1024)],
+    ['that looks binary', new window.File(['1\u00002'], '13.bin', { type: '' })],
+  ])) {
+    await run(`a drop ${what} is stored in the project`, async () => {
+      const { composer, warnings } = fakeComposer();
+      composer._conversation = { id: '14' };
+      const RealReader = window.FileReader;
+      let reads = 0;
+      /** Counts reads, delegating to the real reader. */
+      class CountingReader extends RealReader {
+        /** @param {Blob} blob */
+        readAsText(blob) { reads++; super.readAsText(blob); }
+      }
+      const realUpload = apiService.uploadDrop;
+      /** @type {string[]} */
+      const calls = [];
+      apiService.uploadDrop = async (convId, f) => {
+        calls.push(`${convId}/${f instanceof window.File ? f.name : ''}`);
+        return { filename: file.name, path: `.juggler-drops/ab/${file.name}`, absPath: `/p/.juggler-drops/ab/${file.name}`, bytes: file.size };
+      };
+      window.FileReader = CountingReader;
+      try {
+        handleTextFiles(composer, [file]);
+        await waitFor(() => composer._pendingTextFiles.some((/** @type {any} */ e) => e.path && !e._uploading) || warnings.length > 0,
+          () => `nothing stored; staged ${JSON.stringify(composer._pendingTextFiles)}`);
+      } finally {
+        window.FileReader = RealReader;
+        apiService.uploadDrop = realUpload;
+      }
+      assert(warnings.length === 0, `the drop was refused: ${JSON.stringify(warnings)}`);
+      assert(calls.length === 1 && calls[0] === `14/${file.name}`, `upload calls ${JSON.stringify(calls)}`);
+      const [staged] = composer._pendingTextFiles;
+      assert(staged.content === undefined && staged.absPath === `/p/.juggler-drops/ab/${file.name}`,
+        `the staged drop must carry its path, not content: ${JSON.stringify(staged)}`);
+      if (file.size > 1024 * 1024) assert(reads === 0, `an oversized drop was read ${reads} time(s)`);
+    });
+  }
+
+  // The remote link answers a body past its cap with a 413 of its own, with no
+  // message from the server: the user is told the connection is the limit, and
+  // nothing stays staged.
+  await run('a drop the connection refuses is not staged', async () => {
+    const { composer, warnings } = fakeComposer();
+    composer._conversation = { id: '15' };
+    const realUpload = apiService.uploadDrop;
+    apiService.uploadDrop = async () => { throw new HttpError('HTTP 413', 413, 'request body too large'); };
+    try {
+      handleTextFiles(composer, [fileWithSize('16.log', 'text/plain', 64 * 1024 * 1024)]);
+      await waitFor(() => warnings.length === 1, () => `expected a size notice, got ${JSON.stringify(warnings)}`);
+    } finally {
+      apiService.uploadDrop = realUpload;
+    }
+    assert(/connection/.test(warnings[0] ?? '') && (warnings[0] ?? '').includes('16.log'), `notice ${JSON.stringify(warnings[0])}`);
+    assert(composer._pendingTextFiles.length === 0, `a refused drop stayed staged: ${JSON.stringify(composer._pendingTextFiles)}`);
   });
 
   await run('en-XA: every notice and chip draws no plain English', async () => {
@@ -124,26 +185,45 @@ export async function runTests() {
         assert(warnings.length === 1, `aggregate image refusal: ${JSON.stringify(warnings)}`);
         notices.push(...warnings);
       }
-      // Text file over the per-file cap.
+      // A text file over the per-file cap goes to the drop upload, which
+      // needs a conversation.
       {
         const { composer, warnings } = fakeComposer();
         handleTextFiles(composer, [fileWithSize('3', 'text/plain', 2 * 1024 * 1024)]);
-        assert(warnings.length === 1, `per-text-file refusal: ${JSON.stringify(warnings)}`);
+        assert(warnings.length === 1, `stored-drop refusal: ${JSON.stringify(warnings)}`);
         notices.push(...warnings);
       }
-      // Text files over the per-message aggregate.
+      // A drop the connection refuses as too large.
       {
         const { composer, warnings } = fakeComposer();
-        composer._pendingTextFiles = [{ filename: '4', content: '', bytes: 1024 * 1024 }];
-        handleTextFiles(composer, [fileWithSize('5', 'text/plain', 10)]);
-        assert(warnings.length === 1, `aggregate text refusal: ${JSON.stringify(warnings)}`);
+        composer._conversation = { id: '4' };
+        const realUpload = apiService.uploadDrop;
+        apiService.uploadDrop = async () => { throw Object.assign(new Error('5'), { status: 413 }); };
+        try {
+          handleTextFiles(composer, [fileWithSize('5', 'text/plain', 2 * 1024 * 1024)]);
+          await waitFor(() => warnings.length === 1, () => `413 refusal: ${JSON.stringify(warnings)}`);
+        } finally {
+          apiService.uploadDrop = realUpload;
+        }
         notices.push(...warnings);
       }
-      // A binary-looking text drop.
+      // A drop upload that fails, and the uploading chip's tooltip.
       {
-        const { composer, warnings } = fakeComposer();
-        handleTextFiles(composer, [new window.File(['1\u00002'], '6', { type: '' })]);
-        await waitFor(() => warnings.length === 1, () => `binary refusal: ${JSON.stringify(warnings)}`);
+        const { composer, container, warnings } = fakeComposer();
+        composer._conversation = { id: '6' };
+        const realUpload = apiService.uploadDrop;
+        /** @type {(e: Error) => void} */
+        let fail = () => {};
+        apiService.uploadDrop = () => new Promise((_resolve, reject) => { fail = reject; });
+        try {
+          handleTextFiles(composer, [fileWithSize('7', 'text/plain', 2 * 1024 * 1024)]);
+          const tip = container.querySelector('.attachment-chip.uploading')?.getAttribute('title') || '';
+          if (!isPseudoLocalized(tip)) problems.push(`uploading chip title ${JSON.stringify(tip)}`);
+          fail(new Error('8'));
+          await waitFor(() => warnings.length === 1, () => `upload failure: ${JSON.stringify(warnings)}`);
+        } finally {
+          apiService.uploadDrop = realUpload;
+        }
         notices.push(...warnings);
       }
       // A read that fails.

@@ -632,13 +632,14 @@ func buildThreadResultMap(item ConversationItem) map[string]any {
 }
 
 // foldedDroppedFilesNote lists the dropped files a compaction fold swallowed,
-// for appending to its summary. A dropped file has no path on disk, so once
+// for appending to its summary. An inline drop has no path on disk, so once
 // folded the summary is the only place left that can tell the model it exists
-// and how to get it back. Derived from the fold's own items, so it is the same
-// on every turn and the summary message stays cache-stable. Empty when the
-// fold holds none.
+// and how to get it back; a drop stored in the project is named with the path
+// it was saved at, which is all it takes to read it again. Derived from the
+// fold's own items, so it is the same on every turn and the summary message
+// stays cache-stable. Empty when the fold holds none.
 func foldedDroppedFilesNote(raw json.RawMessage) string {
-	var lines []string
+	var lines, stored []string
 	var walk func(json.RawMessage)
 	walk = func(raw json.RawMessage) {
 		if len(raw) == 0 {
@@ -653,20 +654,31 @@ func foldedDroppedFilesNote(raw json.RawMessage) string {
 			case ItemTypeDroppedFile:
 				var data struct {
 					Filename string `json:"filename"`
+					Content  string `json:"content"`
+					AbsPath  string `json:"absPath"`
 				}
 				_ = json.Unmarshal(it.Data, &data)
-				lines = append(lines, fmt.Sprintf("- %s: %s", it.ItemID, data.Filename))
+				if data.AbsPath != "" && data.Content == "" {
+					stored = append(stored, fmt.Sprintf("- %s: %s, saved at %s", it.ItemID, data.Filename, data.AbsPath))
+				} else {
+					lines = append(lines, fmt.Sprintf("- %s: %s", it.ItemID, data.Filename))
+				}
 			case ItemTypeThread:
 				walk(it.Items)
 			}
 		}
 	}
 	walk(raw)
-	if len(lines) == 0 {
-		return ""
+	var note string
+	if len(lines) > 0 {
+		note += "\n\n[Files the user dropped into the conversation before this summary. They are not on disk; call restore_dropped_file with an itemId to see one again.]\n" +
+			strings.Join(lines, "\n")
 	}
-	return "\n\n[Files the user dropped into the conversation before this summary. They are not on disk; call restore_dropped_file with an itemId to see one again.]\n" +
-		strings.Join(lines, "\n")
+	if len(stored) > 0 {
+		note += "\n\n[Files the user dropped into the conversation before this summary that were saved on disk. Read them there with the file tools.]\n" +
+			strings.Join(stored, "\n")
+	}
+	return note
 }
 
 // buildThreadToolResultMap returns the user-side tool_result for an LLM-spawned

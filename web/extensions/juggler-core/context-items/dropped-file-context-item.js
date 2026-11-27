@@ -14,10 +14,32 @@ const t = translator('@juggler/core');
 injectFileContentStyles();
 
 /**
- * Persisted Yjs shape for a dropped text file.
+ * What the drop upload saw of a stored file: its sniffed type; for text, its
+ * line count and first lines; for an archive, its first entries and count.
+ * @typedef {object} StoredDropPreview
+ * @property {string} mime - Sniffed content type
+ * @property {boolean} text - The head is UTF-8 text
+ * @property {number} [lines] - A text file's line count
+ * @property {string} [head] - A text file's first lines, bounded
+ * @property {string[]} [entries] - An archive's first entry names
+ * @property {number} [entryCount] - How many entries an archive has
+ */
+
+/**
+ * Persisted Yjs shape for a dropped file: an inline text snapshot, or a file
+ * too large or too binary for that, stored in the project's `.juggler-drops/`
+ * (`path` set, `content` empty).
  * @typedef {object} DroppedFileData
  * @property {string} filename - Display name captured from the drop (File.name)
- * @property {string} content - Full text captured at drop time (the snapshot)
+ * @property {string} content - Full text captured at drop time (the snapshot);
+ *   empty for a stored drop
+ * @property {string} [path] - A stored drop's project-relative path
+ * @property {string} [absPath] - A stored drop's absolute path, which is what
+ *   the model is given (a worktree conversation's shell runs outside the
+ *   project root)
+ * @property {number} [bytes] - A stored drop's size
+ * @property {string} [sha256] - A stored drop's content hash
+ * @property {StoredDropPreview} [preview] - What a stored drop holds, up front
  * @property {boolean} [extracted] - `content` is a file viewer's `extract()`
  *   output for a binary file (a PDF): already model-facing, `<file>` envelope
  *   included, so it is passed through rather than wrapped again
@@ -36,6 +58,7 @@ injectFileContentStyles();
  * @returns {string} Formatted content ('' when the snapshot is empty)
  */
 export function droppedFileText(data) {
+  if (isStoredDrop(data)) return storedDropText(data);
   const content = data.content || '';
   if (!content) return '';
   const name = data.filename || markUntranslated('dropped file');
@@ -49,6 +72,54 @@ export function droppedFileText(data) {
     lineCount,
     totalLines: lineCount
   });
+}
+
+/**
+ * Whether a dropped file's data is a stored drop rather than inline text.
+ * @param {DroppedFileData} data - The item's data
+ * @returns {boolean} True when it names a path in the project.
+ */
+function isStoredDrop(data) {
+  return typeof data.absPath === 'string' && data.absPath !== '' && !data.content;
+}
+
+/**
+ * A byte count as the model reads it: English, one decimal place.
+ * @param {number} bytes
+ * @returns {string} e.g. "12.3 MB"
+ */
+function modelSize(bytes) {
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${bytes} bytes`;
+}
+
+/**
+ * The model-facing text of a stored drop: where it is, how to read it, and
+ * what the upload saw of it, so the model can choose how to read it without
+ * reading it whole. The path is absolute, since a worktree conversation's
+ * shell does not run in the project root.
+ * @param {DroppedFileData} data - The item's data
+ * @returns {string} The text
+ */
+function storedDropText(data) {
+  const name = data.filename || 'dropped file';
+  const lines = [
+    `The user dropped the file "${name}" (${modelSize(data.bytes || 0)}) into the conversation. It was too large or not text, so it is not included here: it was saved on disk at ${data.absPath} — read it there with the file tools (read with an offset and limit, grep, or the shell), taking only the parts you need.`
+  ];
+  const p = data.preview;
+  if (p?.text) {
+    lines.push(`It is text, ${(p.lines || 0).toLocaleString('en-US')} lines. Its first lines:`);
+    if (p.head) lines.push(p.head.replace(/\n$/, ''));
+  } else if (p?.entryCount) {
+    const listed = p.entries || [];
+    const rest = p.entryCount > listed.length ? ` (the first ${listed.length} shown)` : '';
+    lines.push(`It is a zip archive of ${p.entryCount.toLocaleString('en-US')} entries${rest}:`, ...listed.map((e) => `- ${e}`));
+  } else if (p?.mime) {
+    lines.push(`Its content type is ${p.mime}.`);
+  }
+  return markUntranslated(lines.join('\n'));
 }
 
 // ============================================================================
@@ -73,6 +144,10 @@ export function droppedFileText(data) {
  *  - Because nothing else holds the bytes, drop_context_items hides it rather
  *    than deleting it (`data.hidden`), and restore_dropped_file
  *    (restore-dropped-file-context-item.js) hands the content back.
+ *  - A file too large or too binary to inline is uploaded by the composer to
+ *    the project's `.juggler-drops/` first, and the item holds its path
+ *    instead (`absPath`, with `content` empty): the model is told where it is
+ *    and reads it with its file tools. Hidden, it still names that path.
  * @class
  * @augments ContextItem
  */
@@ -82,7 +157,7 @@ class DroppedFileContextItem extends ContextItem {
     id: 'dropped-file',
     name: 'Dropped file',
     version: '1.0.0',
-    description: 'Text file dropped into the composer (inline content snapshot)',
+    description: 'File dropped into the composer (inline text snapshot, or a path in the project)',
     author: 'Juggler Team',
     idPrefix: 'DROP',
     userAddable: false,
@@ -122,6 +197,19 @@ class DroppedFileContextItem extends ContextItem {
    * @returns {Promise<void>}
    */
   async onToolCall(_toolName, params) {
+    if (typeof params.content !== 'string' && typeof params.absPath === 'string' && params.absPath) {
+      // A stored drop: the upload already put the bytes in the project.
+      this.data.content = '';
+      this.data.path = typeof params.path === 'string' ? params.path : params.absPath;
+      this.data.absPath = params.absPath;
+      this.data.bytes = typeof params.bytes === 'number' ? params.bytes : 0;
+      if (typeof params.sha256 === 'string') this.data.sha256 = params.sha256;
+      if (params.preview && typeof params.preview === 'object') this.data.preview = params.preview;
+      this.data.filename = typeof params.filename === 'string' && params.filename
+        ? params.filename
+        : markUntranslated('dropped file');
+      return;
+    }
     if (typeof params.content !== 'string') {
       // The thrown error is the item's outcome error, which stays English.
       throw new Error(markUntranslated('Missing required parameter: content'));
@@ -162,6 +250,11 @@ class DroppedFileContextItem extends ContextItem {
    * @returns {Promise<string>} Formatted file content for LLM context
    */
   async createContextText() {
+    if (isStoredDrop(this.data)) {
+      if (!this.data.hidden) return storedDropText(this.data);
+      const name = this.data.filename || markUntranslated('dropped file');
+      return markUntranslated(`The dropped file "${name}" was removed from context. It is still on disk at ${this.data.absPath}.`);
+    }
     if (!this.data.content) return '';
     if (this.data.hidden) {
       const name = this.data.filename || markUntranslated('dropped file');
@@ -179,6 +272,19 @@ class DroppedFileContextItem extends ContextItem {
 
     if (this.id) {
       container.dataset.contextItemId = this.id;
+    }
+
+    // A stored drop: its path, and the first lines the upload saw, when it
+    // is text. The whole file is in the project, for the file tree to open.
+    if (isStoredDrop(this.data)) {
+      addFilePath(container, this.data.path || this.data.absPath || '');
+      const head = this.data.preview?.text ? this.data.preview.head || '' : '';
+      if (head) {
+        const view = /** @type {any} */ (createFileView());
+        view.setSource(fileSourceFromText({ path: this.data.filename || t('Dropped file'), text: head }));
+        container.appendChild(view);
+      }
+      return container;
     }
 
     const content = this.data.content || '';

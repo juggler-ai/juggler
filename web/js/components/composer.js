@@ -63,6 +63,7 @@ import {
   stagePendingTextFiles,
   uploadAndAdd,
 } from './composer-attachments.js';
+import { isStoredDrop, plainStoredDrop } from '../utils/attachments.js';
 import {
   capturePaste,
   handleTokenKeydown,
@@ -204,12 +205,14 @@ class Composer extends JugglerElement {
     /** @type {Array<{id:string,mime:string,filename:string,bytes:number,width:number,height:number,_uploading?:boolean,_previewURL?:string}>} @private */
     this._pendingAttachments = [];
 
-    // Staged dropped text files for the next send. Unlike image attachments
-    // (which upload to the asset store and travel as AssetRefs), these carry
-    // their content inline and become `dropped-file` context items at send
-    // time. Kept in a separate array precisely because they are NOT AssetRefs
-    // and must never leak into the `attachments` send field.
-    /** @type {import('../utils/attachments.js').TextFileSnapshot[]} @private */
+    // Staged dropped files for the next send. Unlike image attachments (which
+    // upload to the asset store and travel as AssetRefs), these become
+    // `dropped-file` context items at send time: a small text file carries its
+    // content inline, and anything else is stored in the project's
+    // `.juggler-drops/` and carries its path. Kept in a separate array
+    // precisely because they are NOT AssetRefs and must never leak into the
+    // `attachments` send field. An entry still uploading has `_uploading` set.
+    /** @type {any[]} @private */
     this._pendingTextFiles = [];
 
     // Paste-placeholder side table: token id → captured blob. APPEND-ONLY for
@@ -1112,11 +1115,22 @@ class Composer extends JugglerElement {
   _persistDraft(text) {
     if (!this._messageThread) return;
     const value = (text !== undefined) ? text : this.getText();
+    /** @type {import('../utils/attachments.js').DroppedFileEntry[]} */
+    const textFiles = [];
+    for (const entry of this._pendingTextFiles) {
+      // A drop still uploading is not persisted: a reload cannot resume it.
+      if (entry._uploading) continue;
+      if (isStoredDrop(entry)) {
+        textFiles.push(plainStoredDrop(entry));
+        continue;
+      }
+      const { filename, content, bytes, extracted } = entry;
+      textFiles.push(extracted ? { filename, content, bytes, extracted } : { filename, content, bytes });
+    }
     this._messageThread.draft = {
       text: value,
       attachments: this._resolvedAttachments(),
-      textFiles: this._pendingTextFiles.map(({ filename, content, bytes, extracted }) =>
-        (extracted ? { filename, content, bytes, extracted } : { filename, content, bytes })),
+      textFiles,
       // The append-only paste-blob table, so an inline placeholder survives a
       // reload / thread switch / remote client and resolves at send time.
       pasteBlobs: Array.from(this._pasteBlobs, ([id, b]) => ({ id, content: b.content, bytes: b.bytes }))
@@ -1548,6 +1562,14 @@ class Composer extends JugglerElement {
     // the wire, so nothing forces the user to type a caption.
     if ((!message && !hasAttachments) || this.disabled) {
       return 'empty or disabled';
+    }
+
+    // A dropped file still uploading to the project would be left out of the
+    // message, so the send waits for it, the draft untouched.
+    const uploading = this._pendingTextFiles.find((/** @type {any} */ entry) => entry._uploading);
+    if (uploading) {
+      this.showWarning(t('"{name}" is still uploading. Send once it has finished.', { name: uploading.filename }));
+      return 'drop still uploading';
     }
 
     // Refuse a second send while the first is still resolving its mentions.

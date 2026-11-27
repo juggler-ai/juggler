@@ -710,6 +710,29 @@ class APIService {
   }
 
   /**
+   * Upload a dropped file too large, or too binary, to inline: the server
+   * streams it to `<project>/.juggler-drops/<sha prefix>/<name>`, where the
+   * agent's file tools read it. The bytes are the request body; the name rides
+   * percent-encoded in a header. Sent with fetch, never XHR, because the remote
+   * link carries the app's requests by shimming fetch.
+   * @param {string} conversationId - Conversation ID
+   * @param {File|Blob} file - The dropped file
+   * @param {{filename?: string, signal?: AbortSignal}} [options] - Name to store it under (default the File's) and an abort signal
+   * @returns {Promise<import('../utils/attachments.js').StoredDrop>} Where it was stored and its preview.
+   */
+  async uploadDrop(conversationId, file, { filename, signal } = {}) {
+    const url = apiUrl(`/session/conversations/${encodeURIComponent(conversationId)}/drops`);
+    const name = filename ?? (file instanceof window.File ? file.name : '');
+    return await fetchJson(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream', 'X-Juggler-Filename': encodeURIComponent(name) },
+      body: file,
+      ...(signal ? { signal } : {}),
+      errorPrefix: t('File upload failed')
+    });
+  }
+
+  /**
    * URL of the GET route that streams a stored asset's bytes (for rendering).
    *
    * The bytes are loaded by the browser as an `<img src>`, which cannot carry

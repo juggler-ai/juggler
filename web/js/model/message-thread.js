@@ -31,7 +31,7 @@ import { submitPendingRequest } from '../services/thread-orchestrator.js';
 import * as permissionsHelpers from './message-thread-permissions.js';
 import * as contextItemHelpers from './message-thread-context-items.js';
 import { recordTape } from '../utils/event-tape.js';
-import { normalizeDraft, normalizeAttachments, normalizeTextFiles, normalizePasteBlobs } from '../utils/attachments.js';
+import { normalizeDraft, normalizeAttachments, normalizeTextFiles, normalizePasteBlobs, isStoredDrop, plainStoredDrop } from '../utils/attachments.js';
 import { normalizeReviewDraft } from '../utils/review-draft.js';
 
 /** Where a thread's unsent review is kept. */
@@ -250,7 +250,7 @@ export default class MessageThread {
   }
 
   /**
-   * @param {{text?: string, attachments?: import('../utils/attachments.js').AssetRef[], textFiles?: import('../utils/attachments.js').TextFileSnapshot[], pasteBlobs?: import('../utils/attachments.js').PasteBlob[]}|null} value
+   * @param {{text?: string, attachments?: import('../utils/attachments.js').AssetRef[], textFiles?: import('../utils/attachments.js').DroppedFileEntry[], pasteBlobs?: import('../utils/attachments.js').PasteBlob[]}|null} value
    */
   set draft(value) {
     const text = (value && typeof value.text === 'string') ? value.text : '';
@@ -1980,8 +1980,9 @@ export default class MessageThread {
    *
    * A mention is frozen: the model gets the file as it stands at this send, so
    * an edit afterwards does not cold-start the cached prefix it sits in. A
-   * dropped file is a snapshot too, carrying its bytes inline.
-   * @param {{paths?: string[], droppedFiles?: Array<{filename: string, content: string, extracted?: boolean}>, queue?: boolean}} reads - What to read.
+   * dropped file is a snapshot too: its bytes inline, or the path in the
+   * project it was stored at.
+   * @param {{paths?: string[], droppedFiles?: import('../utils/attachments.js').DroppedFileEntry[], queue?: boolean}} reads - What to read.
    * @returns {Promise<void>} Resolves once every read is written.
    */
   async addSendContext({ paths = [], droppedFiles = [], queue = false }) {
@@ -1991,8 +1992,11 @@ export default class MessageThread {
       : (/** @type {string} */ type, /** @type {Record<string, any>} */ params) => this.executeContextItem(type, params);
     await Promise.all([
       ...paths.map((path) => write('file-content', { path, frozen: true })),
-      ...droppedFiles.map(({ filename, content, extracted }) =>
-        write('dropped-file', extracted ? { filename, content, extracted } : { filename, content })),
+      ...droppedFiles.map((entry) => {
+        if (isStoredDrop(entry)) return write('dropped-file', plainStoredDrop(entry));
+        const { filename, content, extracted } = entry;
+        return write('dropped-file', extracted ? { filename, content, extracted } : { filename, content });
+      }),
     ]);
   }
 

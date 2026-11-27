@@ -9,6 +9,7 @@ the current release). The project follows semantic versioning.
 - Question cards let you add a note to the option you pick
 - Git pin's conflict banner can hand the conflicts to a new conversation
 - Fixed the switcher's new-window button in windows connected to another computer
+- Large or binary dropped files are saved to the project for the agent to read
 
 ## [0.8.3] - 2026-11-26
 

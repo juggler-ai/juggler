@@ -14,10 +14,10 @@
  *  2. normalizeDraft round-trips the new `textFiles` field, so a dropped file
  *     staged in the composer survives the draft save/reload cycle alongside the
  *     text and image attachments (they are one persisted record).
- *  3. composer-box._handleTextFiles guards: a per-file SIZE gate that fires on
- *     `file.size` BEFORE any read (so a gigabyte drop is rejected without being
- *     allocated), and a binary-content gate. Both reject-with-warning and do
- *     NOT stage the file; a valid small text file IS staged.
+ *  3. composer-box._handleTextFiles: a small text file is staged inline, and a
+ *     send waits for a drop still uploading to the project. (What goes to the
+ *     upload instead is unit:composer-attachments', which can stub it.) A
+ *     stored drop's context item names its path.
  *  4. composer-box._handleFiles image-size gate: a dropped image is rejected when
  *     it exceeds the send target's per-provider limit (model-aware), so an
  *     image the provider would reject never enters the conversation.
@@ -59,21 +59,6 @@ function mountComposer() {
 }
 
 /**
- * Build a File whose reported `size` is overridden without allocating bytes —
- * lets us simulate a multi-GB drop from a one-byte payload. The size gate reads
- * `file.size` before any read, so the override alone drives the rejection.
- * @param {string} name
- * @param {string} content
- * @param {number} size
- * @returns {File} A File with the given name/content and a forced size.
- */
-function fileWithSize(name, content, size) {
-  const file = new window.File([content], name, { type: 'text/plain' });
-  Object.defineProperty(file, 'size', { value: size, configurable: true });
-  return file;
-}
-
-/**
  * Build an image File whose reported `size` is overridden without allocating
  * bytes — lets us simulate a large image drop from a one-byte payload. The
  * image-size gate reads `file.size`, so the override alone drives acceptance or
@@ -86,6 +71,22 @@ function imageWithSize(name, size) {
   const file = new window.File(['x'], name, { type: 'image/png' });
   Object.defineProperty(file, 'size', { value: size, configurable: true });
   return file;
+}
+
+/**
+ * What the drop upload answers for a stored file (handlers.DropRef).
+ * @param {string} name
+ * @returns {{filename: string, path: string, absPath: string, bytes: number, sha256: string, preview: {mime: string, text: boolean, lines: number, head: string}}} The ref.
+ */
+function dropRef(name) {
+  return {
+    filename: name,
+    path: `.juggler-drops/0123456789ab/${name}`,
+    absPath: `/projects/p/.juggler-drops/0123456789ab/${name}`,
+    bytes: 3 * 1024 * 1024,
+    sha256: '0123456789ab'.padEnd(64, '0'),
+    preview: { mime: 'text/plain; charset=utf-8', text: true, lines: 30001, head: 'id,name\n0,row 0\n' },
+  };
 }
 
 /**
@@ -191,6 +192,21 @@ export async function runTests() {
     }
   });
 
+  await test('a stored drop tells the model where it is and what it holds', async () => {
+    const item = new DroppedFileContextItem(bareItemContext());
+    const ref = dropRef('sales.csv');
+    await item.onToolCall('dropped-file', ref);
+    const text = await item.createContextText();
+    assert(text.includes(ref.absPath) && text.includes('"sales.csv"'), `the path and name must be given:\n${text}`);
+    assert(text.includes('id,name\n0,row 0') && text.includes('30,001 lines'), `the preview must be given:\n${text}`);
+    assert(!/not on disk/.test(text) && !text.includes('<file'), `a stored drop is on disk and is not inlined:\n${text}`);
+
+    item.data.hidden = true;
+    const hidden = await item.createContextText();
+    assert(hidden.includes(ref.absPath) && !hidden.includes('restore_dropped_file') && !hidden.includes('row 0'),
+      `a hidden stored drop must point at its path, not the restore tool:\n${hidden}`);
+  });
+
   await test('onToolCall rejects a non-string content param', async () => {
     const item = new DroppedFileContextItem(bareItemContext());
     let threw = false;
@@ -214,8 +230,19 @@ export async function runTests() {
     assert(draft.text === 'see attached', `text lost: ${JSON.stringify(draft.text)}`);
     assert(Array.isArray(draft.textFiles) && draft.textFiles.length === 1,
       `textFiles count wrong: ${JSON.stringify(draft.textFiles)}`);
-    assert(draft.textFiles[0]?.filename === 'log.txt' && draft.textFiles[0]?.content === 'line one\n',
+    const [file] = /** @type {import('../../../js/utils/attachments.js').TextFileSnapshot[]} */ (draft.textFiles);
+    assert(file?.filename === 'log.txt' && file?.content === 'line one\n',
       `textFiles not faithful: ${JSON.stringify(draft.textFiles)}`);
+  });
+
+  await test('normalizeDraft round-trips a stored drop and drops one still uploading', () => {
+    const ref = dropRef('sales.csv');
+    const draft = normalizeDraft({ text: '', textFiles: [ref, { filename: 'half.bin', bytes: 3, _uploading: true }] });
+    assert(draft.textFiles.length === 1, `only the stored drop survives: ${JSON.stringify(draft.textFiles)}`);
+    const stored = /** @type {any} */ (draft.textFiles[0]);
+    assert(stored.path === ref.path && stored.absPath === ref.absPath && stored.bytes === ref.bytes
+      && stored.preview?.head === ref.preview.head && stored.content === undefined,
+    `stored drop not faithful: ${JSON.stringify(stored)}`);
   });
 
   await test('normalizeDraft defaults textFiles to [] when absent', () => {
@@ -251,28 +278,16 @@ export async function runTests() {
     }
   });
 
-  await test('an oversized file is rejected before any read', async () => {
+  await test('a send waits for a drop still uploading', async () => {
     const { box, container, warnings } = mountComposer();
     try {
-      // 2 GB reported size on a one-byte payload: the size gate must reject it
-      // from file.size alone, never calling readAsText.
-      box._handleTextFiles([fileWithSize('huge.log', 'x', 2 * 1024 * 1024 * 1024)]);
-      await waitFor(() => warnings.length === 1, () => `expected a size warning, got ${JSON.stringify(warnings)}`);
-      assert(/too large/i.test(warnings[0] ?? ''), `warning should mention size: ${warnings[0]}`);
-      assert(box._pendingTextFiles.length === 0, 'oversized file must not be staged');
-    } finally {
-      container.remove();
-    }
-  });
-
-  await test('a binary-looking file is rejected with a warning', async () => {
-    const { box, container, warnings } = mountComposer();
-    try {
-      // A NUL byte is decisive for looksBinary().
-      box._handleTextFiles([new window.File(['abc\u0000def'], 'blob.bin', { type: '' })]);
-      await waitFor(() => warnings.length === 1, () => `expected a binary warning, got ${JSON.stringify(warnings)}`);
-      assert(/text file/i.test(warnings[0] ?? ''), `warning should mention text: ${warnings[0]}`);
-      assert(box._pendingTextFiles.length === 0, 'binary file must not be staged');
+      box._pendingTextFiles = [{ filename: 'huge.log', bytes: 5, _uploading: true }];
+      const textarea = box.querySelector('textarea');
+      textarea.value = 'look at this';
+      const outcome = await box.sendMessage();
+      assert(outcome === 'drop still uploading', `send outcome ${JSON.stringify(outcome)}`);
+      assert(warnings.length === 1 && (warnings[0] ?? '').includes('huge.log'), `warnings ${JSON.stringify(warnings)}`);
+      assert(textarea.value === 'look at this' && box._pendingTextFiles.length === 1, 'the draft must be left as it was');
     } finally {
       container.remove();
     }

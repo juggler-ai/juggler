@@ -230,6 +230,10 @@ func (s *Server) setupSessionRoutes(sessionAPI *handlers.SessionAPI) {
 	// Upload raw image bytes (mime in Content-Type) → content-addressed store;
 	// returns the AssetRef.
 	api.HandleFunc("/session/conversations/{convId}/assets", sessionAPI.HandleUploadAsset).Methods("POST")
+	// Upload a dropped file too large or too binary to inline → streamed to
+	// <project>/.juggler-drops/<sha prefix>/<name>; returns the DropRef. Exempt
+	// from the blanket body cap (withBodyLimit, handlers.IsDropUploadPath).
+	api.HandleFunc("/session/conversations/{convId}/drops", sessionAPI.HandleUploadDrop).Methods("POST")
 	// A program tool's snapshot while one of its calls waits on the user, kept
 	// in <convDir>/programs/<toolUseId>.json (worker.ProgramStore).
 	api.HandleFunc("/session/conversations/{convId}/programs/{toolUseId}", sessionAPI.HandlePutProgram).Methods("PUT")

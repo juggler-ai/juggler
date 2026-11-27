@@ -28,6 +28,7 @@ import { errorText } from '../../sdk/lib/error-utils.js';
 import { t, formatNumber, markUntranslated } from '../../sdk/lib/i18n.js';
 import { createFileSource, mimeForPath } from '../../sdk/file-source.js';
 import fileViewerRegistry from '../registries/file-viewer-registry.js';
+import { isStoredDrop, plainStoredDrop } from '../utils/attachments.js';
 
 /**
  * Fallback per-image byte ceiling — a generous upload-safety limit used when
@@ -90,8 +91,40 @@ const UPLOADABLE_VIDEO_TYPES = new Set(['video/mp4', 'video/quicktime', 'video/w
  */
 const MAX_TEXT_DROP_BYTES = 512 * 1024;
 
-/** Reject a drop whose text files sum past this aggregate (bytes). */
+/**
+ * The most inline text a message's dropped files may sum to (bytes). A file
+ * that would take the total past it is stored in the project instead.
+ */
 const MAX_TEXT_DROP_TURN_BYTES = 1024 * 1024;
+
+/**
+ * The largest request body the Direct P2P remote link carries
+ * (maxRequestBodyBytes in tunnel/peer/bridge.go): it base64-encodes a body
+ * whole, so a larger drop is refused here before the tab encodes it.
+ */
+const MAX_REMOTE_LINK_DROP_BYTES = 32 * 1024 * 1024;
+
+/**
+ * The largest drop this page's connection carries up front: the remote link's
+ * cap when the page runs over it (its bootstrap publishes
+ * `window.__jugglerStudio`), and otherwise no client-side bound — the server's
+ * own cap answers a 413.
+ * @returns {number} Bytes.
+ */
+function dropUploadLimit() {
+  return /** @type {any} */ (window).__jugglerStudio ? MAX_REMOTE_LINK_DROP_BYTES : Infinity;
+}
+
+/**
+ * The inline text a composer's staged dropped files already hold (bytes):
+ * stored drops are not counted, since they are not inlined.
+ * @param {any} composer - Composer instance
+ * @returns {number} Bytes.
+ */
+function inlineTextTotal(composer) {
+  return composer._pendingTextFiles.reduce(
+    (/** @type {number} */ sum, /** @type {any} */ staged) => sum + (typeof staged.content === 'string' ? (staged.bytes || 0) : 0), 0);
+}
 
 /**
  * A file's size in megabytes, to one decimal place, for a refusal notice.
@@ -363,18 +396,19 @@ export function handleVideoFiles(composer, fileList) {
 }
 
 /**
- * Validate and stage a set of dropped non-image files as text snapshots.
+ * Stage a set of dropped non-image files: inline as text snapshots where they
+ * fit, and otherwise uploaded to the project ({@link stageStoredDrop}).
  *
- * Three gates, in order:
+ * Three gates send a file to the project instead of inlining it, in order:
  *  1. per-file size — checked on `file.size` BEFORE any read, so a multi-GB
- *     drop is rejected without ever being allocated or decoded;
- *  2. aggregate size — the drop's text files may not sum past the per-message
- *     limit (counting already-staged files);
- *  3. binary — after decoding a known-small file, reject anything that looks
- *     binary rather than text ({@link looksBinary}).
+ *     drop is never allocated or decoded here;
+ *  2. aggregate size — the message's inline text may not sum past the
+ *     per-message limit (counting already-staged files);
+ *  3. binary — after decoding a known-small file, anything that looks binary
+ *     rather than text ({@link looksBinary}).
  *
- * Survivors are pushed onto `_pendingTextFiles` and become `dropped-file`
- * context items at send time.
+ * Inline survivors are pushed onto `_pendingTextFiles` and become
+ * `dropped-file` context items at send time; stored drops join them there.
  * @param {any} composer - Composer instance
  * @param {FileList|File[]} fileList
  */
@@ -385,23 +419,10 @@ export function handleTextFiles(composer, fileList) {
       void stageExtractedFile(composer, file, Viewer);
       continue;
     }
-    // Gate 1: size, on metadata, before reading a single byte.
-    if (file.size > MAX_TEXT_DROP_BYTES) {
-      composer.showWarning(t(
-        '"{name}" is too large to attach as text ({size} MB, max {max} KB).',
-        { name: file.name, size: formatMegabytes(file.size), max: formatLimit(MAX_TEXT_DROP_BYTES / 1024) }
-      ));
+    // Gates 1 and 2: size, on metadata, before reading a single byte.
+    if (file.size > MAX_TEXT_DROP_BYTES || inlineTextTotal(composer) + file.size > MAX_TEXT_DROP_TURN_BYTES) {
+      void stageStoredDrop(composer, file);
       continue;
-    }
-    // Gate 2: aggregate across already-staged text files.
-    const stagedTotal = composer._pendingTextFiles.reduce(
-      (/** @type {number} */ sum, /** @type {any} */ staged) => sum + (staged.bytes || 0), 0);
-    if (stagedTotal + file.size > MAX_TEXT_DROP_TURN_BYTES) {
-      composer.showWarning(t(
-        'Dropped text files exceed the {max} MB per-message limit.',
-        { max: formatLimit(MAX_TEXT_DROP_TURN_BYTES / 1024 / 1024) }
-      ));
-      break;
     }
 
     const reader = new window.FileReader();
@@ -410,7 +431,7 @@ export function handleTextFiles(composer, fileList) {
       const content = typeof reader.result === 'string' ? reader.result : '';
       // Gate 3: binary check (file is already known-small, so this is cheap).
       if (looksBinary(content)) {
-        composer.showWarning(t('"{name}" doesn\'t look like a text file.', { name: file.name }));
+        void stageStoredDrop(composer, file);
         return;
       }
       composer._pendingTextFiles.push({ filename: file.name, content, bytes: file.size });
@@ -431,7 +452,7 @@ export function handleTextFiles(composer, fileList) {
  * `matchAll` viewers (plain text, the binary fallback) are what every file falls
  * back to, and the text path already does their job. A viewer's `maxBytes` is
  * honoured by resolution, so an oversized PDF falls through to the text path's
- * size refusal.
+ * size gate, and is stored in the project.
  * @param {File} file - The dropped file
  * @returns {typeof import('../../sdk/file-viewer.js').default|undefined} The viewer to extract with
  */
@@ -452,7 +473,8 @@ function extractingViewer(file) {
  * path, so extraction runs here, on the bytes, in the realm that received
  * them; the result is a frozen snapshot like any dropped text file. The text is
  * held to the per-file text budget (the viewer stops at a page boundary) and
- * counts against the per-message one.
+ * counts against the per-message one. A file that yields no text, or more than
+ * the message has room for, is stored in the project instead.
  * @param {any} composer - Composer instance
  * @param {File} file - The dropped file
  * @param {typeof import('../../sdk/file-viewer.js').default} Viewer - The viewer that claims it
@@ -476,23 +498,11 @@ async function stageExtractedFile(composer, file, Viewer) {
     result = {};
   }
   const content = result.text || '';
-  if (!content) {
-    // A viewer that claims the file and yields only a warning (audio, an image
-    // format no model is given) has said what it is and that it has no text.
-    // The warning itself is written for the model, so the user is told in
-    // their own words; a viewer that failed outright gets the plain notice.
-    composer.showWarning(result.warning
-      ? t('"{name}" can\'t be attached: it can\'t be read as text.', { name: file.name })
-      : t('Couldn\'t read "{name}".', { name: file.name }));
-    return;
-  }
-  const stagedTotal = composer._pendingTextFiles.reduce(
-    (/** @type {number} */ sum, /** @type {any} */ staged) => sum + (staged.bytes || 0), 0);
-  if (stagedTotal + content.length > MAX_TEXT_DROP_TURN_BYTES) {
-    composer.showWarning(t(
-      'Dropped text files exceed the {max} MB per-message limit.',
-      { max: formatLimit(MAX_TEXT_DROP_TURN_BYTES / 1024 / 1024) }
-    ));
+  // A viewer that claims the file and yields only a warning (audio, an image
+  // format no model is given) has said it has no text, and one that failed
+  // outright has none to give: either way the agent gets the bytes, on disk.
+  if (!content || inlineTextTotal(composer) + content.length > MAX_TEXT_DROP_TURN_BYTES) {
+    await stageStoredDrop(composer, file);
     return;
   }
   // `bytes` is what the snapshot inlines, which is what the budgets measure.
@@ -502,13 +512,67 @@ async function stageExtractedFile(composer, file, Viewer) {
 }
 
 /**
- * Remove a staged dropped text file and re-render the chip row.
+ * Upload a dropped file to the project's `.juggler-drops/` and stage it as a
+ * stored drop: the agent reads it there with its file tools, so no size is too
+ * large to hand it and no format is refused. While the bytes upload, a dimmed
+ * chip stands in for it (`_uploading`; removing it aborts the upload), and the
+ * composer will not send (see Composer.sendMessage), so the message never
+ * leaves without a file the user is waiting on.
  * @param {any} composer - Composer instance
- * @param {{filename:string,content:string,bytes:number}} entry
+ * @param {File} file - The dropped file
+ * @returns {Promise<void>}
+ */
+export async function stageStoredDrop(composer, file) {
+  const convId = composer._conversation?.id;
+  if (!convId) {
+    composer.showWarning(t('Couldn\'t attach "{name}": no conversation is open.', { name: file.name }));
+    return;
+  }
+  const limit = dropUploadLimit();
+  if (file.size > limit) {
+    composer.showWarning(t(
+      '"{name}" is too large to send over this connection ({size} MB, max {max} MB).',
+      { name: file.name, size: formatMegabytes(file.size), max: formatLimit(limit / 1024 / 1024) }
+    ));
+    return;
+  }
+  const controller = new AbortController();
+  const placeholder = { filename: file.name, bytes: file.size, _uploading: true, _abort: () => controller.abort() };
+  composer._pendingTextFiles.push(placeholder);
+  renderAttachmentChips(composer);
+  try {
+    const ref = await apiService.uploadDrop(convId, file, { signal: controller.signal });
+    const idx = composer._pendingTextFiles.indexOf(placeholder);
+    // A chip removed mid-upload leaves the stored file unreferenced; it is
+    // the same file a second drop of these bytes would reuse.
+    if (idx === -1) return;
+    composer._pendingTextFiles[idx] = plainStoredDrop({ ...ref, filename: ref.filename || file.name });
+    renderAttachmentChips(composer);
+    composer._persistDraft();
+  } catch (err) {
+    const idx = composer._pendingTextFiles.indexOf(placeholder);
+    if (idx !== -1) composer._pendingTextFiles.splice(idx, 1);
+    renderAttachmentChips(composer);
+    if (controller.signal.aborted) return;
+    // A 413 the server wrote names its own cap; one with no message of the
+    // server's came from the link between (the P2P bridge, Cloudflare's edge).
+    const e = /** @type {any} */ (err);
+    composer.showWarning(e?.status === 413 && !e.serverMessage
+      ? t('"{name}" is too large to send over this connection ({size} MB).', { name: file.name, size: formatMegabytes(file.size) })
+      : t('Couldn\'t upload "{name}": {error}', { name: file.name, error: errorText(err) }));
+  }
+}
+
+/**
+ * Remove a staged dropped file and re-render the chip row, aborting its upload
+ * when it is still in flight.
+ * @param {any} composer - Composer instance
+ * @param {{filename:string,bytes:number,_abort?:() => void}} entry
  */
 function removeTextFile(composer, entry) {
   const idx = composer._pendingTextFiles.indexOf(entry);
   if (idx === -1) return;
+  entry._abort?.();
   composer._pendingTextFiles.splice(idx, 1);
   renderAttachmentChips(composer);
   composer._persistDraft();
@@ -642,21 +706,23 @@ export function stagePendingAttachments(composer, refs) {
  * called from the draft-restore path that is reading FROM the persisted draft.
  * Clones down to the persistable fields so no stray UI state carries over.
  * @param {any} composer - Composer instance
- * @param {import('../utils/attachments.js').TextFileSnapshot[]} entries
+ * @param {import('../utils/attachments.js').DroppedFileEntry[]} entries
  * @returns {number} Count of text files actually staged.
  */
 export function stagePendingTextFiles(composer, entries) {
   const list = Array.isArray(entries)
-    ? entries.filter((entry) => entry && typeof entry.content === 'string')
+    ? entries.filter((entry) => entry && (typeof (/** @type {any} */ (entry)).content === 'string' || isStoredDrop(entry)))
     : [];
-  composer._pendingTextFiles = list.map((entry) => ({
-    // The stored name becomes the dropped-file context item's `<file path=…>`
-    // label, which the model reads.
-    filename: entry.filename || markUntranslated('dropped file'),
-    content: entry.content,
-    bytes: entry.bytes || 0,
-    ...(entry.extracted ? { extracted: true } : {})
-  }));
+  composer._pendingTextFiles = list.map((entry) => (isStoredDrop(entry)
+    ? plainStoredDrop(entry)
+    : {
+      // The stored name becomes the dropped-file context item's `<file path=…>`
+      // label, which the model reads.
+      filename: entry.filename || markUntranslated('dropped file'),
+      content: entry.content,
+      bytes: entry.bytes || 0,
+      ...(entry.extracted ? { extracted: true } : {})
+    }));
   renderAttachmentChips(composer);
   return composer._pendingTextFiles.length;
 }
@@ -719,10 +785,13 @@ export function renderAttachmentChips(composer) {
     container.appendChild(chip);
   }
 
-  // Dropped text files: a document-icon chip (no image thumbnail).
+  // Dropped files: a document-icon chip (no image thumbnail), dimmed while a
+  // stored drop's bytes upload.
   for (const entry of composer._pendingTextFiles) {
     const chip = document.createElement('div');
-    chip.className = 'attachment-chip text-file';
+    chip.className = 'attachment-chip text-file' + (entry._uploading ? ' uploading' : '');
+    if (entry._uploading) chip.title = t('Uploading "{name}"…', { name: entry.filename });
+    else if (typeof entry.path === 'string') chip.title = entry.path;
 
     const icon = document.createElement('span');
     icon.className = 'attachment-icon icon-document';

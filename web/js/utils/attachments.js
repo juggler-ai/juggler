@@ -76,6 +76,75 @@ export function normalizeAttachments(raw) {
  */
 
 /**
+ * @typedef {{mime:string, text:boolean, lines?:number, head?:string, entries?:string[], entryCount?:number}} DropPreview
+ * What the drop upload saw of a stored file (handlers.DropPreview): its sniffed
+ * type; for text, its line count and first lines; for an archive, its first
+ * entries and how many it has.
+ */
+
+/**
+ * @typedef {{filename:string, path:string, absPath:string, bytes:number, sha256?:string, preview?:DropPreview}} StoredDrop
+ * A dropped file too large, or too binary, to inline: uploaded to the project's
+ * `.juggler-drops/` (handlers.DropRef). `path` is project-relative; `absPath`
+ * is what the model is given, since a worktree conversation's shell runs
+ * outside the project root.
+ */
+
+/**
+ * @typedef {TextFileSnapshot|StoredDrop} DroppedFileEntry
+ * One of a draft's dropped files: inline text, or a file stored in the project.
+ */
+
+/**
+ * Whether a dropped-file entry is stored in the project rather than inline.
+ * @param {DroppedFileEntry|Record<string, unknown>} entry
+ * @returns {entry is StoredDrop} True for a stored drop.
+ */
+export function isStoredDrop(entry) {
+  const fields = /** @type {Record<string, unknown>} */ (entry);
+  return typeof fields.path === 'string' && typeof fields.absPath === 'string' && typeof fields.content !== 'string';
+}
+
+/**
+ * A stored drop's preview cloned down to its own fields, or undefined when
+ * there is none.
+ * @param {unknown} raw
+ * @returns {DropPreview|undefined} The preview.
+ */
+function plainDropPreview(raw) {
+  /** @type {unknown} */
+  const value = raw && typeof raw === 'object' && 'toJSON' in raw && typeof raw.toJSON === 'function' ? raw.toJSON() : raw;
+  if (!value || typeof value !== 'object') return undefined;
+  const p = /** @type {Record<string, unknown>} */ (value);
+  return {
+    mime: typeof p.mime === 'string' ? p.mime : '',
+    text: p.text === true,
+    ...(typeof p.lines === 'number' ? { lines: p.lines } : {}),
+    ...(typeof p.head === 'string' ? { head: p.head } : {}),
+    ...(Array.isArray(p.entries) ? { entries: p.entries.filter((e) => typeof e === 'string') } : {}),
+    ...(typeof p.entryCount === 'number' ? { entryCount: p.entryCount } : {}),
+  };
+}
+
+/**
+ * A stored drop cloned down to its persistable fields, dropping any UI-only
+ * state an entry carries while it uploads.
+ * @param {StoredDrop} drop
+ * @returns {StoredDrop} The plain record.
+ */
+export function plainStoredDrop(drop) {
+  const preview = plainDropPreview(drop.preview);
+  return {
+    filename: drop.filename,
+    path: drop.path,
+    absPath: drop.absPath,
+    bytes: drop.bytes,
+    ...(drop.sha256 ? { sha256: drop.sha256 } : {}),
+    ...(preview ? { preview } : {}),
+  };
+}
+
+/**
  * @typedef {{id:number, content:string, bytes:number}} PasteBlob
  * The full content of a captured large paste, keyed by the inline token id
  * (`#N`) that stands in for it in the draft text. Persisted on the draft so a
@@ -85,34 +154,44 @@ export function normalizeAttachments(raw) {
  */
 
 /**
- * @typedef {{text: string, attachments: AssetRef[], textFiles: TextFileSnapshot[], pasteBlobs: PasteBlob[]}} Draft
+ * @typedef {{text: string, attachments: AssetRef[], textFiles: DroppedFileEntry[], pasteBlobs: PasteBlob[]}} Draft
  * A draft carries no timer: a scheduled send leaves the box for the thread's
  * pending queue, where the worker holds it. Any other key on a stored record
  * is not read.
  */
 
 /**
- * Normalize a draft's `textFiles` field — dropped text-file snapshots — into
- * plain records. Like {@link normalizeAttachments}, it accepts either a plain
- * array of plain objects (synced from the Go worker) or a Y.Array of Y.Maps.
- * Entries without string content are dropped.
+ * Normalize a draft's `textFiles` field — dropped files, inline snapshots and
+ * drops stored in the project — into plain records. Like
+ * {@link normalizeAttachments}, it accepts either a plain array of plain
+ * objects (synced from the Go worker) or a Y.Array of Y.Maps. Entries with
+ * neither string content nor a stored path are dropped.
  * @param {unknown} raw
- * @returns {TextFileSnapshot[]} Plain text-file snapshots (empty if none).
+ * @returns {DroppedFileEntry[]} Plain dropped-file entries (empty if none).
  */
 export function normalizeTextFiles(raw) {
-  return toPlainList(raw).flatMap((entry) => {
-    const file = entryFields(entry, ['filename', 'content', 'bytes', 'extracted']);
+  /** @type {DroppedFileEntry[]} */
+  const out = [];
+  for (const entry of toPlainList(raw)) {
+    const file = entryFields(entry, ['filename', 'content', 'bytes', 'extracted', 'path', 'absPath', 'sha256', 'preview']);
     const content = file?.content;
-    if (typeof content !== 'string') return [];
-    const filename = file?.filename;
-    const bytes = file?.bytes;
-    return [{
-      filename: typeof filename === 'string' ? filename : markUntranslated('dropped file'),
-      content,
-      bytes: typeof bytes === 'number' ? bytes : 0,
-      ...(file?.extracted === true ? { extracted: true } : {})
-    }];
-  });
+    const filename = typeof file?.filename === 'string' ? file.filename : markUntranslated('dropped file');
+    const bytes = typeof file?.bytes === 'number' ? file.bytes : 0;
+    if (typeof content === 'string') {
+      out.push({ filename, content, bytes, ...(file?.extracted === true ? { extracted: true } : {}) });
+      continue;
+    }
+    const path = file?.path;
+    const absPath = file?.absPath;
+    if (typeof path !== 'string' || !path || typeof absPath !== 'string' || !absPath) continue;
+    const preview = plainDropPreview(file?.preview);
+    out.push({
+      filename, path, absPath, bytes,
+      ...(typeof file?.sha256 === 'string' ? { sha256: file.sha256 } : {}),
+      ...(preview ? { preview } : {}),
+    });
+  }
+  return out;
 }
 
 /**

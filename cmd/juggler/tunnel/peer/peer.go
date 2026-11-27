@@ -70,30 +70,27 @@ type target struct {
 // startupLimit bounds a peer connection whose data channel never opens.
 const startupLimit = 2 * time.Minute
 
-// gatherLimit bounds ICE gathering before a partial answer is returned.
-// Accept runs on the rendezvous's one reader, and the guest waits 15s for
-// the answer, so gathering cannot be left to run as long as it likes.
-const gatherLimit = 5 * time.Second
-
 // stunGatherLimit is how long pion waits for a STUN server's reply before it
-// gathers without that server's reflexive candidate. It sits well inside
-// gatherLimit, so a STUN server that never answers ends gathering itself, and
-// the answer is complete. Only a slow TURN allocation reaches gatherLimit.
-const stunGatherLimit = 3 * time.Second
+// gathers without that server's reflexive candidate. Nothing waits on
+// gathering to answer, so it decides only when the far end hears that there
+// are no more candidates. A variable so a test can hold gathering open.
+var stunGatherLimit = 3 * time.Second
 
-// api makes every peer connection, with pion's defaults but for its STUN wait.
-var api = func() *webrtc.API {
+// newAPI makes a peer connection's API, with pion's defaults but for its STUN
+// wait.
+func newAPI() *webrtc.API {
 	var se webrtc.SettingEngine
 	se.SetSTUNGatherTimeout(stunGatherLimit)
 	return webrtc.NewAPI(webrtc.WithSettingEngine(se))
-}()
+}
 
-// Accept answers one offer and returns the local answer, its candidates
-// gathered (non-trickle). The data channel the offer opens — the one labelled
-// "juggler" — carries traffic to the server dial reaches, every request naming
-// host, until life ends, the channel closes or the connection fails. ctx
-// bounds only the setup.
-func (p *Peer) Accept(ctx, life context.Context, offer tunnel.SessionDescription, ice []tunnel.ICEServer,
+// Accept answers one offer at once, without waiting for ICE gathering: its
+// candidates go out through trickle.Local as they are gathered, and the
+// offerer's are added from trickle.Remote as they arrive (tunnel.Trickle). The
+// data channel the offer opens — the one labelled "juggler" — carries traffic
+// to the server dial reaches, every request naming host, until life ends, the
+// channel closes or the connection fails. ctx bounds only the setup.
+func (p *Peer) Accept(ctx, life context.Context, offer tunnel.SessionDescription, ice []tunnel.ICEServer, trickle tunnel.Trickle,
 	dial func(context.Context) (net.Conn, error), host string) (tunnel.SessionDescription, error) {
 	if offer.Type != "offer" || offer.SDP == "" {
 		return tunnel.SessionDescription{}, errors.New("missing WebRTC offer")
@@ -105,7 +102,7 @@ func (p *Peer) Accept(ctx, life context.Context, offer tunnel.SessionDescription
 	if cert := p.identity(); cert != nil {
 		cfg.Certificates = []webrtc.Certificate{*cert}
 	}
-	pc, err := api.NewPeerConnection(cfg)
+	pc, err := newAPI().NewPeerConnection(cfg)
 	if err != nil {
 		return tunnel.SessionDescription{}, fmt.Errorf("create peer connection: %w", err)
 	}
@@ -117,10 +114,12 @@ func (p *Peer) Accept(ctx, life context.Context, offer tunnel.SessionDescription
 	// link holds is let go then, and not before.
 	link, endLink := context.WithCancel(life)
 	startup := time.AfterFunc(startupLimit, endLink)
+	local := localCandidates(trickle.Local)
 	go func() {
 		<-link.Done()
 		startup.Stop()
 		_ = pc.Close()
+		local(nil)
 	}()
 	fail := func(err error) (tunnel.SessionDescription, error) {
 		endLink()
@@ -147,7 +146,15 @@ func (p *Peer) Accept(ctx, life context.Context, offer tunnel.SessionDescription
 		}
 	})
 
-	gathered := webrtc.GatheringCompletePromise(pc)
+	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
+		if c == nil {
+			local(nil)
+			return
+		}
+		init := c.ToJSON()
+		local(&tunnel.ICECandidate{Candidate: init.Candidate, SDPMid: init.SDPMid, SDPMLineIndex: init.SDPMLineIndex, UsernameFragment: init.UsernameFragment})
+	})
+
 	if err := pc.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: offer.SDP}); err != nil {
 		return fail(fmt.Errorf("set remote description: %w", err))
 	}
@@ -158,18 +165,65 @@ func (p *Peer) Accept(ctx, life context.Context, offer tunnel.SessionDescription
 	if err := pc.SetLocalDescription(answer); err != nil {
 		return fail(fmt.Errorf("set local description: %w", err))
 	}
-	select {
-	case <-gathered:
-	case <-ctx.Done():
-		return fail(ctx.Err())
-	case <-time.After(gatherLimit):
-		jlog.Info("WebRTC: ICE gathering timed out; returning a partial answer")
+	if err := ctx.Err(); err != nil {
+		return fail(err)
 	}
-	local := pc.LocalDescription()
-	if local == nil {
+	desc := pc.LocalDescription()
+	if desc == nil {
 		return fail(errors.New("missing local description"))
 	}
-	return tunnel.SessionDescription{Type: local.Type.String(), SDP: local.SDP}, nil
+	if trickle.Remote != nil {
+		go addRemoteCandidates(link, pc, trickle.Remote)
+	}
+	return tunnel.SessionDescription{Type: desc.Type.String(), SDP: desc.SDP}, nil
+}
+
+// localCandidates is to, called as tunnel.Trickle.Local promises: one call at
+// a time, in order, and never after the nil that ends the candidates, which
+// only the first nil is. The goroutine that makes the calls exits on that
+// nil, which the link's end sends if gathering has not. A nil to drops them
+// all.
+func localCandidates(to func(*tunnel.ICECandidate)) func(*tunnel.ICECandidate) {
+	if to == nil {
+		return func(*tunnel.ICECandidate) {}
+	}
+	in := make(chan *tunnel.ICECandidate)
+	ended := make(chan struct{})
+	go func() {
+		defer close(ended)
+		for c := range in {
+			to(c)
+			if c == nil {
+				return
+			}
+		}
+	}()
+	return func(c *tunnel.ICECandidate) {
+		select {
+		case in <- c:
+		case <-ended:
+		}
+	}
+}
+
+// addRemoteCandidates adds the offerer's candidates to pc as they arrive on
+// remote, until it closes or the link ends. One pion refuses is let go: the
+// candidates that remain may still make a path.
+func addRemoteCandidates(link context.Context, pc *webrtc.PeerConnection, remote <-chan tunnel.ICECandidate) {
+	for {
+		select {
+		case <-link.Done():
+			return
+		case c, ok := <-remote:
+			if !ok {
+				return
+			}
+			init := webrtc.ICECandidateInit{Candidate: c.Candidate, SDPMid: c.SDPMid, SDPMLineIndex: c.SDPMLineIndex, UsernameFragment: c.UsernameFragment}
+			if err := pc.AddICECandidate(init); err != nil {
+				jlog.Debug("WebRTC: ignoring a remote candidate: %v", err)
+			}
+		}
+	}
 }
 
 func pionICEServers(in []tunnel.ICEServer) []webrtc.ICEServer {

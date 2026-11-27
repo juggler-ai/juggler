@@ -79,6 +79,32 @@ type SessionDescription struct {
 	SDP  string `json:"sdp"`
 }
 
+// ICECandidate is one ICE candidate, as WebRTC's JSON spells it
+// (RTCIceCandidateInit).
+type ICECandidate struct {
+	Candidate        string  `json:"candidate"`
+	SDPMid           *string `json:"sdpMid,omitempty"`
+	SDPMLineIndex    *uint16 `json:"sdpMLineIndex,omitempty"`
+	UsernameFragment *string `json:"usernameFragment,omitempty"`
+}
+
+// Trickle is how one offer's ICE candidates cross between its two ends once
+// the offer and answer have (trickle ICE, RFC 8838), so that neither waits
+// for its own gathering to end before it signals.
+type Trickle struct {
+	// Remote carries the offerer's candidates as they arrive. Closing it says
+	// the offerer has no more; nil is an offer that carries every candidate
+	// it will have.
+	Remote <-chan ICECandidate
+	// Local is handed each of the answerer's candidates as it is gathered,
+	// then nil, exactly once and last, when gathering ends or the link does,
+	// whichever is first; an offer refused may never call it. It is called
+	// on other goroutines, possibly before the answer is returned, and must
+	// not block. Nil drops them, leaving the far end only the candidates the
+	// answer carries.
+	Local func(*ICECandidate)
+}
+
 // ICEServer is one STUN or TURN server, as WebRTC's JSON spells it.
 type ICEServer struct {
 	URLs       []string `json:"urls"`
@@ -144,21 +170,36 @@ type OfferOptions struct {
 // a remote caller, which never takes the engine slot or passes for a viewer
 // on this machine.
 type Host interface {
-	// AcceptWebRTCOffer answers one SDP offer. The data channel it opens
-	// carries HTTP requests and one WebSocket into the server, ending when the
-	// tunnel stops.
-	AcceptWebRTCOffer(ctx context.Context, offer SessionDescription, opts OfferOptions) (SessionDescription, error)
+	// AcceptWebRTCOffer answers one SDP offer at once, before ICE gathering
+	// ends, its candidates crossing through trickle as they come. The data
+	// channel it opens carries HTTP requests and one WebSocket into the
+	// server, ending when the tunnel stops.
+	AcceptWebRTCOffer(ctx context.Context, offer SessionDescription, opts OfferOptions, trickle Trickle) (SessionDescription, error)
 	// NewIngressHTTPServer returns an http.Server serving the server's own
 	// handler, for a transport that forwards guest traffic to a private
 	// loopback listener. Its callers are anonymous.
 	NewIngressHTTPServer() *http.Server
 }
 
-// RendezvousProtocolVersion is the version of the protocol a rendezvous
-// bootstrap page speaks over the data channel. A provider that relays offers
+// PeerIdentified is a Host whose WebRTC answers present a lasting identity:
+// this machine's peer certificate. A transport whose links are made before any
+// offer arrives can pin the identity in them, so the far end refuses an answer
+// that presents another. Asking loads the identity, minting it on a machine
+// that has none, so only a tunnel that is opening asks.
+type PeerIdentified interface {
+	// PeerFingerprint is the SHA-256 DTLS fingerprint every answer of
+	// AcceptWebRTCOffer presents, as SDP spells it (upper-case hex byte pairs
+	// joined by colons), or "" when answers present no lasting identity.
+	PeerFingerprint() string
+}
+
+// RendezvousProtocolVersion is the version of the protocol a rendezvous and
+// its bootstrap page speak: the signalling frames (offers, answers and
+// trickled candidates, each naming its offer), and what crosses the data
+// channel. A provider that relays offers
 // refuses a rendezvous of another version, and the bootstrap refuses a server
 // of another (GET /api/version).
-const RendezvousProtocolVersion = 3
+const RendezvousProtocolVersion = 4
 
 // ModeSpec describes one registrable tunnel mode: its identity, the copy a
 // session's Settings → Connectivity shows for it, an availability probe and the

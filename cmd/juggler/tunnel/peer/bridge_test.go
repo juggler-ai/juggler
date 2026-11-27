@@ -50,6 +50,16 @@ type guest struct {
 // dialGuest connects a guest to p, whose link serves to until life ends.
 func dialGuest(t *testing.T, p *Peer, life context.Context, to target) *guest {
 	t.Helper()
+	return dialGuestWith(t, p, life, to, nil, nil)
+}
+
+// dialGuestWith connects a guest to p as the bootstrap does, over trickle
+// ICE: it offers before it gathers, and every candidate either end has
+// crosses as a trickled one — the answer's own are struck out, so a link that
+// opens has opened on those. p answers with ice, and hands each candidate it
+// trickles to local as well, when local is given.
+func dialGuestWith(t *testing.T, p *Peer, life context.Context, to target, ice []tunnel.ICEServer, local func(*tunnel.ICECandidate)) *guest {
+	t.Helper()
 	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{})
 	if err != nil {
 		t.Fatal(err)
@@ -83,32 +93,78 @@ func dialGuest(t *testing.T, p *Peer, life context.Context, to target) *guest {
 			g.pieces <- append([]byte(nil), m.Data...)
 		}
 	})
+	// The guest's candidates go to the host as they come, the end of them
+	// closing the channel; the host's are held until the answer is in.
+	toHost := make(chan tunnel.ICECandidate, 64)
+	var toHostDone sync.Once
+	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
+		if c == nil {
+			toHostDone.Do(func() { close(toHost) })
+			return
+		}
+		init := c.ToJSON()
+		toHost <- tunnel.ICECandidate{Candidate: init.Candidate, SDPMid: init.SDPMid, SDPMLineIndex: init.SDPMLineIndex, UsernameFragment: init.UsernameFragment}
+	})
+	fromHost := make(chan *tunnel.ICECandidate, 64)
+	failed := make(chan struct{})
+	var failedOnce sync.Once
+	pc.OnConnectionStateChange(func(s webrtc.PeerConnectionState) {
+		if s == webrtc.PeerConnectionStateFailed {
+			failedOnce.Do(func() { close(failed) })
+		}
+	})
 	offer, err := pc.CreateOffer(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	gathered := webrtc.GatheringCompletePromise(pc)
 	if err := pc.SetLocalDescription(offer); err != nil {
 		t.Fatal(err)
 	}
-	<-gathered
-	local := pc.LocalDescription()
-	answer, err := p.Accept(t.Context(), life, tunnel.SessionDescription{Type: "offer", SDP: local.SDP}, nil, to.dial, to.host)
+	answer, err := p.Accept(t.Context(), life, tunnel.SessionDescription{Type: "offer", SDP: offer.SDP}, ice,
+		tunnel.Trickle{Remote: toHost, Local: func(c *tunnel.ICECandidate) {
+			if local != nil {
+				local(c)
+			}
+			fromHost <- c
+		}}, to.dial, to.host)
 	if err != nil {
 		t.Fatalf("Accept: %v", err)
 	}
 	if answer.Type != "answer" {
 		t.Fatalf("answer type %q", answer.Type)
 	}
-	if err := pc.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeAnswer, SDP: answer.SDP}); err != nil {
+	if err := pc.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeAnswer, SDP: withoutCandidates(answer.SDP)}); err != nil {
 		t.Fatal(err)
 	}
+	go func() {
+		for c := range fromHost {
+			if c == nil {
+				return
+			}
+			_ = pc.AddICECandidate(webrtc.ICECandidateInit{Candidate: c.Candidate, SDPMid: c.SDPMid, SDPMLineIndex: c.SDPMLineIndex, UsernameFragment: c.UsernameFragment})
+		}
+	}()
+	// Bounded by the connection's own progress: ICE fails a path it cannot
+	// make, which a link with no candidates to try is.
 	select {
 	case <-opened:
-	case <-time.After(20 * time.Second):
+	case <-failed:
+		t.Fatal("the connection failed before the data channel opened")
+	case <-t.Context().Done():
 		t.Fatal("the data channel never opened")
 	}
 	return g
+}
+
+// withoutCandidates is sdp with its candidate lines struck out.
+func withoutCandidates(sdp string) string {
+	var kept []string
+	for _, line := range strings.SplitAfter(sdp, "\n") {
+		if !strings.HasPrefix(line, "a=candidate:") && !strings.HasPrefix(line, "a=end-of-candidates") {
+			kept = append(kept, line)
+		}
+	}
+	return strings.Join(kept, "")
 }
 
 func (g *guest) send(v any) {
@@ -491,7 +547,7 @@ func TestALinkLetsGoWhenItEnds(t *testing.T) {
 	p := New(filepath.Join(t.TempDir(), identityFileName))
 	awaitNoLinkHolds(t, "before the test")
 
-	if _, err := p.Accept(t.Context(), t.Context(), tunnel.SessionDescription{Type: "offer", SDP: "v=0 not an offer"}, nil, nil, ""); err == nil {
+	if _, err := p.Accept(t.Context(), t.Context(), tunnel.SessionDescription{Type: "offer", SDP: "v=0 not an offer"}, nil, tunnel.Trickle{}, nil, ""); err == nil {
 		t.Fatal("a malformed offer was answered")
 	}
 	awaitNoLinkHolds(t, "an offer refused before it was answered")
@@ -845,10 +901,55 @@ func handlerTarget(t *testing.T, h http.Handler) target {
 	}
 }
 
+// TestALinkOpensBeforeTheAnswerersGatheringEnds: an offer is answered at
+// once, and the link opens on trickled candidates while the answerer is still
+// gathering — here waiting on a STUN server that never replies, for longer
+// than the test lives — so no connection waits out a slow gather.
+func TestALinkOpensBeforeTheAnswerersGatheringEnds(t *testing.T) {
+	silent, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = silent.Close() })
+	go func() {
+		buf := make([]byte, 1500)
+		for {
+			if _, _, err := silent.ReadFrom(buf); err != nil {
+				return
+			}
+		}
+	}()
+	was := stunGatherLimit
+	stunGatherLimit = time.Hour
+	t.Cleanup(func() { stunGatherLimit = was })
+
+	p := New(filepath.Join(t.TempDir(), identityFileName))
+	var ended atomic.Bool
+	var trickled atomic.Int32
+	g := dialGuestWith(t, p, t.Context(), testServer(t), []tunnel.ICEServer{{URLs: []string{"stun:" + silent.LocalAddr().String()}}},
+		func(c *tunnel.ICECandidate) {
+			if c == nil {
+				ended.Store(true)
+			} else {
+				trickled.Add(1)
+			}
+		})
+	if ended.Load() {
+		t.Fatal("the answerer's gathering ended before the link opened, with its STUN server yet to reply")
+	}
+	if trickled.Load() == 0 {
+		t.Fatal("the link opened with no candidate trickled from the answerer")
+	}
+	g.send(map[string]any{"type": "__juggler_http_req", "id": "r1", "method": "GET", "path": "/headers", "headers": map[string]string{}})
+	if raw := g.next(func(raw []byte) bool { return strings.Contains(string(raw), `"id":"r1"`) }); raw == nil {
+		t.Fatal("no answer over the link")
+	}
+}
+
 // TestAcceptRefusesANonOffer: only an offer is answered.
 func TestAcceptRefusesANonOffer(t *testing.T) {
 	p := New(filepath.Join(t.TempDir(), identityFileName))
-	if _, err := p.Accept(t.Context(), t.Context(), tunnel.SessionDescription{Type: "answer", SDP: "v=0"}, nil, nil, ""); err == nil {
+	if _, err := p.Accept(t.Context(), t.Context(), tunnel.SessionDescription{Type: "answer", SDP: "v=0"}, nil, tunnel.Trickle{}, nil, ""); err == nil {
 		t.Fatal("an answer was accepted as an offer")
 	}
 }

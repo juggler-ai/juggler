@@ -37,9 +37,10 @@ import (
 type Peer interface {
 	// Fingerprint is the DTLS fingerprint the peer presents, or "".
 	Fingerprint() string
-	// Accept answers offer, its setup bounded by ctx; the data channel it
-	// opens carries traffic over dial, naming host, until life ends.
-	Accept(ctx, life context.Context, offer tunnel.SessionDescription, ice []tunnel.ICEServer,
+	// Accept answers offer, its setup bounded by ctx, its candidates crossing
+	// through trickle; the data channel it opens carries traffic over dial,
+	// naming host, until life ends.
+	Accept(ctx, life context.Context, offer tunnel.SessionDescription, ice []tunnel.ICEServer, trickle tunnel.Trickle,
 		dial func(context.Context) (net.Conn, error), host string) (tunnel.SessionDescription, error)
 }
 
@@ -268,13 +269,24 @@ type tunnelHost struct {
 	t *runningTunnel
 }
 
-func (h tunnelHost) AcceptWebRTCOffer(ctx context.Context, offer tunnel.SessionDescription, opts tunnel.OfferOptions) (tunnel.SessionDescription, error) {
+func (h tunnelHost) AcceptWebRTCOffer(ctx context.Context, offer tunnel.SessionDescription, opts tunnel.OfferOptions, trickle tunnel.Trickle) (tunnel.SessionDescription, error) {
 	if h.s.peer == nil {
 		return tunnel.SessionDescription{}, msg.NewError("this server answers no WebRTC offers")
 	}
 	tag := ingressTag{tunnel: h.t, caller: opts.Caller}
 	dial := func(ctx context.Context) (net.Conn, error) { return h.s.dialIngress(ctx, tag) }
-	return h.s.peer.Accept(ctx, h.t.life, offer, opts.ICEServers, dial, h.s.addr)
+	return h.s.peer.Accept(ctx, h.t.life, offer, opts.ICEServers, trickle, dial, h.s.addr)
+}
+
+var _ tunnel.PeerIdentified = tunnelHost{}
+
+// PeerFingerprint is the fingerprint this machine's peer presents in every
+// answer, "" when the server answers no offers.
+func (h tunnelHost) PeerFingerprint() string {
+	if h.s.peer == nil {
+		return ""
+	}
+	return h.s.peer.Fingerprint()
 }
 
 func (h tunnelHost) NewIngressHTTPServer() *http.Server {

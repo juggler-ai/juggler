@@ -9,11 +9,9 @@ import (
 	"testing"
 )
 
-// TestMain answers every offer with no ICE servers. Guest and host share
-// loopback, so host candidates are all a link needs, and gathering then ends
-// as soon as they are in. A public STUN server would make every answer wait
-// on a reply from the internet, which a loaded machine or an offline one turns
-// into a partial answer.
+// TestMain answers every offer with no ICE servers. Guest and host share a
+// machine, so host candidates are all a link needs, and no test sends to a
+// STUN server on the internet, which an offline machine has none of.
 func TestMain(m *testing.M) {
 	DefaultICEServers = nil
 	os.Exit(m.Run())

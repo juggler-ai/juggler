@@ -8,6 +8,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -163,7 +164,7 @@ type fakePeer struct {
 }
 
 func (p *fakePeer) Fingerprint() string { p.asked.Add(1); return "AA:BB:CC" }
-func (p *fakePeer) Accept(_, life context.Context, offer tunnel.SessionDescription, _ []tunnel.ICEServer,
+func (p *fakePeer) Accept(_, life context.Context, offer tunnel.SessionDescription, _ []tunnel.ICEServer, _ tunnel.Trickle,
 	dial func(context.Context) (net.Conn, error), host string) (tunnel.SessionDescription, error) {
 	p.dial, p.host, p.life = dial, host, life
 	close(p.answer)
@@ -456,7 +457,7 @@ func TestDataChannelIngressIsTheTunnels(t *testing.T) {
 	}
 	host := *lastOfferHost.Load()
 	answer, err := host.AcceptWebRTCOffer(t.Context(), tunnel.SessionDescription{Type: "offer", SDP: "v=0"},
-		tunnel.OfferOptions{Caller: tunnel.CallerIdentity{Issuer: "https://test.example", Subject: "id-bob", Name: "bob"}})
+		tunnel.OfferOptions{Caller: tunnel.CallerIdentity{Issuer: "https://test.example", Subject: "id-bob", Name: "bob"}}, tunnel.Trickle{})
 	if err != nil || answer.SDP != "answer to v=0" {
 		t.Fatalf("AcceptWebRTCOffer: %+v, %v", answer, err)
 	}
@@ -508,8 +509,33 @@ func TestOffersNeedAPeer(t *testing.T) {
 		t.Fatalf("PUT tunnel: %d %s", code, body)
 	}
 	host := *lastOfferHost.Load()
-	if _, err := host.AcceptWebRTCOffer(t.Context(), tunnel.SessionDescription{Type: "offer", SDP: "v=0"}, tunnel.OfferOptions{}); err == nil {
+	if _, err := host.AcceptWebRTCOffer(t.Context(), tunnel.SessionDescription{Type: "offer", SDP: "v=0"}, tunnel.OfferOptions{}, tunnel.Trickle{}); err == nil {
 		t.Fatal("an offer was answered with no peer")
+	}
+}
+
+// TestTunnelHostNamesThePeerIdentity: a tunnel's Host names the fingerprint
+// its answers present, for a transport to pin in its link, and none on a
+// server that answers no offers.
+func TestTunnelHostNamesThePeerIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		peer Peer
+		want string
+	}{
+		{&fakePeer{answer: make(chan struct{})}, "AA:BB:CC"},
+		{nil, ""},
+	} {
+		_, local := tunnelServer(t, tc.peer)
+		if code, body := tunnelCall(t, http.DefaultClient, "PUT", local+"/api/server/tunnel", "", `{"mode":"offer-test"}`, nil); code != http.StatusOK {
+			t.Fatalf("PUT tunnel: %d %s", code, body)
+		}
+		host, ok := (*lastOfferHost.Load()).(tunnel.PeerIdentified)
+		if !ok {
+			t.Fatal("a tunnel's Host is not tunnel.PeerIdentified")
+		}
+		if got := host.PeerFingerprint(); got != tc.want {
+			t.Errorf("PeerFingerprint() = %q, want %q", got, tc.want)
+		}
 	}
 }
 
@@ -545,7 +571,7 @@ func TestStatusNamesThePeerIdentityWhileATunnelIsOpen(t *testing.T) {
 func TestVersionNeedsNoToken(t *testing.T) {
 	_, local := tunnelServer(t, nil)
 	code, body := get(t, local+"/api/version")
-	if code != http.StatusOK || !strings.Contains(body, `"protocolVersion":3`) {
+	if code != http.StatusOK || !strings.Contains(body, fmt.Sprintf(`"protocolVersion":%d`, tunnel.RendezvousProtocolVersion)) {
 		t.Errorf("GET /api/version: %d %s; want 200 with the protocol", code, body)
 	}
 }

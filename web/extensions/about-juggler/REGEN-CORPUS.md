@@ -190,6 +190,10 @@ the corpus and finding it plausible. Each of these has been wrong before:
 | workspace providers | `*-workspace-provider.js` in `juggler-core/workspaces/` |
 | `web/sdk/` files cited | one per capability type |
 
+- Set the "Checked against source:" date in the header comment of `corpus.js`
+  to today (YYYY-MM-DD), once the counts above all match. Set it even when the
+  check changed nothing else: the date records that the whole corpus was
+  checked, and nothing else in the file shows that.
 - Verify the string still parses (no stray backticks; balanced template literal).
 - Build the app so the new extension asset is embedded and served — from the
   parent repo run `make build` (per the parent's build convention), or build the

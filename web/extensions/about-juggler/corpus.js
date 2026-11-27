@@ -27,6 +27,11 @@
  * Juggler's tools/commands/providers change, regenerate the whole corpus from
  * repo source using the prompt in ./REGEN-CORPUS.md so it never drifts from
  * reality. Keep it grounded in real repo facts — no speculation.
+ *
+ * The date below is when the whole corpus was last checked against the source
+ * by the REGEN-CORPUS.md procedure. Set it on every full check, even one that
+ * changes nothing else; an edit to a single section leaves it alone.
+ * Checked against source: 2026-11-26
  * @module about-juggler/corpus
  */
 

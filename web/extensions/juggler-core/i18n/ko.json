@@ -890,7 +890,6 @@
   "Stop generating": "생성 중지",
   "Stop task": "작업 중지",
   "Stop {name}": "{name} 중지",
-  "Stopped with conflicts to resolve.": "해결할 충돌이 있어 중지했습니다.",
   "Stopped {taskId}": "{taskId} 중지됨",
   "Stopping {taskId}...": "{taskId} 중지 중...",
   "Stored in Git LFS: the diff is of its pointer, so stage it whole.": "Git LFS에 저장됨: 차이는 포인터에 대한 것이므로 전체를 스테이징하세요.",
@@ -1349,5 +1348,9 @@
   "⚠ Write outside the project folder: {path}": "⚠ 프로젝트 폴더 밖에 쓰기: {path}",
   "The git command failed.": "git 명령이 실패했습니다.",
   "The git command was cancelled.": "git 명령이 취소되었습니다.",
-  "The server did not say which git job it started.": "서버가 어떤 git 작업을 시작했는지 알려 주지 않았습니다."
+  "The server did not say which git job it started.": "서버가 어떤 git 작업을 시작했는지 알려 주지 않았습니다.",
+  "Resolve conflicts": "충돌 해결",
+  "Resolve with an agent": "에이전트로 해결",
+  "Start a new conversation that resolves the conflicts": "충돌을 해결하는 새 대화를 시작합니다",
+  "{count, plural, one {# file is in conflict} other {# files are in conflict}}": "{count, plural, other {파일 #개에 충돌이 있습니다}}"
 }

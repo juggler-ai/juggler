@@ -40,7 +40,6 @@ const t = translator('@juggler/core');
  * @property {() => number} dirty - The viewed tree's changed files.
  * @property {() => TreeView[]} trees - The worktrees, as last read.
  * @property {(tree: TreeView) => void} viewTree - Show that tree.
- * @property {() => void} showChanges - Bring Changes forward.
  */
 
 /**
@@ -126,7 +125,7 @@ export function createActions(host) {
           ? { label: t('Go to worktree “{name}”', { name }), run: () => host.viewTree(view) }
           : undefined);
     } else if (kind === 'conflicts') {
-      host.toast.warn(t('Stopped with conflicts to resolve.'), { label: t('Show them'), run: () => host.showChanges() });
+      // The banner says so, with what to do about them, once the tree is read again.
     } else {
       host.toast.error(errorText(e));
     }

@@ -338,21 +338,6 @@ export async function runTests(_ctx) {
     m.teardown();
   });
 
-  await test('a pick that stops on conflicts offers to show them in Changes', async () => {
-    const m = await mounted();
-    m.holdRuns(true);
-    await open(m, 3);
-    action(m, 'Cherry-pick onto main').click();
-    confirmPop();
-    m.failRun(0, { kind: 'conflicts', message: 'Stopped on conflicts.' });
-    const show = await toastButton(m, 'action');
-    assert(show.textContent === 'Show them', `the button: ${show.textContent}`);
-    show.click();
-    const root = /** @type {HTMLElement} */ (m.body.querySelector('.git-pin'));
-    assert(root.dataset.place === 'changes', `the place: ${root.dataset.place}`);
-    m.teardown();
-  });
-
   await test('changes in the way of a revert offer to stash them and revert again', async () => {
     const m = await mounted();
     m.holdRuns(true);

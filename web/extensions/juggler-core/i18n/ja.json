@@ -890,7 +890,6 @@
   "Stop generating": "生成を停止",
   "Stop task": "タスクを停止",
   "Stop {name}": "{name} を停止",
-  "Stopped with conflicts to resolve.": "解決すべき競合があるため停止しました。",
   "Stopped {taskId}": "{taskId} を停止しました",
   "Stopping {taskId}...": "{taskId} を停止中...",
   "Stored in Git LFS: the diff is of its pointer, so stage it whole.": "Git LFS に保存されています: 差分はポインタのものなので、ファイル全体をステージしてください。",
@@ -1349,5 +1348,9 @@
   "⚠ Write outside the project folder: {path}": "⚠ プロジェクトフォルダ外への書き込み: {path}",
   "The git command failed.": "git コマンドが失敗しました。",
   "The git command was cancelled.": "git コマンドはキャンセルされました。",
-  "The server did not say which git job it started.": "サーバーは開始した git ジョブを伝えませんでした。"
+  "The server did not say which git job it started.": "サーバーは開始した git ジョブを伝えませんでした。",
+  "Resolve conflicts": "コンフリクトを解決",
+  "Resolve with an agent": "エージェントで解決",
+  "Start a new conversation that resolves the conflicts": "コンフリクトを解決する新しい会話を開始します",
+  "{count, plural, one {# file is in conflict} other {# files are in conflict}}": "{count, plural, other {# 件のファイルにコンフリクトがあります}}"
 }

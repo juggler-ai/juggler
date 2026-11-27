@@ -223,6 +223,7 @@ function sideTitles(stopped, head) {
  * @property {(anchor?: Element) => void} commit - Commit, or ask for a message
  *   (the head's Commit): in a chip, on a popover off `anchor`.
  * @property {() => void} showFirstConflict - Select the first file in conflict and show it.
+ * @property {() => string[]} conflictPaths - The files in conflict, as listed.
  * @property {() => void} focus - Focus the list.
  * @property {(repos: {path: string}[], pending?: boolean) => void} setRepos - The repositories in
  *   the tree, and whether they are still being found: a list still being found never moves
@@ -361,7 +362,6 @@ export function createChangesPlace(host) {
     dirty: () => files().length,
     trees: () => [],
     viewTree: () => {},
-    showChanges: () => host.showChanges(),
   });
 
   // --- the model -----------------------------------------------------------
@@ -1513,6 +1513,7 @@ export function createChangesPlace(host) {
       if (!order.includes(key)) filter.close();
       select(key, true);
     },
+    conflictPaths: () => (groupsOf(files()).find((g) => g.id === 'conflicts')?.files || []).map((f) => f.path),
     focus: () => scroll.focus(),
     repo: () => repo,
     repos: () => repos,

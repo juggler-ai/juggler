@@ -662,7 +662,6 @@ export function createHistoryPlace(host) {
     dirty: () => state().dirty,
     trees: () => state().trees,
     viewTree: (view) => host.viewTree(view),
-    showChanges: () => host.showChanges(),
   });
 
   /**

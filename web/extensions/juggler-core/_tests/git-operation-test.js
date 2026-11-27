@@ -88,7 +88,7 @@ export async function runTests(_ctx) {
   const bannerText = (m) => banner(m)?.querySelector('.git-op__text')?.textContent || '';
   /**
    * @param {any} m - The mounted pin.
-   * @param {'continue'|'skip'|'abort'|'quit'} which - Which button.
+   * @param {'continue'|'skip'|'abort'|'quit'|'resolve'|'show'} which - Which button.
    * @returns {HTMLButtonElement} It.
    */
   const button = (m, which) => {
@@ -182,7 +182,7 @@ export async function runTests(_ctx) {
     m.teardown();
   });
 
-  await test('Skip asks, skips, and a refusal for conflicts offers to show them', async () => {
+  await test('Skip asks, skips, and a refusal for conflicts is left to the banner', async () => {
     const m = await mounted(rebasing(RESOLVED));
     m.holdRuns(true);
     button(m, 'skip').click();
@@ -192,11 +192,37 @@ export async function runTests(_ctx) {
     assert(m.runs()[0].op.kind === 'operation-skip' && m.runs()[0].op.operation === 'rebase', `sent ${JSON.stringify(m.runs()[0].op)}`);
     assert(button(m, 'continue').disabled && button(m, 'abort').disabled, 'the banner waits while it runs');
     m.failRun(0, { kind: 'conflicts', message: 'Stopped with conflicts.' });
-    const show = /** @type {Element} */ (await waitFor(() => m.body.querySelector('.git-pin__toast:not([hidden]) .git-pin__toast-action:not([hidden])'), 'Show them'));
-    assert(show.textContent === 'Show them', `the toast offers ${show.textContent}`);
-    assert(m.body.querySelector('.git-pin__toast:not([hidden])')?.classList.contains('git-pin__toast--warn'),
-      'stopping on conflicts is a warning, which stays until it is dealt with');
-    assert(!button(m, 'continue').disabled, 'the banner can be used again');
+    await waitFor(() => !button(m, 'continue').disabled, 'the banner to be usable again');
+    // The banner says conflicts while they last; a toast saying it too would
+    // hang over the banner's buttons.
+    assert(!toastText(m), `no toast: ${toastText(m)}`);
+    m.teardown();
+  });
+
+  await test('Resolve with an agent starts a conversation in the tree in view, asked to resolve the files and see the operation through', async () => {
+    const m = mountPin(pin, { place: 'changes', changes: merging(CONFLICTED), status: { root: '/tmp/proj', workspace: 'ws_7', repos: [{ path: '' }] } });
+    await waitFor(() => banner(m) && bannerText(m), 'the banner');
+    assert(button(m, 'show').hidden === true, 'the primary shows them during an operation');
+    button(m, 'resolve').click();
+    const started = await waitFor(() => m.workspaceCalls().find((/** @type {any} */ c) => c.call === 'startConversation'), 'the conversation');
+    const request = started.args[0];
+    assert(request.workspace === 'ws_7', `in the tree in view: ${JSON.stringify(request)}`);
+    assert(request.message.includes('src/a.js, src/b.js') && request.message.includes('git merge --continue') && request.message.includes('branch main'),
+      `names the files and how to finish: ${request.message}`);
+    m.teardown();
+  });
+
+  await test('files left in conflict with nothing in progress are the banner\u2019s too, with Show them and Resolve with an agent', async () => {
+    const m = await mounted(changesOf(CONFLICTED));
+    assert(bannerText(m) === '2 files are in conflict', `banner: ${bannerText(m)}`);
+    assert(!button(m, 'resolve').hidden, 'it can hand them to an agent');
+    assert(button(m, 'continue').offsetParent === null && button(m, 'abort').offsetParent === null, 'nothing to continue or abort');
+    button(m, 'show').click();
+    await waitFor(() => m.body.querySelector('.git-changes__row[data-key="conflicts:src/a.js"][aria-selected="true"]'),
+      'the first conflict to be selected');
+    m.setChanges(changesOf(RESOLVED));
+    m.emitChange();
+    await waitFor(() => !banner(m), 'the banner to go once nothing is in conflict');
     m.teardown();
   });
 
@@ -228,7 +254,7 @@ export async function runTests(_ctx) {
   const CORE_TEXT = [
     '{kind, select, rebase {Rebasing {branch} onto {other}} merge {Merging {other} into {branch}} cherry-pick {Cherry-picking {sha} “{subject}”} other {Reverting {sha} “{subject}”}}',
     'commit {step} of {steps}', '{count, plural, one {# conflict} other {# conflicts}}',
-    'your changes are set aside until it finishes', 'Continue', 'Skip', 'Abort', 'Resolve the conflicts first',
+    'your changes are set aside until it finishes', 'Continue', 'Skip', 'Abort', 'Resolve the conflicts first', 'Resolve with an agent',
     '{kind, select, rebase {Abort the rebase? Resolutions so far are lost; {branch} goes back to {sha}.} merge {Abort the merge? Resolutions so far are lost; {branch} goes back to {sha}.} cherry-pick {Abort the cherry-pick? Resolutions so far are lost; {branch} goes back to {sha}.} other {Abort the revert? Resolutions so far are lost; {branch} goes back to {sha}.}}',
     'Cancel',
   ];
@@ -240,7 +266,7 @@ export async function runTests(_ctx) {
       await waitFor(() => document.querySelector('.git-pop .git-pop__text'), 'the question');
       const shown = [
         bannerText(m), button(m, 'continue').textContent || '', m.body.querySelector('.git-op__hint')?.textContent || '',
-        button(m, 'skip').textContent || '', button(m, 'abort').textContent || '',
+        button(m, 'skip').textContent || '', button(m, 'abort').textContent || '', button(m, 'resolve').textContent || '',
         ...[...document.querySelectorAll('.git-pop .git-pop__text, .git-pop button')].map((el) => el.textContent || ''),
       ];
       // Branch names and short ids are data, not words.

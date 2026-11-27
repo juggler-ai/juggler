@@ -11,6 +11,13 @@
  * Continue, Skip (not for a merge, which has no commit to skip) and Abort.
  * While files are still in conflict, Continue is disabled and says so beside it.
  *
+ * It is also the one place that says there are conflicts, for as long as there
+ * are any — a toast saying it would hang over these buttons — so it shows for
+ * files left in conflict with no operation in progress too (a stash that didn't
+ * apply cleanly), offering Show them, which the head's primary offers during an
+ * operation. Either way, beside the count, Resolve with an agent opens a new
+ * conversation asked to resolve them.
+ *
  * A pick or revert of several commits stopped between them — the commit it
  * stopped on committed by hand, the rest still waiting — is applying nothing,
  * yet git refuses to switch branch until it ends. It says so, and offers
@@ -43,6 +50,8 @@ const t = translator('@juggler/core');
  * @property {(anchor: HTMLElement) => void} skip - Skip.
  * @property {(anchor: HTMLElement) => void} abort - Abort.
  * @property {(anchor: HTMLElement) => void} quit - Quit: forget a pick or revert stopped between commits.
+ * @property {(anchor: HTMLElement) => void} resolve - Open a new conversation asked to resolve the conflicts.
+ * @property {(anchor: HTMLElement) => void} show - Show the first file in conflict.
  */
 
 /**
@@ -125,23 +134,45 @@ export function createOperationBanner() {
   const abortButton = button('git-op__abort btn-danger-quiet', t('Abort'));
   const quitButton = button('git-op__quit btn-neutral', t('Quit'));
   quitButton.title = t('Forget the rest, and leave everything as it is');
+  // What to do about the conflicts sits with the count, apart from what to do
+  // about the operation.
+  const showButton = button('git-op__show btn-neutral', t('Show them'));
+  const resolveButton = button('git-op__resolve btn-neutral', t('Resolve with an agent'));
+  resolveButton.title = t('Start a new conversation that resolves the conflicts');
+  const fixes = createElement('span', 'git-op__fixes');
+  fixes.append(showButton, resolveButton);
   const buttons = createElement('span', 'git-op__buttons');
   buttons.append(hint, continueButton, skipButton, quitButton, abortButton);
-  element.append(text, buttons);
+  element.append(text, fixes, buttons);
 
   /** @type {BannerHandlers} */
-  const handlers = { continue: () => {}, skip: () => {}, abort: () => {}, quit: () => {} };
+  const handlers = { continue: () => {}, skip: () => {}, abort: () => {}, quit: () => {}, resolve: () => {}, show: () => {} };
   continueButton.addEventListener('click', () => handlers.continue(continueButton));
   skipButton.addEventListener('click', () => handlers.skip(skipButton));
   abortButton.addEventListener('click', () => handlers.abort(abortButton));
   quitButton.addEventListener('click', () => handlers.quit(quitButton));
+  showButton.addEventListener('click', () => handlers.show(showButton));
+  resolveButton.addEventListener('click', () => handlers.resolve(resolveButton));
 
   return {
     element,
     handlers,
     update: ({ stopped, conflicts, head, busy }) => {
-      element.hidden = !stopped;
-      if (!stopped) return;
+      element.hidden = !stopped && conflicts === 0;
+      fixes.hidden = conflicts === 0;
+      resolveButton.disabled = busy;
+      if (!stopped) {
+        if (!conflicts) return;
+        // Files left in conflict with nothing in progress: nothing to continue
+        // or abort, and no primary that shows them.
+        delete element.dataset.kind;
+        text.textContent = t('{count, plural, one {# file is in conflict} other {# files are in conflict}}', { count: conflicts });
+        showButton.hidden = false;
+        buttons.hidden = true;
+        return;
+      }
+      showButton.hidden = true;
+      buttons.hidden = false;
       element.dataset.kind = stopped.kind;
       text.textContent = bannerParts(stopped, conflicts, head).join(' · ');
       continueButton.disabled = busy || conflicts > 0;

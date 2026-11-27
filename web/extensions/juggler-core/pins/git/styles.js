@@ -394,14 +394,28 @@ export function injectGitClientStyles() {
   overflow-wrap: anywhere;
 }
 
+/* What to do about the conflicts stays beside their count; the text gives
+   up its slack so the two read together, and the operation's own buttons
+   keep the row's end. */
+.git-op__text:has(+ .git-op__fixes:not([hidden])) {
+  flex: 0 1 auto;
+}
+
+.git-op__fixes,
 .git-op__buttons {
   display: flex;
   align-items: center;
   gap: var(--toolbar-gap);
   flex: none;
+}
+
+.git-op__buttons {
   margin-left: auto;
 }
 
+.git-op__fixes[hidden],
+.git-op__buttons[hidden],
+.git-op__show[hidden],
 .git-op__skip[hidden],
 .git-op__hint[hidden] {
   display: none;

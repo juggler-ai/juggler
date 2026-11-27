@@ -28,8 +28,8 @@
  *
  * - `show` — a success or a fact: hides itself after a while, longer with Undo
  *   or an action, since that is time to change one's mind, or to act.
- * - `warn` — it stopped short, and the user has something to do (conflicts to
- *   resolve, a fetch to make first).
+ * - `warn` — it stopped short, and the user has something to do (a fetch to
+ *   make first). Conflicts are not one: they last, so they are the banner's.
  * - `error` — it failed.
  *
  * A warning or a failure can take a few lines and more than a glance, so it is

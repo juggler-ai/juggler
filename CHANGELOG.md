@@ -7,6 +7,7 @@ the current release). The project follows semantic versioning.
 ## [Unreleased]
 
 - Question cards let you add a note to the option you pick
+- Git pin's conflict banner can hand the conflicts to a new conversation
 
 ## [0.8.3] - 2026-11-26
 

@@ -1040,8 +1040,7 @@ class GitPin extends PinboardItemType {
           });
           return;
         case 'conflicts':
-          // As a merge that stops on them says it; the banner says they last.
-          toast.warn(t('Stopped with conflicts to resolve.'), { label: t('Show them'), run: () => showConflicts() });
+          // The banner says so, with what to do about them, once the tree is read again.
           return;
         case 'auth':
           // Declined here: the user knows why it stopped.
@@ -1148,7 +1147,6 @@ class GitPin extends PinboardItemType {
       dirty: () => changes.dirtyCount() || 0,
       trees: () => [],
       viewTree: () => {},
-      showChanges: showConflicts,
     });
 
     /**
@@ -1175,6 +1173,40 @@ class GitPin extends PinboardItemType {
         : t('{kind, select, merge {Merge finished} rebase {Rebase finished} cherry-pick {Cherry-pick finished} other {Revert finished}}', { kind: stopped.kind }));
     };
 
+    /**
+     * Open a new conversation in the tree in view, asked to resolve the
+     * conflicts in the repository shown — and, when an operation stopped on
+     * them, to see it through — and switch to it.
+     */
+    const resolveWithAgent = async () => {
+      const read = shownRepo?.read;
+      const stopped = stoppedOf(read);
+      const repo = shownRepo?.repo || '';
+      const files = changes.conflictPaths();
+      const workspaces = context.services.workspaces;
+      if (!workspaces?.startConversation) {
+        toast.error(t('Conversations can’t be started from here.'));
+        return;
+      }
+      const where = repo ? ` in the repository at ${repo}` : '';
+      const what = stopped
+        ? `The ${stopped.kind}${where}${stopped.branch ? ` (branch ${stopped.branch})` : ''} stopped on conflicts`
+        : `Files${where} are left in conflict`;
+      const continued = stopped
+        ? `Then run \`GIT_EDITOR=true git ${stopped.kind} --continue\`${repo ? ` in ${repo}` : ''}; if it stops again, resolve that too. Do not abort it.`
+        : 'Do not commit.';
+      // The model reads this, so it stays English whatever the UI language.
+      const message = `${what}${files.length ? `: ${files.join(', ')}` : ''}. `
+        + 'Read both sides of each conflict and what each branch was for, resolve it keeping what both sides meant, '
+        + `and stage the result. ${continued}`;
+      try {
+        await workspaces.startConversation({ message: markUntranslated(message), name: t('Resolve conflicts'), workspace: treeKey() });
+      } catch (/** @type {any} */ e) {
+        if (live) toast.error(errorText(e));
+      }
+    };
+    banner.handlers.resolve = () => { void resolveWithAgent(); };
+    banner.handlers.show = () => showConflicts();
     banner.handlers.continue = () => { void runOperation('continue'); };
     // Quitting changes nothing in the tree, so it does not ask.
     banner.handlers.quit = () => { void runOperation('quit'); };

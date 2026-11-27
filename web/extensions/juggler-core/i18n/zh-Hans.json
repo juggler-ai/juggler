@@ -890,7 +890,6 @@
   "Stop generating": "停止生成",
   "Stop task": "停止任务",
   "Stop {name}": "停止 {name}",
-  "Stopped with conflicts to resolve.": "已停止，有冲突需要解决。",
   "Stopped {taskId}": "已停止 {taskId}",
   "Stopping {taskId}...": "正在停止 {taskId}……",
   "Stored in Git LFS: the diff is of its pointer, so stage it whole.": "存储在 Git LFS 中：差异显示的是其指针，因此请整个暂存。",
@@ -1349,5 +1348,9 @@
   "⚠ Write outside the project folder: {path}": "⚠ 在项目文件夹之外写入：{path}",
   "The git command failed.": "git 命令失败。",
   "The git command was cancelled.": "git 命令已取消。",
-  "The server did not say which git job it started.": "服务器没有说明它启动了哪个 git 任务。"
+  "The server did not say which git job it started.": "服务器没有说明它启动了哪个 git 任务。",
+  "Resolve conflicts": "解决冲突",
+  "Resolve with an agent": "让智能体解决",
+  "Start a new conversation that resolves the conflicts": "开启一个新对话来解决这些冲突",
+  "{count, plural, one {# file is in conflict} other {# files are in conflict}}": "{count, plural, other {# 个文件存在冲突}}"
 }

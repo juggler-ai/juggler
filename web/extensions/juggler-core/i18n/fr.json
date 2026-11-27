@@ -890,7 +890,6 @@
   "Stop generating": "Arrêter la génération",
   "Stop task": "Arrêter la tâche",
   "Stop {name}": "Arrêter {name}",
-  "Stopped with conflicts to resolve.": "Arrêté avec des conflits à résoudre.",
   "Stopped {taskId}": "{taskId} arrêtée",
   "Stopping {taskId}...": "Arrêt de {taskId}...",
   "Stored in Git LFS: the diff is of its pointer, so stage it whole.": "Stocké dans Git LFS : le diff porte sur son pointeur, indexez-le donc en entier.",
@@ -1349,5 +1348,9 @@
   "⚠ Write outside the project folder: {path}": "⚠ Écriture hors du dossier du projet : {path}",
   "The git command failed.": "La commande git a échoué.",
   "The git command was cancelled.": "La commande git a été annulée.",
-  "The server did not say which git job it started.": "Le serveur n’a pas indiqué quelle tâche git il a lancée."
+  "The server did not say which git job it started.": "Le serveur n’a pas indiqué quelle tâche git il a lancée.",
+  "Resolve conflicts": "Résoudre les conflits",
+  "Resolve with an agent": "Résoudre avec un agent",
+  "Start a new conversation that resolves the conflicts": "Démarrer une nouvelle conversation qui résout les conflits",
+  "{count, plural, one {# file is in conflict} other {# files are in conflict}}": "{count, plural, one {# fichier est en conflit} many {# de fichiers sont en conflit} other {# fichiers sont en conflit}}"
 }

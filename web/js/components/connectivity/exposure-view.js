@@ -27,7 +27,8 @@
  * @module components/connectivity/exposure-view
  */
 
-import { t, serverText } from '../../../sdk/lib/i18n.js';
+import { t, serverText, htmlSlots } from '../../../sdk/lib/i18n.js';
+import { withNodes } from '../../../sdk/lib/html.js';
 import { createCopyButton } from '../../../sdk/lib/copy-button.js';
 import { hasNativeHost, openExternalURL } from '../../../sdk/lib/window-control.js';
 
@@ -64,6 +65,18 @@ import { hasNativeHost, openExternalURL } from '../../../sdk/lib/window-control.
  * @property {boolean} [announced] - Whether the server's announcements are leaving the machine, so other computers' apps list it
  * @property {NotAnnounced} [notAnnounced] - Why not, while LAN access is on and they are not
  * @property {{port: number}} [firewall] - What a host firewall must let in, on a server where one may be dropping it unseen (Linux)
+ * @property {Findable} [findable] - Whether the server is also findable from elsewhere, in a build that can be
+ */
+
+/**
+ * Whether the server is also findable through the build's LAN announcer while
+ * LAN access is on, with the switch's copy as the build wrote it: each text
+ * field English, with its translatable message beside it as `<field>Message`.
+ * @typedef {object} Findable
+ * @property {boolean} enabled - Whether it is saved on
+ * @property {string} label - The switch's label
+ * @property {string} [pageURL] - The page that lists findable servers, drawn as a link where the label says {url}
+ * @property {string} description - What being findable tells the third party
  */
 
 /**
@@ -116,6 +129,7 @@ const LOCAL_NETWORK_SETTINGS_URL = 'x-apple.systempreferences:com.apple.preferen
  * @property {() => Promise<ServerStatus>} [getServer] - The machine server's status.
  * @property {() => Promise<LANState>} getLAN - LAN access as it stands.
  * @property {(enabled: boolean) => Promise<LANState>} setLAN - Switches it, answering what is.
+ * @property {(findable: boolean) => Promise<LANState>} setFindable - Saves whether the server is findable, answering what is.
  * @property {() => Promise<TunnelState>} getTunnel - The tunnel as it stands.
  * @property {(mode: string) => Promise<TunnelState>} setTunnel - Opens mode, or with '' closes it, answering what is.
  * @property {() => Promise<LaunchState>} getLaunch - What opens at start, as saved.
@@ -132,16 +146,27 @@ const LOCAL_NETWORK_SETTINGS_URL = 'x-apple.systempreferences:com.apple.preferen
  */
 
 /**
- * A tunnel mode's copy, as the server wrote it: its message translated, else
+ * Copy the server sent from a registered spec: its message translated, else
  * the English beside it.
+ * @template {string} F
+ * @param {Partial<Record<F, string>>} copy - A tunnel mode, or the findable switch.
+ * @param {F} field - Which text.
+ * @returns {string} The text ('' when there is none).
+ */
+function specText(copy, field) {
+  const messages = /** @type {Record<string, {key?: unknown, params?: unknown}|undefined>} */ (/** @type {unknown} */ (copy));
+  const message = messages[`${field}Message`];
+  return message ? serverText(message, copy[field] || '') : (copy[field] || '');
+}
+
+/**
+ * A tunnel mode's copy, as the server wrote it (specText).
  * @param {TunnelMode} mode - The mode.
  * @param {'title'|'description'|'startLabel'|'relayNote'|'unavailableHint'} field - Which text.
  * @returns {string} The text ('' when the mode has none).
  */
 function modeText(mode, field) {
-  const messages = /** @type {Record<string, {key?: unknown, params?: unknown}|undefined>} */ (/** @type {unknown} */ (mode));
-  const message = messages[`${field}Message`];
-  return message ? serverText(message, mode[field] || '') : (mode[field] || '');
+  return specText(mode, field);
 }
 
 /**
@@ -287,6 +312,64 @@ function launchCheckbox(checked, mode, onChange) {
   label.appendChild(input);
   label.appendChild(text);
   return label;
+}
+
+/**
+ * LAN access's "also findable" checkbox, labelled with the build's copy, whose
+ * {url} is a link to the page that lists findable servers. It is shown whether
+ * or not LAN access is on: the choice is saved, and applies whenever it is.
+ * The link opens as an address card's does (addressLine); a click on it
+ * follows it without ticking the box, as a link inside a label does.
+ * @param {Findable} findable - The switch as the server reports it.
+ * @param {boolean} held - Whether a switch is in flight, which holds it.
+ * @param {((url: string) => void)|null} open - Opens the link, if the page opens it itself.
+ * @param {(checked: boolean) => void} onChange - Called with the new state.
+ * @returns {HTMLElement} The labelled checkbox.
+ */
+function findableCheckbox(findable, held, open, onChange) {
+  const label = document.createElement('label');
+  label.className = 'connectivity-launch connectivity-findable';
+  const input = document.createElement('input');
+  input.type = 'checkbox';
+  input.checked = findable.enabled;
+  input.disabled = held;
+  input.addEventListener('change', () => onChange(input.checked));
+  label.appendChild(input);
+  label.appendChild(findableLabel(findable, open));
+  return label;
+}
+
+/**
+ * The findable switch's label: its message with {url} as a link to the page,
+ * or its text alone when the server sent no message or no page.
+ * @param {Findable} findable - The switch as the server reports it.
+ * @param {((url: string) => void)|null} open - Opens the link, if the page opens it itself.
+ * @returns {HTMLElement} The label's text.
+ */
+function findableLabel(findable, open) {
+  const message = /** @type {{key?: unknown, params?: unknown}|undefined} */ (
+    /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (findable)).labelMessage);
+  const url = findable.pageURL;
+  if (!message || !url) {
+    const text = document.createElement('span');
+    text.textContent = specText(findable, 'label');
+    return text;
+  }
+  const link = document.createElement('a');
+  link.href = url;
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  link.textContent = url;
+  if (open) {
+    link.addEventListener('click', (event) => {
+      event.preventDefault();
+      open(url);
+    });
+  }
+  const nodes = { url: link };
+  const params = message.params && typeof message.params === 'object'
+    ? /** @type {Record<string, unknown>} */ (message.params) : {};
+  return withNodes(serverText({ ...message, params: htmlSlots(nodes, params) }, findable.label), nodes);
 }
 
 /**
@@ -565,10 +648,19 @@ export class ExposureView {
     const atStart = launchCheckbox(this.launch.lanOnLaunch, '', (on) => {
       this.pending = this._saveLaunch({ lanOnLaunch: on }, section);
     });
+    const findable = lan.findable
+      ? findableCheckbox(lan.findable, this._busy, this._openAddress, (on) => { this.pending = this._switchFindable(on); })
+      : null;
     const row = this._chrome.row(t('LAN access'),
       t('Lets phones, tablets and other computers on this network use Juggler here.'),
-      [control, atStart],
+      /** @type {HTMLElement[]} */ ([control, atStart, findable].filter(Boolean)),
       t('There is no password: anyone on the network with the address can open, run and stop sessions.'));
+    if (lan.findable) {
+      const about = document.createElement('div');
+      about.className = 'connectivity-note connectivity-findable-note';
+      about.textContent = specText(lan.findable, 'description');
+      row.appendChild(about);
+    }
     const line = errorLine();
     showError(line, errorText);
     row.appendChild(line);
@@ -727,6 +819,32 @@ export class ExposureView {
       lan = await this._api.setLAN(enabled);
     } catch (err) {
       failure = failureText(t('LAN access could not be switched.'), err);
+    } finally {
+      this._busy = false;
+    }
+    this._lanDrawn = '';
+    if (lan) this._showLAN(lan);
+    const line = /** @type {HTMLElement|null} */ (this._lanSection.querySelector('.connectivity-error'));
+    if (line) showError(line, failure);
+  }
+
+  /**
+   * Save whether the server is findable, and show the answer — or, if it
+   * failed, why, with the checkbox put back to what is saved.
+   * @private
+   * @param {boolean} findable
+   * @returns {Promise<void>} Resolves once shown.
+   */
+  async _switchFindable(findable) {
+    if (this._busy) return;
+    this._busy = true;
+    if (this._lan) this._showLAN(this._lan);
+    let lan = this._lan;
+    let failure = '';
+    try {
+      lan = await this._api.setFindable(findable);
+    } catch (err) {
+      failure = failureText(t('Your choice could not be saved.'), err);
     } finally {
       this._busy = false;
     }

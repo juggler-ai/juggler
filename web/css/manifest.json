@@ -612,6 +612,7 @@
 				"connectivity-settings-link",
 				"connectivity-firewall",
 				"connectivity-command",
+				"connectivity-findable-note",
 				"connectivity-error"
 			]
 		},

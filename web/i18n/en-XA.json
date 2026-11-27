@@ -1704,6 +1704,7 @@
   "This app and that Juggler server don’t fit": "[Ţĥîš åþþ åñð ţĥåţ Ĵûĝĝļéŕ šéŕṽéŕ ðöñ’ţ ƒîţ ············]",
   "This app is version {app}, and the Juggler server running on this computer is version {server}. Juggler uses a server only of its own version.": "[Ţĥîš åþþ îš ṽéŕšîöñ {app}, åñð ţĥé Ĵûĝĝļéŕ šéŕṽéŕ ŕûññîñĝ öñ ţĥîš çöɱþûţéŕ îš ṽéŕšîöñ {server}. Ĵûĝĝļéŕ ûšéš å šéŕṽéŕ öñļý öƒ îţš öŵñ ṽéŕšîöñ. ····································]",
   "This app is version {app}, but the Juggler server installed with it is version {server}. This happens when an update stops part-way.": "[Ţĥîš åþþ îš ṽéŕšîöñ {app}, ƀûţ ţĥé Ĵûĝĝļéŕ šéŕṽéŕ îñšţåļļéð ŵîţĥ îţ îš ṽéŕšîöñ {server}. Ţĥîš ĥåþþéñš ŵĥéñ åñ ûþðåţé šţöþš þåŕţ-ŵåý. ·································]",
+  "This build cannot make the server findable.": "[Ţĥîš ƀûîļð çåññöţ ɱåķé ţĥé šéŕṽéŕ ƒîñðåƀļé. ·············]",
   "This computer": "[Ţĥîš çöɱþûţéŕ ····]",
   "This computer also announces itself on the network, so Juggler on other computers can find it under Change server.": "[Ţĥîš çöɱþûţéŕ åļšö åññöûñçéš îţšéļƒ öñ ţĥé ñéţŵöŕķ, šö Ĵûĝĝļéŕ öñ öţĥéŕ çöɱþûţéŕš çåñ ƒîñð îţ ûñðéŕ Çĥåñĝé šéŕṽéŕ. ·································]",
   "This computer is not announcing itself on the network ({error}), so other computers won’t find it automatically (they can still use the addresses above).": "[Ţĥîš çöɱþûţéŕ îš ñöţ åññöûñçîñĝ îţšéļƒ öñ ţĥé ñéţŵöŕķ ({error}), šö öţĥéŕ çöɱþûţéŕš ŵöñ’ţ ƒîñð îţ åûţöɱåţîçåļļý (ţĥéý çåñ šţîļļ ûšé ţĥé åððŕéššéš åƀöṽé). ·········································]",

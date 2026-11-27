@@ -166,6 +166,15 @@ type Server struct {
 	extraRoutes ExtraRoutes
 	// tunnel is the running tunnel, if any (tunnel.go).
 	tunnel atomic.Pointer[runningTunnel]
+	// findable is whether the server is findable through the registered LAN
+	// announcer while LAN access is on, lanAnnouncer the announcer's run while
+	// it runs, and announcing every run until its Run returns
+	// (lan_announcer.go). unlisted keeps a test harness's server off the
+	// announcer's list, as off the network's (advertise).
+	findable     atomic.Bool
+	lanAnnouncer atomic.Pointer[lanAnnouncerRun]
+	announcing   sync.WaitGroup
+	unlisted     bool
 	// ingress is the in-process listener a tunnel's data channels dial, and
 	// ingressSrv what serves it; both started on first use (ingressServer).
 	ingressOnce sync.Once

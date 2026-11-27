@@ -134,6 +134,9 @@ type lanResponse struct {
 	Announced    bool             `json:"announced"`
 	NotAnnounced *lanNotAnnounced `json:"notAnnounced,omitempty"`
 	Firewall     *lanFirewall     `json:"firewall,omitempty"`
+	// Findable is whether the server is also findable through the registered
+	// LAN announcer (lan_announcer.go), absent in a build that has none.
+	Findable *findableView `json:"findable,omitempty"`
 }
 
 // lanFirewall is what a host firewall must let in for LAN access to work,
@@ -325,10 +328,16 @@ func (s *Server) logAnnouncement(name string, before, after *announceResult) {
 	}
 }
 
+// lanRootURL is the server's root at ip, on port.
+func lanRootURL(ip, port string) string {
+	return "http://" + net.JoinHostPort(ip, port) + "/"
+}
+
 // lanState is LAN access as it stands, with the URLs while it is on and,
-// beside each, the page at sessionPath there ("" for none).
+// beside each, the page at sessionPath there ("" for none), and the findable
+// switch, on or off, in a build that has one.
 func (s *Server) lanState(sessionPath string) lanResponse {
-	resp := lanResponse{Enabled: s.lan.Load(), URLs: []lanURL{}}
+	resp := lanResponse{Enabled: s.lan.Load(), URLs: []lanURL{}, Findable: s.findableState()}
 	if !resp.Enabled {
 		return resp
 	}
@@ -341,7 +350,7 @@ func (s *Server) lanState(sessionPath string) lanResponse {
 		resp.Firewall = &lanFirewall{Port: n}
 	}
 	for _, a := range lanAddresses() {
-		root := newPageLink("http://" + net.JoinHostPort(a.ip, port) + "/")
+		root := newPageLink(lanRootURL(a.ip, port))
 		u := lanURL{URL: root.URL, Interface: a.iface, QR: root.QR}
 		if sessionPath != "" {
 			u.Session = newPageLink(strings.TrimSuffix(root.URL, "/") + sessionPath)
@@ -352,13 +361,15 @@ func (s *Server) lanState(sessionPath string) lanResponse {
 }
 
 // setLAN switches LAN access, saying where to connect from once it is on, and
-// announces the server on the network for exactly as long as it is.
+// announces the server on the network for exactly as long as it is, as does
+// the LAN announcer while the server is findable (syncLANAnnouncer).
 func (s *Server) setLAN(on bool) {
 	if s.lan.Swap(on) == on {
 		return
 	}
 	if !on {
 		s.stopAdvertising()
+		s.syncLANAnnouncer()
 		jlog.Info("🔒 LAN access off: this server accepts connections from this machine only")
 		return
 	}
@@ -367,6 +378,7 @@ func (s *Server) setLAN(on bool) {
 		jlog.Info("   %s (%s)", u.URL, u.Interface)
 	}
 	s.startAdvertising()
+	s.syncLANAnnouncer()
 }
 
 // advertiseLAN is what Serve announces a server with (Server.advertise). A
@@ -454,22 +466,37 @@ func (s *Server) handleGetLAN(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.lanState(s.askedSession(r)))
 }
 
-// handleSetLAN switches LAN access and answers with the result. PUT
-// /api/server/lan {"enabled": bool}, with ?session= as GET has it; this
-// machine only (localOnly). Switching it on asks macOS for the local network
-// first (requestLocalNetwork), so a prompt the user has yet to answer comes up
-// now, while they are looking, even should the announcement fail to start.
+// handleSetLAN switches LAN access, or saves whether the server is findable
+// (setFindable), and answers with the result. PUT /api/server/lan
+// {"enabled": bool, "findable": bool}, either or both, with ?session= as GET
+// has it; this machine only (localOnly). Switching it on asks macOS for the
+// local network first (requestLocalNetwork), so a prompt the user has yet to
+// answer comes up now, while they are looking, even should the announcement
+// fail to start.
 func (s *Server) handleSetLAN(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Enabled *bool `json:"enabled"`
+		Enabled  *bool `json:"enabled"`
+		Findable *bool `json:"findable"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&req); err != nil || req.Enabled == nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&req); err != nil || (req.Enabled == nil && req.Findable == nil) {
 		writeMessageError(w, http.StatusBadRequest, msg.New("say whether LAN access is on: enabled, true or false"))
 		return
 	}
-	if *req.Enabled && !s.lan.Load() {
-		requestLocalNetwork()
+	if req.Findable != nil {
+		if _, ok := findLANAnnouncer(); !ok {
+			writeMessageError(w, http.StatusBadRequest, msg.New("This build cannot make the server findable."))
+			return
+		}
+		if err := s.setFindable(*req.Findable); err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
 	}
-	s.setLAN(*req.Enabled)
+	if req.Enabled != nil {
+		if *req.Enabled && !s.lan.Load() {
+			requestLocalNetwork()
+		}
+		s.setLAN(*req.Enabled)
+	}
 	writeJSON(w, http.StatusOK, s.lanState(s.askedSession(r)))
 }

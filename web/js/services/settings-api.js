@@ -368,6 +368,16 @@ export function setLAN(enabled) {
 }
 
 /**
+ * PUT /api/connectivity/lan: save whether the server is also findable while
+ * LAN access is on, in a build that can be.
+ * @param {boolean} findable
+ * @returns {Promise<LANState>} LAN access as it now stands.
+ */
+export function setLANFindable(findable) {
+  return fetchJson(apiUrl('/connectivity/lan'), { method: 'PUT', body: { findable } });
+}
+
+/**
  * GET /api/connectivity/tunnel: this machine's tunnel (the machine server's).
  * @returns {Promise<TunnelState>} The tunnel as it stands.
  */

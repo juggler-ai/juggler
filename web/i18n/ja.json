@@ -1704,6 +1704,7 @@
   "This app and that Juggler server don’t fit": "このアプリとその Juggler サーバーは互換性がありません",
   "This app is version {app}, and the Juggler server running on this computer is version {server}. Juggler uses a server only of its own version.": "このアプリのバージョンは {app} で、このコンピューターで実行中の Juggler サーバーのバージョンは {server} です。Juggler は同じバージョンのサーバーしか使用しません。",
   "This app is version {app}, but the Juggler server installed with it is version {server}. This happens when an update stops part-way.": "このアプリはバージョン {app} ですが、一緒にインストールされた Juggler サーバーはバージョン {server} です。更新が途中で止まるとこうなります。",
+  "This build cannot make the server findable.": "このビルドではサーバーを見つけられるようにできません。",
   "This computer": "このコンピュータ",
   "This computer also announces itself on the network, so Juggler on other computers can find it under Change server.": "このコンピュータはネットワーク上で自身を通知するため、他のコンピュータの Juggler の「サーバーを変更」に表示されます。",
   "This computer is not announcing itself on the network ({error}), so other computers won’t find it automatically (they can still use the addresses above).": "このコンピュータはネットワーク上で自身を告知していません（{error}）。そのため、他のコンピュータからは自動では見つかりません（上のアドレスは引き続き使えます）。",

@@ -195,6 +195,7 @@ const sessionExposureApi = {
   getServer: () => settingsApi.getServer(),
   getLAN: () => settingsApi.getLAN(),
   setLAN: (enabled) => settingsApi.setLAN(enabled),
+  setFindable: (findable) => settingsApi.setLANFindable(findable),
   getTunnel: () => settingsApi.getTunnel(),
   setTunnel: (mode) => settingsApi.setTunnel(mode),
   getLaunch: () => settingsApi.getLaunch(),

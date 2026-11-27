@@ -1047,6 +1047,9 @@ lint-go: app-icon-embed wails-runtime-embed
 ## fails the target, so the list cannot outlive the code it names.
 ##   - tunnel.RegisterMode: adds a WAN tunnel mode (a build that registers
 ##     none has no WAN feature).
+##   - tunnel.RegisterLANAnnouncer: adds a third party that lists this server
+##     to browsers on its network (a build that registers none is never
+##     findable that way, and shows no switch for it).
 ##   - webui.RegisterCatalogFS: adds a UI-message catalogue for Go code outside
 ##     this module; updateCatalogSources is reached only through it.
 ##   - claudecode.ConfigDirs, claudecode.JugglerSessionUUIDs and
@@ -1064,6 +1067,7 @@ DEADCODE_VERSION=v0.53.0
 DEADCODE_RELEASE_MAINS := ./cmd/juggler ./cmd/juggler-app
 DEADCODE_SEAMS := \
 	cmd/juggler/tunnel/tunnel.go:RegisterMode \
+	cmd/juggler/tunnel/lan_announcer.go:RegisterLANAnnouncer \
 	cmd/juggler/webui/webui.go:RegisterCatalogFS \
 	cmd/juggler/webui/webui.go:updateCatalogSources \
 	cmd/juggler/providers/claudecode/transcripts.go:ConfigDirs \

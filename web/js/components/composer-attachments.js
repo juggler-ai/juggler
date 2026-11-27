@@ -522,7 +522,7 @@ async function stageExtractedFile(composer, file, Viewer) {
  * @param {File} file - The dropped file
  * @returns {Promise<void>}
  */
-export async function stageStoredDrop(composer, file) {
+async function stageStoredDrop(composer, file) {
   const convId = composer._conversation?.id;
   if (!convId) {
     composer.showWarning(t('Couldn\'t attach "{name}": no conversation is open.', { name: file.name }));

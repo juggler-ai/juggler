@@ -442,11 +442,14 @@ func Serve(opts ServeOptions) error {
 		jlog.Info("🔀 Also serving under %s (reverse proxy on this machine; its callers count as remote)", strings.Join(names, ", "))
 	}
 	if !opts.TestChildren {
-		// The test harness's servers stay off the network's lists.
+		// The test harness's servers stay off the network's lists, and off
+		// the LAN announcer's.
 		s.advertise = advertiseLAN
 	}
+	s.unlisted = opts.TestChildren
 	defer s.stopAdvertising()
 	lan, openMode := launchExposure(opts)
+	s.findable.Store(launchFindable(opts))
 	s.setLAN(lan)
 
 	errCh := make(chan error, 1)
@@ -549,6 +552,7 @@ func Serve(opts ServeOptions) error {
 	}
 	s.closeIngress()
 	s.stopAllChildren()
+	s.awaitLANAnnouncer()
 	if failed == nil && relaunch && s.ending.relaunching() {
 		jlog.Info("serve: all sessions stopped — relaunching")
 		return &relaunchError{handoff: carry}

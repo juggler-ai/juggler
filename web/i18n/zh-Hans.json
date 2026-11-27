@@ -1704,6 +1704,7 @@
   "This app and that Juggler server don’t fit": "此应用与该 Juggler 服务器不兼容",
   "This app is version {app}, and the Juggler server running on this computer is version {server}. Juggler uses a server only of its own version.": "此应用的版本为 {app}，而此计算机上运行的 Juggler 服务器版本为 {server}。Juggler 只使用与自身版本相同的服务器。",
   "This app is version {app}, but the Juggler server installed with it is version {server}. This happens when an update stops part-way.": "此应用的版本是 {app}，但随它安装的 Juggler 服务器版本是 {server}。更新中途停止时会出现这种情况。",
+  "This build cannot make the server findable.": "此版本无法让服务器可被发现。",
   "This computer": "这台电脑",
   "This computer also announces itself on the network, so Juggler on other computers can find it under Change server.": "这台计算机也会在网络上广播自己，因此其他计算机上的 Juggler 可以在“更换服务器”下找到它。",
   "This computer is not announcing itself on the network ({error}), so other computers won’t find it automatically (they can still use the addresses above).": "此电脑未在网络上广播自身（{error}），因此其他电脑无法自动找到它（仍可使用上方的地址）。",

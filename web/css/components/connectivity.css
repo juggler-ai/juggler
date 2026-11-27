@@ -158,6 +158,11 @@
     overflow-wrap: anywhere;
 }
 
+/* What being findable tells the third party, under LAN access's row. */
+.connectivity-findable-note {
+    grid-column: 1 / -1;
+}
+
 .connectivity-error {
     grid-column: 1 / -1;
     color: var(--danger);

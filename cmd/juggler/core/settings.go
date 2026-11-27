@@ -251,6 +251,11 @@ type ConnectivitySettings struct {
 	// that cannot start on this machine, opens nothing and stays saved, so it
 	// comes back with the mode. Under --test it is not read.
 	WANOnLaunch string `json:"wanOnLaunch,omitempty"`
+	// LANFindable makes the machine server findable through the registered LAN
+	// announcer (tunnel.RegisterLANAnnouncer) while LAN access is on. Saved by
+	// PUT /api/server/lan {"findable"}, and read at every start but under
+	// --test, as LANOnLaunch is.
+	LANFindable bool `json:"lanFindable,omitempty"`
 }
 
 // ProjectSettings holds preferences about how Juggler keeps each project's own

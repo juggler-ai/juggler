@@ -87,6 +87,12 @@ func TestMain(m *testing.M) {
 			return &fakeResumable{fakeOffers: fakeOffers{host: h, done: make(chan struct{})}}
 		},
 	})
+	tunnel.RegisterLANAnnouncer(tunnel.LANAnnouncerSpec{
+		Name:        "fake finder",
+		Label:       msg.New("Fake findable"),
+		Description: msg.New("Tells nobody where this server is."),
+		New:         newFakeAnnouncer,
+	})
 	os.Exit(m.Run())
 }
 

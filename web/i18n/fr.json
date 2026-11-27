@@ -1704,6 +1704,7 @@
   "This app and that Juggler server don’t fit": "Cette app et ce serveur Juggler ne sont pas compatibles",
   "This app is version {app}, and the Juggler server running on this computer is version {server}. Juggler uses a server only of its own version.": "Cette app est en version {app}, et le serveur Juggler qui tourne sur cet ordinateur est en version {server}. Juggler n’utilise qu’un serveur de sa propre version.",
   "This app is version {app}, but the Juggler server installed with it is version {server}. This happens when an update stops part-way.": "Cette app est en version {app}, mais le serveur Juggler installé avec elle est en version {server}. Cela arrive quand une mise à jour s’interrompt en cours de route.",
+  "This build cannot make the server findable.": "Cette version ne peut pas rendre le serveur repérable.",
   "This computer": "Cet ordinateur",
   "This computer also announces itself on the network, so Juggler on other computers can find it under Change server.": "Cet ordinateur s’annonce aussi sur le réseau, afin que Juggler sur d’autres ordinateurs puisse le trouver dans « Changer de serveur ».",
   "This computer is not announcing itself on the network ({error}), so other computers won’t find it automatically (they can still use the addresses above).": "Cet ordinateur ne s’annonce pas sur le réseau ({error}) : les autres ordinateurs ne le trouveront pas automatiquement (ils peuvent toujours utiliser les adresses ci-dessus).",

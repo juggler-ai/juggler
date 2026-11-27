@@ -8,11 +8,13 @@
  * its provider publishes. For any other target it is refused up front, with a
  * notice that says the file is a video, which model will not take it, and what
  * to do instead, whatever the file's size. A video staged before the model was
- * switched away blocks the send with the same notice.
+ * switched away blocks the send with the same notice. Audio, which no model
+ * here is given, is not refused: it is stored in the project, as any file
+ * that yields no text, for the agent to read with its file tools.
  *
  * Driven through a mounted composer's real entry points (`acceptFiles`,
- * `sendMessage`) with the providers list and the upload stubbed, so nothing
- * reaches a server.
+ * `sendMessage`) with the providers list and both uploads (an attachment's
+ * and a stored drop's) stubbed, so nothing reaches a server.
  * @module unit-tests/composer-video-attachments-test
  */
 
@@ -52,20 +54,28 @@ function fileWithSize(name, type, size) {
 
 /**
  * Mount a composer-box whose send target is `modelConfig` (null: automatic),
- * against `providers`, recording its notices, uploads and sends.
+ * against `providers`, recording its notices, uploads (attachments), drops
+ * (files stored in the project) and sends.
  * @param {any} modelConfig
  * @param {any[]} providers
- * @returns {{box: any, warnings: string[], uploads: File[], sent: any[], done: () => void}} The box, what it did, and the teardown.
+ * @returns {{box: any, warnings: string[], uploads: File[], drops: File[], sent: any[], done: () => void}} The box, what it did, and the teardown.
  */
 function mount(modelConfig, providers) {
   const realGet = providersCache.get;
   const realUpload = apiService.uploadAsset;
+  const realDrop = apiService.uploadDrop;
   providersCache.get = () => providers;
   /** @type {File[]} */
   const uploads = [];
   apiService.uploadAsset = async (/** @type {string} */ _conv, /** @type {File} */ file) => {
     uploads.push(file);
     return { id: `asset-${uploads.length}`, mime: file.type, filename: file.name, bytes: file.size, width: 0, height: 0 };
+  };
+  /** @type {File[]} */
+  const drops = [];
+  apiService.uploadDrop = async (/** @type {string} */ _conv, /** @type {File} */ file) => {
+    drops.push(file);
+    return { filename: file.name, path: `.juggler-drops/ab/${file.name}`, absPath: `/p/.juggler-drops/ab/${file.name}`, bytes: file.size };
   };
 
   const container = document.createElement('div');
@@ -93,9 +103,10 @@ function mount(modelConfig, providers) {
   const done = () => {
     providersCache.get = realGet;
     apiService.uploadAsset = realUpload;
+    apiService.uploadDrop = realDrop;
     container.remove();
   };
-  return { box, warnings, uploads, sent, done };
+  return { box, warnings, uploads, drops, sent, done };
 }
 
 const TEXT_ONLY = providerWith('openai', 'gpt-x', 'GPT X', ['text', 'image']);
@@ -137,12 +148,13 @@ export async function runTests() {
    * @returns {Promise<string>} The notice.
    */
   const refusal = async (modelConfig, providers, files) => {
-    const { box, warnings, uploads, done } = mount(modelConfig, providers);
+    const { box, warnings, uploads, drops, done } = mount(modelConfig, providers);
     try {
       box.acceptFiles(files);
       await waitFor(() => warnings.length > 0, () => 'the video raised no notice');
       assert(warnings.length === 1, `one notice per video, got ${JSON.stringify(warnings)}`);
       assert(uploads.length === 0, `a refused video was uploaded: ${uploads.map((f) => f.name)}`);
+      assert(drops.length === 0, `a refused video was stored in the project: ${drops.map((f) => f.name)}`);
       assert(box._pendingAttachments.length === 0 && box._pendingTextFiles.length === 0,
         'a refused video was staged');
       return warnings[0] || '';
@@ -218,11 +230,21 @@ export async function runTests() {
     }
   });
 
-  await run('audio says why it cannot be attached', async () => {
-    const notice = await refusal({ provider: 'openai', model: 'gpt-x' }, [TEXT_ONLY],
-      [new window.File(['x'], 'memo.mp3', { type: 'audio/mpeg' })]);
-    assert(notice.includes('memo.mp3') && notice.includes("can't be read as text") && !notice.startsWith("Couldn't read"),
-      `an audio file must say why it is refused: ${notice}`);
+  await run('audio is stored in the project for the agent, not refused', async () => {
+    const { box, warnings, uploads, drops, done } = mount({ provider: 'openai', model: 'gpt-x' }, [TEXT_ONLY]);
+    try {
+      box.acceptFiles([new window.File(['x'], 'memo.mp3', { type: 'audio/mpeg' })]);
+      await waitFor(() => box._pendingTextFiles.some((/** @type {any} */ e) => e.path && !e._uploading) || warnings.length > 0,
+        () => `nothing stored; staged ${JSON.stringify(box._pendingTextFiles)}`);
+      assert(warnings.length === 0, `the audio was refused: ${JSON.stringify(warnings)}`);
+      assert(drops.length === 1 && drops[0]?.name === 'memo.mp3', `stored drops ${JSON.stringify(drops.map((f) => f.name))}`);
+      assert(uploads.length === 0 && box._pendingAttachments.length === 0, 'the audio was attached as media for a model that takes none');
+      const [staged] = box._pendingTextFiles;
+      assert(box._pendingTextFiles.length === 1 && staged.content === undefined && staged.absPath === '/p/.juggler-drops/ab/memo.mp3',
+        `the audio must be staged by its path in the project, not as content: ${JSON.stringify(box._pendingTextFiles)}`);
+    } finally {
+      done();
+    }
   });
 
   await run('en-XA: every refusal and the video chip draw no plain English', async () => {
@@ -236,7 +258,6 @@ export async function runTests() {
         await refusal({ provider: '1', model: '2' }, [one, two], [new window.File(['x'], '8', { type: 'video/quicktime' })]),
         await refusal(null, [one], [new window.File(['x'], '9', { type: 'video/quicktime' })]),
         await refusal(null, [one, two], [new window.File(['x'], '10', { type: 'video/quicktime' })]),
-        await refusal({ provider: '1', model: '2' }, [one], [new window.File(['x'], '11', { type: 'audio/mpeg' })]),
         // For a model that takes video: a format the store keeps no copy of,
         // and a video past the size limit.
         await refusal({ provider: '4', model: '5' }, [two], [new window.File(['x'], '12', { type: 'video/x-msvideo' })]),

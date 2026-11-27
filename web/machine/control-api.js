@@ -130,6 +130,7 @@ export class ControlApiError extends Error {
  *   createFolder: (parent: string, name: string) => Promise<string>,
  *   getLAN: () => Promise<LANState>,
  *   setLAN: (enabled: boolean) => Promise<LANState>,
+ *   setLANFindable: (findable: boolean) => Promise<LANState>,
  *   getTunnel: () => Promise<TunnelState>,
  *   setTunnel: (mode: string) => Promise<TunnelState>,
  *   getLaunch: () => Promise<LaunchState>,
@@ -205,6 +206,8 @@ export function createControlApi({ token, base = '', fetchImpl = (input, init) =
     // this machine only: the server refuses a viewer off it.
     getLAN: async () => /** @type {LANState} */ (await request('GET', '/lan')),
     setLAN: async (enabled) => /** @type {LANState} */ (await request('PUT', '/lan', { enabled })),
+    // Saves whether the server is also findable while LAN access is on.
+    setLANFindable: async (findable) => /** @type {LANState} */ (await request('PUT', '/lan', { findable })),
     getTunnel: async () => /** @type {TunnelState} */ (await request('GET', '/tunnel')),
     // Opens a tunnel in mode, or with '' closes it.
     setTunnel: async (mode) => /** @type {TunnelState} */ (await request('PUT', '/tunnel', { mode })),

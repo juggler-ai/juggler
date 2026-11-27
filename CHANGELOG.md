@@ -11,6 +11,7 @@ the current release). The project follows semantic versioning.
 - Fixed the switcher's new-window button in windows connected to another computer
 - Large or binary dropped files are saved to the project for the agent to read
 - Peer-to-peer remote links now connect only to the machine that made them
+- LAN servers can be listed and opened from juggler.studio/sessions in any browser
 
 ## [0.8.3] - 2026-11-26
 

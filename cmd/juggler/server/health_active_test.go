@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"testing"
 
 	"juggler/cmd/juggler/ops"
@@ -45,20 +46,25 @@ func TestHealthActiveCountsBackgroundTasks(t *testing.T) {
 	s := &Server{workerManager: m}
 	s.projectState.Store(&projectState{projectPath: project})
 
-	poll := func() (active bool, tasks int) {
+	poll := func() (active bool, tasks int, names []string) {
 		w := httptest.NewRecorder()
 		s.handleHealthActive(w, httptest.NewRequest("GET", "/api/health/active", nil))
 		var got struct {
-			Active          bool `json:"active"`
-			BackgroundTasks int  `json:"backgroundTasks"`
+			Active              bool     `json:"active"`
+			BackgroundTasks     int      `json:"backgroundTasks"`
+			BackgroundTaskNames []string `json:"backgroundTaskNames"`
 		}
 		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 			t.Fatal(err)
 		}
-		return got.Active, got.BackgroundTasks
+		return got.Active, got.BackgroundTasks, got.BackgroundTaskNames
 	}
-	start := func(root string) string {
-		res, err := ops.NewShellOperations(ops.NewPathScope(root, nil)).Execute(context.Background(), "startBackground", map[string]any{"command": "sleep 30"})
+	start := func(root string, extra ...string) string {
+		params := map[string]any{"command": "sleep 30"}
+		for i := 0; i+1 < len(extra); i += 2 {
+			params[extra[i]] = extra[i+1]
+		}
+		res, err := ops.NewShellOperations(ops.NewPathScope(root, nil)).Execute(context.Background(), "startBackground", params)
 		if err != nil {
 			t.Fatalf("startBackground: %v", err)
 		}
@@ -75,21 +81,28 @@ func TestHealthActiveCountsBackgroundTasks(t *testing.T) {
 		}
 	})
 	defer remove()
-	pollAfter := func(what string, want int) {
+	pollAfter := func(what string, want int, wantNames ...string) {
 		t.Helper()
 		<-changed // bounded by the test's own deadline
-		active, tasks := poll()
+		active, tasks, names := poll()
 		if active {
 			t.Fatalf("a background task alone made the session read as running a turn")
 		}
 		if tasks != want {
 			t.Fatalf("after the task's %s, the health poll counted %d background tasks, want %d", what, tasks, want)
 		}
+		if !slices.Equal(names, wantNames) {
+			t.Fatalf("after the task's %s, the health poll named %q, want %q", what, names, wantNames)
+		}
 	}
 
 	start(other)
-	ours := start(project)
-	pollAfter("start", 1)
+	// A viewed task (a pin's server) is not counted: it holds nothing up, and a
+	// quit does not ask about it.
+	start(project, "lifetime", ops.LifetimeViewed, "label", "808 Cmajor patch server")
+	pollAfter("start", 0)
+	ours := start(project, "label", "dev server")
+	pollAfter("start", 1, "dev server")
 	ops.KillTask(ours)
 	pollAfter("exit", 0)
 }

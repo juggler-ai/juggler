@@ -119,40 +119,37 @@ export async function cancelUpdate() {
 /**
  * The result of a restart request.
  * @typedef {object} RestartResult
- * @property {'ok'|'busy'|'error'|'absent'} status - The restart outcome.
- * @property {number} [busy] - In-flight turn count (status === 'busy').
- * @property {string} [message] - Human-readable reason (busy/error).
+ * @property {'ok'|'kept'|'error'|'absent'} status - The restart outcome:
+ *   `kept` when the user, asked, kept working.
+ * @property {string} [message] - Human-readable reason (error).
  */
 
 /**
- * Relaunch into the staged update. On the first attempt the app returns 409 if
- * any conversation is still running a turn; the caller confirms and re-calls
- * with force=true. Success quits the app (no meaningful response), so an ok
- * result just means the restart was accepted.
- * @param {{force?: boolean}} [opts] - force=true skips the busy check.
+ * Relaunch into the staged update. When that would stop work — a conversation
+ * running a turn, a background task — the app asks the user first, natively,
+ * as Cmd+Q does, and answers only once they have. Success quits the app (no
+ * meaningful response), so an ok result just means the restart was accepted.
  * @returns {Promise<RestartResult>} The restart outcome.
  */
-export async function requestRestart({ force = false } = {}) {
-  const url = windowControlURL('updater', force ? '?op=restart&force=1' : '?op=restart');
+export async function requestRestart() {
+  const url = windowControlURL('updater', '?op=restart');
   return postQuit(url, (status) => t('Restart failed (HTTP {status})', { status }));
 }
 
 /**
  * Relaunch the app from the binary installed now, which the app offers (the
  * `relaunch` field of {@link getUpdaterState}) once it is another build than
- * the one running. Answers as {@link requestRestart} does: busy first, unless
- * forced, while a conversation is working.
- * @param {{force?: boolean}} [opts] - force=true skips the busy check.
+ * the one running. Asks and answers as {@link requestRestart} does.
  * @returns {Promise<RestartResult>} The relaunch outcome.
  */
-export async function requestRelaunch({ force = false } = {}) {
-  const url = windowControlURL('relaunch', force ? '?force=1' : '');
+export async function requestRelaunch() {
+  const url = windowControlURL('relaunch', '');
   return postQuit(url, (status) => t('Relaunch failed (HTTP {status})', { status }));
 }
 
 /**
  * POST a request that quits the app into whatever launches next, and read the
- * app's answer: accepted, busy (409, with the prompt to confirm), or failed.
+ * app's answer: accepted, kept (409: the user, asked, kept working), or failed.
  * @param {string|null} url - The control URL, null without a native host.
  * @param {(status: number) => string} failed - The failure text for an HTTP
  *   status that came with no reason.
@@ -168,11 +165,7 @@ async function postQuit(url, failed) {
       return { status: 'error', message: extractErrorMessage(err) };
     }
     const body = err.body && typeof err.body === 'object' ? err.body : {};
-    if (err.status === 409) {
-      // messageText is the prompt as a message, for the viewer's language;
-      // message is its English.
-      return { status: 'busy', busy: body.busy, message: serverText(bodyServerMessage({ message: body.messageText }), body.message) };
-    }
+    if (err.status === 409) return { status: 'kept' };
     return { status: 'error', message: serverText(bodyServerMessage(body), body.error) || failed(err.status) };
   }
 }

@@ -474,6 +474,9 @@ body {
 
 .ms-relaunch-text {
     flex: 1 1 18rem;
+
+    /* A relaunch's warning lists the tasks it stops, one to a line. */
+    white-space: pre-line;
 }
 
 .ms-relaunch-actions {

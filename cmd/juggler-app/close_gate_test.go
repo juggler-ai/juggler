@@ -10,6 +10,8 @@ import (
 
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/machineserver"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 // Closing the last main window quits the app (handleWindowClosed), so it stops
@@ -55,12 +57,12 @@ func TestClosingTheLastWindowAsksAsAQuitDoes(t *testing.T) {
 			e := window("closing", tc.closing)
 
 			asks := 0
-			orig := confirmQuitDiscard
-			confirmQuitDiscard = func(*appState, quitStops) bool {
+			orig := confirmStopsDiscard
+			confirmStopsDiscard = func(*appState, application.Window, stoppingAction, machineserver.BusyWork) bool {
 				asks++
 				return !tc.keepWork
 			}
-			t.Cleanup(func() { confirmQuitDiscard = orig })
+			t.Cleanup(func() { confirmStopsDiscard = orig })
 
 			if !a.claimSettle(e) {
 				t.Fatal("the gate could not be claimed")

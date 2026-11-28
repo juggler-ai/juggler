@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"runtime"
+	"slices"
 	"testing"
 	"time"
 
@@ -109,6 +110,42 @@ func TestHealthRetireRefusedWhileABackgroundTaskRuns(t *testing.T) {
 	waitUntil(false)
 	if code, shut := retire(); code != http.StatusAccepted || !shut {
 		t.Fatalf("background task ended: status %d shutdown=%v; want 202 and shutdown", code, shut)
+	}
+}
+
+// A viewed background task — a pin's server — holds nothing up: an unviewed
+// session running only that retires, and its shutdown stops the task.
+func TestHealthRetireAllowedWithOnlyAViewedTask(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("starts a POSIX sleep")
+	}
+	project := t.TempDir()
+	s := &Server{workerManager: worker.NewManager(), shutdownChan: make(chan struct{})}
+	defer s.workerManager.Shutdown()
+	s.workerManager.GetOrCreate("idle", "user:test")
+	s.projectState.Store(&projectState{projectPath: project})
+
+	res, err := ops.NewShellOperations(ops.NewPathScope(project, nil)).Execute(context.Background(), "startBackground",
+		map[string]any{"command": "sleep 30", "lifetime": ops.LifetimeViewed})
+	if err != nil {
+		t.Fatalf("startBackground: %v", err)
+	}
+	id, _ := res.(map[string]any)["task_id"].(string)
+	t.Cleanup(func() { ops.KillTask(id) })
+	deadline := time.Now().Add(5 * time.Second)
+	for !slices.ContainsFunc(ops.ListProcesses(project), func(p ops.ProcessInfo) bool { return p.ID == id }) {
+		if time.Now().After(deadline) {
+			t.Fatalf("task %s never listed", id)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	w := httptest.NewRecorder()
+	s.handleHealthRetire(w, httptest.NewRequest(http.MethodPost, "/api/health/retire", nil))
+	select {
+	case <-s.shutdownChan:
+	default:
+		t.Fatalf("only a viewed task running: status %d and no shutdown; want 202 and shutdown", w.Code)
 	}
 }
 

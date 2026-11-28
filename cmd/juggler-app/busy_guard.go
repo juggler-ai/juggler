@@ -5,6 +5,9 @@
 package main
 
 import (
+	"strings"
+
+	"juggler/cmd/juggler/machineserver"
 	"juggler/cmd/juggler/msg"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -18,16 +21,20 @@ import (
 // stops nothing on it. Closing a window stops nothing either: a session lives
 // while it has viewers or a running turn. (A browser tab is different — it is
 // never the server's client — so this guard lives only in the desktop app.)
-// Before a quit or an update restart we ask the server what letting it go
-// would stop and, if anything, confirm the discard with the user.
+// Before a quit, an update restart or a relaunch we ask the server what
+// letting it go would stop and, if anything, confirm the discard with the user,
+// naming each background task and the project it runs in — one native question
+// for all three (decideStopping), in the words the machine server's own
+// relaunch asks in (machineserver.BusyWork.Prompt).
 //
 // The server is the source of truth: its status says whether it outlives the
-// app, and its sessions list which sessions are running a turn and how many
+// app, and its sessions list which sessions are running a turn and which held
 // background tasks each runs (whatAQuitStops), so we read them on demand
 // rather than caching state app-side. A turn merely parked on a pending tool approval is NOT
 // counted — it survives a restart intact, so quitting then is fine and must not
-// warn. Fail-open — if the server can't be reached there is nothing running to
-// lose, so the quit proceeds.
+// warn — and nor is a viewed background task (ops.LifetimeViewed), which is
+// there for a view and holds nothing up. Fail-open — if the server can't be
+// reached there is nothing running to lose, so the quit proceeds.
 
 // shouldQuitLater is the application's ShouldQuitLater hook, which every
 // request to quit reaches: Cmd+Q, the Quit menu, and on macOS a quit the
@@ -50,38 +57,64 @@ func (a *appState) shouldQuitLater(decide func(quit bool)) {
 	}()
 }
 
-// confirmThenQuit decides a quit, off the main thread. It tallies what the quit
-// would stop, from one sessions list, and, if anything, confirms the discard; on approval it authorises the quit and issues it, and reports
-// true. One runs at a time (regState.confirmingQuit): a quit asked for while
-// one is deciding — another Cmd+Q, the page's Exit — is that same quit, and
-// does nothing more; it reports false.
+// confirmThenQuit decides a quit, off the main thread (decideStopping); on
+// approval it authorises the quit and issues it, and reports true. A quit asked
+// for while a decision is up — another Cmd+Q, the page's Exit — is that same
+// quit, and does nothing more; it reports false.
 func (a *appState) confirmThenQuit() bool {
-	claimed := false
+	_, went := a.decideStopping(nil, quitAction, func() {
+		a.reg(func(st *regState) { st.quitting = true })
+		a.notifyAllWindowsCloseRequested()
+		application.InvokeAsync(func() { a.app.Quit() })
+	})
+	return went
+}
+
+// decideStopping decides an action that lets the server go: it tallies what that
+// would stop, from one sessions list, and, if anything, asks the user — as a
+// sheet on parent, or app-modal when parent is nil — then, unless they keep
+// working, runs proceed, which authorises the action. A quit already authorised
+// has been agreed to, so proceed runs unasked.
+//
+// One decision at a time (regState.confirmingQuit), held through proceed so
+// that a quit asked for once proceed has authorised one is granted, never asked
+// again: asked while another is up, it reports claimed false and does nothing.
+// went reports whether proceed ran.
+func (a *appState) decideStopping(parent application.Window, action stoppingAction, proceed func()) (claimed, went bool) {
+	agreed := false
 	a.reg(func(st *regState) {
 		if !st.confirmingQuit {
 			st.confirmingQuit, claimed = true, true
+			agreed = st.quitting
 		}
 	})
 	if !claimed {
-		return false
+		return false, false
 	}
 	defer a.reg(func(st *regState) { st.confirmingQuit = false })
-	if stops := a.whatAQuitStops(); stops.any() {
-		if !confirmQuitDiscard(a, stops) {
-			return false // user chose to keep working
+	if !agreed {
+		if stops := a.whatAQuitStops(); !stops.Quiet() && !confirmStopsDiscard(a, parent, action, stops) {
+			return true, false // user chose to keep working
 		}
 	}
-	a.reg(func(st *regState) { st.quitting = true })
-	a.notifyAllWindowsCloseRequested()
-	application.InvokeAsync(func() { a.app.Quit() })
-	return true
+	proceed()
+	return true, true
 }
 
-// confirmQuitDiscard asks the user whether to quit with turns or background
-// tasks running, and blocks until they answer. A variable so a test can answer
-// it without a native dialog.
-var confirmQuitDiscard = func(a *appState, stops quitStops) bool {
-	return a.confirmDiscard(nil, quitDialogTitle, quitBusyMessage(stops), quitDialogConfirm)
+// confirmStopsDiscard asks the user whether to go ahead with action though it
+// stops the turns and background tasks in stops, and blocks until they answer.
+// A variable so a test can answer it without a native dialog.
+var confirmStopsDiscard = func(a *appState, parent application.Window, action stoppingAction, stops machineserver.BusyWork) bool {
+	return a.confirmDiscard(parent, action.title, stops.Prompt(action.kind), action.confirm)
+}
+
+// dialogParent is the native window a question about e's request is a sheet
+// on: e's own, or none — app-modal — for a request with no window.
+func dialogParent(e *winEntry) application.Window {
+	if e == nil || e.win == nil {
+		return nil
+	}
+	return e.win
 }
 
 // wmEndSession is Windows' WM_ENDSESSION: the user is signing out or shutting
@@ -107,63 +140,21 @@ func (a *appState) interceptWndProc(_ uintptr, msg uint32, wParam, _ uintptr) (u
 	return 0, false
 }
 
-// The busy prompts' wording. Each action that discards running work has its own
-// whole sentences, so a translation never has to fit an action word into a
-// sentence built around it.
+// stoppingAction is one thing the app does that lets the server go, with the
+// words of the question it asks first when that would stop work: the title, the
+// button that goes ahead, and the kind of body (machineserver.BusyWork.Prompt).
+type stoppingAction struct {
+	kind           machineserver.StoppingAction
+	title, confirm msg.Message
+}
+
 var (
-	quitDialogTitle   = msg.New("Quit Juggler?")
-	quitDialogConfirm = msg.New("Quit anyway")
-	keepWorkingLabel  = msg.New("Keep working")
+	quitAction     = stoppingAction{machineserver.StopByQuitting, msg.New("Quit Juggler?"), msg.New("Quit anyway")}
+	restartAction  = stoppingAction{machineserver.StopByRestartingToUpdate, msg.New("Restart to update?"), msg.New("Restart anyway")}
+	relaunchAction = stoppingAction{machineserver.StopByRelaunching, msg.New("Relaunch Juggler?"), msg.New("Relaunch anyway")}
+
+	keepWorkingLabel = msg.New("Keep working")
 )
-
-// quitStops is what letting the server go would stop: the sessions running a
-// turn, and the background tasks running in any session. A background task
-// outlives the turn that started it, so either can be there without the other.
-type quitStops struct {
-	conversations int
-	tasks         int
-}
-
-// any reports whether the quit would stop anything.
-func (q quitStops) any() bool { return q.conversations > 0 || q.tasks > 0 }
-
-// quitBusyMessage is the quit prompt's body for what the quit would stop.
-func quitBusyMessage(q quitStops) msg.Message {
-	switch {
-	case q.tasks == 0:
-		return msg.New("{n, plural, one {A conversation is still working. Quitting will stop and discard it.} other {# conversations are still working. Quitting will stop and discard them.}}", "n", q.conversations)
-	case q.conversations == 0:
-		return msg.New("{n, plural, one {A background task is still running. Quitting will stop it.} other {# background tasks are still running. Quitting will stop them.}}", "n", q.tasks)
-	default:
-		return msg.New("{conversations, plural, one {A conversation is still working} other {# conversations are still working}} and {tasks, plural, one {a background task is running} other {# background tasks are running}}. Quitting will stop them all.", "conversations", q.conversations, "tasks", q.tasks)
-	}
-}
-
-// restartBusyMessage is the update-restart prompt's body for what the restart
-// would stop; the page shows it (handleUpdaterRestart).
-func restartBusyMessage(q quitStops) msg.Message {
-	switch {
-	case q.tasks == 0:
-		return msg.New("{n, plural, one {A conversation is still working. Restarting to update will stop and discard it.} other {# conversations are still working. Restarting to update will stop and discard them.}}", "n", q.conversations)
-	case q.conversations == 0:
-		return msg.New("{n, plural, one {A background task is still running. Restarting to update will stop it.} other {# background tasks are still running. Restarting to update will stop them.}}", "n", q.tasks)
-	default:
-		return msg.New("{conversations, plural, one {A conversation is still working} other {# conversations are still working}} and {tasks, plural, one {a background task is running} other {# background tasks are running}}. Restarting to update will stop them all.", "conversations", q.conversations, "tasks", q.tasks)
-	}
-}
-
-// relaunchBusyMessage is the relaunch prompt's body for what relaunching into
-// the build now installed would stop; the page shows it (controlRelaunch).
-func relaunchBusyMessage(q quitStops) msg.Message {
-	switch {
-	case q.tasks == 0:
-		return msg.New("{n, plural, one {A conversation is still working. Relaunching will stop and discard it.} other {# conversations are still working. Relaunching will stop and discard them.}}", "n", q.conversations)
-	case q.conversations == 0:
-		return msg.New("{n, plural, one {A background task is still running. Relaunching will stop it.} other {# background tasks are still running. Relaunching will stop them.}}", "n", q.tasks)
-	default:
-		return msg.New("{conversations, plural, one {A conversation is still working} other {# conversations are still working}} and {tasks, plural, one {a background task is running} other {# background tasks are running}}. Relaunching will stop them all.", "conversations", q.conversations, "tasks", q.tasks)
-	}
-}
 
 // confirmDiscard shows a modal question dialog and blocks (on its own goroutine)
 // until the user answers. The safe choice ("Keep working") is both the default
@@ -172,7 +163,8 @@ func relaunchBusyMessage(q quitStops) msg.Message {
 // as the app-wide quit prompt is.
 func (a *appState) confirmDiscard(parent application.Window, title, message, confirmLabel msg.Message) bool {
 	result := make(chan bool, 1)
-	dialog := a.app.Dialog.Question().SetTitle(a.tr(title)).SetMessage(a.tr(message))
+	// A body naming no task ends in the blank lines its list would have filled.
+	dialog := a.app.Dialog.Question().SetTitle(a.tr(title)).SetMessage(strings.TrimSpace(a.tr(message)))
 	if parent != nil {
 		dialog.AttachToWindow(parent)
 	}

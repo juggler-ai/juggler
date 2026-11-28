@@ -451,6 +451,8 @@
  * @property {number} startedAt - Unix milliseconds
  * @property {string} [cwd] - The directory it runs in
  * @property {string} [workspaceId] - The workspace whose tree it runs in, "" for the project's
+ * @property {string} [label] - What its starter called it, for a person asked about it; "" when it gave no name (Name falls back to the command)
+ * @property {string} [lifetime] - A background task's LifetimeHeld or LifetimeViewed; "" for any other kind
  */
 
 /**

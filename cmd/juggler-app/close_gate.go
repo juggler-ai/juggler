@@ -101,7 +101,7 @@ func (a *appState) confirmCloseEndingTheApp(e *winEntry) bool {
 	if !a.closeEndsTheApp(e) {
 		return true
 	}
-	if stops := a.whatAQuitStops(); !stops.any() || confirmQuitDiscard(a, stops) {
+	if stops := a.whatAQuitStops(); stops.Quiet() || confirmStopsDiscard(a, nil, quitAction, stops) {
 		return true
 	}
 	a.reg(func(st *regState) {

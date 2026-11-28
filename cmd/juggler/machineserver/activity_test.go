@@ -6,8 +6,10 @@ package machineserver
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -73,7 +75,11 @@ func newStubChild(t *testing.T) *stubChild {
 		if sc.busy.Load() {
 			ids = append(ids, "conv-a")
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"active": len(ids) > 0, "conversationIds": ids, "attentionRev": sc.report.Load().Rev, "conversations": sc.conversations.Load(), "backgroundTasks": sc.backgroundTasks.Load()})
+		names := []string{}
+		for i := range sc.backgroundTasks.Load() {
+			names = append(names, fmt.Sprintf("task %d", i+1))
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"active": len(ids) > 0, "conversationIds": ids, "attentionRev": sc.report.Load().Rev, "conversations": sc.conversations.Load(), "backgroundTasks": sc.backgroundTasks.Load(), "backgroundTaskNames": names})
 	}))
 	t.Cleanup(sc.srv.Close)
 	return sc
@@ -175,21 +181,22 @@ func TestThePollRecordsTheConversationCount(t *testing.T) {
 	}
 }
 
-// Each poll records how many background tasks the child is running, which the
-// app's quit guard counts: they outlive their turn, so the session is not busy
-// for them, but letting the server go stops them.
+// Each poll records how many background tasks the child is running and what
+// each is called, which the app's quit guard counts and names: they outlive
+// their turn, so the session is not busy for them, but letting the server go
+// stops them.
 func TestThePollRecordsRunningBackgroundTasks(t *testing.T) {
 	sc := newStubChild(t)
 	sc.backgroundTasks.Store(2)
 	r, id, _ := runningSession(t, sc)
 	sc.waitPolls(t, 2)
-	if s, _ := r.get(id); s.BackgroundTasks != 2 || s.Busy {
-		t.Fatalf("session = %+v, want 2 background tasks and not busy", s)
+	if s, _ := r.get(id); s.BackgroundTasks != 2 || s.Busy || !slices.Equal(s.BackgroundTaskNames, []string{"task 1", "task 2"}) {
+		t.Fatalf("session = %+v, want 2 named background tasks and not busy", s)
 	}
 	sc.backgroundTasks.Store(0)
 	sc.waitPolls(t, 2)
-	if s, _ := r.get(id); s.BackgroundTasks != 0 {
-		t.Fatalf("after they ended: background tasks = %d, want 0", s.BackgroundTasks)
+	if s, _ := r.get(id); s.BackgroundTasks != 0 || len(s.BackgroundTaskNames) != 0 {
+		t.Fatalf("after they ended: background tasks = %d %q, want none", s.BackgroundTasks, s.BackgroundTaskNames)
 	}
 }
 

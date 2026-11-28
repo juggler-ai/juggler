@@ -28,11 +28,13 @@ import (
 // the attention report (handleHealthAttention), which the poller fetches only
 // when it moves; conversations is how many conversations the project has.
 //
-// backgroundTasks is how many background tasks (bash run_in_background,
-// Monitor) are running in the project. They outlive the turn that started them,
-// so no conversation reads as active for them, but a quit that lets the server
-// go stops them, and the quit guard asks first. They are kept out of active,
-// which the machine server also reads as "may not retire".
+// backgroundTasks is how many held background tasks (bash run_in_background,
+// Monitor) are running in the project, and backgroundTaskNames what each is
+// called. They outlive the turn that started them, so no conversation reads as
+// active for them, but a quit that lets the server go stops them, and the quit
+// guard asks first, naming them. They are kept out of active, which the machine
+// server also reads as "may not retire". A viewed task is in neither: it holds
+// nothing up (ops.LifetimeViewed).
 func (s *Server) handleHealthActive(w http.ResponseWriter, r *http.Request) {
 	ids := []string{}
 	var rev uint64
@@ -46,30 +48,39 @@ func (s *Server) handleHealthActive(w http.ResponseWriter, r *http.Request) {
 	if sm := s.SessionManager(); sm != nil {
 		conversations = len(sm.ConvNames())
 	}
+	tasks := s.heldBackgroundTasks()
+	names := make([]string, len(tasks))
+	for i, p := range tasks {
+		names[i] = p.Name(maxTaskNameBytes)
+	}
 	handlers.WriteJSON(w, r, 0, map[string]any{
-		"active":          len(ids) > 0,
-		"conversationIds": ids,
-		"attentionRev":    rev,
-		"conversations":   conversations,
-		"backgroundTasks": s.runningBackgroundTasks(),
+		"active":              len(ids) > 0,
+		"conversationIds":     ids,
+		"attentionRev":        rev,
+		"conversations":       conversations,
+		"backgroundTasks":     len(tasks),
+		"backgroundTaskNames": names,
 	})
 }
 
-// runningBackgroundTasks is how many background tasks (bash run_in_background,
-// Monitor) are running in the project, workspaces included. Shutting the
-// session down stops every one of them.
-func (s *Server) runningBackgroundTasks() int {
+// maxTaskNameBytes caps a task's name where it must fit on a dialog's line.
+const maxTaskNameBytes = 80
+
+// heldBackgroundTasks is the background tasks running in the project,
+// workspaces included, that hold the session up (ops.ProcessInfo.HoldsSession),
+// oldest first. Shutting the session down stops these and every viewed one.
+func (s *Server) heldBackgroundTasks() []ops.ProcessInfo {
 	project := s.ProjectPath()
 	if project == "" {
-		return 0
+		return nil
 	}
-	n := 0
+	var held []ops.ProcessInfo
 	for _, p := range ops.ListProcesses(project) {
-		if p.Kind == ops.ProcessBackground {
-			n++
+		if p.HoldsSession() {
+			held = append(held, p)
 		}
 	}
-	return n
+	return held
 }
 
 // handleHealthAttention reports which of the project's conversations wait on

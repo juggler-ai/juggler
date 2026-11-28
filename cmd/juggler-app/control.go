@@ -1200,7 +1200,7 @@ type updaterStateResponse struct {
 // flag; install kicks the download/stage flow; check runs a check-only probe
 // (reveal availability, never download); cancel stops a download or discards a
 // staged update; restart relaunches into a staged
-// update, guarded by the same in-flight-turn check as Cmd+Q. All ops are POST.
+// update, asking first as Cmd+Q does (quitInto). All ops are POST.
 func (a *appState) handleUpdaterControl(w http.ResponseWriter, r *http.Request, e *winEntry) {
 	switch r.URL.Query().Get("op") {
 	case "state":
@@ -1230,53 +1230,46 @@ func (a *appState) handleUpdaterControl(w http.ResponseWriter, r *http.Request, 
 		}
 		w.WriteHeader(http.StatusNoContent)
 	case "restart":
-		a.handleUpdaterRestart(w, r)
+		a.handleUpdaterRestart(w, r, e)
 	default:
 		w.WriteHeader(http.StatusBadRequest)
 	}
 }
 
 // handleUpdaterRestart relaunches into the staged update, as quitInto.
-func (a *appState) handleUpdaterRestart(w http.ResponseWriter, r *http.Request) {
-	a.quitInto(w, r, "updater: restart", restartBusyMessage, updaterRestart)
+func (a *appState) handleUpdaterRestart(w http.ResponseWriter, _ *http.Request, e *winEntry) {
+	a.quitInto(w, e, "updater: restart", restartAction, updaterRestart)
 }
 
 // controlRelaunch serves /win/<id>/relaunch: it quits this app and starts it
 // again from the binary now at its path (relaunchApp), as quitInto. The page
 // offers it when that binary is another build than the one running.
-func (a *appState) controlRelaunch(w http.ResponseWriter, r *http.Request, _ *winEntry) {
-	a.quitInto(w, r, "relaunch", relaunchBusyMessage, func() error { return relaunchApp(a) })
+func (a *appState) controlRelaunch(w http.ResponseWriter, _ *http.Request, e *winEntry) {
+	a.quitInto(w, e, "relaunch", relaunchAction, func() error { return relaunchApp(a) })
 }
 
 // quitInto quits the app into whatever start launches next: the staged update,
-// or this app again. It first re-checks the sessions running a turn and the
-// background tasks running, which the quit will stop (the exact tally
-// confirmThenQuit does) and, unless force=1, returns 409 with both counts and
-// busy's wording of them, so the page can confirm the discard and re-POST with
-// force=1.
+// or this app again. It decides as a quit does (decideStopping) — what the quit
+// would stop, asked about natively, as a sheet on e's window — and answers once
+// the user has: 204 once start has run, 409 (status "kept") when they kept
+// working or another decision was already up, 500 with the reason when start
+// failed.
 //
 // CRITICAL sequencing: it authorises the quit (st.quitting + notify pages)
 // BEFORE calling start. start launches what comes next — the updater's swap
 // helper, or the next launch of this app, which waits for this one to exit —
 // and then dispatches Host.Quit(); without a pre-authorised quit the
-// shouldQuitLater hook would hold that quit and show its own native confirm —
-// double-prompting, and worse, leaving what start launched waiting for
-// whatever later moment the app eventually quits. On failure it un-authorises
-// the quit so the app keeps running and the page can surface the reason.
-func (a *appState) quitInto(w http.ResponseWriter, r *http.Request, what string, busy func(quitStops) msg.Message, start func() error) {
-	if r.URL.Query().Get("force") != "1" {
-		if stops := a.whatAQuitStops(); stops.any() {
-			writeJSON(w, http.StatusConflict, map[string]any{
-				"busy":            stops.conversations,
-				"backgroundTasks": stops.tasks,
-				"message":         busy(stops).English(),
-				"messageText":     busy(stops),
-			})
-			return
-		}
+// shouldQuitLater hook would hold that quit and ask again — double-prompting,
+// and worse, leaving what start launched waiting for whatever later moment the
+// app eventually quits. On failure it un-authorises the quit so the app keeps
+// running and the page can surface the reason.
+func (a *appState) quitInto(w http.ResponseWriter, e *winEntry, what string, action stoppingAction, start func() error) {
+	var err error
+	if _, went := a.decideStopping(dialogParent(e), action, func() { err = a.authoriseQuitInto(start) }); !went {
+		writeJSON(w, http.StatusConflict, map[string]any{"status": "kept"})
+		return
 	}
-
-	if err := a.authoriseQuitInto(start); err != nil {
+	if err != nil {
 		logf("%s: %v", what, err)
 		writeMessageErr(w, http.StatusInternalServerError, err)
 		return

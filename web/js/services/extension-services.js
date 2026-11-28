@@ -417,7 +417,7 @@ export function createExtensionServices(host) {
       itemId: action ? String(itemField(action, 'itemId') || '') : '',
       toolName: action ? String(action.get('toolName') || '') : '',
       command: process.command || '',
-      label: action ? String(itemField(action.get('toolInput'), 'description') || '') : '',
+      label: (action ? String(itemField(action.get('toolInput'), 'description') || '') : '') || process.label || '',
       at: Number.isFinite(process.startedAt) ? process.startedAt : Infinity,
     };
   };

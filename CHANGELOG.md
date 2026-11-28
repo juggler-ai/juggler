@@ -6,12 +6,12 @@ the current release). The project follows semantic versioning.
 
 ## [Unreleased]
 
+- LAN servers can be listed and opened from https://juggler.studio/sessions in any browser on your network
 - Question cards let you add a note to the option you pick
 - Git pin's conflict banner can hand the conflicts to a new conversation
 - Fixed the switcher's new-window button in windows connected to another computer
 - Large or binary dropped files are saved to the project for the agent to read
-- Peer-to-peer remote links now connect only to the machine that made them
-- LAN servers can be listed and opened from juggler.studio/sessions in any browser
+- Quit, update-restart and relaunch prompts name the background tasks they would stop
 
 ## [0.8.3] - 2026-11-26
 

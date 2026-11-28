@@ -1189,6 +1189,16 @@ export async function shell(params, signal, workspaceId) {
  *   stops it or the server goes away, which is what a long-lived local server —
  *   a dev server, a patch host an extension embeds — needs. Do not pass 0
  *   meaning "forever": 0 is a real duration and the task dies immediately.
+ * @property {string} [label] - What a person is shown for the task — in the
+ *   Tasks pin, and in the prompt a quit that would stop it puts up — e.g.
+ *   `'808 Cmajor patch server'`. Without one, the command's first line.
+ * @property {'held'|'viewed'} [lifetime] - What the running task holds up.
+ *   `'held'` (the default): it keeps its project's session alive with nobody
+ *   viewing it, and a quit asks before stopping it — right for anything a person
+ *   started and expects to finish. `'viewed'`: it holds nothing up, running only
+ *   while its project is viewed and stopped, unasked, when the session ends —
+ *   right for a process that exists to feed something on screen, such as a pin's
+ *   server, provided its starter starts it again when next mounted.
  * @property {string} [convId] - Conversation ID for tracking ownership
  * @property {string} [threadId] - Thread within the conversation that started it ('' or absent is the root thread)
  * @property {string} [toolUseId] - Tool use ID for frontend correlation
@@ -1333,6 +1343,8 @@ export async function shellStatus(params) {
  * @property {string} [threadId] - Thread within that conversation; absent is the root thread
  * @property {string} [toolUseId] - Tool call that started it
  * @property {number} startedAt - Unix milliseconds
+ * @property {string} [label] - What its starter called it (a background task's `label`)
+ * @property {'held'|'viewed'} [lifetime] - A background task's lifetime (see ShellStartBackgroundParams)
  */
 
 /**

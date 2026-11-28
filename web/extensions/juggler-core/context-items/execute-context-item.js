@@ -827,6 +827,7 @@ class ExecuteContextItem extends ContextItem {
         {
           command,
           timeout: params.timeout ? Number(params.timeout) : undefined,
+          label: params.description ? String(params.description) : undefined,
           convId: this.conversation.id,
           threadId: this.messageThread?.threadItemId || '',
           toolUseId: this.toolUseId

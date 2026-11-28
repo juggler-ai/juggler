@@ -166,9 +166,9 @@ func TestARemoteWindowsSecretReachesOnlyItsOwnWindow(t *testing.T) {
 	for _, action := range []string{
 		"switch-server?url=http%3A%2F%2Felsewhere%3A1",
 		"discover",
-		"updater?op=restart&force=1",
+		"updater?op=restart",
 		"updater?op=state",
-		"relaunch?force=1",
+		"relaunch",
 		"folder-dropped?path=%2Fno%2Fsuch%2Fplace",
 		"locale?locale=en",
 		"restart-server",

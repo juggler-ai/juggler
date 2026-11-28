@@ -16,6 +16,8 @@ import (
 
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/machineserver"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 // TestRelaunchWaitsForTheLaunchBeforeIt: a launch given --after does not go on
@@ -85,9 +87,10 @@ func TestRelaunchKeepsOnlyTheDevFlags(t *testing.T) {
 	}
 }
 
-// TestWindowControlRelaunchIsGuardedLikeAnUpdateRestart: op=relaunch stops
-// for what the quit would stop unless forced, authorises the quit before it
-// relaunches, and withdraws it when the relaunch could not start.
+// TestWindowControlRelaunchIsGuardedLikeAnUpdateRestart: op=relaunch asks,
+// natively, about what the quit would stop and does nothing while the user
+// keeps working; agreed to, it authorises the quit before it relaunches, and
+// withdraws it when the relaunch could not start.
 func TestWindowControlRelaunchIsGuardedLikeAnUpdateRestart(t *testing.T) {
 	saved := relaunchApp
 	t.Cleanup(func() { relaunchApp = saved })
@@ -110,17 +113,28 @@ func TestWindowControlRelaunchIsGuardedLikeAnUpdateRestart(t *testing.T) {
 	if _, err := a.serverClient(true); err != nil {
 		t.Fatal(err)
 	}
+	var asked []machineserver.BusyWork
+	agree := false
+	orig := confirmStopsDiscard
+	confirmStopsDiscard = func(_ *appState, _ application.Window, action stoppingAction, stops machineserver.BusyWork) bool {
+		if action.kind != relaunchAction.kind {
+			t.Errorf("a relaunch asked in the words of %v", action.kind)
+		}
+		asked = append(asked, stops)
+		return agree
+	}
+	t.Cleanup(func() { confirmStopsDiscard = orig })
 
 	rec := controlRequest(a, http.MethodPost, "/win/w1/relaunch")
-	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"busy":1`) {
-		t.Fatalf("relaunch with a busy session: %d %s; want 409 with busy 1", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusConflict || len(asked) != 1 || asked[0].Conversations != 1 {
+		t.Fatalf("relaunch with a busy session kept working through: %d %s, asked %+v; want 409 after asking once about 1 conversation", rec.Code, rec.Body.String(), asked)
 	}
 	if calls != 0 {
-		t.Fatal("a refused relaunch started the new launch")
+		t.Fatal("a relaunch the user kept working through started the new launch")
 	}
 
-	fail = true
-	rec = controlRequest(a, http.MethodPost, "/win/w1/relaunch?force=1")
+	agree, fail = true, true
+	rec = controlRequest(a, http.MethodPost, "/win/w1/relaunch")
 	if rec.Code != http.StatusInternalServerError || !strings.Contains(rec.Body.String(), "could not start") {
 		t.Fatalf("failed relaunch: %d %s; want 500 with the reason", rec.Code, rec.Body.String())
 	}
@@ -131,18 +145,19 @@ func TestWindowControlRelaunchIsGuardedLikeAnUpdateRestart(t *testing.T) {
 	}
 
 	fail = false
-	rec = controlRequest(a, http.MethodPost, "/win/w1/relaunch?force=1")
+	rec = controlRequest(a, http.MethodPost, "/win/w1/relaunch")
 	if rec.Code != http.StatusNoContent {
-		t.Fatalf("forced relaunch: %d %s; want 204", rec.Code, rec.Body.String())
+		t.Fatalf("agreed relaunch: %d %s; want 204", rec.Code, rec.Body.String())
 	}
 	if calls != 2 || !quittingWhenCalled {
 		t.Fatalf("relaunch called %d times, quit authorised when called: %v; want 2, true", calls, quittingWhenCalled)
 	}
-	// A second click while the first relaunch is under way launches nothing
-	// more, and is answered as begun.
-	rec = controlRequest(a, http.MethodPost, "/win/w1/relaunch?force=1")
-	if rec.Code != http.StatusNoContent || calls != 2 {
-		t.Fatalf("relaunch while one is under way: %d, relaunch called %d times; want 204, still 2", rec.Code, calls)
+	// A second click while the first relaunch is under way asks nothing — the
+	// quit is agreed to — launches nothing more, and is answered as begun.
+	asks := len(asked)
+	rec = controlRequest(a, http.MethodPost, "/win/w1/relaunch")
+	if rec.Code != http.StatusNoContent || calls != 2 || len(asked) != asks {
+		t.Fatalf("relaunch while one is under way: %d, relaunch called %d times, asked %d more; want 204, still 2, none", rec.Code, calls, len(asked)-asks)
 	}
 	a.reg(func(st *regState) { st.quitting, st.quittingInto = false, false })
 }

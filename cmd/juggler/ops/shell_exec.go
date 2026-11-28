@@ -41,6 +41,11 @@ type shellParams struct {
 	ConvID    string   `param:"convId"`
 	ThreadID  string   `param:"threadId"`
 	ToolUseID string   `param:"toolUseId"`
+
+	// Label and Lifetime are startBackground's alone: what the task is called
+	// where a person is asked about it, and what it holds up (ProcessInfo).
+	Label    string `param:"label"`
+	Lifetime string `param:"lifetime"`
 }
 
 // owner is what the process inventory lists this call's process under.
@@ -122,6 +127,10 @@ func (ops *ShellOperations) startBackground(params map[string]any) (any, error) 
 		return nil, fmt.Errorf("missing command parameter")
 	}
 	command := *p.Command
+	lifetime, err := backgroundLifetime(p.Lifetime)
+	if err != nil {
+		return nil, err
+	}
 
 	// Normalize newlines to && — LLMs sometimes use \n to separate commands
 	command = normalizeCommandNewlines(command)
@@ -205,9 +214,8 @@ func (ops *ShellOperations) startBackground(params map[string]any) (any, error) 
 		// attribution does), and a command not yet listed is nobody's. A stop
 		// from the inventory is the kill op, so it reads on the tool action
 		// exactly as a TaskStop would; one arriving before the start cancels the
-		// context, so the command never starts. Unnumbered: a background task is
-		// never superseded, so its order is never asked.
-		untrack := trackProcess(shellID, ProcessBackground, command, ops.scope, cmd.Dir, p.owner(), 0,
+		// context, so the command never starts.
+		untrack := trackBackgroundProcess(shellID, command, p.Label, lifetime, ops.scope, cmd.Dir, p.owner(),
 			func() { killShell(shellID) })
 		defer untrack()
 
@@ -606,16 +614,25 @@ func (ops *ShellOperations) executePythonCode(ctx context.Context, code string, 
 // non-blank line, which is usually enough to recognise it, capped so a one-line
 // script does not fill the row.
 func pythonLabel(code string) string {
-	const maxLabel = 200
-	for line := range strings.SplitSeq(code, "\n") {
+	if line := FirstLine(code, 200); line != "" {
+		return line
+	}
+	return "python3"
+}
+
+// FirstLine is text's first non-blank line, trimmed and capped at maxBytes (an
+// ellipsis marking a cut), or "" when text has none — how a command or script is
+// named where it must fit in a line.
+func FirstLine(text string, maxBytes int) string {
+	for line := range strings.SplitSeq(text, "\n") {
 		if line = strings.TrimSpace(line); line != "" {
-			if len(line) > maxLabel {
-				line = strings.ToValidUTF8(line[:maxLabel], "") + "…"
+			if len(line) > maxBytes {
+				line = strings.ToValidUTF8(line[:maxBytes], "") + "…"
 			}
 			return line
 		}
 	}
-	return "python3"
+	return ""
 }
 
 // validateCwd resolves a user-supplied shell cwd and rejects anything outside

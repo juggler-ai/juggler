@@ -4,7 +4,7 @@
 
 import wsService from '../services/websocket.js';
 import { getUpdaterState, startInstall, requestRelaunch } from '../services/updater-control.js';
-import { showAlert, showConfirm } from './modal-dialog.js';
+import { showAlert } from './modal-dialog.js';
 import { fetchJson, bodyServerMessage } from '../services/http.js';
 import JugglerElement from './juggler-element.js';
 import { apiUrl } from '../utils/api-url.js';
@@ -216,10 +216,10 @@ class UpdateButton extends JugglerElement {
   }
 
   /**
-   * Relaunch the app, confirming first when the app answers that a
-   * conversation is working, and saying why when it could not. Once the app
-   * has taken the relaunch, the button stays inert while the app quits: a
-   * second click would ask for a second relaunch.
+   * Relaunch the app — which asks first, natively, when it would stop work —
+   * saying why when it could not. Once the app has taken the relaunch, the
+   * button stays inert while the app quits: a second click would ask for a
+   * second relaunch.
    * @private
    */
   async _doRelaunch() {
@@ -227,16 +227,7 @@ class UpdateButton extends JugglerElement {
     this._relaunching = true;
     let accepted = false;
     try {
-      let res = await requestRelaunch({ force: false });
-      if (res.status === 'busy') {
-        const proceed = await showConfirm(
-          res.message || t('A conversation is still working. Relaunching will stop and discard it.'),
-          t('Relaunch Juggler?'),
-          { confirmText: t('Relaunch anyway'), cancelText: t('Keep working'), danger: true },
-        );
-        if (!proceed) return;
-        res = await requestRelaunch({ force: true });
-      }
+      const res = await requestRelaunch();
       if (res.status === 'error') await showAlert(res.message || t('Juggler could not relaunch.'), t('Relaunch failed'));
       // status 'ok' quits the app; nothing more to do.
       accepted = res.status === 'ok';

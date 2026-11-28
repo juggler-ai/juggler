@@ -7,6 +7,7 @@ package ops
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -77,6 +78,54 @@ type ProcessInfo struct {
 
 	Cwd         string `json:"cwd,omitempty"`         // The directory it runs in
 	WorkspaceID string `json:"workspaceId,omitempty"` // The workspace whose tree it runs in, "" for the project's
+
+	Label    string `json:"label,omitempty"`    // What its starter called it, for a person asked about it; "" when it gave no name (Name falls back to the command)
+	Lifetime string `json:"lifetime,omitempty"` // A background task's LifetimeHeld or LifetimeViewed; "" for any other kind
+}
+
+// Background task lifetimes: startBackground's "lifetime", which says what a
+// running task holds up.
+//
+// A held task (the default) holds its session up as a running turn does — an
+// unviewed session is not retired under it — and a quit that would stop it asks
+// first. It is what a person started and expects to finish: a build, a dev
+// server, a Monitor.
+//
+// A viewed task holds nothing up. It is there for something on screen — a pin
+// running the server its view shows — so it runs while its project is viewed and
+// goes when the session does: retired once nobody has looked for the grace, or
+// at a quit, which does not ask about it. Whatever starts one starts it again
+// when it is looked at next.
+const (
+	LifetimeHeld   = "held"
+	LifetimeViewed = "viewed"
+)
+
+// backgroundLifetime is the lifetime a startBackground asked for, LifetimeHeld
+// when it named none.
+func backgroundLifetime(asked string) (string, error) {
+	switch asked {
+	case "", LifetimeHeld:
+		return LifetimeHeld, nil
+	case LifetimeViewed:
+		return LifetimeViewed, nil
+	}
+	return "", fmt.Errorf("lifetime %q is neither %q nor %q", asked, LifetimeHeld, LifetimeViewed)
+}
+
+// HoldsSession reports whether the process is a background task that holds its
+// session up: one a retirement must wait for and a quit must ask about.
+func (p ProcessInfo) HoldsSession() bool {
+	return p.Kind == ProcessBackground && p.Lifetime != LifetimeViewed
+}
+
+// Name is what a person is shown for the process: its label, or failing that its
+// command's first line, capped at maxBytes.
+func (p ProcessInfo) Name(maxBytes int) string {
+	if label := FirstLine(p.Label, maxBytes); label != "" {
+		return label
+	}
+	return FirstLine(p.Command, maxBytes)
 }
 
 type processEntry struct {
@@ -290,18 +339,34 @@ func askInventory(op inventoryOp) inventoryResp {
 // the returned untrack is called. stop must end the process and must be safe to call more than once and after
 // the process has gone. untrack is idempotent.
 func trackProcess(id, kind, command string, scope PathScope, cwd string, owner ProcessOwner, order uint64, stop func()) (untrack func()) {
-	projectRoot := scope.ProjectRoot()
-	entry := &processEntry{
+	return trackEntry(newProcessEntry(id, kind, command, scope, cwd, owner, order, stop))
+}
+
+// trackBackgroundProcess is trackProcess for a background task, which also
+// carries its label and lifetime. Unnumbered: a background task is never
+// superseded, so its order is never asked.
+func trackBackgroundProcess(id, command, label, lifetime string, scope PathScope, cwd string, owner ProcessOwner, stop func()) (untrack func()) {
+	entry := newProcessEntry(id, ProcessBackground, command, scope, cwd, owner, 0, stop)
+	entry.info.Label, entry.info.Lifetime = label, lifetime
+	return trackEntry(entry)
+}
+
+func newProcessEntry(id, kind, command string, scope PathScope, cwd string, owner ProcessOwner, order uint64, stop func()) *processEntry {
+	return &processEntry{
 		info: ProcessInfo{
 			ID: id, Kind: kind, Command: command,
 			ConvID: owner.ConvID, ThreadID: owner.ThreadID, ToolUseID: owner.ToolUseID,
 			StartedAt: time.Now().UnixMilli(),
 			Cwd:       cwd, WorkspaceID: scope.Workspace(),
 		},
-		projectRoot: projectRoot,
+		projectRoot: scope.ProjectRoot(),
 		stop:        stop,
 		order:       order,
 	}
+}
+
+func trackEntry(entry *processEntry) (untrack func()) {
+	projectRoot, owner, id, stop := entry.projectRoot, entry.owner(), entry.info.ID, entry.stop
 	tracked := askInventory(inventoryOp{kind: invTrack, entry: entry})
 	announceProcessesChanged(tracked.observers, projectRoot)
 	if tracked.stopNow {

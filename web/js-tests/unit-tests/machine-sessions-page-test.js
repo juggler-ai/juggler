@@ -1050,14 +1050,15 @@ export async function runTests() {
    * `running` says work runs, and an events stream the test pushes snapshots
    * down (`push`).
    * @param {any} api - From stubApi.
-   * @param {{conversations: number, tasks: number}|null} running - The work running.
+   * @param {{conversations: number, tasks: number, named?: {name: string, project: string}[]}|null} running - The work running.
+   * @param {{key: string, params?: Record<string, unknown>}|null} [prompt] - The question the refusal asks it in.
    * @returns {any} The same stand-in.
    */
-  function withRelaunch(api, running) {
+  function withRelaunch(api, running, prompt = null) {
     api.relaunch = async (/** @type {{quiet?: boolean}} */ o = {}) => {
       api.calls.push(['relaunch', o.quiet === true]);
       if (o.quiet && running) {
-        throw new ControlApiError(409, 'the Juggler server is in use, so it was not relaunched', null, { error: 'in use', running });
+        throw new ControlApiError(409, 'the Juggler server is in use, so it was not relaunched', null, { error: 'in use', running, prompt });
       }
     };
     api.push = null;
@@ -1075,7 +1076,12 @@ export async function runTests() {
   // with Relaunch server; a server with work running says what a relaunch
   // stops, and relaunches only once the user agrees.
   await test('another build installed is said, and relaunched once the user agrees to what it stops', async () => {
-    const api = withRelaunch(stubApi(sessions), { conversations: 1, tasks: 0 });
+    // The refusal carries the question in the server's words
+    // (machineserver.BusyWork.Prompt), naming each task and its project.
+    const api = withRelaunch(stubApi(sessions), { conversations: 1, tasks: 1, named: [{ name: 'dev server', project: '/work/web' }] }, {
+      key: '{conversations, plural, one {A conversation is still working} other {# conversations are still working}} and {tasks, plural, one {a background task is running} other {# background tasks are running}}. Relaunching will stop them all.\n\n{list}',
+      params: { conversations: 1, tasks: 1, list: '• dev server — web' },
+    });
     const m = await mount(api, { config: local });
     try {
       await waitFor(() => !!api.push, { description: 'the events stream followed' });
@@ -1085,7 +1091,7 @@ export async function runTests() {
       assert(!!go, 'no Relaunch server on the banner');
       go?.click();
       await waitFor(() => !!m.root.querySelector('.ms-relaunch-anyway'), { description: 'what a relaunch stops, asked about' });
-      assert(banner(m.root).includes('A conversation is still working'), `the ask says ${JSON.stringify(banner(m.root))}`);
+      assert(banner(m.root).includes('A conversation is still working') && banner(m.root).includes('• dev server — web'), `the ask says ${JSON.stringify(banner(m.root))}`);
       assert(JSON.stringify(api.calls.filter((c) => c[0] === 'relaunch')) === '[["relaunch",true]]', `relaunches asked ${JSON.stringify(api.calls)}`);
       /** @type {HTMLButtonElement} */ (m.root.querySelector('.ms-relaunch-anyway')).click();
       await waitFor(() => api.calls.some((c) => c[0] === 'relaunch' && c[1] === false), { description: 'the relaunch, whatever runs' });

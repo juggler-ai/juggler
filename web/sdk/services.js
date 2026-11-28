@@ -236,8 +236,9 @@
  * @property {string} command - The command line it is running (for python, its
  *   first line). Unbounded — it is whatever was typed — so give it a bounded
  *   space rather than trusting it to be short.
- * @property {string} label - What it was started for, when the tool was asked to
- *   say and its conversation is loaded here. Empty otherwise.
+ * @property {string} label - What it was started for: the tool call's
+ *   description when its conversation is loaded here, else the `label` it was
+ *   started with. Empty when neither says.
  * @property {number} at - Unix ms it was started
  */
 

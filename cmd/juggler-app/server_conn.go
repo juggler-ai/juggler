@@ -633,30 +633,24 @@ func (a *appState) relaunchServer(shown *relaunchNeededError) error {
 }
 
 // whatAQuitStops is what a quit or an update restart would stop: the sessions
-// running a turn, and the background tasks running in any session. Letting the
+// running a turn, and the held background tasks running in any session, named
+// with their projects. Letting the
 // server go stops it, and every session on it, only when a client started it
 // on demand and this app is the last local client holding it up. A server
 // started by hand, or held by another client — a terminal's juggler, another
 // app — goes on, and its sessions run their turns and tasks to the end with no
 // viewer, so a quit stops nothing. Read from one status and one sessions list;
 // nothing when the app is attached to no server, or it does not answer.
-func (a *appState) whatAQuitStops() quitStops {
+func (a *appState) whatAQuitStops() machineserver.BusyWork {
 	c := a.attachedClient()
 	if c == nil {
-		return quitStops{}
+		return machineserver.BusyWork{}
 	}
 	occ, err := c.Occupancy()
 	if err != nil || occ.HandStarted || occ.Clients > 1 {
-		return quitStops{}
+		return machineserver.BusyWork{}
 	}
-	var stops quitStops
-	for _, s := range occ.Sessions {
-		if s.Busy {
-			stops.conversations++
-		}
-		stops.tasks += s.BackgroundTasks
-	}
-	return stops
+	return machineserver.BusyWorkOf(occ.Sessions)
 }
 
 // serverLost has every main window onto proc, a server process that has gone,

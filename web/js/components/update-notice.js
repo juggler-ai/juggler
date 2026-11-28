@@ -9,7 +9,6 @@ import { markPopupOpen } from '../utils/popup-manager.js';
 import { fadeOutScrims } from '../utils/modal-scrim.js';
 import { markDialog, trapFocus } from '../utils/dialog-a11y.js';
 import { startInstall, requestRestart, cancelUpdate, getUpdaterState } from '../services/updater-control.js';
-import { showConfirm } from './modal-dialog.js';
 import { t, markForTranslation } from '../../sdk/lib/i18n.js';
 
 /**
@@ -663,23 +662,14 @@ class UpdateNotice extends JugglerElement {
   }
 
   /**
-   * Request a restart, handling the busy-confirm round-trip.
+   * Request a restart. The app asks first, natively, when it would stop work.
    * @private
    */
   async _doRestart() {
     if (this._restarting) return;
     this._restarting = true;
     try {
-      let res = await requestRestart({ force: false });
-      if (res.status === 'busy') {
-        const proceed = await showConfirm(
-          res.message || t('A conversation is still working. Restarting will stop and discard it.'),
-          t('Restart to update?'),
-          { confirmText: t('Restart anyway'), cancelText: t('Keep working'), danger: true },
-        );
-        if (!proceed) return;
-        res = await requestRestart({ force: true });
-      }
+      const res = await requestRestart();
       if (res.status === 'error' && this._vm) {
         // Surface the failure in the status region without closing the dialog.
         this._vm = {

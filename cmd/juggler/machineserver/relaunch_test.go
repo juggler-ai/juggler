@@ -11,7 +11,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -545,6 +547,11 @@ func TestAQuietRelaunchSaysWhatItWouldStop(t *testing.T) {
 	relaunched, busy, err := c.RelaunchIfQuiet()
 	if err != nil || relaunched || busy.Conversations != 1 || busy.Tasks != 1 || s.ending.decided() {
 		t.Fatalf("quiet relaunch of a busy server: relaunched %v, busy %+v, %v; want refused, saying what runs", relaunched, busy, err)
+	}
+	// The refusal names the task, so the user asked about it can tell which.
+	if len(busy.Named) != 1 || busy.Named[0].Name != "task 1" ||
+		!strings.HasSuffix(busy.Prompt(StopByRelaunching).English(), "\n\n• task 1 — "+filepath.Base(busy.Named[0].Project)) {
+		t.Fatalf("quiet relaunch named %+v, prompting %q; want task 1 listed with its project", busy.Named, busy.Prompt(StopByRelaunching).English())
 	}
 	sc.busy.Store(false)
 	sc.backgroundTasks.Store(0)

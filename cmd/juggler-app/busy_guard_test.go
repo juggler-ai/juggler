@@ -11,6 +11,8 @@ import (
 
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/machineserver"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 // TestQuitAsksOnceWhileItsConfirmationIsUp: a quit asked for again while the
@@ -29,17 +31,17 @@ func TestQuitAsksOnceWhileItsConfirmationIsUp(t *testing.T) {
 	answer := make(chan struct{})
 	letGo := sync.OnceFunc(func() { close(answer) })
 	t.Cleanup(letGo)
-	orig := confirmQuitDiscard
+	orig := confirmStopsDiscard
 	// The first dialog stays up until the test answers it; any other answers
 	// "Keep working" at once.
-	confirmQuitDiscard = func(*appState, quitStops) bool {
+	confirmStopsDiscard = func(*appState, application.Window, stoppingAction, machineserver.BusyWork) bool {
 		if asks.Add(1) == 1 {
 			close(up)
 			<-answer
 		}
 		return false
 	}
-	t.Cleanup(func() { confirmQuitDiscard = orig })
+	t.Cleanup(func() { confirmStopsDiscard = orig })
 
 	first := make(chan struct{})
 	go func() {
@@ -76,13 +78,13 @@ func TestAQuitIsHeldOpenWhileTheUserDecides(t *testing.T) {
 
 	up := make(chan struct{})
 	answer := make(chan struct{})
-	orig := confirmQuitDiscard
-	confirmQuitDiscard = func(*appState, quitStops) bool {
+	orig := confirmStopsDiscard
+	confirmStopsDiscard = func(*appState, application.Window, stoppingAction, machineserver.BusyWork) bool {
 		close(up)
 		<-answer
 		return false
 	}
-	t.Cleanup(func() { confirmQuitDiscard = orig })
+	t.Cleanup(func() { confirmStopsDiscard = orig })
 
 	decided := make(chan bool, 2)
 	a.shouldQuitLater(func(quit bool) { decided <- quit })

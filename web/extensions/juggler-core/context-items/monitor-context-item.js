@@ -206,6 +206,7 @@ class MonitorContextItem extends ContextItem {
     const result = await this.ops.shellBackground({
       command,
       timeout: timeoutMs,
+      label: description || undefined,
       convId: this.conversation.id,
       threadId: this.messageThread?.threadItemId || '',
       toolUseId: this.toolUseId

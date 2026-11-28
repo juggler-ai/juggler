@@ -391,7 +391,7 @@ func (s *Server) handleRelaunch(w http.ResponseWriter, r *http.Request) {
 		busy, ok := s.relaunchIfQuiet(false)
 		if !ok {
 			m := msg.New("the Juggler server is in use, so it was not relaunched")
-			writeJSON(w, http.StatusConflict, relaunchBusy{errorBody: errorBody{Error: m.English(), Message: &m}, Running: busy})
+			writeJSON(w, http.StatusConflict, relaunchBusy{errorBody: errorBody{Error: m.English(), Message: &m}, Running: busy, Prompt: busy.Prompt(StopByRelaunching)})
 			return
 		}
 		w.WriteHeader(http.StatusAccepted)
@@ -446,10 +446,38 @@ var startable = func(ctx context.Context) error {
 }
 
 // BusyWork is the work running in a server's sessions, which relaunching it
-// stops: the conversations running a turn, and the background tasks.
+// stops: the conversations running a turn, and the held background tasks —
+// Named saying what each is and where, for every one whose session named it.
 type BusyWork struct {
-	Conversations int `json:"conversations"`
-	Tasks         int `json:"tasks"`
+	Conversations int         `json:"conversations"`
+	Tasks         int         `json:"tasks"`
+	Named         []NamedTask `json:"named,omitempty"`
+}
+
+// NamedTask is one running background task, as a person is told of it: what it
+// is called (Session.BackgroundTaskNames) and the project it runs in.
+type NamedTask struct {
+	Name    string `json:"name"`
+	Project string `json:"project"`
+}
+
+// BusyWorkOf is the work sessions run, as their latest polls found it.
+func BusyWorkOf(sessions []Session) BusyWork {
+	var b BusyWork
+	for _, s := range sessions {
+		b.add(s)
+	}
+	return b
+}
+
+func (b *BusyWork) add(s Session) {
+	if s.Busy {
+		b.Conversations++
+	}
+	b.Tasks += s.BackgroundTasks
+	for _, name := range s.BackgroundTaskNames {
+		b.Named = append(b.Named, NamedTask{Name: name, Project: s.Project})
+	}
 }
 
 // Quiet is whether no work runs.
@@ -577,10 +605,12 @@ func (s *Server) quietAsPolled() bool {
 }
 
 // relaunchBusy is the 409 answer to a quiet relaunch refused: the work that
-// runs, which a relaunch would stop.
+// runs, which a relaunch would stop, and Prompt, the question to ask the user
+// about it (BusyWork.Prompt), so a page asks in the words the app does.
 type relaunchBusy struct {
 	errorBody
-	Running BusyWork `json:"running"`
+	Running BusyWork    `json:"running"`
+	Prompt  msg.Message `json:"prompt"`
 }
 
 // RelaunchIfQuiet asks the server to relaunch, provided no session runs a

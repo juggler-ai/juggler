@@ -10,6 +10,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"maps"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -76,6 +78,9 @@ type Session struct {
 	// turn that started it, so it never makes the session Busy, but stopping the
 	// session stops it.
 	BackgroundTasks int `json:"backgroundTasks,omitempty"`
+	// BackgroundTaskNames is what each of those tasks is called, oldest first:
+	// the label it was started with, or its command's first line.
+	BackgroundTaskNames []string `json:"backgroundTaskNames,omitempty"`
 	// LastActive is the later of the latest poll that found the child busy
 	// and the child's own last change of attention — a turn starting or
 	// ending, a call coming to wait on the user or being answered; absent
@@ -331,14 +336,13 @@ func (r *registry) runningChildren() map[string]*child {
 }
 
 // busyWork counts the work the sessions run, as the latest polls found it
-// (Session.Busy, Session.BackgroundTasks). Call it on the actor.
+// (Session.Busy, Session.BackgroundTasks), oldest session first. Call it on the
+// actor.
 func busyWork(m map[string]*sessionEntry) BusyWork {
+	entries := slices.SortedFunc(maps.Values(m), func(x, y *sessionEntry) int { return x.StartedAt.Compare(y.StartedAt) })
 	var b BusyWork
-	for _, e := range m {
-		if e.Busy {
-			b.Conversations++
-		}
-		b.Tasks += e.BackgroundTasks
+	for _, e := range entries {
+		b.add(e.Session)
 	}
 	return b
 }
@@ -530,6 +534,7 @@ func (e *sessionEntry) clearChild() {
 	e.PID = 0
 	e.Busy = false
 	e.BackgroundTasks = 0
+	e.BackgroundTaskNames = nil
 	e.Attention = e.Attention.durable()
 	e.child = nil
 }

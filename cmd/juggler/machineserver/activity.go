@@ -100,10 +100,11 @@ type childActivityResponse struct {
 	AttentionRev uint64 `json:"attentionRev"`
 	// Conversations is how many conversations the child's project has.
 	Conversations int `json:"conversations"`
-	// BackgroundTasks is how many background tasks the child is running. They
-	// outlive their turn, so they are not Active, but stopping the child stops
-	// them.
-	BackgroundTasks int `json:"backgroundTasks"`
+	// BackgroundTasks is how many held background tasks the child is running,
+	// and BackgroundTaskNames what each is called. They outlive their turn, so
+	// they are not Active, but stopping the child stops them.
+	BackgroundTasks     int      `json:"backgroundTasks"`
+	BackgroundTaskNames []string `json:"backgroundTaskNames"`
 }
 
 // childActivity reads c's activity endpoint, quoting the API token minted for
@@ -140,6 +141,7 @@ func (r *registry) setActivity(id string, c *child, activity childActivityRespon
 		e.Busy = activity.Active
 		e.Conversations = activity.Conversations
 		e.BackgroundTasks = activity.BackgroundTasks
+		e.BackgroundTaskNames = activity.BackgroundTaskNames
 		if activity.Active {
 			e.LastActive = &at
 		}

@@ -97,8 +97,8 @@ func TestMenuSpeaksTheUILanguage(t *testing.T) {
 func TestDialogsSpeakTheUILanguage(t *testing.T) {
 	a := pseudoApp(t)
 	texts := map[string]string{
-		"quit title":       a.tr(quitDialogTitle),
-		"quit confirm":     a.tr(quitDialogConfirm),
+		"quit title":       a.tr(quitAction.title),
+		"quit confirm":     a.tr(quitAction.confirm),
 		"keep working":     a.tr(keepWorkingLabel),
 		"window title":     a.tr(appWindowTitle),
 		"mismatch title":   a.tr(mismatchWindowTitle),
@@ -108,16 +108,24 @@ func TestDialogsSpeakTheUILanguage(t *testing.T) {
 		"picker title":     a.tr(defaultPickerTitle),
 		"remote refusal":   a.tr(remoteWindowRefusal),
 	}
-	// Each action words every mix of what it stops — turns, background tasks,
-	// both — as whole sentences of its own.
-	for _, stops := range []quitStops{{conversations: 1}, {conversations: 2}, {tasks: 1}, {tasks: 2}, {conversations: 1, tasks: 1}, {conversations: 2, tasks: 3}} {
-		texts[fmt.Sprintf("quitting, %+v", stops)] = a.tr(quitBusyMessage(stops))
-		texts[fmt.Sprintf("restarting, %+v", stops)] = a.tr(restartBusyMessage(stops))
+	for _, action := range []stoppingAction{restartAction, relaunchAction} {
+		texts[fmt.Sprintf("%v title", action.kind)] = a.tr(action.title)
+		texts[fmt.Sprintf("%v confirm", action.kind)] = a.tr(action.confirm)
 	}
 	for name, text := range texts {
 		// The counts are data, so they are digits here.
 		if !isPseudoLocalized(text) {
 			t.Errorf("%s is %q, not translated", name, text)
+		}
+	}
+	// Each action words every mix of what it stops — turns, background tasks,
+	// both — as whole sentences of its own, the tasks it names listed as data.
+	named := []machineserver.NamedTask{{Name: "dev server", Project: "/code/web"}}
+	for _, stops := range []machineserver.BusyWork{{Conversations: 1}, {Conversations: 2}, {Tasks: 1, Named: named}, {Tasks: 2}, {Conversations: 1, Tasks: 1, Named: named}, {Conversations: 2, Tasks: 3}} {
+		for _, action := range []stoppingAction{quitAction, restartAction, relaunchAction} {
+			if text := a.tr(stops.Prompt(action.kind)); !isPseudoLocalized(text, "dev server", "web") {
+				t.Errorf("%v, %+v is %q, not translated", action.kind, stops, text)
+			}
 		}
 	}
 

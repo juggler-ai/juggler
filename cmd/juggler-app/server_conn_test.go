@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -27,6 +28,8 @@ import (
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/machineserver"
 	"juggler/internal/userpaths/userpathstest"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 // stubMachineServer stands in for this machine's Juggler server: it answers the
@@ -1264,58 +1267,66 @@ func TestAttachOpensTheSessionAtTheConversationItNames(t *testing.T) {
 
 // TestQuitTalliesBusySessionsFromOneList: what a quit or an update restart
 // would stop, on a server only this app holds up, is every busy session on
-// it and every background task running in any session, read from one
-// sessions list.
+// it and every background task running in any session, each named with its
+// project, read from one sessions list.
 func TestQuitTalliesBusySessionsFromOneList(t *testing.T) {
 	a := newTestAppState(t)
 	srv := newStubMachineServer(t, a, core.Version)
 	srv.list.Store(&[]machineserver.Session{
 		{ID: "a", Project: "/a", State: machineserver.SessionRunning, Busy: true},
-		{ID: "b", Project: "/b", State: machineserver.SessionRunning, BackgroundTasks: 1},
-		{ID: "c", Project: "/c", State: machineserver.SessionRunning, Busy: true, BackgroundTasks: 2},
+		{ID: "b", Project: "/b", State: machineserver.SessionRunning, BackgroundTasks: 1, BackgroundTaskNames: []string{"dev server"}},
+		{ID: "c", Project: "/c", State: machineserver.SessionRunning, Busy: true, BackgroundTasks: 2, BackgroundTaskNames: []string{"watch", "tail log"}},
 	})
 	if _, err := a.serverClient(true); err != nil {
 		t.Fatal(err)
 	}
-	if got := a.whatAQuitStops(); got != (quitStops{conversations: 2, tasks: 3}) {
-		t.Fatalf("whatAQuitStops = %+v, want 2 conversations and 3 tasks", got)
-	}
-	rec := httptest.NewRecorder()
-	a.handleUpdaterRestart(rec, httptest.NewRequest(http.MethodPost, "/win/w1/updater?op=restart", nil))
-	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"busy":2`) || !strings.Contains(rec.Body.String(), `"backgroundTasks":3`) {
-		t.Fatalf("update restart with two busy sessions and three tasks: %d %s; want 409 with busy 2, backgroundTasks 3", rec.Code, rec.Body.String())
+	want := machineserver.BusyWork{Conversations: 2, Tasks: 3, Named: []machineserver.NamedTask{
+		{Name: "dev server", Project: "/b"}, {Name: "watch", Project: "/c"}, {Name: "tail log", Project: "/c"},
+	}}
+	if got := a.whatAQuitStops(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("whatAQuitStops = %+v, want %+v", got, want)
 	}
 }
 
 // TestQuitAsksForBackgroundTasksAlone: a background task outlives the turn
 // that started it, so a quit can stop one while no conversation is working.
-// Both the quit and an update restart ask first.
+// A quit, an update restart and a relaunch each ask first, the same native
+// question naming the task and its project — a restart and a relaunch as a
+// sheet on the window that asked — and a user who keeps working stops nothing.
 func TestQuitAsksForBackgroundTasksAlone(t *testing.T) {
+	saved := updaterRestart
+	t.Cleanup(func() { updaterRestart = saved })
+	restarts := 0
+	updaterRestart = func() error { restarts++; return nil }
+
 	a := newTestAppState(t)
+	registerTestWindow(a, "w1")
 	srv := newStubMachineServer(t, a, core.Version)
-	srv.list.Store(&[]machineserver.Session{{ID: "a", Project: "/a", State: machineserver.SessionRunning, BackgroundTasks: 1}})
+	srv.list.Store(&[]machineserver.Session{{ID: "a", Project: "/code/cmajor-dev", State: machineserver.SessionRunning,
+		BackgroundTasks: 1, BackgroundTaskNames: []string{"808 Cmajor patch server"}}})
 	if _, err := a.serverClient(true); err != nil {
 		t.Fatal(err)
 	}
 
-	var asked []quitStops
-	orig := confirmQuitDiscard
-	confirmQuitDiscard = func(_ *appState, stops quitStops) bool {
-		asked = append(asked, stops)
+	var asked []string
+	orig := confirmStopsDiscard
+	confirmStopsDiscard = func(a *appState, _ application.Window, action stoppingAction, stops machineserver.BusyWork) bool {
+		asked = append(asked, a.tr(action.title)+": "+a.tr(stops.Prompt(action.kind)))
 		return false
 	}
-	t.Cleanup(func() { confirmQuitDiscard = orig })
+	t.Cleanup(func() { confirmStopsDiscard = orig })
 	if a.confirmThenQuit() {
 		t.Fatal("the quit went ahead though the user chose to keep working")
 	}
-	if len(asked) != 1 || asked[0] != (quitStops{tasks: 1}) {
-		t.Fatalf("quit asked %+v, want once about one background task", asked)
+	if rec := controlRequest(a, http.MethodPost, "/win/w1/updater?op=restart"); rec.Code != http.StatusConflict || restarts != 0 {
+		t.Fatalf("update restart the user kept working through: %d %s, %d restarts; want 409 and none", rec.Code, rec.Body.String(), restarts)
 	}
-
-	rec := httptest.NewRecorder()
-	a.handleUpdaterRestart(rec, httptest.NewRequest(http.MethodPost, "/win/w1/updater?op=restart", nil))
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("update restart with a background task running: %d %s; want 409", rec.Code, rec.Body.String())
+	want := []string{
+		"Quit Juggler?: A background task is still running. Quitting will stop it.\n\n• 808 Cmajor patch server — cmajor-dev",
+		"Restart to update?: A background task is still running. Restarting to update will stop it.\n\n• 808 Cmajor patch server — cmajor-dev",
+	}
+	if !slices.Equal(asked, want) {
+		t.Fatalf("asked %q, want %q", asked, want)
 	}
 }
 
@@ -1340,14 +1351,14 @@ func TestQuitStopsNothingOnAServerThatOutlivesTheApp(t *testing.T) {
 			if _, err := a.serverClient(true); err != nil {
 				t.Fatal(err)
 			}
-			if got := a.whatAQuitStops(); got.any() {
+			if got := a.whatAQuitStops(); !got.Quiet() {
 				t.Fatalf("whatAQuitStops = %+v, want nothing", got)
 			}
 			saved := updaterRestart
 			updaterRestart = func() error { return errors.New("nothing staged") }
 			t.Cleanup(func() { updaterRestart = saved })
 			rec := httptest.NewRecorder()
-			a.handleUpdaterRestart(rec, httptest.NewRequest(http.MethodPost, "/win/w1/updater?op=restart", nil))
+			a.handleUpdaterRestart(rec, httptest.NewRequest(http.MethodPost, "/win/w1/updater?op=restart", nil), nil)
 			if rec.Code == http.StatusConflict {
 				t.Fatalf("update restart: %d %s; want no busy refusal", rec.Code, rec.Body.String())
 			}
@@ -1429,7 +1440,7 @@ func TestAWindowWaitingForItsServerToGoHoldsUpNoQuickCall(t *testing.T) {
 	<-srv.opened
 
 	returnsPromptly(t, "whatAQuitStops", func() {
-		if got := a.whatAQuitStops(); got.conversations != 1 {
+		if got := a.whatAQuitStops(); got.Conversations != 1 {
 			t.Errorf("whatAQuitStops = %+v, want 1 conversation", got)
 		}
 	})

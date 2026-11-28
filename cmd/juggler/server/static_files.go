@@ -9,7 +9,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"io/fs"
 	"net"
 	"net/http"
@@ -21,6 +20,7 @@ import (
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/webui"
 	"juggler/internal/jlog"
+	"juggler/internal/pagetmpl"
 	"juggler/internal/srcroot"
 	"juggler/web"
 )
@@ -205,7 +205,7 @@ var indexTemplateFiles = []string{"index.html", "shell/window-shell.html"}
 
 // loadIndexTemplate loads the index.html template for cache busting
 func (s *Server) loadIndexTemplate() error {
-	tmpl := template.New("index")
+	tmpl := pagetmpl.New()
 	for _, name := range indexTemplateFiles {
 		var content []byte
 		var err error
@@ -223,12 +223,8 @@ func (s *Server) loadIndexTemplate() error {
 		if err != nil {
 			return fmt.Errorf("failed to read %s: %w", name, err)
 		}
-		// index.html is the template executed; the shell only defines blocks.
-		t := tmpl
-		if name != indexTemplateFiles[0] {
-			t = tmpl.New(name)
-		}
-		if _, err := t.Parse(string(content)); err != nil {
+		// index.html is the page; the shell only defines blocks.
+		if err := tmpl.Parse(name, string(content)); err != nil {
 			return fmt.Errorf("failed to parse %s: %w", name, err)
 		}
 	}
@@ -324,7 +320,7 @@ func (s *Server) serveSandbox(w http.ResponseWriter, r *http.Request) {
 	serveTemplatedHTML(w, string(content), map[string]string{
 		"CSPNonce":      nonce,
 		"StaticVersion": s.staticVersion,
-		"ProjectRoot":   template.JSEscapeString(projectRoot),
+		"ProjectRoot":   pagetmpl.JSString(projectRoot),
 	}, func() { setSandboxSecurityHeaders(w, nonce, requestOrigin(r)) })
 }
 

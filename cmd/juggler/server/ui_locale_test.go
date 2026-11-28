@@ -6,7 +6,6 @@ package server
 
 import (
 	"encoding/json"
-	"html/template"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -20,6 +19,7 @@ import (
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/server/handlers"
 	"juggler/cmd/juggler/webui"
+	"juggler/internal/pagetmpl"
 	"juggler/internal/userpaths/userpathstest"
 	"juggler/web"
 )
@@ -168,12 +168,14 @@ func TestIndexUILocaleParamOnlyInTestMode(t *testing.T) {
 }
 
 // The catalogue is inlined inside a <script> element, so a message containing
-// markup must not be able to close it. html/template's JS escaping is what
-// guarantees that; this pins that the template hands it a value, not a string
-// spliced in raw.
+// markup must not be able to close it. pagetmpl's escaping of a value inside
+// a script is what guarantees that; this pins that the template hands it a
+// value, not a string spliced in raw.
 func TestInlinedCatalogueCannotCloseItsScript(t *testing.T) {
-	tmpl := template.Must(template.New("x").Parse(
-		`<script type="application/json" id="juggler-ui-catalog">{{.UICatalog}}</script>`))
+	tmpl := pagetmpl.New()
+	if err := tmpl.Parse("x", `<script type="application/json" id="juggler-ui-catalog">{{.UICatalog}}</script>`); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
 	var b strings.Builder
 	evil := map[string]string{"x": "</script><script>alert(1)</script>"}
 	if err := tmpl.Execute(&b, struct{ UICatalog map[string]string }{evil}); err != nil {

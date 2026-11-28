@@ -7,7 +7,6 @@ package machineserver
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"html/template"
 	"io/fs"
 	"net"
 	"net/http"
@@ -21,6 +20,7 @@ import (
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/webui"
 	"juggler/internal/jlog"
+	"juggler/internal/pagetmpl"
 )
 
 // The sessions page: GET / on the machine server. It lists the sessions this
@@ -148,7 +148,7 @@ func (s *Server) servePage(w http.ResponseWriter, r *http.Request, status int, c
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	tmpl, err := template.ParseFS(s.assets, pageTemplates...)
+	tmpl, err := pagetmpl.ParseFS(s.assets, pageTemplates...)
 	if err != nil {
 		jlog.Error("[machineserver] sessions page template: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)

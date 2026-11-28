@@ -7,7 +7,6 @@ package server
 import (
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -18,6 +17,7 @@ import (
 
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/server/handlers"
+	"juggler/internal/pagetmpl"
 )
 
 // The session's UI preferences are the desktop window's own settings, stored
@@ -245,7 +245,8 @@ func TestIndexInjectsTheWindowsOwnAppearance(t *testing.T) {
 
 	s := &Server{router: mux.NewRouter(), settings: newSettingsStore()}
 	s.projectState.Store(&projectState{sessionManager: mgr, projectPath: t.TempDir()})
-	tmpl, err := template.New("index").Parse(`window={{.WindowThemeMode}}/{{.WindowZoom}}`)
+	tmpl := pagetmpl.New()
+	err = tmpl.Parse("index", `window={{.WindowThemeMode}}/{{.WindowZoom}}`)
 	if err != nil {
 		t.Fatalf("parse stand-in template: %v", err)
 	}
@@ -323,7 +324,8 @@ func TestIndexInjectsTheMachinesAppearance(t *testing.T) {
 
 	s := &Server{router: mux.NewRouter()}
 	s.projectState.Store(&projectState{sessionManager: mgr, projectPath: t.TempDir()})
-	tmpl, err := template.New("index").Parse(
+	tmpl := pagetmpl.New()
+	err = tmpl.Parse("index",
 		`machine={{.MachineThemeMode}}/{{.MachineZoom}} project={{.ProjectThemeMode}}/{{.ProjectZoom}}`)
 	if err != nil {
 		t.Fatalf("parse stand-in template: %v", err)
@@ -383,7 +385,8 @@ func TestIndexMarksAViewerOnAnotherMachine(t *testing.T) {
 	t.Cleanup(mgr.Shutdown)
 	s := &Server{router: mux.NewRouter()}
 	s.projectState.Store(&projectState{sessionManager: mgr, projectPath: t.TempDir()})
-	tmpl, err := template.New("index").Parse(`remote={{.RemoteViewer}}`)
+	tmpl := pagetmpl.New()
+	err = tmpl.Parse("index", `remote={{.RemoteViewer}}`)
 	if err != nil {
 		t.Fatalf("parse stand-in template: %v", err)
 	}

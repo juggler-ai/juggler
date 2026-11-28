@@ -17,8 +17,7 @@ import (
 	"juggler/internal/basepath"
 )
 
-// pageBasePattern finds the base path a served page hands its scripts. The
-// index is rendered by html/template, which escapes '/' inside a JS string.
+// pageBasePattern finds the base path a served page hands its scripts.
 var pageBasePattern = regexp.MustCompile(`window\.__jugglerBase = '([^']*)';`)
 
 func pageBase(t *testing.T, body string) string {
@@ -27,7 +26,7 @@ func pageBase(t *testing.T, body string) string {
 	if m == nil {
 		t.Fatalf("page does not set window.__jugglerBase")
 	}
-	return strings.ReplaceAll(m[1], `\/`, "/")
+	return m[1]
 }
 
 // TestServedPagesCarryTheBasePath checks both served pages hand their scripts
@@ -88,14 +87,13 @@ var pageServerRefPattern = regexp.MustCompile(
 		`|__assetPrefix = '([^']*)'` +
 		`|url\('(/[^/'][^']*)'\)`)
 
-// pageServerURLs returns every server-relative URL pageServerRefPattern finds,
-// with html/template's JS-string escaping of '/' undone.
+// pageServerURLs returns every server-relative URL pageServerRefPattern finds.
 func pageServerURLs(body string) []string {
 	var out []string
 	for _, m := range pageServerRefPattern.FindAllStringSubmatch(body, -1) {
 		for _, g := range m[1:] {
 			if g != "" {
-				out = append(out, strings.ReplaceAll(g, `\/`, "/"))
+				out = append(out, g)
 			}
 		}
 	}

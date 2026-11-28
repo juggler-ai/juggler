@@ -16,6 +16,7 @@ import (
 
 	"juggler/cmd/juggler/core"
 	"juggler/internal/basepath"
+	"juggler/internal/pagetmpl"
 	"juggler/web"
 )
 
@@ -37,6 +38,10 @@ func TestSessionPageWearsTheWindowShell(t *testing.T) {
 	s.projectState.Store(&projectState{sessionManager: mgr, projectPath: t.TempDir()})
 	if err := s.loadIndexTemplate(); err != nil {
 		t.Fatalf("loadIndexTemplate: %v", err)
+	}
+	shell, err := web.Files.ReadFile(indexTemplateFiles[1])
+	if err != nil {
+		t.Fatalf("read %s: %v", indexTemplateFiles[1], err)
 	}
 
 	for _, target := range []string{"/?window=1", "/"} {
@@ -61,9 +66,13 @@ func TestSessionPageWearsTheWindowShell(t *testing.T) {
 				"CSPNonce": html.UnescapeString(m[1]),
 			}
 			for _, block := range []string{"window-shell-boot", "window-shell-body"} {
-				tmpl := s.indexTemplate.Lookup(block)
-				if tmpl == nil {
-					t.Fatalf("the session page's template has no %s", block)
+				// The block alone: a page that only calls it, beside the shell.
+				tmpl := pagetmpl.New()
+				if err := tmpl.Parse("block.html", `{{template "`+block+`" .}}`); err != nil {
+					t.Fatalf("%s: %v", block, err)
+				}
+				if err := tmpl.Parse(indexTemplateFiles[1], string(shell)); err != nil {
+					t.Fatalf("parse %s: %v", indexTemplateFiles[1], err)
 				}
 				var b strings.Builder
 				if err := tmpl.Execute(&b, data); err != nil {

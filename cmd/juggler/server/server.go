@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"net"
 	"net/http"
 	"net/url"
@@ -25,6 +24,7 @@ import (
 	"juggler/cmd/juggler/worker"
 	"juggler/cmd/juggler/workspace"
 	"juggler/internal/jlog"
+	"juggler/internal/pagetmpl"
 	"juggler/internal/updatecheck"
 
 	"github.com/gorilla/mux"
@@ -252,7 +252,7 @@ type Server struct {
 	test            testCapabilities // What a test server does differently; all off unless RegisterTestRoutes completed
 	bootProjectPath string
 
-	indexTemplate *template.Template // Template for index.html with cache busting
+	indexTemplate *pagetmpl.Template // Template for index.html with cache busting
 	staticVersion string             // Cache-busting segment of static paths, /v<staticVersion>/ (see mintStaticVersion)
 	apiToken      string             // Per-instance token gating the sensitive /api surface + viewer WS (see api_auth.go)
 	// bootID names this server instance to its clients, in the session message

@@ -8,7 +8,6 @@ import (
 	"cmp"
 	"context"
 	"errors"
-	"html/template"
 	"io/fs"
 	"net/http"
 	"net/url"
@@ -22,6 +21,7 @@ import (
 	"juggler/cmd/juggler/msg"
 	"juggler/cmd/juggler/webui"
 	"juggler/internal/logpaths"
+	"juggler/internal/pagetmpl"
 	"juggler/web"
 )
 
@@ -587,7 +587,7 @@ func serveShellFile(w http.ResponseWriter, r *http.Request, rel string) {
 // serveStandInPage draws si's page for window e, in the shell's UI language
 // and the window's theme.
 func (a *appState) serveStandInPage(w http.ResponseWriter, r *http.Request, e *winEntry, si *standIn) {
-	tmpl, err := template.ParseFS(web.Shell, standInPageTemplates...)
+	tmpl, err := pagetmpl.ParseFS(web.Shell, standInPageTemplates...)
 	if err != nil {
 		logf("stand-in page template: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)

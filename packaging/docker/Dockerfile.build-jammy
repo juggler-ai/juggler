@@ -43,9 +43,10 @@ COPY . .
 # so this binary reports the same version, commit and date as every other build
 # of the same tree. mk/build-flags.mk is the single source of truth for them.
 ARG LDFLAGS=""
+ARG TAGS="production"
 
 RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
-    go build -tags production -ldflags "${LDFLAGS}" \
+    go build -tags "${TAGS}" -ldflags "${LDFLAGS}" \
         -o /out/juggler-linux-amd64-jammy ./cmd/juggler
 
 # A scratch stage so `docker build --output` writes the binary alone into bin/,

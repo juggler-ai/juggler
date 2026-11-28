@@ -12,6 +12,7 @@ the current release). The project follows semantic versioning.
 - Fixed the switcher's new-window button in windows connected to another computer
 - Large or binary dropped files are saved to the project for the agent to read
 - Quit, update-restart and relaunch prompts name the background tasks they would stop
+- Downloads are less than half their former size; the Linux tarball is now `.tar.xz`
 
 ## [0.8.3] - 2026-11-26
 

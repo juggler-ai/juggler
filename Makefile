@@ -1,4 +1,4 @@
-.PHONY: build test test-build test-go test-full benchmark dev clean fmt lint lint-files lint-go lint-deadcode lint-js lint-js-rules lint-js-app lint-js-tests lint-js-deadcode lint-types lint-css lint-i18n fix fix-files fix-fmt fix-go fix-js fix-css node-deps help models-sync mac-app install-mac app-icon-embed wails-runtime-embed wails-runtime-build test-wails-patches win-icon release-build-mac mac-dmg mac-dmg-pack win-installer win-installer-pack linux-binaries linux-tarball linux-tarball-pack linux-desktop linux-desktop-files mac-codesign linux-compat-server
+.PHONY: build test test-build test-go test-full benchmark dev clean fmt lint lint-files lint-go lint-deadcode lint-pruning lint-js lint-js-rules lint-js-app lint-js-tests lint-js-deadcode lint-types lint-css lint-i18n fix fix-files fix-fmt fix-go fix-js fix-css node-deps help models-sync mac-app install-mac app-icon-embed wails-runtime-embed wails-runtime-build test-wails-patches win-icon release-build-mac mac-dmg mac-dmg-pack win-installer win-installer-pack linux-binaries linux-tarball linux-tarball-pack linux-desktop linux-desktop-files mac-codesign linux-compat-server
 
 # Binary name
 BINARY_NAME=juggler
@@ -213,9 +213,9 @@ ifeq ($(UNAME_S),Darwin)
 	@# See go-build for why each binary is built into $(MAC_STAGE) and moved in.
 	@mkdir -p $(MAC_STAGE)
 	@rm -f $(MAC_STAGE)/$(BINARY_NAME) $(MAC_STAGE)/juggler-app
-	$(GOBUILD_RELEASE) -ldflags "$(LDFLAGS)" -o $(MAC_STAGE)/$(BINARY_NAME) ./cmd/juggler
+	$(GOBUILD_RELEASE) -ldflags "$(LDFLAGS) $(RELEASE_LDFLAGS)" -o $(MAC_STAGE)/$(BINARY_NAME) ./cmd/juggler
 	@echo "Building juggler-app $(VERSION_STAMP) [release]..."
-	$(GOBUILD_RELEASE) $(APP_GOFLAGS) -ldflags "$(LDFLAGS)" -o $(MAC_STAGE)/juggler-app ./cmd/juggler-app
+	$(GOBUILD_RELEASE) $(APP_GOFLAGS) -ldflags "$(LDFLAGS) $(RELEASE_LDFLAGS)" -o $(MAC_STAGE)/juggler-app ./cmd/juggler-app
 	@mv -f $(MAC_STAGE)/$(BINARY_NAME) $(MAC_APP_BIN)
 	@rm -f $(MAC_APP_STALE_BIN)
 	@mv -f $(MAC_STAGE)/juggler-app $(MAC_APP_APP_BIN)
@@ -224,9 +224,9 @@ ifeq ($(UNAME_S),Darwin)
 	@ln -sfn Juggler.app/Contents/Helpers/JugglerServer.app/Contents/MacOS/$(BINARY_NAME) $(BUILD_DIR)/$(BINARY_NAME)
 	@ln -sfn Juggler.app/Contents/MacOS/juggler-app $(BUILD_DIR)/juggler-app
 else
-	$(GOBUILD_RELEASE) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)$(BIN_EXT) ./cmd/juggler
+	$(GOBUILD_RELEASE) -ldflags "$(LDFLAGS) $(RELEASE_LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)$(BIN_EXT) ./cmd/juggler
 	@echo "Building juggler-app $(VERSION_STAMP) [release]..."
-	$(GOBUILD_RELEASE) $(APP_GOFLAGS) -ldflags "$(LDFLAGS) $(APP_LDFLAGS)" -o $(BUILD_DIR)/juggler-app$(BIN_EXT) ./cmd/juggler-app
+	$(GOBUILD_RELEASE) $(APP_GOFLAGS) -ldflags "$(LDFLAGS) $(RELEASE_LDFLAGS) $(APP_LDFLAGS)" -o $(BUILD_DIR)/juggler-app$(BIN_EXT) ./cmd/juggler-app
 endif
 
 ## build-windows: Cross-compile the Windows .exe binaries from any host. Wails
@@ -267,7 +267,7 @@ build-windows: app-icon-embed wails-runtime-embed
 		CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(GOBUILD) -ldflags "$(LDFLAGS_BASE)" -o $(WIN_STAGE)/$(BINARY_NAME).exe ./cmd/juggler; \
 	fi && \
 	echo "Building juggler-app.exe (windowsgui) $(VERSION_STAMP)..." && \
-	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(GOBUILD_RELEASE) $(APP_GOFLAGS) -ldflags "$(LDFLAGS_BASE) -H windowsgui" -o $(WIN_STAGE)/juggler-app.exe ./cmd/juggler-app && \
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(GOBUILD_RELEASE) $(APP_GOFLAGS) -ldflags "$(LDFLAGS_BASE) $(RELEASE_LDFLAGS) -H windowsgui" -o $(WIN_STAGE)/juggler-app.exe ./cmd/juggler-app && \
 	$(call win_place,$(WIN_STAGE)/$(BINARY_NAME).exe,$(WIN_BUILD_DIR)/$(BINARY_NAME).exe) && \
 	$(call win_place,$(WIN_STAGE)/juggler-app.exe,$(WIN_BUILD_DIR)/juggler-app.exe)
 	@echo "→ $(WIN_BUILD_DIR)/$(BINARY_NAME).exe (console), $(WIN_BUILD_DIR)/juggler-app.exe (GUI)"
@@ -310,10 +310,10 @@ endif
 		cp "$(SERVER_BIN)" "$(MAC_STAGE)/$(BINARY_NAME)"; \
 	else \
 		echo "  → juggler ($(GOARCH_HOST))"; \
-		CGO_ENABLED=1 GOOS=darwin GOARCH=$(GOARCH_HOST) $(GOBUILD_RELEASE) -ldflags "$(LDFLAGS)" -o $(MAC_STAGE)/$(BINARY_NAME) ./cmd/juggler || exit 1; \
+		CGO_ENABLED=1 GOOS=darwin GOARCH=$(GOARCH_HOST) $(GOBUILD_RELEASE) -ldflags "$(LDFLAGS) $(RELEASE_LDFLAGS)" -o $(MAC_STAGE)/$(BINARY_NAME) ./cmd/juggler || exit 1; \
 	fi
 	@echo "  → juggler-app ($(GOARCH_HOST))"
-	@CGO_ENABLED=1 GOOS=darwin GOARCH=$(GOARCH_HOST) $(GOBUILD_RELEASE) $(APP_GOFLAGS) -ldflags "$(LDFLAGS)" -o $(MAC_STAGE)/juggler-app ./cmd/juggler-app || exit 1
+	@CGO_ENABLED=1 GOOS=darwin GOARCH=$(GOARCH_HOST) $(GOBUILD_RELEASE) $(APP_GOFLAGS) -ldflags "$(LDFLAGS) $(RELEASE_LDFLAGS)" -o $(MAC_STAGE)/juggler-app ./cmd/juggler-app || exit 1
 	@mv -f $(MAC_STAGE)/$(BINARY_NAME) $(MAC_APP_BIN)
 	@rm -f $(MAC_APP_STALE_BIN)
 	@mv -f $(MAC_STAGE)/juggler-app $(MAC_APP_APP_BIN)
@@ -325,7 +325,9 @@ endif
 
 ## mac-dmg: Build a distributable .dmg containing the Juggler.app with
 ## the standard drag-to-Applications layout. Requires create-dmg
-## (brew install create-dmg). Output: bin/Juggler-$(VERSION).dmg.
+## (brew install create-dmg). Output: bin/Juggler-$(VERSION).dmg, LZMA-compressed
+## (ULMO, readable from macOS 10.15), which packs the Go binaries far tighter
+## than create-dmg's default zlib.
 DMG_NAME=$(BUILD_DIR)/Juggler-$(VERSION).dmg
 mac-dmg: release-build-mac mac-dmg-pack
 
@@ -347,6 +349,7 @@ mac-dmg-pack:
 		--icon "Juggler.app" 150 180 \
 		--hide-extension "Juggler.app" \
 		--app-drop-link 450 180 \
+		--format ULMO \
 		"$(DMG_NAME)" "$$stage" \
 		|| { code=$$?; [ -f "$(DMG_NAME)" ] || { rm -rf "$$stage"; echo "create-dmg failed ($$code)"; exit $$code; }; }; \
 		rm -rf "$$stage"
@@ -398,10 +401,10 @@ linux-binaries: app-icon-embed wails-runtime-embed
 		cp "$(SERVER_BIN)" "$(MAC_STAGE)/$(BINARY_NAME)"; \
 	else \
 		echo "  → juggler ($(GOARCH))"; \
-		CGO_ENABLED=1 GOOS=linux GOARCH=$(GOARCH) $(GOBUILD_RELEASE) -ldflags "$(LDFLAGS_BASE)" -o $(MAC_STAGE)/$(BINARY_NAME) ./cmd/juggler; \
+		CGO_ENABLED=1 GOOS=linux GOARCH=$(GOARCH) $(GOBUILD_RELEASE) -ldflags "$(LDFLAGS_BASE) $(RELEASE_LDFLAGS)" -o $(MAC_STAGE)/$(BINARY_NAME) ./cmd/juggler; \
 	fi
 	@echo "  → juggler-app ($(GOARCH))"
-	@CGO_ENABLED=1 GOOS=linux GOARCH=$(GOARCH) $(GOBUILD_RELEASE) $(APP_GOFLAGS) -ldflags "$(LDFLAGS_BASE)" -o $(MAC_STAGE)/juggler-app ./cmd/juggler-app
+	@CGO_ENABLED=1 GOOS=linux GOARCH=$(GOARCH) $(GOBUILD_RELEASE) $(APP_GOFLAGS) -ldflags "$(LDFLAGS_BASE) $(RELEASE_LDFLAGS)" -o $(MAC_STAGE)/juggler-app ./cmd/juggler-app
 	@mv -f $(MAC_STAGE)/$(BINARY_NAME) $(BUILD_DIR)/$(BINARY_NAME)
 	@mv -f $(MAC_STAGE)/juggler-app $(BUILD_DIR)/juggler-app
 
@@ -419,11 +422,12 @@ linux-compat-server: app-icon-embed wails-runtime-embed
 		--platform linux/amd64 \
 		--target export \
 		--output type=local,dest=$(BUILD_DIR) \
-		--build-arg LDFLAGS="$(LDFLAGS_BASE)" \
+		--build-arg LDFLAGS="$(LDFLAGS_BASE) $(RELEASE_LDFLAGS)" \
+		--build-arg TAGS="production,$(BUILD_TAGS)" \
 		-f packaging/docker/Dockerfile.build-jammy .
 
 ## linux-tarball: linux-binaries + package them (README + checksums) into one
-## tarball. Output: bin/juggler-linux-$(GOARCH).tar.gz.
+## tarball. Output: bin/juggler-linux-$(GOARCH).tar.xz.
 linux-tarball: linux-binaries linux-tarball-pack
 
 ## linux-desktop-files: Put the desktop integration beside the binaries in
@@ -456,7 +460,9 @@ linux-desktop: linux-desktop-files
 
 ## linux-tarball-pack: Tar the already-built bin/juggler + bin/juggler-app
 ## (no rebuild), mirroring mac-dmg-pack / win-installer-pack, with the desktop
-## integration (linux-desktop-files) beside them.
+## integration (linux-desktop-files) beside them. Compressed with xz, which
+## packs the two Go binaries about a third smaller than gzip; `tar xf` unpacks
+## it without being told the format.
 linux-tarball-pack: linux-desktop-files
 	@[ -f "$(BUILD_DIR)/$(BINARY_NAME)" ] || { echo "no $(BUILD_DIR)/$(BINARY_NAME) to package — build the Linux binaries first"; exit 1; }
 	@stage=$$(mktemp -d); \
@@ -482,10 +488,10 @@ linux-tarball-pack: linux-desktop-files
 		"  sudo apt-get install -y libgtk-4-1 libwebkitgtk-6.0-4" \
 		> "$$stage/README.txt"; \
 	( cd "$$stage" && sha256sum juggler juggler-app install.sh > checksums.txt && \
-		tar czf "$(abspath $(BUILD_DIR))/juggler-linux-$(GOARCH).tar.gz" \
+		XZ_OPT='-9 -T0' tar cJf "$(abspath $(BUILD_DIR))/juggler-linux-$(GOARCH).tar.xz" \
 			juggler juggler-app install.sh icons checksums.txt README.txt ); \
 	rm -rf "$$stage"
-	@echo "→ $(BUILD_DIR)/juggler-linux-$(GOARCH).tar.gz"
+	@echo "→ $(BUILD_DIR)/juggler-linux-$(GOARCH).tar.xz"
 
 ## app-icon-embed: Sync $(APP_ICON_PNG) into the Go package so go:embed can
 ## pick it up (go:embed rejects symlinks). Both files are checked in; this
@@ -837,9 +843,16 @@ test-wails-patches:
 	@bash -c 'set -o pipefail; cd $(WAILS_V3) && \
 		GOTOOLCHAIN=local $(GOTEST) -count=1 $(RACE) -timeout 5m $(GOTEST_RUN) $(WAILS_PATCH_PKGS) 2>&1 $(QUIET_UNMATCHED) $(if $(RUN),| tee $(abspath $(BUILD_DIR))/test-wails-run.log)' \
 		|| { echo "✗ the Wails fork patch tests failed — their output is above"; exit 1; }
+	@# Again under the tags Juggler builds with: the nobindings half of the
+	@# bindings patch compiles only there.
+	@bash -c 'set -o pipefail; cd $(WAILS_V3) && \
+		GOTOOLCHAIN=local $(GOTEST) -tags $(BUILD_TAGS) -count=1 $(RACE) -timeout 5m $(GOTEST_RUN) ./pkg/application 2>&1 $(QUIET_UNMATCHED) $(if $(RUN),| tee -a $(abspath $(BUILD_DIR))/test-wails-run.log)' \
+		|| { echo "✗ the Wails fork patch tests failed under -tags $(BUILD_TAGS) — their output is above"; exit 1; }
 ifneq ($(OS),Windows_NT)
 	@cd $(WAILS_V3) && GOTOOLCHAIN=local GOOS=windows GOARCH=amd64 $(GOCMD) vet -unsafeptr=false $(WAILS_PATCH_PKGS) $(WAILS_PATCH_PKGS_WINDOWS) \
 		|| { echo "✗ the Wails fork's patched packages don't compile for windows/amd64"; exit 1; }
+	@cd $(WAILS_V3) && GOTOOLCHAIN=local GOOS=windows GOARCH=amd64 $(GOCMD) vet -tags $(BUILD_TAGS) -unsafeptr=false ./pkg/application \
+		|| { echo "✗ the Wails fork's application package doesn't compile for windows/amd64 under -tags $(BUILD_TAGS)"; exit 1; }
 endif
 	@echo "✓ Wails fork patch tests passed"
 	@echo "── fsnotify fork patch test ──"
@@ -946,8 +959,33 @@ print-%:
 ## golangci-lint / go vet / gofmt / eslint / stylelint by hand — the configs,
 ## flags, ignore patterns and pinned tool versions live here, and a hand-rolled
 ## invocation silently diverges from what CI enforces.
-lint: lint-fmt lint-go lint-deadcode lint-types lint-js lint-js-deadcode lint-css lint-docs lint-i18n
+lint: lint-fmt lint-go lint-deadcode lint-pruning lint-types lint-js lint-js-deadcode lint-css lint-docs lint-i18n
 	@echo "✓ lint passed"
+
+## lint-pruning: Check the linker still drops the exported methods the release
+## server never calls. One run-time lookup of a method by name anywhere in the
+## program (reflect's Method or MethodByName with a name the linker can't see,
+## as html/template's Execute does) keeps every one of them, a third of the
+## server, and nothing else would notice. BUILD_TAGS in mk/build-flags.mk says
+## what has been taken out for it. The sentinel is a method of a type the server
+## reaches and never calls; it is checked to exist first, so the check cannot
+## pass because the SDK renamed it. When it fails, build the server with
+## -ldflags=-dumpdep and pipe stderr to `go run
+## github.com/aarzilli/whydeadcode@latest`, which names what keeps them
+## (it also names encoding/json/v2's addressableValue methods, wrongly).
+PRUNING_SENTINEL_PKG := github.com/openai/openai-go/v3
+PRUNING_SENTINEL := VectorStoreFileService.Content
+PRUNING_SENTINEL_SYMBOL := $(PRUNING_SENTINEL_PKG).(*VectorStoreFileService).Content
+lint-pruning: app-icon-embed wails-runtime-embed
+	@$(GOCMD) doc $(PRUNING_SENTINEL_PKG) $(PRUNING_SENTINEL) >/dev/null 2>&1 \
+		|| { echo "lint-pruning: $(PRUNING_SENTINEL_PKG).$(PRUNING_SENTINEL) no longer exists — pick another method the server never calls"; exit 1; }
+	@tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
+	$(GOBUILD_RELEASE) -o "$$tmp/juggler$(BIN_EXT)" ./cmd/juggler || exit 1; \
+	if $(GOCMD) tool nm "$$tmp/juggler$(BIN_EXT)" | grep -qF '$(PRUNING_SENTINEL_SYMBOL)'; then \
+		echo "lint-pruning: the release server links $(PRUNING_SENTINEL_PKG).$(PRUNING_SENTINEL), which it never calls:"; \
+		echo "  something now looks methods up by name at run time, so the linker keeps every exported method (see this target's comment)"; \
+		exit 1; \
+	fi
 
 ## lint-files: Lint ONLY the named files, using the same linters/configs as
 ## `make lint`, routed by extension (.go/.js/.css). Use this to lint a subset

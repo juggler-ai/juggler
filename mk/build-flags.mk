@@ -66,8 +66,31 @@ GOCMD ?= go
 # are gated by `//go:build !production`, so omitting the tag keeps them in the
 # binary. GOBUILD_RELEASE adds -tags production to exclude them from shipped
 # binaries.
-GOBUILD = $(GOCMD) build
-GOBUILD_RELEASE = $(GOCMD) build -tags production
+#
+# Release builds are also built small: RELEASE_LDFLAGS, which every
+# GOBUILD_RELEASE command appends to its -ldflags, drops the symbol table and
+# DWARF, about 40% of the compressed download. A panic still prints function
+# names and file:line (the pclntab stays), and the build ID and build info
+# internal/binwatch reads stay too; only a debugger loses its symbols. Dev and
+# test builds keep them. Never add -trimpath: with it, go build leaves -ldflags
+# out of the build info, which is where binwatch reads an installed binary's
+# version stamp from.
+#
+# Every build carries BUILD_TAGS, each of which takes out code that would look
+# methods up by name at run time. One such lookup anywhere stops the linker
+# pruning the exported methods nothing calls, which keeps most of the provider
+# SDKs' unused API in the binary (a third of the server). nobindings compiles
+# the Wails fork's binding of Go methods for the frontend out
+# (docs/wails-fork.md): Juggler binds none, and a service with methods to bind
+# fails at startup under it, rather than silently. grpcnotrace is gRPC's own
+# tag for leaving out golang.org/x/net/trace, whose init registers debug pages
+# drawn with html/template; gRPC arrives with the genai SDK, which Juggler uses
+# over plain HTTPS. internal/pagetmpl draws Juggler's own pages for the same
+# reason, and docs/genai-fork.md covers the last cause.
+BUILD_TAGS := nobindings,grpcnotrace
+GOBUILD = $(GOCMD) build -tags $(BUILD_TAGS)
+GOBUILD_RELEASE = $(GOCMD) build -tags production,$(BUILD_TAGS)
+RELEASE_LDFLAGS := -s -w
 
 # Pin the macOS deployment target so clang compiles Wails v3's Objective-C .m
 # files and the Go linker agree on a min OS version. Without this clang defaults

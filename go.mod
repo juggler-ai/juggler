@@ -42,7 +42,6 @@ require (
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
-	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/s2a-go v0.1.11 // indirect
 	github.com/google/uuid v1.6.0 // indirect
@@ -97,3 +96,8 @@ replace github.com/wailsapp/wails/v3 => ./3rdparty/wails/v3
 // error is being delivered as it arrives. docs/fsnotify-fork.md has the patch
 // and when to drop it.
 replace github.com/fsnotify/fsnotify => ./3rdparty/fsnotify
+
+// genai v1.79.1 without its test-only replay client, which every importer
+// otherwise links and which stops the linker pruning unused methods.
+// docs/genai-fork.md has the patch and when to drop it.
+replace google.golang.org/genai => ./3rdparty/genai

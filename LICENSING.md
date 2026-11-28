@@ -102,6 +102,12 @@ v1.10.1 with two local fixes, built in place of the published module by a
 licence, which covers the fixes too; [`docs/fsnotify-fork.md`](docs/fsnotify-fork.md)
 records what was changed.
 
+`3rdparty/genai/` is Google's [genai Go SDK](https://github.com/googleapis/go-genai)
+v1.79.1 with two test-only files left out and no file edited, built in place of
+the published module by a `replace` in `go.mod`. It keeps its own
+[Apache-2.0](3rdparty/genai/LICENSE) licence; [`docs/genai-fork.md`](docs/genai-fork.md)
+records what was left out.
+
 ## Official binaries and the pro tier
 
 Official Juggler binaries are built and distributed from a separate private

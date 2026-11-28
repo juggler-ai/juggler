@@ -1,0 +1,311 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Chats client.
+
+package genai
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"iter"
+)
+
+// Chats provides util functions for creating a new chat session.
+// You don't need to initiate this struct. Create a client instance via NewClient, and
+// then access Chats through client.Models field.
+type Chats struct {
+	apiClient *apiClient
+}
+
+// Chat represents a single chat session (multi-turn conversation) with the model.
+//
+// A response that stops before the model finishes is continued automatically: the same request is
+// sent again with the response's continuation token until the model finishes, and the turn is
+// recorded once, with the whole answer. Each of those requests is billed. Set
+// [GenerateContentConfig.AutomaticContinuation] to false to turn this off.
+//
+//		client, _ := genai.NewClient(ctx, &genai.ClientConfig{})
+//		chat, _ := client.Chats.Create(ctx, "gemini-2.5-flash", nil, nil)
+//	  result, err = chat.SendMessage(ctx, genai.Part{Text: "What is 1 + 2?"})
+type Chat struct {
+	Models
+	apiClient *apiClient
+	model     string
+	config    *GenerateContentConfig
+	// Comprehensive history is the full history of the chat, including turns of the invalid contents from the model and their associated inputs.
+	comprehensiveHistory []*Content
+	// Curated history is the set of valid turns that will be used in the subsequent send requests.
+	curatedHistory []*Content
+}
+
+func validateContent(content *Content) bool {
+	if content == nil || len(content.Parts) == 0 {
+		return false
+	}
+
+	for _, part := range content.Parts {
+		if part == nil || !partHasData(part) {
+			return false
+		}
+	}
+	return true
+}
+
+// partHasData reports whether part carries text or another data field.
+func partHasData(part *Part) bool {
+	return part.Text != "" ||
+		part.InlineData != nil ||
+		part.FileData != nil ||
+		part.FunctionCall != nil ||
+		part.FunctionResponse != nil ||
+		part.ExecutableCode != nil ||
+		part.CodeExecutionResult != nil
+}
+
+// isEmptyContent reports whether every part of content carries no data.
+// The API ends some streamed turns with such a chunk. These contents are left out of
+// curated history because omitempty would send each part back as {}.
+func isEmptyContent(content *Content) bool {
+	if content == nil || len(content.Parts) == 0 {
+		return false
+	}
+	for _, part := range content.Parts {
+		if part == nil || partHasData(part) {
+			return false
+		}
+	}
+	return true
+}
+
+func validateResponse(response *GenerateContentResponse) bool {
+	if response == nil || len(response.Candidates) == 0 {
+		return false
+	}
+	if response.Candidates[0].Content == nil {
+		return false
+	}
+	return validateContent(response.Candidates[0].Content)
+}
+
+func extractCuratedHistory(comprehensiveHistory []*Content) ([]*Content, error) {
+	if len(comprehensiveHistory) == 0 {
+		return []*Content{}, nil
+	}
+
+	curatedHistory := []*Content{}
+	length := len(comprehensiveHistory)
+	i := 0
+	for i < length {
+		currentContent := comprehensiveHistory[i]
+		if currentContent.Role != RoleUser && currentContent.Role != RoleModel {
+			return nil, fmt.Errorf("Role must be user or model, but got %s", currentContent.Role)
+		}
+
+		if currentContent.Role == RoleUser {
+			curatedHistory = append(curatedHistory, currentContent)
+			i++
+		} else {
+			var modelOutputs []*Content
+			isValid := true
+			for i < length && comprehensiveHistory[i].Role == RoleModel {
+				modelOutput := comprehensiveHistory[i]
+				i++
+				if isEmptyContent(modelOutput) {
+					continue
+				}
+				modelOutputs = append(modelOutputs, modelOutput)
+				if isValid && !validateContent(modelOutput) {
+					isValid = false
+				}
+			}
+
+			if isValid && len(modelOutputs) > 0 {
+				curatedHistory = append(curatedHistory, modelOutputs...)
+			} else {
+				// Remove the corresponding user input
+				if len(curatedHistory) > 0 && curatedHistory[len(curatedHistory)-1].Role == RoleUser {
+					curatedHistory = curatedHistory[:len(curatedHistory)-1]
+				}
+			}
+		}
+	}
+	return curatedHistory, nil
+}
+
+// Create initializes a new chat session.
+//
+// A response that stops before the model finishes is continued automatically: the same request is
+// sent again with the response's continuation token until the model finishes, and the turn is
+// recorded once, with the whole answer. Each of those requests is billed. Set
+// [GenerateContentConfig.AutomaticContinuation] to false in config to turn this off.
+func (c *Chats) Create(ctx context.Context, model string, config *GenerateContentConfig, history []*Content) (*Chat, error) {
+	compHistory := history
+	if compHistory == nil {
+		compHistory = []*Content{}
+	}
+	curatedHistory, err := extractCuratedHistory(compHistory)
+	if err != nil {
+		return nil, err
+	}
+	chat := &Chat{
+		apiClient:            c.apiClient,
+		model:                model,
+		config:               config,
+		comprehensiveHistory: compHistory,
+		curatedHistory:       curatedHistory,
+	}
+	chat.Models.apiClient = c.apiClient
+	return chat, nil
+}
+
+func (c *Chat) recordHistory(ctx context.Context, inputContent *Content, outputContents []*Content, isValid bool) {
+	c.comprehensiveHistory = append(c.comprehensiveHistory, inputContent)
+	if len(outputContents) == 0 {
+		c.comprehensiveHistory = append(c.comprehensiveHistory, &Content{Role: RoleModel, Parts: []*Part{}})
+	} else {
+		c.comprehensiveHistory = append(c.comprehensiveHistory, outputContents...)
+	}
+
+	if isValid {
+		c.curatedHistory = append(c.curatedHistory, inputContent)
+		if len(outputContents) == 0 {
+			c.curatedHistory = append(c.curatedHistory, &Content{Role: RoleModel, Parts: []*Part{}})
+		} else {
+			for _, content := range outputContents {
+				if !isEmptyContent(content) {
+					c.curatedHistory = append(c.curatedHistory, content)
+				}
+			}
+		}
+	}
+}
+
+// History returns the chat history. Returns the curated history if
+// curated is true, otherwise returns the comprehensive history.
+func (c *Chat) History(curated bool) []*Content {
+	if curated {
+		return c.curatedHistory
+	}
+	return c.comprehensiveHistory
+}
+
+// SendMessage is a wrapper around Send.
+//
+// A response that stops before the model finishes is continued automatically: the same request is
+// sent again with the response's continuation token until the model finishes, and the turn is
+// recorded once, with the whole answer. Each of those requests is billed. Set
+// [GenerateContentConfig.AutomaticContinuation] to false to turn this off.
+func (c *Chat) SendMessage(ctx context.Context, parts ...Part) (*GenerateContentResponse, error) {
+	// Transform Parts to single Content
+	p := make([]*Part, len(parts))
+	for i, part := range parts {
+		p[i] = &part
+	}
+	return c.Send(ctx, p...)
+}
+
+// Send sends the conversation history with the additional user's message and returns the model's response.
+//
+// A response that stops before the model finishes is continued automatically: the same request is
+// sent again with the response's continuation token until the model finishes, and the turn is
+// recorded once, with the whole answer. Each of those requests is billed. Set
+// [GenerateContentConfig.AutomaticContinuation] to false to turn this off.
+func (c *Chat) Send(ctx context.Context, parts ...*Part) (*GenerateContentResponse, error) {
+	inputContent := &Content{Parts: parts, Role: RoleUser}
+
+	// Combine history with input content to send to model
+	contents := append(c.curatedHistory, inputContent)
+
+	// Generate Content
+	modelOutput, err := c.GenerateContent(ctx, c.model, contents, c.config)
+	if err != nil {
+		return nil, err
+	}
+
+	// Record history. By default, use the first candidate for history.
+	var outputContents []*Content
+	if len(modelOutput.Candidates) > 0 && modelOutput.Candidates[0].Content != nil {
+		outputContents = append(outputContents, modelOutput.Candidates[0].Content)
+	}
+	c.recordHistory(ctx, inputContent, outputContents, validateResponse(modelOutput))
+
+	return modelOutput, err
+}
+
+// SendMessageStream is a wrapper around SendStream.
+//
+// A response that the model stopped early and the session continues is not cut off: the chunks
+// of every request are emitted in order and recorded together. Each request is billed. Set
+// [GenerateContentConfig.AutomaticContinuation] to false to turn this off.
+func (c *Chat) SendMessageStream(ctx context.Context, parts ...Part) iter.Seq2[*GenerateContentResponse, error] {
+	// Transform Parts to single Content
+	p := make([]*Part, len(parts))
+	for i, part := range parts {
+		p[i] = &part
+	}
+	return c.SendStream(ctx, p...)
+}
+
+// SendStream sends the conversation history with the additional user's message and returns the model's streaming response.
+//
+// A response that the model stopped early and the session continues is not cut off: the chunks
+// of every request are emitted in order and recorded together. Each request is billed. Set
+// [GenerateContentConfig.AutomaticContinuation] to false to turn this off.
+func (c *Chat) SendStream(ctx context.Context, parts ...*Part) iter.Seq2[*GenerateContentResponse, error] {
+	inputContent := &Content{Parts: parts, Role: RoleUser}
+
+	// Combine history with input content to send to model
+	contents := append(c.curatedHistory, inputContent)
+
+	// Generate Content
+	response := c.GenerateContentStream(ctx, c.model, contents, c.config)
+
+	// Return a new iterator that will yield the responses and record history with merged response.
+	return func(yield func(*GenerateContentResponse, error) bool) {
+		var outputContents []*Content
+		isValid := true
+		hasData := false
+		finishReason := FinishReasonUnspecified
+		for chunk, err := range response {
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				yield(nil, err)
+				return
+			}
+			if validateResponse(chunk) {
+				hasData = true
+			} else if len(chunk.Candidates) == 0 || !isEmptyContent(chunk.Candidates[0].Content) {
+				isValid = false
+			}
+			if len(chunk.Candidates) > 0 {
+				if chunk.Candidates[0].Content != nil {
+					outputContents = append(outputContents, chunk.Candidates[0].Content)
+				}
+				if chunk.Candidates[0].FinishReason != "" && chunk.Candidates[0].FinishReason != FinishReasonUnspecified {
+					finishReason = chunk.Candidates[0].FinishReason
+				}
+			}
+			if !yield(chunk, nil) {
+				return
+			}
+		}
+		// Record history. By default, use the first candidate for history.
+		finalIsValid := isValid && hasData && finishReason != FinishReasonUnspecified
+		c.recordHistory(ctx, inputContent, outputContents, finalIsValid)
+	}
+}

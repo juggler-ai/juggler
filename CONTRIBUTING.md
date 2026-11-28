@@ -142,6 +142,11 @@ their upstream status and the rebase procedure are in
 also wired in by a `replace`. [`docs/fsnotify-fork.md`](docs/fsnotify-fork.md)
 says what the fixes are and when to drop the copy.
 
+`3rdparty/genai` is a plain copy of a genai SDK release with its test-only
+replay client left out, wired in the same way.
+[`docs/genai-fork.md`](docs/genai-fork.md) says why, how to update it, and
+when to drop it.
+
 ## Licensing and contributor agreements
 
 The repo carries two licenses — AGPL-3.0-or-later for the application and

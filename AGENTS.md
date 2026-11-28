@@ -344,3 +344,7 @@ patch ledger and the full procedure. In short, to rebase:
 (`Close` hanging, events dropped on a full buffer), also wired in by a
 `replace`. Never edit it except to carry a fix that `docs/fsnotify-fork.md`
 records; that page also says when to drop it.
+
+`3rdparty/genai` is a plain copy of Google's genai SDK v1.79.1 without its
+test-only replay client, likewise wired in by a `replace`. Update it only by
+`docs/genai-fork.md`'s procedure, which also says when to drop it.
